@@ -1,0 +1,13 @@
+# Lefthook configuration
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: Check code quality
+      run: bun run check
+      glob: '*.{ts,tsx,js,jsx,json,md,yml,yaml}'
+
+    - name: Check TypeScript types
+      run: bun run check-types
+      glob: '*.{ts,tsx}'
