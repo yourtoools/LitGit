@@ -25,6 +25,9 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**"]
+    },
+    "generate:lucide-icons": {
+      "outputs": ["src/icons/LucideIcons.ts"]
     }
   }
 }

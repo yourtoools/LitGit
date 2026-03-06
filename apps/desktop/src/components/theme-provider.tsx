@@ -1,4 +1,7 @@
-import { ThemeProvider as NextThemesProvider } from "next-themes";
+﻿import {
+  ThemeProvider as NextThemesProvider,
+  useTheme as useNextTheme,
+} from "next-themes";
 import type * as React from "react";
 
 export function ThemeProvider({
@@ -8,4 +11,4 @@ export function ThemeProvider({
   return <NextThemesProvider {...props}>{children}</NextThemesProvider>;
 }
 
-export { useTheme } from "next-themes";
+export const useTheme = () => useNextTheme();
