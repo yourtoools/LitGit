@@ -1,4 +1,4 @@
-import { Toaster } from "@litgit/ui/components/atoms/sonner";
+import { Toaster } from "@litgit/ui/components/sonner";
 import {
   createRootRouteWithContext,
   HeadContent,
@@ -6,10 +6,9 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
-import Header from "@/components/header";
+import "../styles/index.css";
+import { RootShell } from "@/components/root-shell";
 import { ThemeProvider } from "@/components/theme-provider";
-
-import "../index.css";
 
 export interface RouterAppContext extends Record<string, never> {}
 
@@ -44,11 +43,10 @@ function RootComponent() {
         disableTransitionOnChange
         storageKey="vite-ui-theme"
       >
-        <div className="grid h-svh grid-rows-[auto_1fr]">
-          <Header />
+        <RootShell>
           <Outlet />
-        </div>
-        <Toaster richColors />
+        </RootShell>
+        <Toaster position="top-right" richColors />
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-left" />
     </>

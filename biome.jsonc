@@ -1,17 +1,47 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "extends": ["ultracite/biome/core", "ultracite/biome/react"],
-  "linter": {
-    "rules": {
-      "a11y": {
-        "useSemanticElements": "off",
-        "useAriaPropsForRole": "off",
-        "useFocusableInteractive": "off",
-        "useKeyWithClickEvents": "off",
-        "noInteractiveElementToNoninteractiveRole": "off",
-        "noNoninteractiveElementInteractions": "off",
-        "noLabelWithoutControl": "off"
+  "overrides": [
+    {
+      "includes": ["**/*.tsx", "**/*.ts"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noLabelWithoutControl": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/**/*.js",
+        "packages/**/*.jsx",
+        "packages/**/*.mjs",
+        "packages/**/*.cjs",
+        "packages/**/*.ts",
+        "packages/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["./**", "../**"],
+                    "message": "Use package self-alias imports (e.g. @litgit/<pkg>/...) in packages/*."
+                  },
+                  {
+                    "group": ["@/**"],
+                    "message": "Do not use app-local @/... aliases inside packages/*; use the package self-alias instead."
+                  }
+                ]
+              }
+            }
+          }
+        }
       }
     }
-  }
+  ]
 }

@@ -7,22 +7,18 @@
       "packages/*"
     ],
     "catalog": {
-      "@icons-pack/react-simple-icons": "^13.8.0",
-      "@mantine/hooks": "^8.3.12",
-      "@types/node": "^25.0.9",
-      "@types/react": "^19.2.8",
-      "@types/react-dom": "^19.2.3",
-      "class-variance-authority": "^0.7.1",
-      "dotenv": "^17.2.2",
-      "lucide-react": "^0.562.0",
+      "@types/node": "^25.3.3",
+      "dotenv": "^17.3.1",
+      "zod": "^4.3.6",
+      "typescript": "^5.9.3",
+      "react": "19.2.4",
+      "react-dom": "19.2.4",
+      "tailwindcss": "^4.2.1",
+      "@types/react": "19.2.14",
+      "@types/react-dom": "19.2.3",
+      "@phosphor-icons/react": "^2.1.10",
       "next-themes": "^0.4.6",
-      "postcss": "^8.5.6",
-      "react": "19.2.3",
-      "react-dom": "19.2.3",
-      "sonner": "^2.0.7",
-      "tailwindcss": "^4.1.18",
-      "typescript": "^5",
-      "zod": "^4.1.13"
+      "sonner": "^2.0.7"
     }
   },
   "type": "module",
@@ -35,7 +31,6 @@
     "dev": "turbo dev",
     "dev:desktop": "turbo run dev -F desktop",
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",
-    "dev:native": "turbo -F native dev",
     "fix": "ultracite fix"
   },
   "dependencies": {
@@ -46,11 +41,10 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.5",
     "@litgit/config": "workspace:*",
-    "lefthook": "latest",
-    "shadcn": "^4.0.0",
+    "lefthook": "2.1.2",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
-    "ultracite": "7.2.5"
+    "ultracite": "7.2.4"
   },
   "packageManager": "bun@1.3.10"
 }

@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3001",
-    "beforeDevCommand": "cd .. && bun run desktop-web",
+    "beforeDevCommand": "cd .. && bun run dev:desktop-web",
     "beforeBuildCommand": "cd .. && bun run build:desktop-web"
   },
   "app": {
