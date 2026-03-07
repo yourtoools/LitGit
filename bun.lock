@@ -5,13 +5,13 @@
     "": {
       "name": "LitGit",
       "dependencies": {
-        "@LitGit/env": "workspace:*",
+        "@litgit/env": "workspace:*",
         "dotenv": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@LitGit/config": "workspace:*",
         "@biomejs/biome": "2.4.5",
+        "@litgit/config": "workspace:*",
         "lefthook": "latest",
         "turbo": "^2.8.12",
         "typescript": "catalog:",
@@ -22,9 +22,9 @@
       "name": "desktop",
       "version": "0.0.0",
       "dependencies": {
-        "@LitGit/env": "workspace:*",
         "@base-ui/react": "^1.0.0",
         "@hookform/resolvers": "^5.1.1",
+        "@litgit/env": "workspace:*",
         "@litgit/ui": "workspace:*",
         "@tailwindcss/vite": "^4.0.15",
         "@tanstack/react-router": "^1.141.1",
@@ -42,7 +42,7 @@
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@LitGit/config": "workspace:*",
+        "@litgit/config": "workspace:*",
         "@tanstack/react-router-devtools": "^1.141.1",
         "@tanstack/router-plugin": "^1.141.1",
         "@tauri-apps/cli": "^2.4.0",
@@ -57,11 +57,11 @@
       },
     },
     "packages/config": {
-      "name": "@LitGit/config",
+      "name": "@litgit/config",
       "version": "0.0.0",
     },
     "packages/env": {
-      "name": "@LitGit/env",
+      "name": "@litgit/env",
       "version": "0.0.0",
       "dependencies": {
         "@t3-oss/env-core": "^0.13.1",
@@ -69,7 +69,7 @@
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@LitGit/config": "workspace:*",
+        "@litgit/config": "workspace:*",
         "typescript": "catalog:",
       },
     },
@@ -129,10 +129,6 @@
     "zod": "^4.1.13",
   },
   "packages": {
-    "@LitGit/config": ["@LitGit/config@workspace:packages/config"],
-
-    "@LitGit/env": ["@LitGit/env@workspace:packages/env"],
-
     "@antfu/ni": ["@antfu/ni@25.0.0", "", { "dependencies": { "ansis": "^4.0.0", "fzf": "^0.5.2", "package-manager-detector": "^1.3.0", "tinyexec": "^1.0.1" }, "bin": { "na": "bin/na.mjs", "ni": "bin/ni.mjs", "nr": "bin/nr.mjs", "nci": "bin/nci.mjs", "nlx": "bin/nlx.mjs", "nun": "bin/nun.mjs", "nup": "bin/nup.mjs" } }, "sha512-9q/yCljni37pkMr4sPrI3G4jqdIk074+iukc5aFJl7kmDCCsiJrbZ6zKxnES1Gwg+i9RcDZwvktl23puGslmvA=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.0", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.28.5", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
@@ -312,6 +308,10 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@litgit/config": ["@litgit/config@workspace:packages/config"],
+
+    "@litgit/env": ["@litgit/env@workspace:packages/env"],
 
     "@litgit/ui": ["@litgit/ui@workspace:packages/ui"],
 

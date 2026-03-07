@@ -1,5 +1,5 @@
 {
-  "name": "@LitGit/env",
+  "name": "@litgit/env",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@LitGit/config": "workspace:*",
+    "@litgit/config": "workspace:*",
     "typescript": "catalog:"
   }
 }

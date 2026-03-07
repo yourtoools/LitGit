@@ -41,7 +41,7 @@ LitGit/
 │   └── desktop/      # Aplikasi desktop (React + TanStack Router + Tauri)
 ├── packages/
 │   ├── config/       # Konfigurasi TypeScript bersama
-│   └── env/          # Validasi environment (@LitGit/env)
+│   └── env/          # Validasi environment (@litgit/env)
 ```
 
 ## Perintah yang Tersedia

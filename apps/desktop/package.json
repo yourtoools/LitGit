@@ -15,7 +15,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@LitGit/env": "workspace:*",
+    "@litgit/env": "workspace:*",
     "@litgit/ui": "workspace:*",
     "@base-ui/react": "^1.0.0",
     "@hookform/resolvers": "^5.1.1",
@@ -35,7 +35,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@LitGit/config": "workspace:*",
+    "@litgit/config": "workspace:*",
     "@tanstack/react-router-devtools": "^1.141.1",
     "@tanstack/router-plugin": "^1.141.1",
     "@tauri-apps/cli": "^2.4.0",

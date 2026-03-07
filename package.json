@@ -39,12 +39,12 @@
     "fix": "ultracite fix"
   },
   "dependencies": {
-    "@LitGit/env": "workspace:*",
+    "@litgit/env": "workspace:*",
     "dotenv": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@LitGit/config": "workspace:*",
+    "@litgit/config": "workspace:*",
     "@biomejs/biome": "2.4.5",
     "lefthook": "latest",
     "turbo": "^2.8.12",
