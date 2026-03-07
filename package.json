@@ -44,9 +44,10 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@litgit/config": "workspace:*",
     "@biomejs/biome": "2.4.5",
+    "@litgit/config": "workspace:*",
     "lefthook": "latest",
+    "shadcn": "^4.0.0",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
     "ultracite": "7.2.5"
