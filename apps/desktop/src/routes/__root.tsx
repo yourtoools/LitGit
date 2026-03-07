@@ -1,3 +1,4 @@
+import { Toaster } from "@litgit/ui/components/atoms/sonner";
 import {
   createRootRouteWithContext,
   HeadContent,
@@ -7,7 +8,6 @@ import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
 import Header from "@/components/header";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/sonner";
 
 import "../index.css";
 

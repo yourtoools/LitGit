@@ -25,6 +25,7 @@
         "@LitGit/env": "workspace:*",
         "@base-ui/react": "^1.0.0",
         "@hookform/resolvers": "^5.1.1",
+        "@litgit/ui": "workspace:*",
         "@tailwindcss/vite": "^4.0.15",
         "@tanstack/react-router": "^1.141.1",
         "class-variance-authority": "^0.7.1",

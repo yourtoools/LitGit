@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@LitGit/env": "workspace:*",
+    "@litgit/ui": "workspace:*",
     "@base-ui/react": "^1.0.0",
     "@hookform/resolvers": "^5.1.1",
     "@tailwindcss/vite": "^4.0.15",

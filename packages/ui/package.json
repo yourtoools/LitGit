@@ -40,12 +40,11 @@
     "typescript": "catalog:"
   },
   "exports": {
-    "./styles/globals.css": "./src/styles/globals.css",
+    "./styles/global.css": "./src/styles/global.css",
     "./styles/*": "./src/styles/*.css",
     "./lib/*": "./src/lib/*.ts",
-    "./components/*": [
-      "./src/components/*.tsx"
-    ],
+    "./components/atoms/*": "./src/components/atoms/*.tsx",
+    "./components/*": "./src/components/*.tsx",
     "./constants/*": "./src/constants/*.ts",
     "./hooks/*": "./src/hooks/*.ts",
     "./types/*": "./src/types/*.ts"
