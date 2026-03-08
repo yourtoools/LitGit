@@ -7,7 +7,6 @@ export function useTabUrlState() {
   const firstTabId = useTabStore((state) => state.tabs[0]?.id ?? null);
   const activeTabId = useTabStore((state) => state.activeTabId);
   const setActiveTab = useTabStore((state) => state.setActiveTab);
-  const tabs = useTabStore((state) => state.tabs);
 
   const search = useSearch({ strict: false });
   const urlTabId = search.tabId as string | undefined;
@@ -43,7 +42,7 @@ export function useTabUrlState() {
         return;
       }
 
-      const tab = tabs.find((t) => t.id === tabId);
+      const tab = useTabStore.getState().tabs.find((t) => t.id === tabId);
       const repoId = tab?.repoId;
 
       isNavigatingRef.current = true;
@@ -71,7 +70,7 @@ export function useTabUrlState() {
           return;
         });
     },
-    [navigate, tabs]
+    [navigate]
   );
 
   useEffect(() => {
@@ -106,11 +105,10 @@ export function useTabUrlState() {
   }, [activeTabId, firstTabId, isUrlTabValid, navigateWithTab, urlTabId]);
 
   const setActiveTabFromUrl = (tabId: string) => {
-    if (tabId === urlTabId && activeTabId === tabId) {
-      return;
+    if (activeTabId !== tabId) {
+      setActiveTab(tabId);
     }
 
-    setActiveTab(tabId);
     navigateWithTab(tabId);
   };
 

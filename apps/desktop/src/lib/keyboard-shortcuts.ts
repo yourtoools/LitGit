@@ -25,6 +25,14 @@ export const getPrimaryModifierAriaKey = () => {
   return isMacPlatform() ? "Meta" : "Control";
 };
 
+export const getPrimaryShortcutLabel = (key: string) => {
+  return `${getPrimaryModifierLabel()} + ${key.toUpperCase()}`;
+};
+
+export const getPrimaryShortcutAria = (key: string) => {
+  return `${getPrimaryModifierAriaKey()}+${key.toUpperCase()}`;
+};
+
 export const isEditableTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
