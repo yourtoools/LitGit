@@ -23,6 +23,7 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Tab } from "@/components/tabs/types/tab-types";
+import { getNewTabShortcutLabel } from "@/lib/keyboard-shortcuts";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 interface TabItemProps {
@@ -162,7 +163,9 @@ export function TabItem({
           ) : (
             <div className="min-w-40">
               <p className="font-medium leading-tight">New Tab</p>
-              <p className="mt-1 text-background/70 leading-tight">Ctrl + T</p>
+              <p className="mt-1 text-background/70 leading-tight">
+                {getNewTabShortcutLabel()}
+              </p>
             </div>
           )}
         </TooltipContent>

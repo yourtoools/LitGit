@@ -66,6 +66,7 @@ import { useTabBarDerived } from "@/hooks/tabs/use-tab-bar-derived";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import { useUngroupConfirmation } from "@/hooks/tabs/use-ungroup-confirmation";
 import {
+  getNewTabShortcutLabel,
   isEditableTarget,
   isPrimaryShortcut,
   isReopenClosedTabShortcut,
@@ -1123,7 +1124,7 @@ export function TabBar() {
                       }
                     />
                     <TooltipContent side="bottom" sideOffset={8}>
-                      New Tab (Ctrl + T)
+                      {`New Tab (${getNewTabShortcutLabel()})`}
                     </TooltipContent>
                   </Tooltip>
                 </div>

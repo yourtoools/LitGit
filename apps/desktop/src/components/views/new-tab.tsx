@@ -48,7 +48,7 @@ export function NewTabContent() {
   }, [isPickingRepo, openRepository, routeRepository, tabId]);
 
   return (
-    <div className="flex min-h-full flex-col items-center justify-start gap-4 bg-background px-6 py-12">
+    <div className="flex h-full min-h-0 flex-col items-center justify-start gap-4 bg-background px-6 py-12">
       {/* Title and Description */}
       <div className="text-center">
         <h1 className="mb-2 flex items-center justify-center gap-3 font-bold text-4xl">

@@ -9,14 +9,14 @@ export function RepoInfo() {
 
   if (!activeRepo) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full min-h-0 items-center justify-center">
         <p className="text-muted-foreground">No repository selected</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
+    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 p-8">
       <div className="flex items-center gap-3">
         <GitBranchIcon className="size-8 text-muted-foreground" />
         <h1 className="font-semibold text-2xl">{activeRepo.name}</h1>

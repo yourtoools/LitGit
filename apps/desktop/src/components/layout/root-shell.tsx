@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Footer from "@/components/shell/footer";
 import Header from "@/components/shell/header";
 
 interface RootShellProps {
@@ -10,7 +11,7 @@ export function RootShell({ children }: RootShellProps) {
     <div className="grid h-dvh min-h-0 grid-rows-app-shell overflow-hidden">
       <Header />
       <main className="min-h-0 overflow-y-auto">{children}</main>
-      {/* <Footer /> */}
+      <Footer />
     </div>
   );
 }
