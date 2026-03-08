@@ -21,7 +21,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@lilgit/env": "workspace:*",
+    "@litgit/env": "workspace:*",
     "@litgit/ui": "workspace:*",
     "@phosphor-icons/react": "catalog:",
     "@tailwindcss/vite": "^4.2.1",
