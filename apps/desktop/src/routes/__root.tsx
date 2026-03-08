@@ -5,10 +5,10 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
+import { RootShell } from "@/components/layout/root-shell";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 
-import "../styles/index.css";
-import { RootShell } from "@/components/root-shell";
-import { ThemeProvider } from "@/components/theme-provider";
+import "@/styles/index.css";
 
 export interface RouterAppContext extends Record<string, never> {}
 
@@ -17,7 +17,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   head: () => ({
     meta: [
       {
-        title: "LitGit Desktop",
+        title: "LitGit",
       },
       {
         name: "description",
