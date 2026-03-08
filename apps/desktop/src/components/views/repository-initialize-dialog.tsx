@@ -11,6 +11,7 @@ import {
 
 interface RepositoryInitializeDialogProps {
   isInitializing: boolean;
+  isRepositoryInitialized: boolean;
   onConfirm: () => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
@@ -21,18 +22,35 @@ export function RepositoryInitializeDialog({
   open,
   repositoryName,
   isInitializing,
+  isRepositoryInitialized,
   onOpenChange,
   onConfirm,
 }: RepositoryInitializeDialogProps) {
+  const title = isRepositoryInitialized
+    ? "Initialize repository?"
+    : "Initialize folder as repository?";
+  const description = isRepositoryInitialized
+    ? `Repository "${repositoryName}" must have an initial commit to be opened. Do you want LitGit to make that first commit for you?`
+    : `Folder "${repositoryName}" is not a Git repository yet. Do you want LitGit to initialize it and create the first commit for you?`;
+
+  let actionLabel = "Create repository";
+
+  if (isRepositoryInitialized) {
+    actionLabel = "Initialize";
+  }
+
+  if (isInitializing) {
+    actionLabel = isRepositoryInitialized
+      ? "Initializing..."
+      : "Creating repository...";
+  }
+
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
-          <AlertDialogTitle>Initialize repository?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Repository &quot;{repositoryName}&quot; must have an initial commit
-            to be opened. Do you want LitGit to make a commit for you?
-          </AlertDialogDescription>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isInitializing} size="sm">
@@ -43,7 +61,7 @@ export function RepositoryInitializeDialog({
             onClick={onConfirm}
             size="sm"
           >
-            {isInitializing ? "Initializing..." : "Initialize"}
+            {actionLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

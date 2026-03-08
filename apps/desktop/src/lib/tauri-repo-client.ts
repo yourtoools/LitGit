@@ -63,17 +63,18 @@ export function parsePickedRepository(
     throw new Error("Invalid repository payload");
   }
 
-  const { hasInitialCommit, name, path } = value;
+  const { hasInitialCommit, isGitRepository, name, path } = value;
 
   if (
     typeof hasInitialCommit !== "boolean" ||
+    typeof isGitRepository !== "boolean" ||
     typeof name !== "string" ||
     typeof path !== "string"
   ) {
     throw new Error("Invalid repository payload");
   }
 
-  return { hasInitialCommit, name, path };
+  return { hasInitialCommit, isGitRepository, name, path };
 }
 
 function parseRepositoryCommit(value: unknown): RepositoryCommit {

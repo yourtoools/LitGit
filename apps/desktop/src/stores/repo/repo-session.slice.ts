@@ -15,7 +15,7 @@ import type {
 } from "@/stores/repo/repo-store.slice-types";
 import type {
   OpenedRepository,
-  PickedRepository,
+  PickedRepositorySelection,
   RepoStoreState,
 } from "@/stores/repo/repo-store-types";
 
@@ -29,7 +29,7 @@ type RepoSessionSliceKeys =
 async function activateOrAppendRepository(
   get: RepoStoreGet,
   set: RepoStoreSet,
-  repository: PickedRepository
+  repository: PickedRepositorySelection
 ): Promise<OpenedRepository> {
   const existing = get().openedRepos.find(
     (opened) => opened.path === repository.path
@@ -160,9 +160,11 @@ export const createRepoSessionSlice = (
       }
 
       const repository = {
+        hasInitialCommit: picked.hasInitialCommit,
+        isGitRepository: picked.isGitRepository,
         name: picked.name,
         path: picked.path,
-      } satisfies PickedRepository;
+      } satisfies PickedRepositorySelection;
 
       if (!picked.hasInitialCommit) {
         return {

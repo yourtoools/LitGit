@@ -5,6 +5,7 @@ export interface PickedRepository {
 
 export interface PickedRepositorySelection extends PickedRepository {
   hasInitialCommit: boolean;
+  isGitRepository: boolean;
 }
 
 export interface RepositoryCommit {
@@ -55,7 +56,7 @@ export type OpenRepositoryResult =
       status: "opened";
     }
   | {
-      repository: PickedRepository;
+      repository: PickedRepositorySelection;
       status: "requires-initial-commit";
     }
   | null;
@@ -75,7 +76,7 @@ export interface RepoStoreState {
     filePath: string
   ) => Promise<RepositoryFileDiff | null>;
   initializeRepository: (
-    repository: PickedRepository
+    repository: PickedRepositorySelection
   ) => Promise<OpenedRepository | null>;
   isLoadingBranches: boolean;
   isLoadingHistory: boolean;

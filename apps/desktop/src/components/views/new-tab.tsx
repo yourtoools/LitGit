@@ -33,7 +33,7 @@ import {
   isEditableTarget,
   isPrimaryShortcut,
 } from "@/lib/keyboard-shortcuts";
-import type { PickedRepository } from "@/stores/repo/repo-store-types";
+import type { PickedRepositorySelection } from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 const MAYAR_URL = env.VITE_MAYAR_URL;
@@ -60,7 +60,7 @@ export function NewTabContent() {
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
   const [pendingRepoInitialization, setPendingRepoInitialization] =
-    useState<PickedRepository | null>(null);
+    useState<PickedRepositorySelection | null>(null);
   const [showRecentTopFade, setShowRecentTopFade] = useState(false);
   const [showRecentBottomFade, setShowRecentBottomFade] = useState(false);
   const [focusedRepoIndex, setFocusedRepoIndex] = useState(-1);
@@ -691,6 +691,9 @@ export function NewTabContent() {
 
       <RepositoryInitializeDialog
         isInitializing={isInitializingRepository}
+        isRepositoryInitialized={
+          pendingRepoInitialization?.isGitRepository ?? false
+        }
         onConfirm={() => {
           handleInitializeRepository().catch(() => {
             return;

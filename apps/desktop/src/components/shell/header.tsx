@@ -3,11 +3,15 @@ import { BellIcon, GearIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import { PageShell } from "@/components/layout/page-shell";
 import { TabBar } from "@/components/tabs/tab-bar";
+import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabRepoSync } from "@/hooks/tabs/use-tab-repo-sync";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import { isEditableTarget, isPrimaryShortcut } from "@/lib/keyboard-shortcuts";
-import type { OpenedRepository } from "@/stores/repo/repo-store-types";
+import type {
+  OpenedRepository,
+  PickedRepositorySelection,
+} from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 
@@ -26,6 +30,34 @@ export default function Header() {
 
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
+  const [pendingRepoInitialization, setPendingRepoInitialization] =
+    useState<PickedRepositorySelection | null>(null);
+
+  const routePickedRepository = useCallback(
+    async (repositoryToRoute: OpenedRepository) => {
+      const existingTabForRepo = tabs.find(
+        (tab) => tab.repoId === repositoryToRoute.id
+      );
+
+      if (existingTabForRepo) {
+        setActiveTabFromUrl(existingTabForRepo.id);
+        return;
+      }
+
+      if (activeTabId) {
+        linkTabToRepo(
+          activeTabId,
+          repositoryToRoute.id,
+          repositoryToRoute.name
+        );
+        setActiveTabFromUrl(activeTabId);
+        return;
+      }
+
+      await routeRepository(repositoryToRoute.id, repositoryToRoute.name);
+    },
+    [activeTabId, linkTabToRepo, routeRepository, setActiveTabFromUrl, tabs]
+  );
 
   const handleOpenRepoPicker = useCallback(async () => {
     if (isPickingRepo || isInitializingRepository) {
@@ -38,52 +70,45 @@ export default function Header() {
       return;
     }
 
-    let repositoryToRoute: OpenedRepository;
-
     if (result.status === "requires-initial-commit") {
-      setIsInitializingRepository(true);
-      try {
-        const openedRepository = await initializeRepository(result.repository);
-        if (!openedRepository) {
-          return;
-        }
-        repositoryToRoute = openedRepository;
-      } finally {
-        setIsInitializingRepository(false);
-      }
-    } else {
-      repositoryToRoute = result.repository;
-    }
-
-    // Smart navigation: check if repo is already open in another tab
-    const existingTabForRepo = tabs.find(
-      (tab) => tab.repoId === repositoryToRoute.id
-    );
-
-    if (existingTabForRepo) {
-      // Navigate to existing tab instead of creating a duplicate
-      setActiveTabFromUrl(existingTabForRepo.id);
+      setPendingRepoInitialization(result.repository);
       return;
     }
 
-    // Replace current tab's repo with the newly picked one
-    if (activeTabId) {
-      linkTabToRepo(activeTabId, repositoryToRoute.id, repositoryToRoute.name);
-      setActiveTabFromUrl(activeTabId);
-    } else {
-      // Fallback to normal routing if no active tab
-      await routeRepository(repositoryToRoute.id, repositoryToRoute.name);
-    }
+    await routePickedRepository(result.repository);
   }, [
     isPickingRepo,
     isInitializingRepository,
     openRepository,
+    routePickedRepository,
+  ]);
+
+  const handleInitializeRepository = useCallback(async () => {
+    if (!(pendingRepoInitialization && !isInitializingRepository)) {
+      return;
+    }
+
+    setIsInitializingRepository(true);
+
+    try {
+      const openedRepository = await initializeRepository(
+        pendingRepoInitialization
+      );
+
+      if (!openedRepository) {
+        return;
+      }
+
+      setPendingRepoInitialization(null);
+      await routePickedRepository(openedRepository);
+    } finally {
+      setIsInitializingRepository(false);
+    }
+  }, [
     initializeRepository,
-    tabs,
-    activeTabId,
-    linkTabToRepo,
-    setActiveTabFromUrl,
-    routeRepository,
+    isInitializingRepository,
+    pendingRepoInitialization,
+    routePickedRepository,
   ]);
 
   useEffect(() => {
@@ -149,6 +174,24 @@ export default function Header() {
           </Button>
         </div>
       </PageShell>
+      <RepositoryInitializeDialog
+        isInitializing={isInitializingRepository}
+        isRepositoryInitialized={
+          pendingRepoInitialization?.isGitRepository ?? false
+        }
+        onConfirm={() => {
+          handleInitializeRepository().catch(() => {
+            return;
+          });
+        }}
+        onOpenChange={(open) => {
+          if (!(open || isInitializingRepository)) {
+            setPendingRepoInitialization(null);
+          }
+        }}
+        open={Boolean(pendingRepoInitialization)}
+        repositoryName={pendingRepoInitialization?.name ?? "repository"}
+      />
     </header>
   );
 }

@@ -5,229 +5,243 @@ use std::process::Command;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PickedRepository {
-  has_initial_commit: bool,
-  name: String,
-  path: String,
+    has_initial_commit: bool,
+    is_git_repository: bool,
+    name: String,
+    path: String,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryCommit {
-  hash: String,
-  short_hash: String,
-  parent_hashes: Vec<String>,
-  message: String,
-  author: String,
-  date: String,
-  refs: Vec<String>,
+    hash: String,
+    short_hash: String,
+    parent_hashes: Vec<String>,
+    message: String,
+    author: String,
+    date: String,
+    refs: Vec<String>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryBranch {
-  name: String,
-  short_hash: String,
-  last_commit_date: String,
-  is_current: bool,
-  commit_count: usize,
+    name: String,
+    short_hash: String,
+    last_commit_date: String,
+    is_current: bool,
+    commit_count: usize,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryWorkingTreeStatus {
-  has_changes: bool,
-  staged_count: usize,
-  unstaged_count: usize,
-  untracked_count: usize,
+    has_changes: bool,
+    staged_count: usize,
+    unstaged_count: usize,
+    untracked_count: usize,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryWorkingTreeItem {
-  path: String,
-  staged_status: String,
-  unstaged_status: String,
-  is_untracked: bool,
+    path: String,
+    staged_status: String,
+    unstaged_status: String,
+    is_untracked: bool,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryFileDiff {
-  path: String,
-  old_text: String,
-  new_text: String,
+    path: String,
+    old_text: String,
+    new_text: String,
 }
 
 #[tauri::command]
 fn pick_git_repository() -> Result<Option<PickedRepository>, String> {
-  let folder = match rfd::FileDialog::new().pick_folder() {
-    Some(folder) => folder,
-    None => return Ok(None),
-  };
+    let folder = match rfd::FileDialog::new().pick_folder() {
+        Some(folder) => folder,
+        None => return Ok(None),
+    };
 
-  let git_dir = folder.join(".git");
+    let path = folder.to_string_lossy().to_string();
+    let name = folder_name(&folder).unwrap_or_else(|| "repository".to_string());
+    let is_git_repository = folder.join(".git").exists();
+    let has_initial_commit = if is_git_repository {
+        repository_has_initial_commit(&path)?
+    } else {
+        false
+    };
 
-  if !git_dir.exists() {
-    return Err("Selected folder is not a git repository".to_string());
-  }
-
-  let path = folder.to_string_lossy().to_string();
-  let name = folder_name(&folder).unwrap_or_else(|| "repository".to_string());
-  let has_initial_commit = repository_has_initial_commit(&path)?;
-
-  Ok(Some(PickedRepository {
-    has_initial_commit,
-    name,
-    path,
-  }))
+    Ok(Some(PickedRepository {
+        has_initial_commit,
+        is_git_repository,
+        name,
+        path,
+    }))
 }
 
 #[tauri::command]
 fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, String> {
-  let valid_paths = repo_paths
-    .into_iter()
-    .filter(|repo_path| {
-      let path = Path::new(repo_path);
-      path.exists() && path.join(".git").exists()
-    })
-    .collect();
+    let valid_paths = repo_paths
+        .into_iter()
+        .filter(|repo_path| {
+            let path = Path::new(repo_path);
+            path.exists() && path.join(".git").exists()
+        })
+        .collect();
 
-  Ok(valid_paths)
+    Ok(valid_paths)
 }
 
 #[tauri::command]
 fn create_repository_initial_commit(repo_path: String) -> Result<(), String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_repository_path(Path::new(&repo_path))?;
 
-  if repository_has_initial_commit(&repo_path)? {
-    return Ok(());
-  }
+    if !Path::new(&repo_path).join(".git").exists() {
+        let init_output = Command::new("git")
+            .args(["-C", &repo_path, "init"])
+            .output()
+            .map_err(|error| format!("Failed to run git init: {error}"))?;
 
-  let repo_name =
-    folder_name(Path::new(&repo_path)).unwrap_or_else(|| "repository".to_string());
-  let readme_path = Path::new(&repo_path).join("README.md");
+        if !init_output.status.success() {
+            return Err(git_error_message(
+                &init_output.stderr,
+                "Failed to initialize repository",
+            ));
+        }
+    }
 
-  if !readme_path.exists() {
-    std::fs::write(&readme_path, format!("# {repo_name}\n"))
-      .map_err(|error| format!("Failed to create README.md: {error}"))?;
-  }
+    if repository_has_initial_commit(&repo_path)? {
+        return Ok(());
+    }
 
-  let add_output = Command::new("git")
-    .args(["-C", &repo_path, "add", "--", "README.md"])
-    .output()
-    .map_err(|error| format!("Failed to run git add: {error}"))?;
+    let repo_name = folder_name(Path::new(&repo_path)).unwrap_or_else(|| "repository".to_string());
+    let readme_path = Path::new(&repo_path).join("README.md");
 
-  if !add_output.status.success() {
-    return Err(git_error_message(
-      &add_output.stderr,
-      "Failed to stage README.md",
-    ));
-  }
+    if !readme_path.exists() {
+        std::fs::write(&readme_path, format!("# {repo_name}\n"))
+            .map_err(|error| format!("Failed to create README.md: {error}"))?;
+    }
 
-  let commit_output = Command::new("git")
-    .args([
-      "-C",
-      &repo_path,
-      "commit",
-      "--allow-empty",
-      "-m",
-      "Initial commit",
-    ])
-    .output()
-    .map_err(|error| format!("Failed to run git commit: {error}"))?;
+    let add_output = Command::new("git")
+        .args(["-C", &repo_path, "add", "--", "README.md"])
+        .output()
+        .map_err(|error| format!("Failed to run git add: {error}"))?;
 
-  if !commit_output.status.success() {
-    return Err(git_error_message(
-      &commit_output.stderr,
-      "Failed to create initial commit",
-    ));
-  }
+    if !add_output.status.success() {
+        return Err(git_error_message(
+            &add_output.stderr,
+            "Failed to stage README.md",
+        ));
+    }
 
-  Ok(())
+    let commit_output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Initial commit",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git commit: {error}"))?;
+
+    if !commit_output.status.success() {
+        return Err(git_error_message(
+            &commit_output.stderr,
+            "Failed to create initial commit",
+        ));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
 fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args([
-      "-C",
-      &repo_path,
-      "log",
-      "--decorate=short",
-      "--date=iso-strict",
-      "--max-count=150",
-      "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%an%x1f%ad%x1f%D%x1e",
-    ])
-    .output()
-    .map_err(|error| format!("Failed to run git log: {error}"))?;
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "log",
+            "--decorate=short",
+            "--date=iso-strict",
+            "--max-count=150",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%an%x1f%ad%x1f%D%x1e",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git log: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to read repository history".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to read repository history".to_string()
+        } else {
+            stderr
+        });
+    }
 
-  let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-  let commits = stdout
-    .split('\x1e')
-    .filter_map(|row| {
-      let trimmed = row.trim();
+    let commits = stdout
+        .split('\x1e')
+        .filter_map(|row| {
+            let trimmed = row.trim();
 
-      if trimmed.is_empty() {
-        return None;
-      }
+            if trimmed.is_empty() {
+                return None;
+            }
 
-      let mut parts = trimmed.split('\x1f');
+            let mut parts = trimmed.split('\x1f');
 
-      let hash = parts.next()?.to_string();
-      let short_hash = parts.next()?.to_string();
-      let parents_raw = parts.next()?.to_string();
-      let message = parts.next()?.to_string();
-      let author = parts.next()?.to_string();
-      let date = parts.next()?.to_string();
-      let refs_raw = parts.next().unwrap_or("").to_string();
+            let hash = parts.next()?.to_string();
+            let short_hash = parts.next()?.to_string();
+            let parents_raw = parts.next()?.to_string();
+            let message = parts.next()?.to_string();
+            let author = parts.next()?.to_string();
+            let date = parts.next()?.to_string();
+            let refs_raw = parts.next().unwrap_or("").to_string();
 
-      let parent_hashes = if parents_raw.trim().is_empty() {
-        Vec::new()
-      } else {
-        parents_raw
-          .split_whitespace()
-          .map(std::string::ToString::to_string)
-          .collect()
-      };
+            let parent_hashes = if parents_raw.trim().is_empty() {
+                Vec::new()
+            } else {
+                parents_raw
+                    .split_whitespace()
+                    .map(std::string::ToString::to_string)
+                    .collect()
+            };
 
-      let refs = refs_raw
-        .split(", ")
-        .filter(|reference| !reference.trim().is_empty())
-        .map(std::string::ToString::to_string)
+            let refs = refs_raw
+                .split(", ")
+                .filter(|reference| !reference.trim().is_empty())
+                .map(std::string::ToString::to_string)
+                .collect();
+
+            Some(RepositoryCommit {
+                hash,
+                short_hash,
+                parent_hashes,
+                message,
+                author,
+                date,
+                refs,
+            })
+        })
         .collect();
 
-      Some(RepositoryCommit {
-        hash,
-        short_hash,
-        parent_hashes,
-        message,
-        author,
-        date,
-        refs,
-      })
-    })
-    .collect();
-
-  Ok(commits)
+    Ok(commits)
 }
 
 #[tauri::command]
 fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
+    let output = Command::new("git")
     .args([
       "-C",
       &repo_path,
@@ -240,449 +254,453 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
     .output()
     .map_err(|error| format!("Failed to run git for-each-ref: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to read repository branches".to_string()
-    } else {
-      stderr
-    });
-  }
-
-  let stdout = String::from_utf8_lossy(&output.stdout);
-
-  let mut branches = Vec::new();
-
-  for row in stdout.lines() {
-    let trimmed = row.trim_end();
-
-    if trimmed.is_empty() {
-      continue;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to read repository branches".to_string()
+        } else {
+            stderr
+        });
     }
 
-    let mut parts = trimmed.split('\t');
-    let head = parts.next().unwrap_or(" ").trim();
-    let name = parts.next().unwrap_or("").to_string();
-    let short_hash = parts.next().unwrap_or("").to_string();
-    let last_commit_date = parts.next().unwrap_or("").to_string();
-    let full_hash = parts.next().unwrap_or("").to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-    if name.is_empty() || full_hash.is_empty() {
-      continue;
+    let mut branches = Vec::new();
+
+    for row in stdout.lines() {
+        let trimmed = row.trim_end();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut parts = trimmed.split('\t');
+        let head = parts.next().unwrap_or(" ").trim();
+        let name = parts.next().unwrap_or("").to_string();
+        let short_hash = parts.next().unwrap_or("").to_string();
+        let last_commit_date = parts.next().unwrap_or("").to_string();
+        let full_hash = parts.next().unwrap_or("").to_string();
+
+        if name.is_empty() || full_hash.is_empty() {
+            continue;
+        }
+
+        let commit_count_output = Command::new("git")
+            .args(["-C", &repo_path, "rev-list", "--count", &full_hash])
+            .output()
+            .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
+
+        if !commit_count_output.status.success() {
+            continue;
+        }
+
+        let commit_count = String::from_utf8_lossy(&commit_count_output.stdout)
+            .trim()
+            .parse::<usize>()
+            .unwrap_or(0);
+
+        branches.push(RepositoryBranch {
+            name,
+            short_hash,
+            last_commit_date,
+            is_current: head == "*",
+            commit_count,
+        });
     }
 
-    let commit_count_output = Command::new("git")
-      .args(["-C", &repo_path, "rev-list", "--count", &full_hash])
-      .output()
-      .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
-
-    if !commit_count_output.status.success() {
-      continue;
-    }
-
-    let commit_count = String::from_utf8_lossy(&commit_count_output.stdout)
-      .trim()
-      .parse::<usize>()
-      .unwrap_or(0);
-
-    branches.push(RepositoryBranch {
-      name,
-      short_hash,
-      last_commit_date,
-      is_current: head == "*",
-      commit_count,
-    });
-  }
-
-  Ok(branches)
+    Ok(branches)
 }
 
 #[tauri::command]
-fn switch_repository_branch(
-  repo_path: String,
-  branch_name: String,
-) -> Result<(), String> {
-  validate_git_repo(Path::new(&repo_path))?;
+fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args(["-C", &repo_path, "switch", &branch_name])
-    .output()
-    .map_err(|error| format!("Failed to run git switch: {error}"))?;
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "switch", &branch_name])
+        .output()
+        .map_err(|error| format!("Failed to run git switch: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to switch branch".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to switch branch".to_string()
+        } else {
+            stderr
+        });
+    }
 
-  Ok(())
+    Ok(())
 }
 
 #[tauri::command]
 fn commit_repository_changes(
-  repo_path: String,
-  summary: String,
-  description: String,
-  include_all: bool,
+    repo_path: String,
+    summary: String,
+    description: String,
+    include_all: bool,
 ) -> Result<(), String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let summary_trimmed = summary.trim();
+    let summary_trimmed = summary.trim();
 
-  if summary_trimmed.is_empty() {
-    return Err("Commit summary is required".to_string());
-  }
-
-  if include_all {
-    let add_output = Command::new("git")
-      .args(["-C", &repo_path, "add", "-A"])
-      .output()
-      .map_err(|error| format!("Failed to run git add: {error}"))?;
-
-    if !add_output.status.success() {
-      let stderr = String::from_utf8_lossy(&add_output.stderr).trim().to_string();
-      return Err(if stderr.is_empty() {
-        "Failed to stage changes".to_string()
-      } else {
-        stderr
-      });
+    if summary_trimmed.is_empty() {
+        return Err("Commit summary is required".to_string());
     }
-  }
 
-  let description_trimmed = description.trim();
-  let mut commit_command = Command::new("git");
+    if include_all {
+        let add_output = Command::new("git")
+            .args(["-C", &repo_path, "add", "-A"])
+            .output()
+            .map_err(|error| format!("Failed to run git add: {error}"))?;
 
-  commit_command.args(["-C", &repo_path, "commit", "-m", summary_trimmed]);
+        if !add_output.status.success() {
+            let stderr = String::from_utf8_lossy(&add_output.stderr)
+                .trim()
+                .to_string();
+            return Err(if stderr.is_empty() {
+                "Failed to stage changes".to_string()
+            } else {
+                stderr
+            });
+        }
+    }
 
-  if !description_trimmed.is_empty() {
-    commit_command.args(["-m", description_trimmed]);
-  }
+    let description_trimmed = description.trim();
+    let mut commit_command = Command::new("git");
 
-  let output = commit_command
-    .output()
-    .map_err(|error| format!("Failed to run git commit: {error}"))?;
+    commit_command.args(["-C", &repo_path, "commit", "-m", summary_trimmed]);
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to create commit".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !description_trimmed.is_empty() {
+        commit_command.args(["-m", description_trimmed]);
+    }
 
-  Ok(())
+    let output = commit_command
+        .output()
+        .map_err(|error| format!("Failed to run git commit: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to create commit".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
 fn stage_all_repository_changes(repo_path: String) -> Result<(), String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args(["-C", &repo_path, "add", "-A"])
-    .output()
-    .map_err(|error| format!("Failed to run git add: {error}"))?;
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "add", "-A"])
+        .output()
+        .map_err(|error| format!("Failed to run git add: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to stage all changes".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to stage all changes".to_string()
+        } else {
+            stderr
+        });
+    }
 
-  Ok(())
+    Ok(())
 }
 
 #[tauri::command]
 fn unstage_all_repository_changes(repo_path: String) -> Result<(), String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args(["-C", &repo_path, "reset", "HEAD", "--", "."])
-    .output()
-    .map_err(|error| format!("Failed to run git reset: {error}"))?;
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "reset", "HEAD", "--", "."])
+        .output()
+        .map_err(|error| format!("Failed to run git reset: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to unstage all changes".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to unstage all changes".to_string()
+        } else {
+            stderr
+        });
+    }
 
-  Ok(())
+    Ok(())
 }
 
 #[tauri::command]
 fn stage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args(["-C", &repo_path, "add", "--", &file_path])
-    .output()
-    .map_err(|error| format!("Failed to run git add: {error}"))?;
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "add", "--", &file_path])
+        .output()
+        .map_err(|error| format!("Failed to run git add: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to stage file".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to stage file".to_string()
+        } else {
+            stderr
+        });
+    }
 
-  Ok(())
+    Ok(())
 }
 
 #[tauri::command]
 fn unstage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args(["-C", &repo_path, "reset", "HEAD", "--", &file_path])
-    .output()
-    .map_err(|error| format!("Failed to run git reset: {error}"))?;
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "reset", "HEAD", "--", &file_path])
+        .output()
+        .map_err(|error| format!("Failed to run git reset: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to unstage file".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to unstage file".to_string()
+        } else {
+            stderr
+        });
+    }
 
-  Ok(())
+    Ok(())
 }
 
 #[tauri::command]
 fn get_repository_file_diff(
-  repo_path: String,
-  file_path: String,
+    repo_path: String,
+    file_path: String,
 ) -> Result<RepositoryFileDiff, String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let old_output = Command::new("git")
-    .args(["-C", &repo_path, "show", &format!("HEAD:{file_path}")])
-    .output()
-    .map_err(|error| format!("Failed to run git show: {error}"))?;
+    let old_output = Command::new("git")
+        .args(["-C", &repo_path, "show", &format!("HEAD:{file_path}")])
+        .output()
+        .map_err(|error| format!("Failed to run git show: {error}"))?;
 
-  let old_text = if old_output.status.success() {
-    String::from_utf8_lossy(&old_output.stdout).to_string()
-  } else {
-    String::new()
-  };
+    let old_text = if old_output.status.success() {
+        String::from_utf8_lossy(&old_output.stdout).to_string()
+    } else {
+        String::new()
+    };
 
-  let full_path = Path::new(&repo_path).join(&file_path);
-  let new_text = std::fs::read_to_string(&full_path).unwrap_or_default();
+    let full_path = Path::new(&repo_path).join(&file_path);
+    let new_text = std::fs::read_to_string(&full_path).unwrap_or_default();
 
-  Ok(RepositoryFileDiff {
-    path: file_path,
-    old_text,
-    new_text,
-  })
+    Ok(RepositoryFileDiff {
+        path: file_path,
+        old_text,
+        new_text,
+    })
 }
 
 #[tauri::command]
 fn get_repository_working_tree_status(
-  repo_path: String,
+    repo_path: String,
 ) -> Result<RepositoryWorkingTreeStatus, String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args([
-      "-C",
-      &repo_path,
-      "status",
-      "--porcelain",
-      "--untracked-files=all",
-    ])
-    .output()
-    .map_err(|error| format!("Failed to run git status: {error}"))?;
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git status: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to read repository status".to_string()
-    } else {
-      stderr
-    });
-  }
-
-  let stdout = String::from_utf8_lossy(&output.stdout);
-
-  let mut staged_count = 0;
-  let mut unstaged_count = 0;
-  let mut untracked_count = 0;
-
-  for row in stdout.lines() {
-    if row.len() < 2 {
-      continue;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to read repository status".to_string()
+        } else {
+            stderr
+        });
     }
 
-    let mut chars = row.chars();
-    let x = chars.next().unwrap_or(' ');
-    let y = chars.next().unwrap_or(' ');
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-    if x == '?' && y == '?' {
-      untracked_count += 1;
-      continue;
+    let mut staged_count = 0;
+    let mut unstaged_count = 0;
+    let mut untracked_count = 0;
+
+    for row in stdout.lines() {
+        if row.len() < 2 {
+            continue;
+        }
+
+        let mut chars = row.chars();
+        let x = chars.next().unwrap_or(' ');
+        let y = chars.next().unwrap_or(' ');
+
+        if x == '?' && y == '?' {
+            untracked_count += 1;
+            continue;
+        }
+
+        if x != ' ' {
+            staged_count += 1;
+        }
+
+        if y != ' ' {
+            unstaged_count += 1;
+        }
     }
 
-    if x != ' ' {
-      staged_count += 1;
-    }
-
-    if y != ' ' {
-      unstaged_count += 1;
-    }
-  }
-
-  Ok(RepositoryWorkingTreeStatus {
-    has_changes: staged_count + unstaged_count + untracked_count > 0,
-    staged_count,
-    unstaged_count,
-    untracked_count,
-  })
+    Ok(RepositoryWorkingTreeStatus {
+        has_changes: staged_count + unstaged_count + untracked_count > 0,
+        staged_count,
+        unstaged_count,
+        untracked_count,
+    })
 }
 
 #[tauri::command]
 fn get_repository_working_tree_items(
-  repo_path: String,
+    repo_path: String,
 ) -> Result<Vec<RepositoryWorkingTreeItem>, String> {
-  validate_git_repo(Path::new(&repo_path))?;
+    validate_git_repo(Path::new(&repo_path))?;
 
-  let output = Command::new("git")
-    .args([
-      "-C",
-      &repo_path,
-      "status",
-      "--porcelain",
-      "--untracked-files=all",
-    ])
-    .output()
-    .map_err(|error| format!("Failed to run git status: {error}"))?;
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git status: {error}"))?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      "Failed to read repository status items".to_string()
-    } else {
-      stderr
-    });
-  }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to read repository status items".to_string()
+        } else {
+            stderr
+        });
+    }
 
-  let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-  let items = stdout
-    .lines()
-    .filter_map(|row| {
-      if row.len() < 3 {
-        return None;
-      }
+    let items = stdout
+        .lines()
+        .filter_map(|row| {
+            if row.len() < 3 {
+                return None;
+            }
 
-      let mut chars = row.chars();
-      let staged = chars.next().unwrap_or(' ');
-      let unstaged = chars.next().unwrap_or(' ');
+            let mut chars = row.chars();
+            let staged = chars.next().unwrap_or(' ');
+            let unstaged = chars.next().unwrap_or(' ');
 
-      let path = row
-        .get(3..)
-        .unwrap_or("")
-        .trim()
-        .replace(" -> ", " → ");
+            let path = row.get(3..).unwrap_or("").trim().replace(" -> ", " → ");
 
-      if path.is_empty() {
-        return None;
-      }
+            if path.is_empty() {
+                return None;
+            }
 
-      let is_untracked = staged == '?' && unstaged == '?';
+            let is_untracked = staged == '?' && unstaged == '?';
 
-      Some(RepositoryWorkingTreeItem {
-        path,
-        staged_status: staged.to_string(),
-        unstaged_status: unstaged.to_string(),
-        is_untracked,
-      })
-    })
-    .collect();
+            Some(RepositoryWorkingTreeItem {
+                path,
+                staged_status: staged.to_string(),
+                unstaged_status: unstaged.to_string(),
+                is_untracked,
+            })
+        })
+        .collect();
 
-  Ok(items)
+    Ok(items)
 }
 
 fn repository_has_initial_commit(repo_path: &str) -> Result<bool, String> {
-  let output = Command::new("git")
-    .args(["-C", repo_path, "rev-parse", "--verify", "HEAD"])
-    .output()
-    .map_err(|error| format!("Failed to check repository history: {error}"))?;
+    let output = Command::new("git")
+        .args(["-C", repo_path, "rev-parse", "--verify", "HEAD"])
+        .output()
+        .map_err(|error| format!("Failed to check repository history: {error}"))?;
 
-  Ok(output.status.success())
+    Ok(output.status.success())
 }
 
 fn git_error_message(stderr: &[u8], fallback: &str) -> String {
-  let message = String::from_utf8_lossy(stderr).trim().to_string();
+    let message = String::from_utf8_lossy(stderr).trim().to_string();
 
-  if message.is_empty() {
-    fallback.to_string()
-  } else {
-    message
-  }
+    if message.is_empty() {
+        fallback.to_string()
+    } else {
+        message
+    }
+}
+
+fn validate_repository_path(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err("Repository path does not exist".to_string());
+    }
+
+    if !path.is_dir() {
+        return Err("Repository path is not a folder".to_string());
+    }
+
+    Ok(())
 }
 
 fn validate_git_repo(path: &Path) -> Result<(), String> {
-  if !path.exists() {
-    return Err("Repository path does not exist".to_string());
-  }
+    validate_repository_path(path)?;
 
-  if !path.join(".git").exists() {
-    return Err("Selected folder is not a git repository".to_string());
-  }
+    if !path.join(".git").exists() {
+        return Err("Selected folder is not a git repository".to_string());
+    }
 
-  Ok(())
+    Ok(())
 }
 
 fn folder_name(path: &Path) -> Option<String> {
-  path
-    .file_name()
-    .and_then(|name| name.to_str())
-    .map(std::string::ToString::to_string)
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(std::string::ToString::to_string)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
-    .plugin(tauri_plugin_opener::init())
-    .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
-      Ok(())
-    })
-    .invoke_handler(tauri::generate_handler![
-      pick_git_repository,
-      validate_opened_repositories,
-      create_repository_initial_commit,
-      get_repository_history,
-      get_repository_branches,
-      switch_repository_branch,
-      commit_repository_changes,
-      stage_all_repository_changes,
-      unstage_all_repository_changes,
-      stage_repository_file,
-      unstage_repository_file,
-      get_repository_file_diff,
-      get_repository_working_tree_status,
-      get_repository_working_tree_items
-    ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            pick_git_repository,
+            validate_opened_repositories,
+            create_repository_initial_commit,
+            get_repository_history,
+            get_repository_branches,
+            switch_repository_branch,
+            commit_repository_changes,
+            stage_all_repository_changes,
+            unstage_all_repository_changes,
+            stage_repository_file,
+            unstage_repository_file,
+            get_repository_file_diff,
+            get_repository_working_tree_status,
+            get_repository_working_tree_items
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
