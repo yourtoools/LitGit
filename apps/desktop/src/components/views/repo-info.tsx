@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@litgit/ui/components/dropdown-menu";
 import { Input } from "@litgit/ui/components/input";
+import { InputGroup, InputGroupAddon } from "@litgit/ui/components/input-group";
 import { Label } from "@litgit/ui/components/label";
 import {
   Sidebar,
@@ -32,6 +33,11 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@litgit/ui/components/sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
 import {
   ArrowBendRightUpIcon,
@@ -46,8 +52,17 @@ import {
   GithubLogoIcon,
   StackSimpleIcon,
   TagIcon,
+  XIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import type {
   RepositoryCommit,
   RepositoryStash,
@@ -58,6 +73,7 @@ interface SidebarEntry {
   active?: boolean;
   name: string;
   pendingSyncCount?: number;
+  searchName: string;
   stashRef?: string;
   type: "branch" | "stash" | "tag";
 }
@@ -100,6 +116,15 @@ export function RepoInfo() {
   const [draftCommitSummary, setDraftCommitSummary] = useState("");
   const [draftCommitDescription, setDraftCommitDescription] = useState("");
   const [amendPreviousCommit, setAmendPreviousCommit] = useState(false);
+  const [openEntryMenuKey, setOpenEntryMenuKey] = useState<string | null>(null);
+  const [sidebarFilterInputValue, setSidebarFilterInputValue] = useState("");
+  const [sidebarFilterQuery, setSidebarFilterQuery] = useState("");
+  const sidebarFilterInputRef = useRef<HTMLInputElement | null>(null);
+  const sidebarFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const [, startSidebarFilterTransition] = useTransition();
+  const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
   const commits = useMemo<RepositoryCommit[]>(
@@ -134,6 +159,10 @@ export function RepoInfo() {
 
       return {
         name: label.length > 0 ? `${stash.ref}: ${label}` : stash.ref,
+        searchName:
+          label.length > 0
+            ? `${stash.ref}: ${label}`.toLowerCase()
+            : stash.ref.toLowerCase(),
         stashRef: stash.ref,
         type: "stash",
       };
@@ -145,6 +174,7 @@ export function RepoInfo() {
         tagEntries.push({
           active: branch.isCurrent,
           name: branch.name,
+          searchName: branch.name.toLowerCase(),
           type: "tag",
         });
         continue;
@@ -155,6 +185,7 @@ export function RepoInfo() {
         name: branch.name,
         pendingSyncCount:
           branch.behindCount > 0 ? branch.behindCount : undefined,
+        searchName: branch.name.toLowerCase(),
         type: "branch",
       };
 
@@ -193,6 +224,31 @@ export function RepoInfo() {
       },
     ];
   }, [branches, stashes]);
+  const normalizedSidebarFilter = deferredSidebarFilterQuery
+    .trim()
+    .toLowerCase();
+  const filteredSidebarGroups = useMemo<SidebarGroupItem[]>(() => {
+    if (normalizedSidebarFilter.length === 0) {
+      return sidebarGroups;
+    }
+
+    return sidebarGroups.map((group) => {
+      const entries = group.entries.filter((entry) =>
+        entry.searchName.includes(normalizedSidebarFilter)
+      );
+
+      return {
+        ...group,
+        count: entries.length,
+        entries,
+      };
+    });
+  }, [normalizedSidebarFilter, sidebarGroups]);
+  const filteredSidebarEntryCount = useMemo(
+    () =>
+      filteredSidebarGroups.reduce((total, group) => total + group.count, 0),
+    [filteredSidebarGroups]
+  );
   const selectedCommit = useMemo(
     () => commits.find((item) => item.hash === selectedCommitId) ?? null,
     [commits, selectedCommitId]
@@ -238,6 +294,54 @@ export function RepoInfo() {
     setDraftCommitDescription("");
     setAmendPreviousCommit(false);
   }, [activeRepoId]);
+  useEffect(() => {
+    const handleFocusSidebarFilter = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey && event.altKey) || event.key.toLowerCase() !== "f") {
+        return;
+      }
+
+      event.preventDefault();
+      sidebarFilterInputRef.current?.focus();
+      sidebarFilterInputRef.current?.select();
+    };
+
+    globalThis.addEventListener("keydown", handleFocusSidebarFilter);
+
+    return () => {
+      globalThis.removeEventListener("keydown", handleFocusSidebarFilter);
+    };
+  }, []);
+  useEffect(
+    () => () => {
+      if (sidebarFilterDebounceRef.current !== null) {
+        globalThis.clearTimeout(sidebarFilterDebounceRef.current);
+      }
+    },
+    []
+  );
+
+  const scheduleSidebarFilterUpdate = (nextValue: string) => {
+    if (sidebarFilterDebounceRef.current !== null) {
+      globalThis.clearTimeout(sidebarFilterDebounceRef.current);
+    }
+
+    sidebarFilterDebounceRef.current = globalThis.setTimeout(() => {
+      startSidebarFilterTransition(() => {
+        setSidebarFilterQuery(nextValue);
+      });
+      sidebarFilterDebounceRef.current = null;
+    }, 120);
+  };
+
+  const clearSidebarFilter = () => {
+    if (sidebarFilterDebounceRef.current !== null) {
+      globalThis.clearTimeout(sidebarFilterDebounceRef.current);
+      sidebarFilterDebounceRef.current = null;
+    }
+
+    setSidebarFilterInputValue("");
+    setSidebarFilterQuery("");
+  };
 
   const preventLeftClickInMenus = (event: React.MouseEvent) => {
     if (event.button === 0) {
@@ -256,6 +360,60 @@ export function RepoInfo() {
     }
 
     return <GitBranchIcon className="size-3.5 shrink-0" />;
+  };
+
+  const renderHighlightedEntryName = (name: string) => {
+    if (normalizedSidebarFilter.length === 0) {
+      return name;
+    }
+
+    const normalizedName = name.toLowerCase();
+    const firstMatchIndex = normalizedName.indexOf(normalizedSidebarFilter);
+
+    if (firstMatchIndex < 0) {
+      return name;
+    }
+
+    const highlightedParts: ReactNode[] = [];
+    let searchFrom = 0;
+    let key = 0;
+
+    while (searchFrom < name.length) {
+      const matchIndex = normalizedName.indexOf(
+        normalizedSidebarFilter,
+        searchFrom
+      );
+
+      if (matchIndex < 0) {
+        const tail = name.slice(searchFrom);
+        if (tail.length > 0) {
+          highlightedParts.push(tail);
+        }
+        break;
+      }
+
+      const beforeMatch = name.slice(searchFrom, matchIndex);
+      if (beforeMatch.length > 0) {
+        highlightedParts.push(beforeMatch);
+      }
+
+      const matchedText = name.slice(
+        matchIndex,
+        matchIndex + normalizedSidebarFilter.length
+      );
+      highlightedParts.push(
+        <span
+          className="rounded-sm bg-primary/20 px-0.5 text-foreground"
+          key={`${name}-${key}`}
+        >
+          {matchedText}
+        </span>
+      );
+      key += 1;
+      searchFrom = matchIndex + normalizedSidebarFilter.length;
+    }
+
+    return <>{highlightedParts}</>;
   };
 
   const handleCheckoutBranch = async (entry: SidebarEntry) => {
@@ -397,7 +555,7 @@ export function RepoInfo() {
     if (entry.type === "stash") {
       return (
         <DropdownMenuContent
-          align="end"
+          align="start"
           className="w-56"
           onClick={preventLeftClickInMenus}
           onMouseDown={preventLeftClickInMenus}
@@ -753,10 +911,42 @@ export function RepoInfo() {
                 {activeRepo.name}
               </p>
             </div>
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between text-muted-foreground text-xs">
+                <span>Viewing {filteredSidebarEntryCount}</span>
+              </div>
+              <InputGroup>
+                <Input
+                  className="h-8 border-0 bg-transparent pr-0 shadow-none focus-visible:ring-0"
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setSidebarFilterInputValue(nextValue);
+                    scheduleSidebarFilterUpdate(nextValue);
+                  }}
+                  placeholder="Filter (Ctrl + Alt + f)"
+                  ref={sidebarFilterInputRef}
+                  value={sidebarFilterInputValue}
+                />
+                {sidebarFilterInputValue.length > 0 ? (
+                  <InputGroupAddon>
+                    <Button
+                      aria-label="Clear filter"
+                      className="rounded-l-none border-0 border-input border-l"
+                      onClick={clearSidebarFilter}
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <XIcon className="size-3.5" />
+                    </Button>
+                  </InputGroupAddon>
+                ) : null}
+              </InputGroup>
+            </div>
           </SidebarHeader>
 
           <SidebarContent>
-            {sidebarGroups.map((group) => (
+            {filteredSidebarGroups.map((group) => (
               <SidebarGroup key={group.key}>
                 <SidebarGroupLabel className="px-0 py-0">
                   <button
@@ -790,19 +980,35 @@ export function RepoInfo() {
                         <SidebarMenuItem
                           key={`${group.key}-${entry.stashRef ?? entry.name}`}
                         >
-                          <ContextMenu>
+                          <ContextMenu
+                            onOpenChange={(open) => {
+                              const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
+                              setOpenEntryMenuKey((current) => {
+                                if (open) {
+                                  return entryMenuKey;
+                                }
+
+                                if (current === entryMenuKey) {
+                                  return null;
+                                }
+
+                                return current;
+                              });
+                            }}
+                          >
                             <ContextMenuTrigger>
                               <SidebarMenuButton
                                 aria-label={entry.name}
                                 className={cn(
                                   "group",
-                                  entry.active
+                                  entry.active ||
+                                    openEntryMenuKey ===
+                                      `${group.key}-${entry.stashRef ?? entry.name}`
                                     ? "bg-accent text-accent-foreground"
                                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                                 )}
                                 disabled={
-                                  entry.type !== "stash" &&
-                                  (entry.active || isSwitchingBranch)
+                                  entry.type !== "stash" && isSwitchingBranch
                                 }
                                 onClick={() => {
                                   handleCheckoutBranch(entry).catch(
@@ -811,9 +1017,22 @@ export function RepoInfo() {
                                 }}
                               >
                                 {renderEntryIcon(entry)}
-                                <span className="min-w-0 flex-1 truncate">
-                                  {entry.name}
-                                </span>
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <span className="min-w-0 flex-1 truncate" />
+                                    }
+                                  >
+                                    {renderHighlightedEntryName(entry.name)}
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    align="end"
+                                    side="right"
+                                    sideOffset={6}
+                                  >
+                                    {entry.name}
+                                  </TooltipContent>
+                                </Tooltip>
                                 {entry.type === "branch" &&
                                 typeof entry.pendingSyncCount === "number" &&
                                 entry.pendingSyncCount > 0 ? (
@@ -822,13 +1041,31 @@ export function RepoInfo() {
                                     {entry.pendingSyncCount}
                                   </span>
                                 ) : null}
-                                <DropdownMenu>
+                                <DropdownMenu
+                                  onOpenChange={(open) => {
+                                    const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
+                                    setOpenEntryMenuKey((current) => {
+                                      if (open) {
+                                        return entryMenuKey;
+                                      }
+
+                                      if (current === entryMenuKey) {
+                                        return null;
+                                      }
+
+                                      return current;
+                                    });
+                                  }}
+                                >
                                   <DropdownMenuTrigger
                                     render={
                                       <button
                                         aria-label={`More options for ${entry.name}`}
                                         className={cn(
                                           "ml-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
+                                          openEntryMenuKey ===
+                                            `${group.key}-${entry.stashRef ?? entry.name}` &&
+                                            "opacity-100",
                                           entry.active &&
                                             "hover:bg-accent-foreground/10"
                                         )}
