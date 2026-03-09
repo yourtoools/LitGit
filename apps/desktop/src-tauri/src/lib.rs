@@ -28,11 +28,23 @@ struct RepositoryCommit {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryBranch {
+    ref_type: String,
+    is_remote: bool,
     name: String,
     short_hash: String,
     last_commit_date: String,
     is_current: bool,
     commit_count: usize,
+    ahead_count: usize,
+    behind_count: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryStash {
+    message: String,
+    r#ref: String,
+    short_hash: String,
 }
 
 #[derive(Serialize)]
@@ -380,8 +392,9 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
       &repo_path,
       "for-each-ref",
       "--sort=-committerdate",
-      "--format=%(HEAD)\t%(refname:short)\t%(objectname:short)\t%(committerdate:iso-strict)\t%(objectname)",
+      "--format=%(HEAD)\t%(refname)\t%(refname:short)\t%(objectname:short)\t%(committerdate:iso-strict)\t%(objectname)\t%(upstream:short)",
       "refs/heads",
+      "refs/remotes",
       "refs/tags",
     ])
     .output()
@@ -409,10 +422,16 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
 
         let mut parts = trimmed.split('\t');
         let head = parts.next().unwrap_or(" ").trim();
+        let full_ref_name = parts.next().unwrap_or("").trim();
         let name = parts.next().unwrap_or("").to_string();
         let short_hash = parts.next().unwrap_or("").to_string();
         let last_commit_date = parts.next().unwrap_or("").to_string();
         let full_hash = parts.next().unwrap_or("").to_string();
+        let upstream_ref = parts.next().unwrap_or("").trim().to_string();
+
+        if full_ref_name.starts_with("refs/remotes/") && full_ref_name.ends_with("/HEAD") {
+            continue;
+        }
 
         if name.is_empty() || full_hash.is_empty() {
             continue;
@@ -432,12 +451,58 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
             .parse::<usize>()
             .unwrap_or(0);
 
+        let (ahead_count, behind_count) = if upstream_ref.is_empty() {
+            (0, 0)
+        } else {
+            let sync_count_output = Command::new("git")
+                .args([
+                    "-C",
+                    &repo_path,
+                    "rev-list",
+                    "--left-right",
+                    "--count",
+                    &format!("{full_hash}...{upstream_ref}"),
+                ])
+                .output()
+                .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
+
+            if !sync_count_output.status.success() {
+                (0, 0)
+            } else {
+                let counts = String::from_utf8_lossy(&sync_count_output.stdout);
+                let mut values = counts.split_whitespace();
+                let ahead = values
+                    .next()
+                    .unwrap_or("0")
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                let behind = values
+                    .next()
+                    .unwrap_or("0")
+                    .parse::<usize>()
+                    .unwrap_or(0);
+
+                (ahead, behind)
+            }
+        };
+
+        let ref_type = if full_ref_name.starts_with("refs/tags/") {
+            "tag".to_string()
+        } else {
+            "branch".to_string()
+        };
+        let is_remote = full_ref_name.starts_with("refs/remotes/");
+
         branches.push(RepositoryBranch {
+            ref_type,
+            is_remote,
             name,
             short_hash,
             last_commit_date,
             is_current: head == "*",
             commit_count,
+            ahead_count,
+            behind_count,
         });
     }
 
@@ -448,10 +513,59 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
 fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
-        .args(["-C", &repo_path, "switch", &branch_name])
-        .output()
-        .map_err(|error| format!("Failed to run git switch: {error}"))?;
+    let is_remote_ref = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/remotes/{branch_name}"),
+        ])
+        .status()
+        .map_err(|error| format!("Failed to run git show-ref: {error}"))?
+        .success();
+
+    let output = if is_remote_ref {
+        let local_name = branch_name.split_once('/').map_or(branch_name.as_str(), |(_, local)| local);
+        let local_branch_exists = Command::new("git")
+            .args([
+                "-C",
+                &repo_path,
+                "show-ref",
+                "--verify",
+                "--quiet",
+                &format!("refs/heads/{local_name}"),
+            ])
+            .status()
+            .map_err(|error| format!("Failed to run git show-ref: {error}"))?
+            .success();
+
+        if local_branch_exists {
+            Command::new("git")
+                .args(["-C", &repo_path, "switch", local_name])
+                .output()
+                .map_err(|error| format!("Failed to run git switch: {error}"))?
+        } else {
+            Command::new("git")
+                .args([
+                    "-C",
+                    &repo_path,
+                    "switch",
+                    "--track",
+                    "-c",
+                    local_name,
+                    &branch_name,
+                ])
+                .output()
+                .map_err(|error| format!("Failed to run git switch: {error}"))?
+        }
+    } else {
+        Command::new("git")
+            .args(["-C", &repo_path, "switch", &branch_name])
+            .output()
+            .map_err(|error| format!("Failed to run git switch: {error}"))?
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -465,6 +579,116 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
     Ok(())
 }
 
+
+#[tauri::command]
+fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "stash",
+            "list",
+            "--format=%gd%x1f%gs%x1f%h%x1e",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git stash list: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to read repository stashes",
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let stashes = stdout
+        .split('\x1e')
+        .filter_map(|row| {
+            let trimmed = row.trim();
+
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let mut parts = trimmed.split('\x1f');
+            let stash_ref = parts.next().unwrap_or("").trim().to_string();
+            let message = parts.next().unwrap_or("").trim().to_string();
+            let short_hash = parts.next().unwrap_or("").trim().to_string();
+
+            if stash_ref.is_empty() {
+                return None;
+            }
+
+            Some(RepositoryStash {
+                message,
+                r#ref: stash_ref,
+                short_hash,
+            })
+        })
+        .collect();
+
+    Ok(stashes)
+}
+
+#[tauri::command]
+fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "stash", "apply", &stash_ref])
+        .output()
+        .map_err(|error| format!("Failed to run git stash apply: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to apply stash",
+        ));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "stash", "pop", &stash_ref])
+        .output()
+        .map_err(|error| format!("Failed to run git stash pop: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to pop stash",
+        ));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "stash", "drop", &stash_ref])
+        .output()
+        .map_err(|error| format!("Failed to run git stash drop: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to delete stash",
+        ));
+    }
+
+    Ok(())
+}
 #[tauri::command]
 fn commit_repository_changes(
     repo_path: String,
@@ -887,7 +1111,11 @@ pub fn run() {
             create_repository_initial_commit,
             get_repository_history,
             get_repository_branches,
+            get_repository_stashes,
             switch_repository_branch,
+            apply_repository_stash,
+            pop_repository_stash,
+            drop_repository_stash,
             commit_repository_changes,
             stage_all_repository_changes,
             unstage_all_repository_changes,
@@ -900,3 +1128,4 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

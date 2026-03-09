@@ -19,10 +19,20 @@ export interface RepositoryCommit {
 }
 
 export interface RepositoryBranch {
+  aheadCount: number;
+  behindCount: number;
   commitCount: number;
   isCurrent: boolean;
+  isRemote: boolean;
   lastCommitDate: string;
   name: string;
+  refType: "branch" | "tag";
+  shortHash: string;
+}
+
+export interface RepositoryStash {
+  message: string;
+  ref: string;
   shortHash: string;
 }
 
@@ -63,6 +73,7 @@ export type OpenRepositoryResult =
 
 export interface RepoStoreState {
   activeRepoId: string | null;
+  applyStash: (id: string, stashRef: string) => Promise<void>;
   clearActiveRepo: () => void;
   cloneRepository: (
     repositoryUrl: string,
@@ -77,6 +88,7 @@ export interface RepoStoreState {
     description: string,
     includeAll: boolean
   ) => Promise<void>;
+  dropStash: (id: string, stashRef: string) => Promise<void>;
   getFileDiff: (
     id: string,
     filePath: string
@@ -86,15 +98,18 @@ export interface RepoStoreState {
   ) => Promise<OpenedRepository | null>;
   isLoadingBranches: boolean;
   isLoadingHistory: boolean;
+  isLoadingStashes: boolean;
   isLoadingStatus: boolean;
   isLoadingWip: boolean;
   isPickingRepo: boolean;
   isRefreshingOpenedRepos: boolean;
   openedRepos: OpenedRepository[];
   openRepository: () => Promise<OpenRepositoryResult>;
+  popStash: (id: string, stashRef: string) => Promise<void>;
   refreshOpenedRepositories: () => Promise<void>;
   repoBranches: Record<string, RepositoryBranch[]>;
   repoCommits: Record<string, RepositoryCommit[]>;
+  repoStashes: Record<string, RepositoryStash[]>;
   repoWorkingTreeItems: Record<string, RepositoryWorkingTreeItem[]>;
   repoWorkingTreeStatuses: Record<string, RepositoryWorkingTreeStatus>;
   setActiveRepo: (
@@ -113,6 +128,8 @@ export interface RepoDataFetchResult {
   branchesPayload: { branches: RepositoryBranch[]; id: string } | null;
   historyError: unknown;
   historyPayload: { commits: RepositoryCommit[]; id: string } | null;
+  stashesError: unknown;
+  stashesPayload: { id: string; stashes: RepositoryStash[] } | null;
   statusError: unknown;
   statusPayload: { id: string; status: RepositoryWorkingTreeStatus } | null;
   wipItemsError: unknown;

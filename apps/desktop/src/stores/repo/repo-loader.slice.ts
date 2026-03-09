@@ -15,6 +15,7 @@ type RepoLoaderSliceKeys = "setActiveRepo";
 interface RepoCacheState {
   hasBranches: boolean;
   hasCommits: boolean;
+  hasStashes: boolean;
   hasStatus: boolean;
   hasWipItems: boolean;
 }
@@ -26,6 +27,7 @@ const getRepoCacheState = (
 ): RepoCacheState => ({
   hasCommits: !forceRefresh && Boolean(get().repoCommits[id]),
   hasBranches: !forceRefresh && Boolean(get().repoBranches[id]),
+  hasStashes: !forceRefresh && Boolean(get().repoStashes[id]),
   hasStatus: !forceRefresh && Boolean(get().repoWorkingTreeStatuses[id]),
   hasWipItems: !forceRefresh && Boolean(get().repoWorkingTreeItems[id]),
 });
@@ -33,6 +35,7 @@ const getRepoCacheState = (
 const hasAllRepoData = (cacheState: RepoCacheState): boolean =>
   cacheState.hasCommits &&
   cacheState.hasBranches &&
+  cacheState.hasStashes &&
   cacheState.hasStatus &&
   cacheState.hasWipItems;
 
@@ -40,6 +43,7 @@ const setRepoLoadingFlags = (set: RepoStoreSet, cacheState: RepoCacheState) => {
   set({
     isLoadingHistory: !cacheState.hasCommits,
     isLoadingBranches: !cacheState.hasBranches,
+    isLoadingStashes: !cacheState.hasStashes,
     isLoadingStatus: !cacheState.hasStatus,
     isLoadingWip: !cacheState.hasWipItems,
   });
@@ -49,6 +53,7 @@ const clearRepoLoadingFlags = (set: RepoStoreSet) => {
   set({
     isLoadingHistory: false,
     isLoadingBranches: false,
+    isLoadingStashes: false,
     isLoadingStatus: false,
     isLoadingWip: false,
   });
@@ -75,6 +80,16 @@ const applyRepoPayloads = (
       repoBranches: {
         ...state.repoBranches,
         [id]: branchesPayload.branches,
+      },
+    }));
+  }
+
+  const stashesPayload = result.stashesPayload;
+  if (stashesPayload) {
+    set((state) => ({
+      repoStashes: {
+        ...state.repoStashes,
+        [id]: stashesPayload.stashes,
       },
     }));
   }
@@ -109,6 +124,10 @@ const notifyRepoLoadErrors = (result: RepoDataFetchResult) => {
     {
       error: result.branchesError,
       fallbackMessage: "Failed to load repository branches",
+    },
+    {
+      error: result.stashesError,
+      fallbackMessage: "Failed to load repository stashes",
     },
     {
       error: result.statusError,
@@ -160,6 +179,7 @@ export const createRepoLoaderSlice = (
         targetRepo.path,
         cacheState.hasCommits,
         cacheState.hasBranches,
+        cacheState.hasStashes,
         cacheState.hasStatus,
         cacheState.hasWipItems
       );

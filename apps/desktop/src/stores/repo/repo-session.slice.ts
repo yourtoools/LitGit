@@ -98,6 +98,7 @@ export const createRepoSessionSlice = (
       openedRepos,
       repoCommits,
       repoBranches,
+      repoStashes,
       repoWorkingTreeStatuses,
       repoWorkingTreeItems,
       setActiveRepo,
@@ -112,6 +113,7 @@ export const createRepoSessionSlice = (
 
     const nextRepoCommits = clearRepoDataById(repoCommits, id);
     const nextRepoBranches = clearRepoDataById(repoBranches, id);
+    const nextRepoStashes = clearRepoDataById(repoStashes, id);
     const nextRepoWorkingTreeStatuses = clearRepoDataById(
       repoWorkingTreeStatuses,
       id
@@ -125,6 +127,7 @@ export const createRepoSessionSlice = (
       openedRepos: nextOpenedRepos,
       repoCommits: nextRepoCommits,
       repoBranches: nextRepoBranches,
+      repoStashes: nextRepoStashes,
       repoWorkingTreeStatuses: nextRepoWorkingTreeStatuses,
       repoWorkingTreeItems: nextRepoWorkingTreeItems,
     });
@@ -252,12 +255,14 @@ export const createRepoSessionSlice = (
       set((state) => {
         let nextRepoCommits = state.repoCommits;
         let nextRepoBranches = state.repoBranches;
+        let nextRepoStashes = state.repoStashes;
         let nextRepoWorkingTreeStatuses = state.repoWorkingTreeStatuses;
         let nextRepoWorkingTreeItems = state.repoWorkingTreeItems;
 
         for (const staleRepoId of staleRepoIds) {
           nextRepoCommits = clearRepoDataById(nextRepoCommits, staleRepoId);
           nextRepoBranches = clearRepoDataById(nextRepoBranches, staleRepoId);
+          nextRepoStashes = clearRepoDataById(nextRepoStashes, staleRepoId);
           nextRepoWorkingTreeStatuses = clearRepoDataById(
             nextRepoWorkingTreeStatuses,
             staleRepoId
@@ -274,6 +279,7 @@ export const createRepoSessionSlice = (
           ),
           repoCommits: nextRepoCommits,
           repoBranches: nextRepoBranches,
+          repoStashes: nextRepoStashes,
           repoWorkingTreeStatuses: nextRepoWorkingTreeStatuses,
           repoWorkingTreeItems: nextRepoWorkingTreeItems,
           activeRepoId:

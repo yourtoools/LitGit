@@ -48,14 +48,18 @@ import {
   TagIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
-import type { RepositoryCommit } from "@/stores/repo/repo-store-types";
+import type {
+  RepositoryCommit,
+  RepositoryStash,
+} from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 interface SidebarEntry {
   active?: boolean;
   name: string;
   pendingSyncCount?: number;
-  type: "branch" | "stash";
+  stashRef?: string;
+  type: "branch" | "stash" | "tag";
 }
 
 interface SidebarGroupItem {
@@ -65,60 +69,134 @@ interface SidebarGroupItem {
   name: string;
 }
 
-const sidebarGroups: SidebarGroupItem[] = [
-  {
-    count: 3,
-    entries: [
-      { active: true, name: "development", type: "branch" },
-      { name: "main", pendingSyncCount: 21, type: "branch" },
-      { name: "refactor/mono", type: "branch" },
-    ],
-    key: "local",
-    name: "LOCAL",
-  },
-  {
-    count: 2,
-    entries: [
-      { name: "origin/development", type: "branch" },
-      { name: "origin/main", type: "branch" },
-    ],
-    key: "remote",
-    name: "REMOTE",
-  },
-  {
-    count: 3,
-    entries: [
-      { name: "WIP on development", type: "stash" },
-      { name: "WIP on development...", type: "stash" },
-      { name: "f3b9f fix: add globals", type: "stash" },
-    ],
-    key: "stashes",
-    name: "STASHES",
-  },
-];
-
 export function RepoInfo() {
   const activeRepoId = useRepoStore((state) => state.activeRepoId);
   const openedRepos = useRepoStore((state) => state.openedRepos);
   const repoCommits = useRepoStore((state) => state.repoCommits);
+  const repoBranches = useRepoStore((state) => state.repoBranches);
+  const repoStashes = useRepoStore((state) => state.repoStashes);
+  const repoWorkingTreeStatuses = useRepoStore(
+    (state) => state.repoWorkingTreeStatuses
+  );
   const isLoadingHistory = useRepoStore((state) => state.isLoadingHistory);
+  const switchBranch = useRepoStore((state) => state.switchBranch);
+  const applyStash = useRepoStore((state) => state.applyStash);
+  const popStash = useRepoStore((state) => state.popStash);
+  const dropStash = useRepoStore((state) => state.dropStash);
+  const stageAll = useRepoStore((state) => state.stageAll);
+  const commitChanges = useRepoStore((state) => state.commitChanges);
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
     Record<string, boolean>
   >({});
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
   const [rightMode, setRightMode] = useState<"commit" | "details">("details");
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
+  const [isStagingAll, setIsStagingAll] = useState(false);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [isApplyingStash, setIsApplyingStash] = useState(false);
+  const [isPoppingStash, setIsPoppingStash] = useState(false);
+  const [isDroppingStash, setIsDroppingStash] = useState(false);
+  const [draftCommitSummary, setDraftCommitSummary] = useState("");
+  const [draftCommitDescription, setDraftCommitDescription] = useState("");
+  const [amendPreviousCommit, setAmendPreviousCommit] = useState(false);
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
   const commits = useMemo<RepositoryCommit[]>(
     () => (activeRepoId ? (repoCommits[activeRepoId] ?? []) : []),
     [activeRepoId, repoCommits]
   );
+  const branches = useMemo(
+    () => (activeRepoId ? (repoBranches[activeRepoId] ?? []) : []),
+    [activeRepoId, repoBranches]
+  );
+  const stashes = useMemo<RepositoryStash[]>(
+    () => (activeRepoId ? (repoStashes[activeRepoId] ?? []) : []),
+    [activeRepoId, repoStashes]
+  );
+  const workingTreeStatus = activeRepoId
+    ? repoWorkingTreeStatuses[activeRepoId]
+    : undefined;
+  const hasUnstagedChanges = Boolean(
+    workingTreeStatus &&
+      (workingTreeStatus.unstagedCount > 0 ||
+        workingTreeStatus.untrackedCount > 0)
+  );
+  const hasStagedChanges = Boolean(workingTreeStatus?.stagedCount);
+  const canCommit = draftCommitSummary.trim().length > 0 && hasStagedChanges;
+  const currentBranch =
+    branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
+  const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
+    const localEntries: SidebarEntry[] = [];
+    const remoteEntries: SidebarEntry[] = [];
+    const stashEntries: SidebarEntry[] = stashes.map((stash) => {
+      const label = stash.message.trim();
+
+      return {
+        name: label.length > 0 ? `${stash.ref}: ${label}` : stash.ref,
+        stashRef: stash.ref,
+        type: "stash",
+      };
+    });
+    const tagEntries: SidebarEntry[] = [];
+
+    for (const branch of branches) {
+      if (branch.refType === "tag") {
+        tagEntries.push({
+          active: branch.isCurrent,
+          name: branch.name,
+          type: "tag",
+        });
+        continue;
+      }
+
+      const branchEntry: SidebarEntry = {
+        active: branch.isCurrent,
+        name: branch.name,
+        pendingSyncCount:
+          branch.behindCount > 0 ? branch.behindCount : undefined,
+        type: "branch",
+      };
+
+      if (branch.isRemote) {
+        remoteEntries.push(branchEntry);
+        continue;
+      }
+
+      localEntries.push(branchEntry);
+    }
+
+    return [
+      {
+        count: localEntries.length,
+        entries: localEntries,
+        key: "local",
+        name: "LOCAL",
+      },
+      {
+        count: remoteEntries.length,
+        entries: remoteEntries,
+        key: "remote",
+        name: "REMOTE",
+      },
+      {
+        count: stashEntries.length,
+        entries: stashEntries,
+        key: "stashes",
+        name: "STASHES",
+      },
+      {
+        count: tagEntries.length,
+        entries: tagEntries,
+        key: "tags",
+        name: "TAGS",
+      },
+    ];
+  }, [branches, stashes]);
   const selectedCommit = useMemo(
     () => commits.find((item) => item.hash === selectedCommitId) ?? null,
     [commits, selectedCommitId]
   );
-  const currentBranch = "development";
   const formatCommitDate = (value: string): string => {
     const parsedDate = new Date(value);
 
@@ -147,11 +225,510 @@ export function RepoInfo() {
       setSelectedCommitId(commits[0].hash);
     }
   }, [commits, selectedCommitId]);
+
+  useEffect(() => {
+    if (activeRepoId === null) {
+      setDraftCommitSummary("");
+      setDraftCommitDescription("");
+      setAmendPreviousCommit(false);
+      return;
+    }
+
+    setDraftCommitSummary("");
+    setDraftCommitDescription("");
+    setAmendPreviousCommit(false);
+  }, [activeRepoId]);
+
   const preventLeftClickInMenus = (event: React.MouseEvent) => {
     if (event.button === 0) {
       event.preventDefault();
       event.stopPropagation();
     }
+  };
+
+  const renderEntryIcon = (entry: SidebarEntry) => {
+    if (entry.type === "stash") {
+      return <StackSimpleIcon className="size-3.5 shrink-0" />;
+    }
+
+    if (entry.type === "tag") {
+      return <TagIcon className="size-3.5 shrink-0" />;
+    }
+
+    return <GitBranchIcon className="size-3.5 shrink-0" />;
+  };
+
+  const handleCheckoutBranch = async (entry: SidebarEntry) => {
+    if (
+      entry.type === "stash" ||
+      entry.active ||
+      !activeRepoId ||
+      isSwitchingBranch
+    ) {
+      return;
+    }
+
+    setIsSwitchingBranch(true);
+
+    try {
+      await switchBranch(activeRepoId, entry.name);
+    } finally {
+      setIsSwitchingBranch(false);
+    }
+  };
+
+  const handleApplyStash = async (entry: SidebarEntry) => {
+    if (
+      entry.type !== "stash" ||
+      !entry.stashRef ||
+      !activeRepoId ||
+      isApplyingStash
+    ) {
+      return;
+    }
+
+    setIsApplyingStash(true);
+
+    try {
+      await applyStash(activeRepoId, entry.stashRef);
+    } finally {
+      setIsApplyingStash(false);
+    }
+  };
+
+  const handlePopStash = async (entry: SidebarEntry) => {
+    if (
+      entry.type !== "stash" ||
+      !entry.stashRef ||
+      !activeRepoId ||
+      isPoppingStash
+    ) {
+      return;
+    }
+
+    setIsPoppingStash(true);
+
+    try {
+      await popStash(activeRepoId, entry.stashRef);
+    } finally {
+      setIsPoppingStash(false);
+    }
+  };
+
+  const handleDropStash = async (entry: SidebarEntry) => {
+    if (
+      entry.type !== "stash" ||
+      !entry.stashRef ||
+      !activeRepoId ||
+      isDroppingStash
+    ) {
+      return;
+    }
+
+    setIsDroppingStash(true);
+
+    try {
+      await dropStash(activeRepoId, entry.stashRef);
+    } finally {
+      setIsDroppingStash(false);
+    }
+  };
+
+  const renderEntryDropdownMenuContent = (entry: SidebarEntry) => {
+    if (entry.type === "tag") {
+      return (
+        <DropdownMenuContent
+          align="end"
+          className="w-80"
+          onClick={preventLeftClickInMenus}
+          onMouseDown={preventLeftClickInMenus}
+          side="right"
+          sideOffset={6}
+        >
+          <DropdownMenuItem>
+            Fast-forward {entry.name} to {currentBranch}
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            Merge {currentBranch} into {entry.name}
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            Rebase {currentBranch} onto {entry.name}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>
+            Checkout the commit at {entry.name}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Explain Branch Changes (Preview)</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Create branch here</DropdownMenuItem>
+          <DropdownMenuItem>Cherry pick commit</DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              Reset {currentBranch} to this commit
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem>Soft - keep all changes</DropdownMenuItem>
+              <DropdownMenuItem>
+                Mixed - keep working copy but reset index
+              </DropdownMenuItem>
+              <DropdownMenuItem>Hard - discard all changes</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem>Revert commit</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Delete {entry.name} locally</DropdownMenuItem>
+          <DropdownMenuItem>Delete {entry.name} from origin</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Copy tag name</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>
+            Copy link to this tag on remote: origin
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Hide</DropdownMenuItem>
+          <DropdownMenuItem>Solo</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Annotate {entry.name}</DropdownMenuItem>
+        </DropdownMenuContent>
+      );
+    }
+
+    if (entry.type === "stash") {
+      return (
+        <DropdownMenuContent
+          align="end"
+          className="w-56"
+          onClick={preventLeftClickInMenus}
+          onMouseDown={preventLeftClickInMenus}
+          side="right"
+          sideOffset={6}
+        >
+          <DropdownMenuItem
+            disabled={isApplyingStash}
+            onClick={() => {
+              handleApplyStash(entry).catch(() => undefined);
+            }}
+          >
+            Apply Stash
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isPoppingStash}
+            onClick={() => {
+              handlePopStash(entry).catch(() => undefined);
+            }}
+          >
+            Pop Stash
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isDroppingStash}
+            onClick={() => {
+              handleDropStash(entry).catch(() => undefined);
+            }}
+          >
+            Delete Stash
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Edit stash message</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Share stash as Cloud Patch</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Hide</DropdownMenuItem>
+        </DropdownMenuContent>
+      );
+    }
+
+    return (
+      <DropdownMenuContent
+        align="end"
+        className="w-80"
+        onClick={preventLeftClickInMenus}
+        onMouseDown={preventLeftClickInMenus}
+        side="right"
+        sideOffset={6}
+      >
+        <DropdownMenuItem>Pull (fast-forward if possible)</DropdownMenuItem>
+        <DropdownMenuItem>Push</DropdownMenuItem>
+        <DropdownMenuItem>Set Upstream</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>
+          Fast-forward {entry.name} to {currentBranch}
+        </DropdownMenuItem>
+        <DropdownMenuItem>
+          Merge {currentBranch} into {entry.name}
+        </DropdownMenuItem>
+        <DropdownMenuItem>
+          Rebase {currentBranch} onto {entry.name}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={entry.active || isSwitchingBranch}
+          onClick={() => {
+            handleCheckoutBranch(entry).catch(() => undefined);
+          }}
+        >
+          Checkout {entry.name}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Create worktree from {entry.name}</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Create branch here</DropdownMenuItem>
+        <DropdownMenuItem>Cherry pick commit</DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            Reset {currentBranch} to this commit
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuItem>Soft - keep all changes</DropdownMenuItem>
+            <DropdownMenuItem>
+              Mixed - keep working copy but reset index
+            </DropdownMenuItem>
+            <DropdownMenuItem>Hard - discard all changes</DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuItem>Revert commit</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Explain Branch Changes (Preview)</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Rename {entry.name}</DropdownMenuItem>
+        <DropdownMenuItem>Delete {entry.name}</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Copy branch name</DropdownMenuItem>
+        <DropdownMenuItem>Copy commit sha</DropdownMenuItem>
+        <DropdownMenuItem>
+          Copy link to branch: origin/{entry.name}
+        </DropdownMenuItem>
+        <DropdownMenuItem>
+          Copy link to this commit on remote: origin
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Hide</DropdownMenuItem>
+        <DropdownMenuItem>Pin to Left</DropdownMenuItem>
+        <DropdownMenuItem>Solo</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>
+          Compare commit against working directory
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Create tag here</DropdownMenuItem>
+        <DropdownMenuItem>Create annotated tag here</DropdownMenuItem>
+      </DropdownMenuContent>
+    );
+  };
+
+  const renderEntryContextMenuContent = (entry: SidebarEntry) => {
+    if (entry.type === "tag") {
+      return (
+        <ContextMenuContent
+          className="w-80"
+          onClick={preventLeftClickInMenus}
+          onMouseDown={preventLeftClickInMenus}
+        >
+          <ContextMenuItem>
+            Fast-forward {entry.name} to {currentBranch}
+          </ContextMenuItem>
+          <ContextMenuItem>
+            Merge {currentBranch} into {entry.name}
+          </ContextMenuItem>
+          <ContextMenuItem>
+            Rebase {currentBranch} onto {entry.name}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Checkout the commit at {entry.name}</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Explain Branch Changes (Preview)</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Create branch here</ContextMenuItem>
+          <ContextMenuItem>Cherry pick commit</ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              Reset {currentBranch} to this commit
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem>Soft - keep all changes</ContextMenuItem>
+              <ContextMenuItem>
+                Mixed - keep working copy but reset index
+              </ContextMenuItem>
+              <ContextMenuItem>Hard - discard all changes</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuItem>Revert commit</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Delete {entry.name} locally</ContextMenuItem>
+          <ContextMenuItem>Delete {entry.name} from origin</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Copy tag name</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>
+            Copy link to this tag on remote: origin
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Hide</ContextMenuItem>
+          <ContextMenuItem>Solo</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Annotate {entry.name}</ContextMenuItem>
+        </ContextMenuContent>
+      );
+    }
+
+    if (entry.type === "stash") {
+      return (
+        <ContextMenuContent
+          className="w-56"
+          onClick={preventLeftClickInMenus}
+          onMouseDown={preventLeftClickInMenus}
+        >
+          <ContextMenuItem
+            disabled={isApplyingStash}
+            onClick={() => {
+              handleApplyStash(entry).catch(() => undefined);
+            }}
+          >
+            Apply Stash
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={isPoppingStash}
+            onClick={() => {
+              handlePopStash(entry).catch(() => undefined);
+            }}
+          >
+            Pop Stash
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={isDroppingStash}
+            onClick={() => {
+              handleDropStash(entry).catch(() => undefined);
+            }}
+          >
+            Delete Stash
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Edit stash message</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Share stash as Cloud Patch</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Hide</ContextMenuItem>
+        </ContextMenuContent>
+      );
+    }
+
+    return (
+      <ContextMenuContent
+        className="w-80"
+        onClick={preventLeftClickInMenus}
+        onMouseDown={preventLeftClickInMenus}
+      >
+        <ContextMenuItem>Pull (fast-forward if possible)</ContextMenuItem>
+        <ContextMenuItem>Push</ContextMenuItem>
+        <ContextMenuItem>Set Upstream</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>
+          Fast-forward {entry.name} to {currentBranch}
+        </ContextMenuItem>
+        <ContextMenuItem>
+          Merge {currentBranch} into {entry.name}
+        </ContextMenuItem>
+        <ContextMenuItem>
+          Rebase {currentBranch} onto {entry.name}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          disabled={entry.active || isSwitchingBranch}
+          onClick={() => {
+            handleCheckoutBranch(entry).catch(() => undefined);
+          }}
+        >
+          Checkout {entry.name}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Create worktree from {entry.name}</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Create branch here</ContextMenuItem>
+        <ContextMenuItem>Cherry pick commit</ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            Reset {currentBranch} to this commit
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            <ContextMenuItem>Soft - keep all changes</ContextMenuItem>
+            <ContextMenuItem>
+              Mixed - keep working copy but reset index
+            </ContextMenuItem>
+            <ContextMenuItem>Hard - discard all changes</ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuItem>Revert commit</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Explain Branch Changes (Preview)</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Rename {entry.name}</ContextMenuItem>
+        <ContextMenuItem>Delete {entry.name}</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Copy branch name</ContextMenuItem>
+        <ContextMenuItem>Copy commit sha</ContextMenuItem>
+        <ContextMenuItem>
+          Copy link to branch: origin/{entry.name}
+        </ContextMenuItem>
+        <ContextMenuItem>
+          Copy link to this commit on remote: origin
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Hide</ContextMenuItem>
+        <ContextMenuItem>Pin to Left</ContextMenuItem>
+        <ContextMenuItem>Solo</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>
+          Compare commit against working directory
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Create tag here</ContextMenuItem>
+        <ContextMenuItem>Create annotated tag here</ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+  const handleStageAll = async () => {
+    if (!activeRepoId || isStagingAll || !hasUnstagedChanges) {
+      return;
+    }
+
+    setIsStagingAll(true);
+
+    try {
+      await stageAll(activeRepoId);
+    } finally {
+      setIsStagingAll(false);
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!activeRepoId || isCommitting || !canCommit) {
+      return;
+    }
+
+    setIsCommitting(true);
+
+    try {
+      await commitChanges(
+        activeRepoId,
+        draftCommitSummary.trim(),
+        draftCommitDescription.trim(),
+        !amendPreviousCommit
+      );
+      setDraftCommitSummary("");
+      setDraftCommitDescription("");
+      setAmendPreviousCommit(false);
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handlePrimaryCommitAction = () => {
+    if (hasUnstagedChanges) {
+      handleStageAll().catch(() => undefined);
+      return;
+    }
+
+    handleCommit().catch(() => undefined);
   };
 
   if (!activeRepo) {
@@ -210,7 +787,9 @@ export function RepoInfo() {
                   <SidebarGroupContent>
                     <SidebarMenu>
                       {group.entries.map((entry) => (
-                        <SidebarMenuItem key={`${group.key}-${entry.name}`}>
+                        <SidebarMenuItem
+                          key={`${group.key}-${entry.stashRef ?? entry.name}`}
+                        >
                           <ContextMenu>
                             <ContextMenuTrigger>
                               <SidebarMenuButton
@@ -221,12 +800,17 @@ export function RepoInfo() {
                                     ? "bg-accent text-accent-foreground"
                                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                                 )}
+                                disabled={
+                                  entry.type !== "stash" &&
+                                  (entry.active || isSwitchingBranch)
+                                }
+                                onClick={() => {
+                                  handleCheckoutBranch(entry).catch(
+                                    () => undefined
+                                  );
+                                }}
                               >
-                                {entry.type === "stash" ? (
-                                  <StackSimpleIcon className="size-3.5 shrink-0" />
-                                ) : (
-                                  <GitBranchIcon className="size-3.5 shrink-0" />
-                                )}
+                                {renderEntryIcon(entry)}
                                 <span className="min-w-0 flex-1 truncate">
                                   {entry.name}
                                 </span>
@@ -257,258 +841,11 @@ export function RepoInfo() {
                                   >
                                     <DotsThreeVerticalIcon className="size-3.5" />
                                   </DropdownMenuTrigger>
-                                  {entry.type === "branch" ? (
-                                    <DropdownMenuContent
-                                      align="end"
-                                      className="w-80"
-                                      onClick={preventLeftClickInMenus}
-                                      onMouseDown={preventLeftClickInMenus}
-                                      side="right"
-                                      sideOffset={6}
-                                    >
-                                      <DropdownMenuItem>
-                                        Pull (fast-forward if possible)
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>Push</DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Set Upstream
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Fast-forward {entry.name} to{" "}
-                                        {currentBranch}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Merge {currentBranch} into {entry.name}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Rebase {currentBranch} onto {entry.name}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Checkout {entry.name}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Create worktree from {entry.name}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Create branch here
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Cherry pick commit
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSub>
-                                        <DropdownMenuSubTrigger>
-                                          Reset {currentBranch} to this commit
-                                        </DropdownMenuSubTrigger>
-                                        <DropdownMenuSubContent>
-                                          <DropdownMenuItem>
-                                            Soft - keep all changes
-                                          </DropdownMenuItem>
-                                          <DropdownMenuItem>
-                                            Mixed - keep working copy but reset
-                                            index
-                                          </DropdownMenuItem>
-                                          <DropdownMenuItem>
-                                            Hard - discard all changes
-                                          </DropdownMenuItem>
-                                        </DropdownMenuSubContent>
-                                      </DropdownMenuSub>
-                                      <DropdownMenuItem>
-                                        Revert commit
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Explain Branch Changes (Preview)
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Rename {entry.name}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Delete {entry.name}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Copy branch name
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Copy commit sha
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Copy link to branch: origin/{entry.name}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Copy link to this commit on remote:
-                                        origin
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>Hide</DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Pin to Left
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>Solo</DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Compare commit against working directory
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Create tag here
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Create annotated tag here
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  ) : (
-                                    <DropdownMenuContent
-                                      align="end"
-                                      className="w-56"
-                                      onClick={preventLeftClickInMenus}
-                                      onMouseDown={preventLeftClickInMenus}
-                                      side="right"
-                                      sideOffset={6}
-                                    >
-                                      <DropdownMenuItem>
-                                        Apply Stash
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Pop Stash
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem>
-                                        Delete Stash
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Edit stash message
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>
-                                        Share stash as Cloud Patch
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem>Hide</DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  )}
+                                  {renderEntryDropdownMenuContent(entry)}
                                 </DropdownMenu>
                               </SidebarMenuButton>
                             </ContextMenuTrigger>
-                            {entry.type === "branch" ? (
-                              <ContextMenuContent
-                                className="w-80"
-                                onClick={preventLeftClickInMenus}
-                                onMouseDown={preventLeftClickInMenus}
-                              >
-                                <ContextMenuItem>
-                                  Pull (fast-forward if possible)
-                                </ContextMenuItem>
-                                <ContextMenuItem>Push</ContextMenuItem>
-                                <ContextMenuItem>Set Upstream</ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Fast-forward {entry.name} to {currentBranch}
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Merge {currentBranch} into {entry.name}
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Rebase {currentBranch} onto {entry.name}
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Checkout {entry.name}
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Create worktree from {entry.name}
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Create branch here
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Cherry pick commit
-                                </ContextMenuItem>
-                                <ContextMenuSub>
-                                  <ContextMenuSubTrigger>
-                                    Reset {currentBranch} to this commit
-                                  </ContextMenuSubTrigger>
-                                  <ContextMenuSubContent>
-                                    <ContextMenuItem>
-                                      Soft - keep all changes
-                                    </ContextMenuItem>
-                                    <ContextMenuItem>
-                                      Mixed - keep working copy but reset index
-                                    </ContextMenuItem>
-                                    <ContextMenuItem>
-                                      Hard - discard all changes
-                                    </ContextMenuItem>
-                                  </ContextMenuSubContent>
-                                </ContextMenuSub>
-                                <ContextMenuItem>Revert commit</ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Explain Branch Changes (Preview)
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Rename {entry.name}
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Delete {entry.name}
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Copy branch name
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Copy commit sha
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Copy link to branch: origin/{entry.name}
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Copy link to this commit on remote: origin
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>Hide</ContextMenuItem>
-                                <ContextMenuItem>Pin to Left</ContextMenuItem>
-                                <ContextMenuItem>Solo</ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Compare commit against working directory
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Create tag here
-                                </ContextMenuItem>
-                                <ContextMenuItem>
-                                  Create annotated tag here
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            ) : (
-                              <ContextMenuContent
-                                className="w-56"
-                                onClick={preventLeftClickInMenus}
-                                onMouseDown={preventLeftClickInMenus}
-                              >
-                                <ContextMenuItem>Apply Stash</ContextMenuItem>
-                                <ContextMenuItem>Pop Stash</ContextMenuItem>
-                                <ContextMenuItem>Delete Stash</ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Edit stash message
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>
-                                  Share stash as Cloud Patch
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem>Hide</ContextMenuItem>
-                              </ContextMenuContent>
-                            )}
+                            {renderEntryContextMenuContent(entry)}
                           </ContextMenu>
                         </SidebarMenuItem>
                       ))}
@@ -700,7 +1037,11 @@ export function RepoInfo() {
                 <Label htmlFor="commit-summary">Commit summary</Label>
                 <Input
                   id="commit-summary"
+                  onChange={(event) =>
+                    setDraftCommitSummary(event.target.value)
+                  }
                   placeholder="Describe your changes"
+                  value={draftCommitSummary}
                 />
               </div>
               <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2">
@@ -708,14 +1049,34 @@ export function RepoInfo() {
                 <textarea
                   className="min-h-32 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                   id="commit-description"
+                  onChange={(event) =>
+                    setDraftCommitDescription(event.target.value)
+                  }
                   placeholder="Optional details..."
+                  value={draftCommitDescription}
                 />
               </div>
               <label className="mt-3 inline-flex items-center gap-2 text-xs">
-                <input className="rounded border-input" type="checkbox" />
+                <input
+                  checked={amendPreviousCommit}
+                  className="rounded border-input"
+                  onChange={(event) =>
+                    setAmendPreviousCommit(event.target.checked)
+                  }
+                  type="checkbox"
+                />
                 Amend previous commit
               </label>
-              <Button className="mt-4 w-full" type="button">
+              <Button
+                className="mt-4 w-full"
+                disabled={
+                  isStagingAll ||
+                  isCommitting ||
+                  (hasUnstagedChanges ? false : !canCommit)
+                }
+                onClick={handlePrimaryCommitAction}
+                type="button"
+              >
                 <DotOutlineIcon className="size-4" />
                 Stage Changes to Commit
               </Button>

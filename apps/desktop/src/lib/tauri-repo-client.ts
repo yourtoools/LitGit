@@ -4,6 +4,7 @@ import type {
   RepositoryBranch,
   RepositoryCommit,
   RepositoryFileDiff,
+  RepositoryStash,
   RepositoryWorkingTreeItem,
   RepositoryWorkingTreeStatus,
 } from "@/stores/repo/repo-store-types";
@@ -127,24 +128,42 @@ function parseRepositoryBranch(value: unknown): RepositoryBranch {
     throw new Error("Invalid repository branches payload");
   }
 
-  const { name, shortHash, lastCommitDate, isCurrent, commitCount } = value;
+  const {
+    name,
+    refType,
+    shortHash,
+    lastCommitDate,
+    isCurrent,
+    isRemote,
+    commitCount,
+    aheadCount,
+    behindCount,
+  } = value;
 
   if (
     typeof name !== "string" ||
+    (refType !== "branch" && refType !== "tag") ||
     typeof shortHash !== "string" ||
     typeof lastCommitDate !== "string" ||
     typeof isCurrent !== "boolean" ||
-    typeof commitCount !== "number"
+    typeof isRemote !== "boolean" ||
+    typeof commitCount !== "number" ||
+    typeof aheadCount !== "number" ||
+    typeof behindCount !== "number"
   ) {
     throw new Error("Invalid repository branches payload");
   }
 
   return {
     name,
+    refType,
     shortHash,
     lastCommitDate,
     isCurrent,
+    isRemote,
     commitCount,
+    aheadCount,
+    behindCount,
   };
 }
 
@@ -154,6 +173,36 @@ function parseRepositoryBranches(value: unknown): RepositoryBranch[] {
   }
 
   return value.map(parseRepositoryBranch);
+}
+
+function parseRepositoryStash(value: unknown): RepositoryStash {
+  if (!isRecord(value)) {
+    throw new Error("Invalid repository stashes payload");
+  }
+
+  const { message, ref, shortHash } = value;
+
+  if (
+    typeof message !== "string" ||
+    typeof ref !== "string" ||
+    typeof shortHash !== "string"
+  ) {
+    throw new Error("Invalid repository stashes payload");
+  }
+
+  return {
+    message,
+    ref,
+    shortHash,
+  };
+}
+
+function parseRepositoryStashes(value: unknown): RepositoryStash[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid repository stashes payload");
+  }
+
+  return value.map(parseRepositoryStash);
 }
 
 function parseRepositoryWorkingTreeStatus(
@@ -263,6 +312,19 @@ async function loadBranchesForRepo(id: string, path: string) {
   return { branches, id };
 }
 
+async function loadStashesForRepo(id: string, path: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    return null;
+  }
+
+  const result = await invoke("get_repository_stashes", { repoPath: path });
+  const stashes = parseRepositoryStashes(result);
+
+  return { id, stashes };
+}
+
 async function loadWorkingTreeStatusForRepo(id: string, path: string) {
   const invoke = getTauriInvoke();
 
@@ -303,6 +365,45 @@ export async function switchRepoBranch(path: string, branchName: string) {
   await invoke("switch_repository_branch", {
     repoPath: path,
     branchName,
+  });
+}
+
+export async function applyRepoStash(path: string, stashRef: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Apply stash works in Tauri desktop app only");
+  }
+
+  await invoke("apply_repository_stash", {
+    repoPath: path,
+    stashRef,
+  });
+}
+
+export async function popRepoStash(path: string, stashRef: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Pop stash works in Tauri desktop app only");
+  }
+
+  await invoke("pop_repository_stash", {
+    repoPath: path,
+    stashRef,
+  });
+}
+
+export async function dropRepoStash(path: string, stashRef: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Drop stash works in Tauri desktop app only");
+  }
+
+  await invoke("drop_repository_stash", {
+    repoPath: path,
+    stashRef,
   });
 }
 
@@ -486,25 +587,30 @@ export async function fetchRepoData(
   path: string,
   hasCommits: boolean,
   hasBranches: boolean,
+  hasStashes: boolean,
   hasStatus: boolean,
   hasWipItems: boolean
 ): Promise<RepoDataFetchResult> {
-  const [historyResult, branchesResult, statusResult, wipItemsResult] =
-    await Promise.allSettled([
-      hasCommits ? Promise.resolve(null) : loadHistoryForRepo(id, path),
-      hasBranches ? Promise.resolve(null) : loadBranchesForRepo(id, path),
-      hasStatus
-        ? Promise.resolve(null)
-        : loadWorkingTreeStatusForRepo(id, path),
-      hasWipItems
-        ? Promise.resolve(null)
-        : loadWorkingTreeItemsForRepo(id, path),
-    ]);
+  const [
+    historyResult,
+    branchesResult,
+    stashesResult,
+    statusResult,
+    wipItemsResult,
+  ] = await Promise.allSettled([
+    hasCommits ? Promise.resolve(null) : loadHistoryForRepo(id, path),
+    hasBranches ? Promise.resolve(null) : loadBranchesForRepo(id, path),
+    hasStashes ? Promise.resolve(null) : loadStashesForRepo(id, path),
+    hasStatus ? Promise.resolve(null) : loadWorkingTreeStatusForRepo(id, path),
+    hasWipItems ? Promise.resolve(null) : loadWorkingTreeItemsForRepo(id, path),
+  ]);
 
   const historyPayload =
     historyResult.status === "fulfilled" ? historyResult.value : null;
   const branchesPayload =
     branchesResult.status === "fulfilled" ? branchesResult.value : null;
+  const stashesPayload =
+    stashesResult.status === "fulfilled" ? stashesResult.value : null;
   const statusPayload =
     statusResult.status === "fulfilled" ? statusResult.value : null;
   const wipItemsPayload =
@@ -514,6 +620,8 @@ export async function fetchRepoData(
     historyResult.status === "rejected" ? historyResult.reason : null;
   const branchesError =
     branchesResult.status === "rejected" ? branchesResult.reason : null;
+  const stashesError =
+    stashesResult.status === "rejected" ? stashesResult.reason : null;
   const statusError =
     statusResult.status === "rejected" ? statusResult.reason : null;
   const wipItemsError =
@@ -524,6 +632,8 @@ export async function fetchRepoData(
     branchesPayload,
     historyError,
     historyPayload,
+    stashesError,
+    stashesPayload,
     statusError,
     statusPayload,
     wipItemsError,

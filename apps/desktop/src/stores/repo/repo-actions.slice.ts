@@ -1,7 +1,10 @@
 import { toast } from "sonner";
 import {
+  applyRepoStash,
   commitRepoChanges,
+  dropRepoStash,
   getRepoFileDiff,
+  popRepoStash,
   stageAllRepoChanges,
   stageRepoFile,
   switchRepoBranch,
@@ -13,8 +16,11 @@ import type { RepoStoreGet } from "@/stores/repo/repo-store.slice-types";
 import type { RepoStoreState } from "@/stores/repo/repo-store-types";
 
 type RepoActionsSliceKeys =
+  | "applyStash"
   | "commitChanges"
+  | "dropStash"
   | "getFileDiff"
+  | "popStash"
   | "stageAll"
   | "stageFile"
   | "switchBranch"
@@ -36,6 +42,51 @@ export const createRepoActionsSlice = (
       await get().setActiveRepo(id, { forceRefresh: true });
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to switch branch"));
+    }
+  },
+  applyStash: async (id, stashRef) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return;
+    }
+
+    try {
+      await applyRepoStash(targetRepo.path, stashRef);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      toast.success(`Stash ${stashRef} applied`);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to apply stash"));
+    }
+  },
+  popStash: async (id, stashRef) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return;
+    }
+
+    try {
+      await popRepoStash(targetRepo.path, stashRef);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      toast.success(`Stash ${stashRef} popped`);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to pop stash"));
+    }
+  },
+  dropStash: async (id, stashRef) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return;
+    }
+
+    try {
+      await dropRepoStash(targetRepo.path, stashRef);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      toast.success(`Stash ${stashRef} deleted`);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to delete stash"));
     }
   },
   commitChanges: async (id, summary, description, includeAll) => {
