@@ -1,6 +1,8 @@
 use serde::Serialize;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use tauri::{AppHandle, Emitter};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +61,17 @@ struct RepositoryFileDiff {
     new_text: String,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CloneRepositoryProgress {
+    phase: String,
+    message: String,
+    percent: Option<u8>,
+    received_objects: Option<usize>,
+    resolved_objects: Option<usize>,
+    total_objects: Option<usize>,
+}
+
 #[tauri::command]
 fn pick_git_repository() -> Result<Option<PickedRepository>, String> {
     let folder = match rfd::FileDialog::new().pick_folder() {
@@ -81,6 +94,126 @@ fn pick_git_repository() -> Result<Option<PickedRepository>, String> {
         name,
         path,
     }))
+}
+
+#[tauri::command]
+fn pick_clone_destination_folder() -> Result<Option<String>, String> {
+    let folder = match rfd::FileDialog::new().pick_folder() {
+        Some(folder) => folder,
+        None => return Ok(None),
+    };
+
+    Ok(Some(folder.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn clone_git_repository(
+    app: AppHandle,
+    repository_url: String,
+    destination_parent: String,
+    destination_folder_name: String,
+    recurse_submodules: bool,
+) -> Result<PickedRepository, String> {
+    let trimmed_url = repository_url.trim();
+    let trimmed_parent = destination_parent.trim();
+    let trimmed_folder = destination_folder_name.trim();
+
+    if trimmed_url.is_empty() {
+        return Err("Repository URL is required".to_string());
+    }
+
+    if trimmed_parent.is_empty() {
+        return Err("Destination folder is required".to_string());
+    }
+
+    if trimmed_folder.is_empty() {
+        return Err("Repository folder name is required".to_string());
+    }
+
+    let destination_parent_path = Path::new(trimmed_parent);
+    validate_repository_path(destination_parent_path)?;
+
+    let destination_path = destination_parent_path.join(trimmed_folder);
+
+    if destination_path.exists() {
+        return Err("Destination folder already exists".to_string());
+    }
+
+    emit_clone_progress(
+        &app,
+        CloneRepositoryProgress {
+            phase: "preparing".to_string(),
+            message: format!("Preparing to clone into {}", destination_path.display()),
+            percent: Some(2),
+            received_objects: None,
+            resolved_objects: None,
+            total_objects: None,
+        },
+    );
+
+    let mut clone_command = Command::new("git");
+    clone_command.args([
+        "clone",
+        "--progress",
+        trimmed_url,
+        destination_path.to_string_lossy().as_ref(),
+    ]);
+
+    if recurse_submodules {
+        clone_command.arg("--recurse-submodules");
+    }
+
+    let mut child = clone_command
+        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Failed to run git clone: {error}"))?;
+
+    if let Some(stderr) = child.stderr.take() {
+        let stderr_reader = BufReader::new(stderr);
+
+        for line_result in stderr_reader.lines() {
+            let line =
+                line_result.map_err(|error| format!("Failed to read git clone output: {error}"))?;
+            if let Some(progress) = parse_clone_progress(&line) {
+                emit_clone_progress(&app, progress);
+            }
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Failed to finalize git clone: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to clone repository",
+        ));
+    }
+
+    let path = destination_path.to_string_lossy().to_string();
+    let has_initial_commit = repository_has_initial_commit(&path)?;
+    let name = folder_name(&destination_path).unwrap_or_else(|| "repository".to_string());
+
+    emit_clone_progress(
+        &app,
+        CloneRepositoryProgress {
+            phase: "complete".to_string(),
+            message: format!("Clone complete: {}", destination_path.display()),
+            percent: Some(100),
+            received_objects: None,
+            resolved_objects: None,
+            total_objects: None,
+        },
+    );
+
+    Ok(PickedRepository {
+        has_initial_commit,
+        is_git_repository: true,
+        name,
+        path,
+    })
 }
 
 #[tauri::command]
@@ -633,6 +766,67 @@ fn repository_has_initial_commit(repo_path: &str) -> Result<bool, String> {
     Ok(output.status.success())
 }
 
+fn emit_clone_progress(app: &AppHandle, payload: CloneRepositoryProgress) {
+    let _ = app.emit("clone-repository-progress", payload);
+}
+
+fn parse_clone_progress(line: &str) -> Option<CloneRepositoryProgress> {
+    let trimmed = line.trim();
+
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((percent, current, total)) = parse_progress_counts(trimmed, "Receiving objects:") {
+        return Some(CloneRepositoryProgress {
+            phase: "receiving".to_string(),
+            message: trimmed.to_string(),
+            percent: Some(percent),
+            received_objects: Some(current),
+            resolved_objects: None,
+            total_objects: Some(total),
+        });
+    }
+
+    if let Some((percent, current, total)) = parse_progress_counts(trimmed, "Resolving deltas:") {
+        return Some(CloneRepositoryProgress {
+            phase: "resolving".to_string(),
+            message: trimmed.to_string(),
+            percent: Some(percent),
+            received_objects: None,
+            resolved_objects: Some(current),
+            total_objects: Some(total),
+        });
+    }
+
+    if trimmed.starts_with("Cloning into") {
+        return Some(CloneRepositoryProgress {
+            phase: "preparing".to_string(),
+            message: trimmed.to_string(),
+            percent: Some(4),
+            received_objects: None,
+            resolved_objects: None,
+            total_objects: None,
+        });
+    }
+
+    None
+}
+
+fn parse_progress_counts(line: &str, prefix: &str) -> Option<(u8, usize, usize)> {
+    let remainder = line.strip_prefix(prefix)?.trim();
+    let percent = remainder.split('%').next()?.trim().parse::<u8>().ok()?;
+
+    let start = remainder.find('(')?;
+    let end = remainder[start..].find(')')? + start;
+    let counts = &remainder[start + 1..end];
+    let mut parts = counts.split('/');
+    let current = parts.next()?.trim().parse::<usize>().ok()?;
+    let total = parts.next()?.trim().parse::<usize>().ok()?;
+
+    Some((percent, current, total))
+}
+
 fn git_error_message(stderr: &[u8], fallback: &str) -> String {
     let message = String::from_utf8_lossy(stderr).trim().to_string();
 
@@ -687,6 +881,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             pick_git_repository,
+            pick_clone_destination_folder,
+            clone_git_repository,
             validate_opened_repositories,
             create_repository_initial_commit,
             get_repository_history,

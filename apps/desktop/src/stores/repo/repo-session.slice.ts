@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import {
+  cloneRepo,
   createRepoInitialCommit,
   getTauriInvoke,
   parsePickedRepository,
@@ -21,6 +22,7 @@ import type {
 
 type RepoSessionSliceKeys =
   | "clearActiveRepo"
+  | "cloneRepository"
   | "closeRepository"
   | "initializeRepository"
   | "openRepository"
@@ -58,6 +60,37 @@ export const createRepoSessionSlice = (
 ): Pick<RepoStoreState, RepoSessionSliceKeys> => ({
   clearActiveRepo: () => {
     set({ activeRepoId: null });
+  },
+  cloneRepository: async (
+    repositoryUrl,
+    destinationParent,
+    folderName,
+    recurseSubmodules
+  ) => {
+    const invoke = getTauriInvoke();
+
+    if (!invoke) {
+      toast.error("Clone repository works in Tauri desktop app only");
+      return null;
+    }
+
+    try {
+      const cloned = await cloneRepo(
+        repositoryUrl,
+        destinationParent,
+        folderName,
+        recurseSubmodules
+      );
+
+      if (!cloned) {
+        return null;
+      }
+
+      return await activateOrAppendRepository(get, set, cloned);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to clone repository"));
+      return null;
+    }
   },
   closeRepository: (id) => {
     const {

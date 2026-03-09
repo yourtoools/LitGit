@@ -24,6 +24,7 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mayarLogo from "@/assets/mayar-logo.png";
+import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
@@ -59,6 +60,7 @@ export function NewTabContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
+  const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
   const [pendingRepoInitialization, setPendingRepoInitialization] =
     useState<PickedRepositorySelection | null>(null);
   const [showRecentTopFade, setShowRecentTopFade] = useState(false);
@@ -338,7 +340,7 @@ export function NewTabContent() {
                 <TooltipTrigger className="w-full">
                   <Button
                     aria-keyshortcuts={openShortcutAria}
-                    className="h-12 w-full items-center gap-3 text-left"
+                    className="h-10 w-full items-center gap-3 text-left"
                     disabled={isPickingRepo || isInitializingRepository}
                     onClick={() => {
                       handleOpenRepoPicker().catch(() => {
@@ -368,28 +370,22 @@ export function NewTabContent() {
 
               <Tooltip>
                 <TooltipTrigger className="w-full">
-                  <span className="block w-full">
-                    <Button
-                      aria-disabled="true"
-                      className="h-10 w-full items-center gap-3 text-left opacity-45"
-                      disabled
-                      variant="outline"
-                    >
-                      <DownloadSimpleIcon
-                        aria-hidden="true"
-                        className="size-4 shrink-0"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        Clone repository
-                      </span>
-                      <span className="shrink-0 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-[0.625rem] text-muted-foreground uppercase leading-none tracking-wide">
-                        Soon
-                      </span>
-                    </Button>
-                  </span>
+                  <Button
+                    className="h-10 w-full items-center gap-3 text-left"
+                    onClick={() => setIsCloneDialogOpen(true)}
+                    variant="outline"
+                  >
+                    <DownloadSimpleIcon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      Clone repository
+                    </span>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={8}>
-                  Clone from a remote URL directly in the workspace.
+                  Clone from a remote URL to a local folder and open it.
                 </TooltipContent>
               </Tooltip>
 
@@ -706,6 +702,10 @@ export function NewTabContent() {
         }}
         open={Boolean(pendingRepoInitialization)}
         repositoryName={pendingRepoInitialization?.name ?? "repository"}
+      />
+      <RepositoryCloneDialog
+        onOpenChange={setIsCloneDialogOpen}
+        open={isCloneDialogOpen}
       />
     </div>
   );

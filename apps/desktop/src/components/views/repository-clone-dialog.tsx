@@ -1,0 +1,811 @@
+import { Button } from "@litgit/ui/components/button";
+import { Checkbox } from "@litgit/ui/components/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@litgit/ui/components/dialog";
+import { Input } from "@litgit/ui/components/input";
+import { Label } from "@litgit/ui/components/label";
+import { cn } from "@litgit/ui/lib/utils";
+import {
+  ArrowSquareOutIcon,
+  CheckCircleIcon,
+  DownloadSimpleIcon,
+  FolderOpenIcon,
+  SpinnerGapIcon,
+} from "@phosphor-icons/react";
+import { listen } from "@tauri-apps/api/event";
+import {
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
+import {
+  type CloneRepositoryProgress,
+  pickCloneDestinationFolder,
+} from "@/lib/tauri-repo-client";
+import { useRepoStore } from "@/stores/repo/use-repo-store";
+
+const CLONE_PROGRESS_EVENT = "clone-repository-progress";
+const DEFAULT_PROGRESS_MESSAGE = "Waiting to start clone";
+const TRAILING_SLASHES_REGEX = /\/+$/;
+const HTTPS_REPOSITORY_URL_REGEX = /^https?:\/\/.+/i;
+const SSH_REPOSITORY_URL_REGEX = /^git@[^\s:]+:.+/i;
+const SSH_PROTOCOL_REPOSITORY_URL_REGEX = /^ssh:\/\/.+/i;
+const TRAILING_PATH_SEPARATOR_REGEX = /[\\/]$/;
+
+interface ValidationErrors {
+  destinationParent?: string;
+  folderName?: string;
+  repositoryUrl?: string;
+}
+
+interface CloneSuccessState {
+  name: string;
+  path: string;
+  repoId: string;
+}
+
+interface RepositoryCloneDialogProps {
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}
+
+interface CloneFormPanelProps {
+  destinationInputId: string;
+  destinationParent: string;
+  errors: ValidationErrors;
+  folderInputId: string;
+  folderName: string;
+  fullDestinationPath: string;
+  handlePickDestination: () => Promise<void>;
+  isBusy: boolean;
+  isCloning: boolean;
+  progressDetails: string | null;
+  progressMessage: string;
+  progressPercent: number;
+  recurseSubmodules: boolean;
+  repositoryUrl: string;
+  repositoryUrlRef: RefObject<HTMLInputElement | null>;
+  setDestinationParent: Dispatch<SetStateAction<string>>;
+  setErrors: Dispatch<SetStateAction<ValidationErrors>>;
+  setFolderName: Dispatch<SetStateAction<string>>;
+  setIsFolderDirty: Dispatch<SetStateAction<boolean>>;
+  setRecurseSubmodules: Dispatch<SetStateAction<boolean>>;
+  setRepositoryUrl: Dispatch<SetStateAction<string>>;
+  statusRegionId: string;
+  submodulesCheckboxId: string;
+  urlInputId: string;
+}
+
+const deriveFolderNameFromUrl = (repositoryUrl: string) => {
+  const trimmed = repositoryUrl.trim().replace(TRAILING_SLASHES_REGEX, "");
+
+  if (!trimmed) {
+    return "";
+  }
+
+  const segments = trimmed.split("/");
+  const tail = segments.at(-1) ?? "";
+
+  return tail.endsWith(".git") ? tail.slice(0, -4) : tail;
+};
+
+const isLikelyRepositoryUrl = (value: string) => {
+  const trimmed = value.trim();
+
+  return (
+    HTTPS_REPOSITORY_URL_REGEX.test(trimmed) ||
+    SSH_REPOSITORY_URL_REGEX.test(trimmed) ||
+    SSH_PROTOCOL_REPOSITORY_URL_REGEX.test(trimmed)
+  );
+};
+
+const formatProgressDetails = (progress: CloneRepositoryProgress) => {
+  if (
+    progress.phase === "receiving" &&
+    progress.receivedObjects !== undefined &&
+    progress.totalObjects !== undefined
+  ) {
+    return `${progress.receivedObjects} of ${progress.totalObjects} objects received`;
+  }
+
+  if (
+    progress.phase === "resolving" &&
+    progress.resolvedObjects !== undefined &&
+    progress.totalObjects !== undefined
+  ) {
+    return `${progress.resolvedObjects} of ${progress.totalObjects} deltas resolved`;
+  }
+
+  if (progress.phase === "complete") {
+    return "Repository is ready to open";
+  }
+
+  return "Preparing the local repository workspace";
+};
+
+function CloneSuccessPanel({
+  successState,
+}: {
+  successState: CloneSuccessState;
+}) {
+  return (
+    <div className="space-y-4 px-6 py-5">
+      <section className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/8 p-3.5">
+        <CheckCircleIcon
+          aria-hidden="true"
+          className="mt-0.5 size-[1.125rem] shrink-0 text-emerald-400"
+        />
+        <div className="min-w-0">
+          <p className="font-medium text-[0.8125rem] text-foreground">
+            Clone finished successfully
+          </p>
+          <p className="mt-0.5 text-[0.8125rem] text-muted-foreground leading-relaxed">
+            Added to your workspace and saved in recent repositories.
+          </p>
+        </div>
+      </section>
+
+      <div
+        aria-live="polite"
+        className="grid gap-px overflow-hidden rounded-xl border border-border/60"
+      >
+        <div className="bg-background/70 px-4 py-3">
+          <p className="text-[0.6875rem] text-muted-foreground uppercase tracking-[0.12em]">
+            Repository
+          </p>
+          <p className="mt-0.5 font-medium text-[0.8125rem] text-foreground">
+            {successState.name}
+          </p>
+        </div>
+        <div className="bg-background/70 px-4 py-3">
+          <p className="text-[0.6875rem] text-muted-foreground uppercase tracking-[0.12em]">
+            Local path
+          </p>
+          <p className="mt-0.5 break-all font-mono text-[0.75rem] text-foreground/85 leading-relaxed">
+            {successState.path}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloneFormPanel({
+  destinationInputId,
+  destinationParent,
+  errors,
+  folderInputId,
+  folderName,
+  fullDestinationPath,
+  handlePickDestination,
+  isBusy,
+  isCloning,
+  progressDetails,
+  progressMessage,
+  progressPercent,
+  recurseSubmodules,
+  repositoryUrl,
+  repositoryUrlRef,
+  setDestinationParent,
+  setErrors,
+  setFolderName,
+  setIsFolderDirty,
+  setRecurseSubmodules,
+  setRepositoryUrl,
+  statusRegionId,
+  submodulesCheckboxId,
+  urlInputId,
+}: CloneFormPanelProps) {
+  return (
+    <div className="space-y-5 px-6 py-5">
+      {/* --- Form fields --- */}
+      <fieldset className="space-y-4" disabled={isBusy}>
+        {/* Repository URL */}
+        <div className="grid gap-1.5">
+          <Label className="text-[0.8125rem]" htmlFor={urlInputId}>
+            Repository URL
+          </Label>
+          <Input
+            aria-describedby={
+              errors.repositoryUrl ? `${urlInputId}-error` : undefined
+            }
+            aria-invalid={Boolean(errors.repositoryUrl)}
+            autoCapitalize="none"
+            autoCorrect="off"
+            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-[0.8125rem] placeholder:font-sans placeholder:text-muted-foreground/60"
+            id={urlInputId}
+            onChange={(event) => {
+              setRepositoryUrl(event.target.value);
+              setErrors((current) => ({
+                ...current,
+                repositoryUrl: undefined,
+              }));
+            }}
+            placeholder="https://github.com/owner/repository.git"
+            ref={repositoryUrlRef}
+            spellCheck={false}
+            type="url"
+            value={repositoryUrl}
+          />
+          {errors.repositoryUrl ? (
+            <p className="text-destructive text-xs" id={`${urlInputId}-error`}>
+              {errors.repositoryUrl}
+            </p>
+          ) : (
+            <p className="text-[0.75rem] text-muted-foreground/70">
+              HTTPS, SSH, or Git transport URL
+            </p>
+          )}
+        </div>
+
+        {/* Destination folder + Browse */}
+        <div className="grid gap-1.5">
+          <Label className="text-[0.8125rem]" htmlFor={destinationInputId}>
+            Destination folder
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              aria-describedby={
+                errors.destinationParent
+                  ? `${destinationInputId}-error`
+                  : undefined
+              }
+              aria-invalid={Boolean(errors.destinationParent)}
+              className="h-9 flex-1 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-[0.8125rem] placeholder:font-sans placeholder:text-muted-foreground/60"
+              id={destinationInputId}
+              onChange={(event) => {
+                setDestinationParent(event.target.value);
+                setErrors((current) => ({
+                  ...current,
+                  destinationParent: undefined,
+                }));
+              }}
+              placeholder="/Users/name/projects"
+              spellCheck={false}
+              value={destinationParent}
+            />
+            <Button
+              className="h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[0.8125rem]"
+              onClick={() => {
+                handlePickDestination().catch(() => {
+                  return;
+                });
+              }}
+              type="button"
+              variant="outline"
+            >
+              <FolderOpenIcon aria-hidden="true" className="size-3.5" />
+              Browse
+            </Button>
+          </div>
+          {errors.destinationParent ? (
+            <p
+              className="text-destructive text-xs"
+              id={`${destinationInputId}-error`}
+            >
+              {errors.destinationParent}
+            </p>
+          ) : (
+            <p className="text-[0.75rem] text-muted-foreground/70">
+              Parent folder for the cloned repository
+            </p>
+          )}
+        </div>
+
+        {/* Folder name */}
+        <div className="grid gap-1.5">
+          <Label className="text-[0.8125rem]" htmlFor={folderInputId}>
+            Folder name
+          </Label>
+          <Input
+            aria-describedby={
+              errors.folderName ? `${folderInputId}-error` : undefined
+            }
+            aria-invalid={Boolean(errors.folderName)}
+            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-[0.8125rem] placeholder:font-sans placeholder:text-muted-foreground/60"
+            id={folderInputId}
+            onChange={(event) => {
+              setFolderName(event.target.value);
+              setIsFolderDirty(event.target.value.trim().length > 0);
+              setErrors((current) => ({
+                ...current,
+                folderName: undefined,
+              }));
+            }}
+            placeholder="repository-name"
+            spellCheck={false}
+            value={folderName}
+          />
+          {errors.folderName ? (
+            <p
+              className="text-destructive text-xs"
+              id={`${folderInputId}-error`}
+            >
+              {errors.folderName}
+            </p>
+          ) : (
+            <p className="text-[0.75rem] text-muted-foreground/70">
+              Auto-filled from URL — rename before cloning if needed
+            </p>
+          )}
+        </div>
+      </fieldset>
+
+      {/* --- Destination path preview --- */}
+      <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3.5 py-2.5">
+        <FolderOpenIcon
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-muted-foreground/70"
+        />
+        <p className="min-w-0 truncate font-mono text-[0.75rem] text-foreground/75">
+          {fullDestinationPath || (
+            <span className="font-sans text-muted-foreground/50">
+              Fill in the fields above to preview the clone path
+            </span>
+          )}
+        </p>
+      </div>
+
+      {/* --- Submodules option --- */}
+      <label
+        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-0.5 py-1"
+        htmlFor={submodulesCheckboxId}
+      >
+        <Checkbox
+          checked={recurseSubmodules}
+          disabled={isBusy}
+          id={submodulesCheckboxId}
+          onCheckedChange={(checked) => {
+            setRecurseSubmodules(checked === true);
+          }}
+        />
+        <span className="select-none text-[0.8125rem] text-foreground/85">
+          Clone submodules recursively
+        </span>
+      </label>
+
+      {/* --- Clone progress (only visible while cloning) --- */}
+      {isCloning && (
+        <section
+          aria-describedby={statusRegionId}
+          aria-live="polite"
+          className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-4"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <SpinnerGapIcon
+                aria-hidden="true"
+                className="size-4 shrink-0 animate-spin text-primary"
+              />
+              <p
+                className="min-w-0 truncate font-medium text-[0.8125rem] text-foreground"
+                id={statusRegionId}
+              >
+                {progressMessage}
+              </p>
+            </div>
+            <span className="shrink-0 font-mono text-[0.6875rem] text-muted-foreground tabular-nums">
+              {progressPercent}%
+            </span>
+          </div>
+
+          <div
+            aria-label="Clone progress"
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={progressPercent}
+            className="h-1.5 overflow-hidden rounded-full bg-primary/10"
+            role="progressbar"
+          >
+            <div
+              className={cn(
+                "h-full rounded-full transition-[width] duration-300 ease-out",
+                "bg-[linear-gradient(90deg,color-mix(in_oklab,var(--color-primary)_82%,white_8%),color-mix(in_oklab,var(--color-primary)_62%,black_4%))]"
+              )}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+
+          {progressDetails && (
+            <p className="text-[0.75rem] text-muted-foreground">
+              {progressDetails}
+            </p>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function CloneDialogFooter({
+  handleClone,
+  handleOpenNow,
+  isBusy,
+  isCloning,
+  onOpenChange,
+  successState,
+}: {
+  handleClone: () => Promise<void>;
+  handleOpenNow: () => Promise<void>;
+  isBusy: boolean;
+  isCloning: boolean;
+  onOpenChange: (open: boolean) => void;
+  successState: CloneSuccessState | null;
+}) {
+  const actionIcon = isCloning ? (
+    <SpinnerGapIcon aria-hidden="true" className="size-4 animate-spin" />
+  ) : (
+    <DownloadSimpleIcon aria-hidden="true" className="size-4" />
+  );
+  const actionLabel = isCloning ? "Cloning..." : "Clone repository";
+
+  if (successState) {
+    return (
+      <DialogFooter className="m-0 border-border/60 bg-muted/22 px-6 py-4 sm:justify-between">
+        <Button
+          onClick={() => {
+            onOpenChange(false);
+          }}
+          type="button"
+          variant="outline"
+        >
+          Close
+        </Button>
+        <Button
+          onClick={() => {
+            handleOpenNow().catch(() => {
+              return;
+            });
+          }}
+          type="button"
+        >
+          <ArrowSquareOutIcon aria-hidden="true" className="size-4" />
+          Open now
+        </Button>
+      </DialogFooter>
+    );
+  }
+
+  return (
+    <DialogFooter className="m-0 border-border/60 bg-muted/22 px-6 py-4 sm:justify-between">
+      <Button
+        disabled={isBusy}
+        onClick={() => {
+          onOpenChange(false);
+        }}
+        type="button"
+        variant="outline"
+      >
+        Cancel
+      </Button>
+      <Button
+        disabled={isBusy}
+        onClick={() => {
+          handleClone().catch(() => {
+            return;
+          });
+        }}
+        type="button"
+      >
+        {actionIcon}
+        {actionLabel}
+      </Button>
+    </DialogFooter>
+  );
+}
+
+export function RepositoryCloneDialog({
+  open,
+  onOpenChange,
+}: RepositoryCloneDialogProps) {
+  const cloneRepository = useRepoStore((state) => state.cloneRepository);
+  const { routeRepository } = useOpenRepositoryTabRouting();
+
+  const [repositoryUrl, setRepositoryUrl] = useState("");
+  const [destinationParent, setDestinationParent] = useState("");
+  const [folderName, setFolderName] = useState("");
+  const [recurseSubmodules, setRecurseSubmodules] = useState(true);
+  const [isFolderDirty, setIsFolderDirty] = useState(false);
+  const [isPickingDestination, setIsPickingDestination] = useState(false);
+  const [isCloning, setIsCloning] = useState(false);
+  const [progress, setProgress] = useState<CloneRepositoryProgress | null>(
+    null
+  );
+  const [successState, setSuccessState] = useState<CloneSuccessState | null>(
+    null
+  );
+  const [errors, setErrors] = useState<ValidationErrors>({});
+
+  const urlInputId = useId();
+  const destinationInputId = useId();
+  const folderInputId = useId();
+  const submodulesCheckboxId = useId();
+  const statusRegionId = useId();
+  const repositoryUrlRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setRepositoryUrl("");
+      setDestinationParent("");
+      setFolderName("");
+      setRecurseSubmodules(true);
+      setIsFolderDirty(false);
+      setIsPickingDestination(false);
+      setIsCloning(false);
+      setProgress(null);
+      setSuccessState(null);
+      setErrors({});
+      return;
+    }
+
+    if (!successState) {
+      queueMicrotask(() => {
+        repositoryUrlRef.current?.focus();
+      });
+    }
+  }, [open, successState]);
+
+  useEffect(() => {
+    if (!(open && !successState)) {
+      return;
+    }
+
+    const derivedFolderName = deriveFolderNameFromUrl(repositoryUrl);
+
+    if (isFolderDirty || derivedFolderName.length === 0) {
+      return;
+    }
+
+    setFolderName(derivedFolderName);
+  }, [isFolderDirty, open, repositoryUrl, successState]);
+
+  useEffect(() => {
+    if (!(open && isCloning)) {
+      return;
+    }
+
+    let isMounted = true;
+    let unsubscribe: (() => void) | undefined;
+
+    listen<CloneRepositoryProgress>(CLONE_PROGRESS_EVENT, (event) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setProgress(event.payload);
+    })
+      .then((unlisten) => {
+        unsubscribe = unlisten;
+      })
+      .catch(() => {
+        return;
+      });
+
+    return () => {
+      isMounted = false;
+      unsubscribe?.();
+    };
+  }, [isCloning, open]);
+
+  const fullDestinationPath = useMemo(() => {
+    const trimmedParent = destinationParent.trim();
+    const trimmedFolder = folderName.trim();
+
+    if (!(trimmedParent && trimmedFolder)) {
+      return "";
+    }
+
+    return `${trimmedParent.replace(TRAILING_PATH_SEPARATOR_REGEX, "")}/${trimmedFolder}`;
+  }, [destinationParent, folderName]);
+
+  const progressPercent = progress?.percent ?? (isCloning ? 8 : 0);
+  const progressMessage = progress?.message ?? DEFAULT_PROGRESS_MESSAGE;
+  const progressDetails = progress ? formatProgressDetails(progress) : null;
+
+  const validateForm = useCallback(() => {
+    const nextErrors: ValidationErrors = {};
+
+    if (!isLikelyRepositoryUrl(repositoryUrl)) {
+      nextErrors.repositoryUrl =
+        "Enter a valid HTTPS, SSH, or Git repository URL.";
+    }
+
+    if (destinationParent.trim().length === 0) {
+      nextErrors.destinationParent = "Choose a local destination folder.";
+    }
+
+    if (folderName.trim().length === 0) {
+      nextErrors.folderName = "Enter a folder name for the cloned repository.";
+    }
+
+    setErrors(nextErrors);
+
+    return Object.keys(nextErrors).length === 0;
+  }, [destinationParent, folderName, repositoryUrl]);
+
+  const handlePickDestination = useCallback(async () => {
+    if (isCloning) {
+      return;
+    }
+
+    setIsPickingDestination(true);
+
+    try {
+      const pickedFolder = await pickCloneDestinationFolder();
+
+      if (!pickedFolder) {
+        return;
+      }
+
+      setDestinationParent(pickedFolder);
+      setErrors((current) => ({ ...current, destinationParent: undefined }));
+    } finally {
+      setIsPickingDestination(false);
+    }
+  }, [isCloning]);
+
+  const handleClone = useCallback(async () => {
+    if (!(validateForm() && !isCloning)) {
+      return;
+    }
+
+    setIsCloning(true);
+    setProgress({
+      message: "Starting clone request",
+      percent: 6,
+      phase: "preparing",
+    });
+
+    try {
+      const openedRepository = await cloneRepository(
+        repositoryUrl.trim(),
+        destinationParent.trim(),
+        folderName.trim(),
+        recurseSubmodules
+      );
+
+      if (!openedRepository) {
+        return;
+      }
+
+      setProgress({
+        message: `Clone complete: ${openedRepository.name}`,
+        percent: 100,
+        phase: "complete",
+      });
+      setSuccessState({
+        name: openedRepository.name,
+        path: openedRepository.path,
+        repoId: openedRepository.id,
+      });
+    } finally {
+      setIsCloning(false);
+    }
+  }, [
+    cloneRepository,
+    destinationParent,
+    folderName,
+    isCloning,
+    recurseSubmodules,
+    repositoryUrl,
+    validateForm,
+  ]);
+
+  const handleOpenNow = useCallback(async () => {
+    if (!successState) {
+      return;
+    }
+
+    await routeRepository(successState.repoId, successState.name);
+    onOpenChange(false);
+  }, [onOpenChange, routeRepository, successState]);
+
+  const isBusy = isCloning || isPickingDestination;
+
+  const headerIcon = (() => {
+    if (successState) {
+      return (
+        <CheckCircleIcon
+          aria-hidden="true"
+          className="size-[1.125rem] text-emerald-400"
+        />
+      );
+    }
+
+    if (isCloning) {
+      return (
+        <SpinnerGapIcon
+          aria-hidden="true"
+          className="size-[1.125rem] animate-spin text-primary"
+        />
+      );
+    }
+
+    return (
+      <DownloadSimpleIcon
+        aria-hidden="true"
+        className="size-[1.125rem] text-primary"
+      />
+    );
+  })();
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent
+        className="max-h-[min(92dvh,44rem)] max-w-[min(96vw,30rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-background)_96%,transparent),color-mix(in_oklab,var(--color-muted)_70%,transparent))] p-0 shadow-[0_24px_72px_-24px_rgba(0,0,0,0.55)] sm:max-w-[min(96vw,30rem)]"
+        showCloseButton={!isBusy}
+      >
+        <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/25">
+              {headerIcon}
+            </div>
+            <DialogTitle className="text-[0.9375rem]">
+              {successState ? "Repository cloned" : "Clone a repository"}
+            </DialogTitle>
+          </div>
+          <DialogDescription className="max-w-[44ch] text-[0.8125rem] leading-relaxed">
+            {successState
+              ? `"${successState.name}" is now available locally.`
+              : "Clone from a remote URL into a local folder."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-y-auto">
+          {successState ? (
+            <CloneSuccessPanel successState={successState} />
+          ) : (
+            <CloneFormPanel
+              destinationInputId={destinationInputId}
+              destinationParent={destinationParent}
+              errors={errors}
+              folderInputId={folderInputId}
+              folderName={folderName}
+              fullDestinationPath={fullDestinationPath}
+              handlePickDestination={handlePickDestination}
+              isBusy={isBusy}
+              isCloning={isCloning}
+              progressDetails={progressDetails}
+              progressMessage={progressMessage}
+              progressPercent={progressPercent}
+              recurseSubmodules={recurseSubmodules}
+              repositoryUrl={repositoryUrl}
+              repositoryUrlRef={repositoryUrlRef}
+              setDestinationParent={setDestinationParent}
+              setErrors={setErrors}
+              setFolderName={setFolderName}
+              setIsFolderDirty={setIsFolderDirty}
+              setRecurseSubmodules={setRecurseSubmodules}
+              setRepositoryUrl={setRepositoryUrl}
+              statusRegionId={statusRegionId}
+              submodulesCheckboxId={submodulesCheckboxId}
+              urlInputId={urlInputId}
+            />
+          )}
+        </div>
+
+        <CloneDialogFooter
+          handleClone={handleClone}
+          handleOpenNow={handleOpenNow}
+          isBusy={isBusy}
+          isCloning={isCloning}
+          onOpenChange={onOpenChange}
+          successState={successState}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}

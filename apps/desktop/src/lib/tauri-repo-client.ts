@@ -35,6 +35,15 @@ interface GlobalTauriLike {
   __TAURI_INTERNALS__?: TauriInternalsLike;
 }
 
+export interface CloneRepositoryProgress {
+  message: string;
+  percent?: number;
+  phase: "preparing" | "receiving" | "resolving" | "complete";
+  receivedObjects?: number;
+  resolvedObjects?: number;
+  totalObjects?: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -345,6 +354,48 @@ export async function createRepoInitialCommit(path: string) {
   await invoke("create_repository_initial_commit", {
     repoPath: path,
   });
+}
+
+export async function cloneRepo(
+  repositoryUrl: string,
+  destinationParent: string,
+  folderName: string,
+  recurseSubmodules: boolean
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Clone repository works in Tauri desktop app only");
+  }
+
+  const result = await invoke("clone_git_repository", {
+    destinationParent,
+    destinationFolderName: folderName,
+    recurseSubmodules,
+    repositoryUrl,
+  });
+
+  return parsePickedRepository(result);
+}
+
+export async function pickCloneDestinationFolder() {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Pick folder works in Tauri desktop app only");
+  }
+
+  const result = await invoke("pick_clone_destination_folder");
+
+  if (result === null) {
+    return null;
+  }
+
+  if (typeof result !== "string") {
+    throw new Error("Invalid clone destination payload");
+  }
+
+  return result;
 }
 
 export async function stageAllRepoChanges(path: string) {

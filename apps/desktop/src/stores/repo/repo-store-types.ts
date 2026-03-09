@@ -64,6 +64,12 @@ export type OpenRepositoryResult =
 export interface RepoStoreState {
   activeRepoId: string | null;
   clearActiveRepo: () => void;
+  cloneRepository: (
+    repositoryUrl: string,
+    destinationParent: string,
+    folderName: string,
+    recurseSubmodules: boolean
+  ) => Promise<OpenedRepository | null>;
   closeRepository: (id: string) => void;
   commitChanges: (
     id: string,
