@@ -42,6 +42,7 @@ import { cn } from "@litgit/ui/lib/utils";
 import {
   ArrowBendRightUpIcon,
   ArrowDownIcon,
+  ArrowUpIcon,
   CaretDownIcon,
   CaretRightIcon,
   CircleIcon,
@@ -73,6 +74,7 @@ import { useRepoStore } from "@/stores/repo/use-repo-store";
 interface SidebarEntry {
   active?: boolean;
   name: string;
+  pendingPushCount?: number;
   pendingSyncCount?: number;
   searchName: string;
   stashRef?: string;
@@ -184,6 +186,7 @@ export function RepoInfo() {
       const branchEntry: SidebarEntry = {
         active: branch.isCurrent,
         name: branch.name,
+        pendingPushCount: branch.aheadCount > 0 ? branch.aheadCount : undefined,
         pendingSyncCount:
           branch.behindCount > 0 ? branch.behindCount : undefined,
         searchName: branch.name.toLowerCase(),
@@ -1106,6 +1109,14 @@ export function RepoInfo() {
                                   <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
                                     <ArrowDownIcon className="size-3" />
                                     {entry.pendingSyncCount}
+                                  </span>
+                                ) : null}
+                                {entry.type === "branch" &&
+                                typeof entry.pendingPushCount === "number" &&
+                                entry.pendingPushCount > 0 ? (
+                                  <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
+                                    <ArrowUpIcon className="size-3" />
+                                    {entry.pendingPushCount}
                                   </span>
                                 ) : null}
                                 <DropdownMenu
