@@ -1,5 +1,13 @@
 import { Button } from "@litgit/ui/components/button";
 import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@litgit/ui/components/combobox";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -41,6 +49,8 @@ import {
 import { cn } from "@litgit/ui/lib/utils";
 import {
   ArrowBendRightUpIcon,
+  ArrowClockwiseIcon,
+  ArrowCounterClockwiseIcon,
   ArrowDownIcon,
   ArrowUpIcon,
   CaretDownIcon,
@@ -49,10 +59,12 @@ import {
   ClockCounterClockwiseIcon,
   DotOutlineIcon,
   DotsThreeVerticalIcon,
+  DownloadSimpleIcon,
   GitBranchIcon,
   GithubLogoIcon,
   StackSimpleIcon,
   TagIcon,
+  UploadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import {
@@ -85,6 +97,17 @@ interface SidebarGroupItem {
   count: number;
   entries: SidebarEntry[];
   key: string;
+  name: string;
+}
+
+type PullActionMode =
+  | "fetch-all"
+  | "pull-ff-possible"
+  | "pull-ff-only"
+  | "pull-rebase";
+
+interface BranchComboboxOption {
+  isRemote: boolean;
   name: string;
 }
 
@@ -147,7 +170,16 @@ export function RepoInfo() {
   const [draftCommitSummary, setDraftCommitSummary] = useState("");
   const [draftCommitDescription, setDraftCommitDescription] = useState("");
   const [amendPreviousCommit, setAmendPreviousCommit] = useState(false);
+  const [pullActionMode, setPullActionMode] =
+    useState<PullActionMode>("pull-ff-possible");
   const [openEntryMenuKey, setOpenEntryMenuKey] = useState<string | null>(null);
+  const pullActionLabelByMode: Record<PullActionMode, string> = {
+    "fetch-all": "Fetch All",
+    "pull-ff-only": "Pull (fast-forward only)",
+    "pull-ff-possible": "Pull (fast-forward if possible)",
+    "pull-rebase": "Pull (rebase)",
+  };
+  const selectedPullActionLabel = pullActionLabelByMode[pullActionMode];
   const [sidebarFilterInputValue, setSidebarFilterInputValue] = useState("");
   const [sidebarFilterQuery, setSidebarFilterQuery] = useState("");
   const sidebarFilterInputRef = useRef<HTMLInputElement | null>(null);
@@ -182,6 +214,22 @@ export function RepoInfo() {
   const canCommit = draftCommitSummary.trim().length > 0 && hasStagedChanges;
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
+  const branchComboboxOptions = useMemo<BranchComboboxOption[]>(
+    () =>
+      branches
+        .filter((branch) => branch.refType !== "tag")
+        .map((branch) => ({
+          isRemote: branch.isRemote,
+          name: branch.name,
+        })),
+    [branches]
+  );
+  const selectedBranchOption = useMemo(
+    () =>
+      branchComboboxOptions.find((branch) => branch.name === currentBranch) ??
+      null,
+    [branchComboboxOptions, currentBranch]
+  );
   const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
     const localEntries: SidebarEntry[] = [];
     const remoteEntries: SidebarEntry[] = [];
@@ -585,6 +633,38 @@ export function RepoInfo() {
     } finally {
       setIsDroppingStash(false);
     }
+  };
+
+  const handleToolbarBranchChange = async (
+    nextValue: BranchComboboxOption | null
+  ) => {
+    if (
+      !nextValue ||
+      nextValue.name === currentBranch ||
+      !activeRepoId ||
+      isSwitchingBranch
+    ) {
+      return;
+    }
+
+    setIsSwitchingBranch(true);
+
+    try {
+      await switchBranch(activeRepoId, nextValue.name);
+      toast.success("Checkout Successful", {
+        description: `refs/heads/${nextValue.name}`,
+      });
+    } catch (error) {
+      toast.error("Failed to switch branch", {
+        description: getCheckoutFailureReason(error),
+      });
+    } finally {
+      setIsSwitchingBranch(false);
+    }
+  };
+
+  const handlePullWithSelectedMode = () => {
+    return undefined;
   };
 
   const renderEntryDropdownMenuContent = (entry: SidebarEntry) => {
@@ -1197,232 +1277,483 @@ export function RepoInfo() {
           </SidebarContent>
         </Sidebar>
 
-        <section className="flex min-w-0 flex-1 flex-col">
-          <div className="grid grid-cols-[180px_60px_minmax(0,1fr)] border-border/60 border-b px-3 py-2 text-[0.68rem] text-muted-foreground uppercase tracking-[0.14em]">
-            <span>Branch / Tag</span>
-            <span className="text-center">Graph</span>
-            <span>Commit Message</span>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {commits.map((item, index) => (
-              <button
-                className={cn(
-                  "group grid h-12 w-full grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 text-left transition-colors",
-                  selectedCommitId === item.hash
-                    ? "bg-accent/30"
-                    : "hover:bg-accent/20"
-                )}
-                key={item.hash}
-                onClick={() => {
-                  const isSameCommit = selectedCommitId === item.hash;
-
-                  if (isSameCommit && isRightSidebarOpen) {
-                    setIsRightSidebarOpen(false);
-                    return;
-                  }
-
-                  setSelectedCommitId(item.hash);
-                  setIsRightSidebarOpen(true);
-                  setRightMode("details");
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="grid w-full grid-cols-[minmax(0,14rem)_minmax(0,1fr)] items-center gap-2 border-border/60 border-b bg-background px-3 py-1.5 text-foreground">
+            <div className="flex min-w-0 items-center justify-start gap-1">
+              <Combobox
+                autoHighlight
+                disabled={
+                  isSwitchingBranch || branchComboboxOptions.length === 0
+                }
+                items={branchComboboxOptions}
+                itemToStringLabel={(item: BranchComboboxOption) => item.name}
+                onValueChange={(nextValue: BranchComboboxOption | null) => {
+                  handleToolbarBranchChange(nextValue).catch(() => undefined);
                 }}
-                type="button"
+                value={selectedBranchOption}
               >
-                <div className="min-w-0 truncate">
-                  {item.refs.length > 0 ? (
-                    <div className="flex min-w-0 items-center gap-1">
-                      {item.refs.slice(0, 2).map((ref) => (
-                        <span
-                          className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
-                          key={ref}
-                        >
-                          {ref}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-muted-foreground/70 text-xs">-</span>
-                  )}
-                </div>
-                <div className="relative flex h-full items-center justify-center">
-                  <span className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-border/60 border-l" />
-                  <span
-                    className={cn(
-                      "relative z-10 size-2 rounded-full border",
-                      item.parentHashes.length > 1
-                        ? "border-primary bg-primary"
-                        : "border-border bg-background"
+                <ComboboxInput
+                  className="w-56"
+                  placeholder="Find branch..."
+                  showClear={false}
+                />
+                <ComboboxContent>
+                  <ComboboxEmpty>No branch found.</ComboboxEmpty>
+                  <ComboboxList>
+                    {(option: BranchComboboxOption) => (
+                      <ComboboxItem key={option.name} value={option}>
+                        <div className="flex min-w-0 flex-1 items-center gap-2 pr-6">
+                          <GitBranchIcon className="size-3.5 text-muted-foreground" />
+                          <span className="truncate">{option.name}</span>
+                          {option.isRemote ? (
+                            <span className="ml-auto text-muted-foreground text-xs">
+                              remote
+                            </span>
+                          ) : null}
+                        </div>
+                      </ComboboxItem>
                     )}
-                  />
-                  {index === 0 ? (
-                    <span className="absolute top-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-[1px]" />
-                  ) : null}
-                  {index === commits.length - 1 ? (
-                    <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-[1px]" />
-                  ) : null}
-                </div>
-                <div className="flex min-w-0 items-center gap-2">
-                  <p className="min-w-0 flex-1 truncate pr-2 text-sm">
-                    {item.message}
-                  </p>
-                  <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
-                    {item.author}
-                  </span>
-                </div>
-              </button>
-            ))}
-            {commits.length === 0 && !isLoadingHistory ? (
-              <div className="px-3 py-4 text-muted-foreground text-sm">
-                No commits found.
-              </div>
-            ) : null}
-            {isLoadingHistory ? (
-              <div className="px-3 py-4 text-muted-foreground text-sm">
-                Loading commits...
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <aside
-          className={cn(
-            "flex h-full w-80 shrink-0 flex-col border-border/70 border-l bg-muted/20",
-            !isRightSidebarOpen && "hidden"
-          )}
-        >
-          <header className="border-border/70 border-b px-4 py-3">
-            <div className="inline-flex rounded-md border border-border/80 bg-background/70 p-0.5">
-              <button
-                className={cn(
-                  "rounded px-2.5 py-1 font-medium text-xs transition-colors",
-                  rightMode === "details"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setRightMode("details")}
-                type="button"
-              >
-                Details
-              </button>
-              <button
-                className={cn(
-                  "rounded px-2.5 py-1 font-medium text-xs transition-colors",
-                  rightMode === "commit"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setRightMode("commit")}
-                type="button"
-              >
-                Commit
-              </button>
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
             </div>
-          </header>
-
-          {rightMode === "details" && selectedCommit ? (
-            <div className="space-y-4 px-4 py-4">
-              <div>
-                <p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.16em]">
-                  Selected Commit
-                </p>
-                <p className="mt-2 font-medium text-sm">
-                  {selectedCommit.message}
-                </p>
-                <p className="mt-1 text-muted-foreground text-xs">
-                  {selectedCommit.shortHash}
-                </p>
+            <div className="w-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-max items-center justify-end gap-1">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Undo"
+                        size="default"
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <ArrowCounterClockwiseIcon className="size-4 text-muted-foreground" />
+                    <span className="hidden whitespace-nowrap lg:inline">
+                      Undo
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="lg:hidden" side="bottom">
+                    Undo
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Redo"
+                        size="default"
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <ArrowClockwiseIcon className="size-4 text-muted-foreground" />
+                    <span className="hidden whitespace-nowrap lg:inline">
+                      Redo
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="lg:hidden" side="bottom">
+                    Redo
+                  </TooltipContent>
+                </Tooltip>
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <InputGroup className="h-8 w-auto border-border/60 bg-transparent">
+                          <Button
+                            aria-label={`Run ${selectedPullActionLabel}`}
+                            className="h-7 rounded-r-none border-0 px-2"
+                            onClick={handlePullWithSelectedMode}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <DownloadSimpleIcon className="size-4 text-muted-foreground" />
+                            <span className="hidden whitespace-nowrap lg:inline">
+                              Pull
+                            </span>
+                          </Button>
+                          <InputGroupAddon align="inline-end" className="pr-0">
+                            <DropdownMenuTrigger
+                              render={
+                                <Button
+                                  aria-label="Select pull mode"
+                                  className="h-7 rounded-l-none border-0 border-border/60 border-l px-1.5"
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                />
+                              }
+                            >
+                              <CaretDownIcon className="size-3 text-muted-foreground" />
+                            </DropdownMenuTrigger>
+                          </InputGroupAddon>
+                        </InputGroup>
+                      }
+                    />
+                    <TooltipContent className="lg:hidden" side="bottom">
+                      {selectedPullActionLabel}
+                    </TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent
+                    align="center"
+                    className="w-72"
+                    side="bottom"
+                    sideOffset={6}
+                  >
+                    <DropdownMenuItem
+                      className={cn(
+                        "gap-2",
+                        pullActionMode === "fetch-all" &&
+                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                      )}
+                      onClick={() => setPullActionMode("fetch-all")}
+                    >
+                      Fetch All
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className={cn(
+                        "gap-2",
+                        pullActionMode === "pull-ff-possible" &&
+                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                      )}
+                      onClick={() => setPullActionMode("pull-ff-possible")}
+                    >
+                      Pull (fast-forward if possible)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className={cn(
+                        "gap-2",
+                        pullActionMode === "pull-ff-only" &&
+                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                      )}
+                      onClick={() => setPullActionMode("pull-ff-only")}
+                    >
+                      Pull (fast-forward only)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className={cn(
+                        "gap-2",
+                        pullActionMode === "pull-rebase" &&
+                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                      )}
+                      onClick={() => setPullActionMode("pull-rebase")}
+                    >
+                      Pull (rebase)
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Push"
+                        size="default"
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <UploadSimpleIcon className="size-4 text-muted-foreground" />
+                    <span className="hidden whitespace-nowrap lg:inline">
+                      Push
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="lg:hidden" side="bottom">
+                    Push
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Branch"
+                        size="default"
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <GitBranchIcon className="size-4 text-muted-foreground" />
+                    <span className="hidden whitespace-nowrap lg:inline">
+                      Branch
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="lg:hidden" side="bottom">
+                    Branch
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Stash"
+                        size="default"
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <StackSimpleIcon className="size-4 text-muted-foreground" />
+                    <span className="hidden whitespace-nowrap lg:inline">
+                      Stash
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="lg:hidden" side="bottom">
+                    Stash
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Pop"
+                        size="default"
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <ArrowBendRightUpIcon className="size-4 text-muted-foreground" />
+                    <span className="hidden whitespace-nowrap lg:inline">
+                      Pop
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="lg:hidden" side="bottom">
+                    Pop
+                  </TooltipContent>
+                </Tooltip>
               </div>
+            </div>
+          </div>
 
-              <div className="space-y-2 rounded-md border border-border/70 bg-background/80 p-3">
-                <div className="flex items-center gap-2 text-xs">
-                  <CircleIcon className="size-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">SHA</span>
-                  <code className="ml-auto font-mono text-foreground">
-                    {selectedCommit.shortHash}
-                  </code>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <ArrowBendRightUpIcon className="size-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Author</span>
-                  <span className="ml-auto">{selectedCommit.author}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <ClockCounterClockwiseIcon className="size-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Committed</span>
-                  <span className="ml-auto">
-                    {formatCommitDate(selectedCommit.date)}
-                  </span>
-                </div>
-                <div className="flex items-start gap-2 text-xs">
-                  <TagIcon className="mt-0.5 size-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Refs</span>
-                  <div className="ml-auto flex flex-wrap justify-end gap-1">
-                    {(selectedCommit.refs.length > 0
-                      ? selectedCommit.refs
-                      : ["-"]
-                    ).map((ref) => (
-                      <span
-                        className="rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
-                        key={ref}
-                      >
-                        {ref}
+          <div className="flex min-h-0 flex-1">
+            <section className="flex min-w-0 flex-1 flex-col">
+              <div className="grid grid-cols-[180px_60px_minmax(0,1fr)] border-border/60 border-b px-3 py-2 text-[0.68rem] text-muted-foreground uppercase tracking-[0.14em]">
+                <span>Branch / Tag</span>
+                <span className="text-center">Graph</span>
+                <span>Commit Message</span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {commits.map((item, index) => (
+                  <button
+                    className={cn(
+                      "group grid h-12 w-full grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 text-left transition-colors",
+                      selectedCommitId === item.hash
+                        ? "bg-accent/30"
+                        : "hover:bg-accent/20"
+                    )}
+                    key={item.hash}
+                    onClick={() => {
+                      const isSameCommit = selectedCommitId === item.hash;
+
+                      if (isSameCommit && isRightSidebarOpen) {
+                        setIsRightSidebarOpen(false);
+                        return;
+                      }
+
+                      setSelectedCommitId(item.hash);
+                      setIsRightSidebarOpen(true);
+                      setRightMode("details");
+                    }}
+                    type="button"
+                  >
+                    <div className="min-w-0 truncate">
+                      {item.refs.length > 0 ? (
+                        <div className="flex min-w-0 items-center gap-1">
+                          {item.refs.slice(0, 2).map((ref) => (
+                            <span
+                              className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
+                              key={ref}
+                            >
+                              {ref}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground/70 text-xs">
+                          -
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative flex h-full items-center justify-center">
+                      <span className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-border/60 border-l" />
+                      {index === 0 ? (
+                        <span className="absolute top-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
+                      ) : null}
+                      {index === commits.length - 1 ? (
+                        <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
+                      ) : null}
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                        {item.message}
+                      </p>
+                      <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
+                        {item.author}
                       </span>
-                    ))}
+                    </div>
+                  </button>
+                ))}
+                {commits.length === 0 && !isLoadingHistory ? (
+                  <div className="px-3 py-4 text-muted-foreground text-sm">
+                    No commits found.
+                  </div>
+                ) : null}
+                {isLoadingHistory ? (
+                  <div className="px-3 py-4 text-muted-foreground text-sm">
+                    Loading commits...
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <aside
+              className={cn(
+                "flex h-full w-80 shrink-0 flex-col border-border/70 border-l bg-muted/20",
+                !isRightSidebarOpen && "hidden"
+              )}
+            >
+              <header className="border-border/70 border-b px-4 py-3">
+                <div className="inline-flex rounded-md border border-border/80 bg-background/70 p-0.5">
+                  <button
+                    className={cn(
+                      "rounded px-2.5 py-1 font-medium text-xs transition-colors",
+                      rightMode === "details"
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => setRightMode("details")}
+                    type="button"
+                  >
+                    Details
+                  </button>
+                  <button
+                    className={cn(
+                      "rounded px-2.5 py-1 font-medium text-xs transition-colors",
+                      rightMode === "commit"
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => setRightMode("commit")}
+                    type="button"
+                  >
+                    Commit
+                  </button>
+                </div>
+              </header>
+
+              {rightMode === "details" && selectedCommit ? (
+                <div className="space-y-4 px-4 py-4">
+                  <div>
+                    <p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.16em]">
+                      Selected Commit
+                    </p>
+                    <p className="mt-2 font-medium text-sm">
+                      {selectedCommit.message}
+                    </p>
+                    <p className="mt-1 text-muted-foreground text-xs">
+                      {selectedCommit.shortHash}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 rounded-md border border-border/70 bg-background/80 p-3">
+                    <div className="flex items-center gap-2 text-xs">
+                      <CircleIcon className="size-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">SHA</span>
+                      <code className="ml-auto font-mono text-foreground">
+                        {selectedCommit.shortHash}
+                      </code>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <ArrowBendRightUpIcon className="size-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Author</span>
+                      <span className="ml-auto">{selectedCommit.author}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <ClockCounterClockwiseIcon className="size-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Committed</span>
+                      <span className="ml-auto">
+                        {formatCommitDate(selectedCommit.date)}
+                      </span>
+                    </div>
+                    <div className="flex items-start gap-2 text-xs">
+                      <TagIcon className="mt-0.5 size-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Refs</span>
+                      <div className="ml-auto flex flex-wrap justify-end gap-1">
+                        {(selectedCommit.refs.length > 0
+                          ? selectedCommit.refs
+                          : ["-"]
+                        ).map((ref) => (
+                          <span
+                            className="rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
+                            key={ref}
+                          >
+                            {ref}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          ) : (
-            <form className="flex min-h-0 flex-1 flex-col px-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="commit-summary">Commit summary</Label>
-                <Input
-                  id="commit-summary"
-                  onChange={(event) =>
-                    setDraftCommitSummary(event.target.value)
-                  }
-                  placeholder="Describe your changes"
-                  value={draftCommitSummary}
-                />
-              </div>
-              <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2">
-                <Label htmlFor="commit-description">Description</Label>
-                <textarea
-                  className="min-h-32 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                  id="commit-description"
-                  onChange={(event) =>
-                    setDraftCommitDescription(event.target.value)
-                  }
-                  placeholder="Optional details..."
-                  value={draftCommitDescription}
-                />
-              </div>
-              <label className="mt-3 inline-flex items-center gap-2 text-xs">
-                <input
-                  checked={amendPreviousCommit}
-                  className="rounded border-input"
-                  onChange={(event) =>
-                    setAmendPreviousCommit(event.target.checked)
-                  }
-                  type="checkbox"
-                />
-                Amend previous commit
-              </label>
-              <Button
-                className="mt-4 w-full"
-                disabled={
-                  isStagingAll ||
-                  isCommitting ||
-                  (hasUnstagedChanges ? false : !canCommit)
-                }
-                onClick={handlePrimaryCommitAction}
-                type="button"
-              >
-                <DotOutlineIcon className="size-4" />
-                Stage Changes to Commit
-              </Button>
-            </form>
-          )}
-        </aside>
+              ) : (
+                <form className="flex min-h-0 flex-1 flex-col px-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="commit-summary">Commit summary</Label>
+                    <Input
+                      id="commit-summary"
+                      onChange={(event) =>
+                        setDraftCommitSummary(event.target.value)
+                      }
+                      placeholder="Describe your changes"
+                      value={draftCommitSummary}
+                    />
+                  </div>
+                  <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2">
+                    <Label htmlFor="commit-description">Description</Label>
+                    <textarea
+                      className="min-h-32 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                      id="commit-description"
+                      onChange={(event) =>
+                        setDraftCommitDescription(event.target.value)
+                      }
+                      placeholder="Optional details..."
+                      value={draftCommitDescription}
+                    />
+                  </div>
+                  <label className="mt-3 inline-flex items-center gap-2 text-xs">
+                    <input
+                      checked={amendPreviousCommit}
+                      className="rounded border-input"
+                      onChange={(event) =>
+                        setAmendPreviousCommit(event.target.checked)
+                      }
+                      type="checkbox"
+                    />
+                    Amend previous commit
+                  </label>
+                  <Button
+                    className="mt-4 w-full"
+                    disabled={
+                      isStagingAll ||
+                      isCommitting ||
+                      (hasUnstagedChanges ? false : !canCommit)
+                    }
+                    onClick={handlePrimaryCommitAction}
+                    type="button"
+                  >
+                    <DotOutlineIcon className="size-4" />
+                    Stage Changes to Commit
+                  </Button>
+                </form>
+              )}
+            </aside>
+          </div>
+        </div>
       </div>
     </div>
   );

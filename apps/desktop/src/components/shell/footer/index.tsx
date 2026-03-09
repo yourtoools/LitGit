@@ -5,7 +5,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
+import { TerminalWindowIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
+
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
@@ -92,6 +94,14 @@ export default function Footer() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-4">
             <KeyboardShortcutsDialog />
+            <button
+              aria-label="Terminal"
+              className="relative flex cursor-pointer items-center gap-1 py-1 text-muted-foreground text-xs leading-none outline-none transition-colors hover:text-foreground focus-visible:text-foreground"
+              type="button"
+            >
+              <TerminalWindowIcon className="size-3.5" />
+              <span className="whitespace-nowrap">Terminal</span>
+            </button>
             <FooterZoomControl
               onSelectZoom={setZoom}
               zoom={zoom}

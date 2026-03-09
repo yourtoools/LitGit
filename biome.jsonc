@@ -38,6 +38,14 @@
                 ]
               }
             }
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "warn",
+              "options": {
+                "maxAllowedComplexity": 25
+              }
+            }
           }
         }
       }
