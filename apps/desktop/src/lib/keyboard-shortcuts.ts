@@ -117,6 +117,22 @@ export const isOpenRepositoryChordEndShortcut = (event: ShortcutEvent) => {
   return !event.altKey && event.key.toLowerCase() === "o";
 };
 
+export const isNextTabShortcut = (event: ShortcutEvent) => {
+  return (
+    !(event.altKey || event.shiftKey) &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key === "Tab"
+  );
+};
+
+export const isPreviousTabShortcut = (event: ShortcutEvent) => {
+  return (
+    !event.altKey &&
+    event.shiftKey &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key === "Tab"
+  );
+};
 export const getOpenRepositoryShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + O`;
 };
@@ -149,6 +165,13 @@ export const getReopenClosedTabShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + Shift + T`;
 };
 
+export const getNextTabShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + Tab`;
+};
+
+export const getPreviousTabShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + Shift + Tab`;
+};
 export const getKeyboardShortcutsShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + /`;
 };

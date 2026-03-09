@@ -69,6 +69,8 @@ import {
   getNewTabShortcutLabel,
   isCloseTabShortcut,
   isEditableTarget,
+  isNextTabShortcut,
+  isPreviousTabShortcut,
   isPrimaryShortcut,
   isReopenClosedTabShortcut,
 } from "@/lib/keyboard-shortcuts";
@@ -833,6 +835,31 @@ export function TabBar() {
     requestCloseTab(activeTabId);
   }, [activeTabId, isSingleTab, requestCloseTab, sortedTabs]);
 
+  const handleCycleTabs = useCallback(
+    (direction: "next" | "previous") => {
+      if (sortedTabs.length === 0) {
+        return;
+      }
+
+      const activeIndex = activeTabId
+        ? sortedTabs.findIndex((tab) => tab.id === activeTabId)
+        : -1;
+      const currentIndex = activeIndex >= 0 ? activeIndex : 0;
+      const delta = direction === "next" ? 1 : -1;
+      const nextIndex =
+        (currentIndex + delta + sortedTabs.length) % sortedTabs.length;
+      const nextTab = sortedTabs[nextIndex];
+
+      if (!nextTab) {
+        return;
+      }
+
+      pendingKeyboardFocusTabIdRef.current = nextTab.id;
+      setActiveTabFromUrl(nextTab.id);
+    },
+    [activeTabId, setActiveTabFromUrl, sortedTabs]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -915,6 +942,35 @@ export function TabBar() {
       window.removeEventListener("keydown", handleCloseTabShortcut);
     };
   }, [handleCloseActiveTab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleCycleTabShortcut = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (isPreviousTabShortcut(event)) {
+        event.preventDefault();
+        handleCycleTabs("previous");
+        return;
+      }
+
+      if (isNextTabShortcut(event)) {
+        event.preventDefault();
+        handleCycleTabs("next");
+      }
+    };
+
+    window.addEventListener("keydown", handleCycleTabShortcut);
+
+    return () => {
+      window.removeEventListener("keydown", handleCycleTabShortcut);
+    };
+  }, [handleCycleTabs]);
 
   const handleTabListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) {
