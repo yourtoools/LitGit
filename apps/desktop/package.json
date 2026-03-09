@@ -10,6 +10,7 @@
     "desktop-web": "vite dev",
     "dev": "tauri dev",
     "dev:desktop-web": "vite dev",
+    "gen:gitignore-templates": "node scripts/generate-gitignore-templates.mjs",
     "serve": "vite preview",
     "start": "vite",
     "tauri": "tauri"
@@ -29,10 +30,12 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "dotenv": "catalog:",
+    "gitignore-templates": "^0.0.6",
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "sonner": "catalog:",
+    "spdx-license-list": "^6.11.0",
     "zod": "catalog:",
     "zustand": "^5.0.11"
   },

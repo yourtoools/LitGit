@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -116,6 +117,77 @@ fn pick_clone_destination_folder() -> Result<Option<String>, String> {
     };
 
     Ok(Some(folder.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn create_local_repository(
+    name: String,
+    destination_parent: String,
+    default_branch: String,
+    gitignore_template_key: Option<String>,
+    gitignore_template_content: Option<String>,
+    license_template_key: Option<String>,
+    license_template_content: Option<String>,
+) -> Result<PickedRepository, String> {
+    let trimmed_name = name.trim();
+    let trimmed_parent = destination_parent.trim();
+    let trimmed_branch = default_branch.trim();
+
+    if trimmed_name.is_empty() {
+        return Err("Repository name is required".to_string());
+    }
+
+    if trimmed_parent.is_empty() {
+        return Err("Initialize in folder is required".to_string());
+    }
+
+    if trimmed_branch.is_empty() {
+        return Err("Default branch name is required".to_string());
+    }
+
+    validate_repository_name(trimmed_name)?;
+    validate_branch_name(trimmed_branch)?;
+
+    let destination_parent_path = Path::new(trimmed_parent);
+    validate_repository_path(destination_parent_path)?;
+
+    let repo_path = destination_parent_path.join(trimmed_name);
+
+    if repo_path.exists() {
+        return Err("A folder with that repository name already exists".to_string());
+    }
+
+    fs::create_dir(&repo_path)
+        .map_err(|error| format!("Failed to create repository folder: {error}"))?;
+
+    let creation_result = (|| -> Result<(), String> {
+        initialize_git_repository(&repo_path, trimmed_branch)?;
+        write_repository_files(
+            &repo_path,
+            trimmed_name,
+            gitignore_template_key.as_deref(),
+            gitignore_template_content.as_deref(),
+            license_template_key.as_deref(),
+            license_template_content.as_deref(),
+        )?;
+        create_initial_commit(&repo_path)?;
+        Ok(())
+    })();
+
+    if let Err(error) = creation_result {
+        let _ = fs::remove_dir_all(&repo_path);
+        return Err(error);
+    }
+
+    let path = repo_path.to_string_lossy().to_string();
+    let name = folder_name(&repo_path).unwrap_or_else(|| trimmed_name.to_string());
+
+    Ok(PickedRepository {
+        has_initial_commit: true,
+        is_git_repository: true,
+        name,
+        path,
+    })
 }
 
 #[tauri::command]
@@ -1061,6 +1133,147 @@ fn git_error_message(stderr: &[u8], fallback: &str) -> String {
     }
 }
 
+fn validate_repository_name(name: &str) -> Result<(), String> {
+    if name == "." || name == ".." {
+        return Err("Repository name must be more specific".to_string());
+    }
+
+    if name.contains('/') || name.contains('\\') {
+        return Err("Repository name cannot contain path separators".to_string());
+    }
+
+    Ok(())
+}
+
+fn validate_branch_name(name: &str) -> Result<(), String> {
+    if name.contains(' ') {
+        return Err("Default branch name cannot contain spaces".to_string());
+    }
+
+    if name.contains('~')
+        || name.contains('^')
+        || name.contains(':')
+        || name.contains('?')
+        || name.contains('*')
+        || name.contains('[')
+        || name.contains('\\')
+    {
+        return Err("Default branch name contains unsupported characters".to_string());
+    }
+
+    if name.starts_with('/')
+        || name.ends_with('/')
+        || name.starts_with('.')
+        || name.ends_with('.')
+        || name.ends_with(".lock")
+        || name.contains("..")
+        || name.contains("@{")
+        || name.contains("//")
+    {
+        return Err("Enter a valid Git branch name".to_string());
+    }
+
+    Ok(())
+}
+
+fn initialize_git_repository(repo_path: &Path, default_branch: &str) -> Result<(), String> {
+    let init_output = Command::new("git")
+        .args(["-C", repo_path.to_string_lossy().as_ref(), "init"])
+        .output()
+        .map_err(|error| format!("Failed to run git init: {error}"))?;
+
+    if !init_output.status.success() {
+        return Err(git_error_message(
+            &init_output.stderr,
+            "Failed to initialize repository",
+        ));
+    }
+
+    let default_head = format!("refs/heads/{default_branch}");
+    let head_output = Command::new("git")
+        .args([
+            "-C",
+            repo_path.to_string_lossy().as_ref(),
+            "symbolic-ref",
+            "HEAD",
+            &default_head,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to set default branch: {error}"))?;
+
+    if !head_output.status.success() {
+        return Err(git_error_message(
+            &head_output.stderr,
+            "Failed to set default branch",
+        ));
+    }
+
+    Ok(())
+}
+
+fn write_repository_files(
+    repo_path: &Path,
+    repository_name: &str,
+    gitignore_template_key: Option<&str>,
+    gitignore_template_content: Option<&str>,
+    license_template_key: Option<&str>,
+    license_template_content: Option<&str>,
+) -> Result<(), String> {
+    let readme_path = repo_path.join("README.md");
+    fs::write(&readme_path, format!("# {repository_name}\n"))
+        .map_err(|error| format!("Failed to create README.md: {error}"))?;
+
+    if let Some(gitignore_contents) =
+        gitignore_template_content.filter(|value| !value.trim().is_empty())
+    {
+        fs::write(repo_path.join(".gitignore"), gitignore_contents)
+            .map_err(|error| format!("Failed to create .gitignore: {error}"))?;
+    } else if gitignore_template_key.is_some() {
+        return Err("Selected .gitignore template content is empty".to_string());
+    }
+
+    if let Some(license_contents) =
+        license_template_content.filter(|value| !value.trim().is_empty())
+    {
+        fs::write(repo_path.join("LICENSE"), license_contents)
+            .map_err(|error| format!("Failed to create LICENSE: {error}"))?;
+    } else if license_template_key.is_some() {
+        return Err("Selected license template content is empty".to_string());
+    }
+
+    Ok(())
+}
+
+fn create_initial_commit(repo_path: &Path) -> Result<(), String> {
+    let repo_path_string = repo_path.to_string_lossy().to_string();
+
+    let add_output = Command::new("git")
+        .args(["-C", &repo_path_string, "add", "-A"])
+        .output()
+        .map_err(|error| format!("Failed to run git add: {error}"))?;
+
+    if !add_output.status.success() {
+        return Err(git_error_message(
+            &add_output.stderr,
+            "Failed to stage repository files",
+        ));
+    }
+
+    let commit_output = Command::new("git")
+        .args(["-C", &repo_path_string, "commit", "-m", "Initial commit"])
+        .output()
+        .map_err(|error| format!("Failed to run git commit: {error}"))?;
+
+    if !commit_output.status.success() {
+        return Err(git_error_message(
+            &commit_output.stderr,
+            "Failed to create initial commit",
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_repository_path(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err("Repository path does not exist".to_string());
@@ -1106,6 +1319,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             pick_git_repository,
             pick_clone_destination_folder,
+            create_local_repository,
             clone_git_repository,
             validate_opened_repositories,
             create_repository_initial_commit,

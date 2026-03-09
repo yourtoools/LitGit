@@ -1,4 +1,5 @@
 import type {
+  CreateLocalRepositoryInput,
   PickedRepositorySelection,
   RepoDataFetchResult,
   RepositoryBranch,
@@ -457,6 +458,26 @@ export async function createRepoInitialCommit(path: string) {
   });
 }
 
+export async function createLocalRepo(input: CreateLocalRepositoryInput) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Create local repository works in Tauri desktop app only");
+  }
+
+  const result = await invoke("create_local_repository", {
+    defaultBranch: input.defaultBranch,
+    destinationParent: input.destinationParent,
+    gitignoreTemplateContent: input.gitignoreTemplateContent,
+    gitignoreTemplateKey: input.gitignoreTemplateKey,
+    licenseTemplateContent: input.licenseTemplateContent,
+    licenseTemplateKey: input.licenseTemplateKey,
+    name: input.name,
+  });
+
+  return parsePickedRepository(result);
+}
+
 export async function cloneRepo(
   repositoryUrl: string,
   destinationParent: string,
@@ -497,6 +518,10 @@ export async function pickCloneDestinationFolder() {
   }
 
   return result;
+}
+
+export async function pickLocalRepositoryParentFolder() {
+  return await pickCloneDestinationFolder();
 }
 
 export async function stageAllRepoChanges(path: string) {

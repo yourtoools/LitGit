@@ -52,6 +52,7 @@ export type {
   RepositoryCommit,
   RepositoryFileDiff,
   RepositoryStash,
+  RepositoryTemplateOption,
   RepositoryWorkingTreeItem,
   RepositoryWorkingTreeStatus,
 } from "@/stores/repo/repo-store-types";

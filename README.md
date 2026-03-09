@@ -55,6 +55,7 @@ LitGit/
 - `bun run check-types` - Memeriksa tipe TypeScript di semua app
 - `bun run check` - Menjalankan pemeriksaan lint dan format (Ultracite)
 - `bun run fix` - Memperbaiki otomatis masalah lint dan format (Ultracite)
+- `bun run gen:gitignore-templates` - Menghasilkan ulang template .gitignore untuk aplikasi desktop
 
 ## Dibangun dengan
 

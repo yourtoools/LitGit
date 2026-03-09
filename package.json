@@ -31,7 +31,8 @@
     "dev": "turbo dev",
     "dev:desktop": "turbo run dev -F desktop",
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "gen:gitignore-templates": "turbo run gen:gitignore-templates -F desktop"
   },
   "dependencies": {
     "@litgit/env": "workspace:*",

@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import {
   cloneRepo,
+  createLocalRepo,
   createRepoInitialCommit,
   getTauriInvoke,
   parsePickedRepository,
@@ -24,6 +25,7 @@ type RepoSessionSliceKeys =
   | "clearActiveRepo"
   | "cloneRepository"
   | "closeRepository"
+  | "createLocalRepository"
   | "initializeRepository"
   | "openRepository"
   | "refreshOpenedRepositories";
@@ -90,6 +92,33 @@ export const createRepoSessionSlice = (
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to clone repository"));
       return null;
+    }
+  },
+  createLocalRepository: async (input) => {
+    const invoke = getTauriInvoke();
+
+    if (!invoke) {
+      const message = "Create local repository works in Tauri desktop app only";
+      toast.error(message);
+      throw new Error(message);
+    }
+
+    try {
+      const created = await createLocalRepo(input);
+
+      if (!created) {
+        return null;
+      }
+
+      toast.success(`Created repository ${created.name}`);
+      return await activateOrAppendRepository(get, set, created);
+    } catch (error) {
+      const message = resolveErrorMessage(
+        error,
+        "Failed to create local repository"
+      );
+      toast.error(message);
+      throw error instanceof Error ? error : new Error(message);
     }
   },
   closeRepository: (id) => {

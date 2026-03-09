@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mayarLogo from "@/assets/mayar-logo.png";
 import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
+import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import {
@@ -61,6 +62,7 @@ export function NewTabContent() {
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
   const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
+  const [isStartLocalDialogOpen, setIsStartLocalDialogOpen] = useState(false);
   const [pendingRepoInitialization, setPendingRepoInitialization] =
     useState<PickedRepositorySelection | null>(null);
   const [showRecentTopFade, setShowRecentTopFade] = useState(false);
@@ -352,7 +354,7 @@ export function NewTabContent() {
                       aria-hidden="true"
                       className="size-4.5 shrink-0"
                     />
-                    <span className="min-w-0 flex-1 truncate font-medium text-[0.9375rem]">
+                    <span className="min-w-0 flex-1 truncate font-medium text-sm">
                       Open repository
                     </span>
                     <span
@@ -391,25 +393,19 @@ export function NewTabContent() {
 
               <Tooltip>
                 <TooltipTrigger className="w-full">
-                  <span className="block w-full">
-                    <Button
-                      aria-disabled="true"
-                      className="h-10 w-full items-center gap-3 text-left opacity-45"
-                      disabled
-                      variant="outline"
-                    >
-                      <DesktopIcon
-                        aria-hidden="true"
-                        className="size-4 shrink-0"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        Start local repository
-                      </span>
-                      <span className="shrink-0 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-[0.625rem] text-muted-foreground uppercase leading-none tracking-wide">
-                        Soon
-                      </span>
-                    </Button>
-                  </span>
+                  <Button
+                    className="h-10 w-full items-center gap-3 text-left"
+                    onClick={() => setIsStartLocalDialogOpen(true)}
+                    variant="outline"
+                  >
+                    <DesktopIcon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      Start local repository
+                    </span>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={8}>
                   Initialize a brand-new repository in a selected folder.
@@ -467,7 +463,7 @@ export function NewTabContent() {
             />
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-border/70 bg-muted/50 px-1.5 py-0.5 font-medium text-[0.65rem] text-muted-foreground leading-none tracking-wide"
+              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-border/70 bg-muted/50 px-1.5 py-0.5 font-medium text-muted-foreground text-xs leading-none tracking-wide"
             >
               {searchShortcutLabel}
             </span>
@@ -657,7 +653,7 @@ export function NewTabContent() {
                 >
                   <GearIcon aria-hidden="true" className="size-3.5" />
                   Settings
-                  <span className="text-[0.6rem] text-muted-foreground/60 leading-none">
+                  <span className="text-muted-foreground/60 text-xs leading-none">
                     (Soon)
                   </span>
                 </Button>
@@ -667,10 +663,10 @@ export function NewTabContent() {
 
           {/* Mayar pill badge — subtle, non-distracting */}
           <div className="inline-flex items-center gap-2 rounded-full border border-border/40 bg-muted/20 px-3 py-1">
-            <span className="text-[0.6rem] text-muted-foreground/60 uppercase tracking-[0.2em]">
+            <span className="text-muted-foreground/60 text-xs uppercase tracking-[0.2em]">
               Built at
             </span>
-            <span className="font-medium text-[0.7rem] text-foreground/85 leading-none">
+            <span className="font-medium text-foreground/85 text-xs leading-none">
               Mayar Hackathon
             </span>
             <img
@@ -706,6 +702,10 @@ export function NewTabContent() {
       <RepositoryCloneDialog
         onOpenChange={setIsCloneDialogOpen}
         open={isCloneDialogOpen}
+      />
+      <RepositoryStartLocalDialog
+        onOpenChange={setIsStartLocalDialogOpen}
+        open={isStartLocalDialogOpen}
       />
     </div>
   );

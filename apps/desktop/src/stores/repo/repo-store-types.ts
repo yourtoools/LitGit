@@ -8,6 +8,22 @@ export interface PickedRepositorySelection extends PickedRepository {
   isGitRepository: boolean;
 }
 
+export interface RepositoryTemplateOption {
+  description?: string;
+  key: string;
+  label: string;
+}
+
+export interface CreateLocalRepositoryInput {
+  defaultBranch: string;
+  destinationParent: string;
+  gitignoreTemplateContent: string | null;
+  gitignoreTemplateKey: string | null;
+  licenseTemplateContent: string | null;
+  licenseTemplateKey: string | null;
+  name: string;
+}
+
 export interface RepositoryCommit {
   author: string;
   date: string;
@@ -89,6 +105,9 @@ export interface RepoStoreState {
     includeAll: boolean
   ) => Promise<void>;
   dropStash: (id: string, stashRef: string) => Promise<void>;
+  createLocalRepository: (
+    input: CreateLocalRepositoryInput
+  ) => Promise<OpenedRepository | null>;
   getFileDiff: (
     id: string,
     filePath: string
