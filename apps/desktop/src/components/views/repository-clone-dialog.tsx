@@ -68,6 +68,7 @@ interface CloneFormPanelProps {
   errors: ValidationErrors;
   folderInputId: string;
   folderName: string;
+  formError: string | null;
   fullDestinationPath: string;
   handlePickDestination: () => Promise<void>;
   isBusy: boolean;
@@ -81,6 +82,7 @@ interface CloneFormPanelProps {
   setDestinationParent: Dispatch<SetStateAction<string>>;
   setErrors: Dispatch<SetStateAction<ValidationErrors>>;
   setFolderName: Dispatch<SetStateAction<string>>;
+  setFormError: Dispatch<SetStateAction<string | null>>;
   setIsFolderDirty: Dispatch<SetStateAction<boolean>>;
   setRecurseSubmodules: Dispatch<SetStateAction<boolean>>;
   setRepositoryUrl: Dispatch<SetStateAction<string>>;
@@ -146,13 +148,13 @@ function CloneSuccessPanel({
       <section className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/8 p-3.5">
         <CheckCircleIcon
           aria-hidden="true"
-          className="mt-0.5 size-[1.125rem] shrink-0 text-emerald-400"
+          className="mt-0.5 size-4.5 shrink-0 text-emerald-400"
         />
         <div className="min-w-0">
-          <p className="font-medium text-[0.8125rem] text-foreground">
+          <p className="font-medium text-foreground text-sm">
             Clone finished successfully
           </p>
-          <p className="mt-0.5 text-[0.8125rem] text-muted-foreground leading-relaxed">
+          <p className="mt-0.5 text-muted-foreground text-sm leading-relaxed">
             Added to your workspace and saved in recent repositories.
           </p>
         </div>
@@ -163,18 +165,18 @@ function CloneSuccessPanel({
         className="grid gap-px overflow-hidden rounded-xl border border-border/60"
       >
         <div className="bg-background/70 px-4 py-3">
-          <p className="text-[0.6875rem] text-muted-foreground uppercase tracking-[0.12em]">
+          <p className="text-muted-foreground text-xs uppercase tracking-[0.12em]">
             Repository
           </p>
-          <p className="mt-0.5 font-medium text-[0.8125rem] text-foreground">
+          <p className="mt-0.5 font-medium text-foreground text-sm">
             {successState.name}
           </p>
         </div>
         <div className="bg-background/70 px-4 py-3">
-          <p className="text-[0.6875rem] text-muted-foreground uppercase tracking-[0.12em]">
+          <p className="text-muted-foreground text-xs uppercase tracking-[0.12em]">
             Local path
           </p>
-          <p className="mt-0.5 break-all font-mono text-[0.75rem] text-foreground/85 leading-relaxed">
+          <p className="mt-0.5 break-all font-mono text-foreground/85 text-xs leading-relaxed">
             {successState.path}
           </p>
         </div>
@@ -187,6 +189,7 @@ function CloneFormPanel({
   destinationInputId,
   destinationParent,
   errors,
+  formError,
   folderInputId,
   folderName,
   fullDestinationPath,
@@ -202,6 +205,7 @@ function CloneFormPanel({
   setDestinationParent,
   setErrors,
   setFolderName,
+  setFormError,
   setIsFolderDirty,
   setRecurseSubmodules,
   setRepositoryUrl,
@@ -215,7 +219,7 @@ function CloneFormPanel({
       <fieldset className="space-y-4" disabled={isBusy}>
         {/* Repository URL */}
         <div className="grid gap-1.5">
-          <Label className="text-[0.8125rem]" htmlFor={urlInputId}>
+          <Label className="text-sm" htmlFor={urlInputId}>
             Repository URL
           </Label>
           <Input
@@ -225,7 +229,7 @@ function CloneFormPanel({
             aria-invalid={Boolean(errors.repositoryUrl)}
             autoCapitalize="none"
             autoCorrect="off"
-            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-[0.8125rem] placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
             id={urlInputId}
             onChange={(event) => {
               setRepositoryUrl(event.target.value);
@@ -233,6 +237,7 @@ function CloneFormPanel({
                 ...current,
                 repositoryUrl: undefined,
               }));
+              setFormError(null);
             }}
             placeholder="https://github.com/owner/repository.git"
             ref={repositoryUrlRef}
@@ -245,7 +250,7 @@ function CloneFormPanel({
               {errors.repositoryUrl}
             </p>
           ) : (
-            <p className="text-[0.75rem] text-muted-foreground/70">
+            <p className="text-muted-foreground/70 text-xs">
               HTTPS, SSH, or Git transport URL
             </p>
           )}
@@ -253,7 +258,7 @@ function CloneFormPanel({
 
         {/* Destination folder + Browse */}
         <div className="grid gap-1.5">
-          <Label className="text-[0.8125rem]" htmlFor={destinationInputId}>
+          <Label className="text-sm" htmlFor={destinationInputId}>
             Destination folder
           </Label>
           <div className="flex gap-2">
@@ -264,7 +269,7 @@ function CloneFormPanel({
                   : undefined
               }
               aria-invalid={Boolean(errors.destinationParent)}
-              className="h-9 flex-1 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-[0.8125rem] placeholder:font-sans placeholder:text-muted-foreground/60"
+              className="h-9 flex-1 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
               id={destinationInputId}
               onChange={(event) => {
                 setDestinationParent(event.target.value);
@@ -272,13 +277,14 @@ function CloneFormPanel({
                   ...current,
                   destinationParent: undefined,
                 }));
+                setFormError(null);
               }}
               placeholder="/Users/name/projects"
               spellCheck={false}
               value={destinationParent}
             />
             <Button
-              className="h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[0.8125rem]"
+              className="h-9 shrink-0 gap-1.5 rounded-lg px-3 text-sm"
               onClick={() => {
                 handlePickDestination().catch(() => {
                   return;
@@ -299,7 +305,7 @@ function CloneFormPanel({
               {errors.destinationParent}
             </p>
           ) : (
-            <p className="text-[0.75rem] text-muted-foreground/70">
+            <p className="text-muted-foreground/70 text-xs">
               Parent folder for the cloned repository
             </p>
           )}
@@ -307,7 +313,7 @@ function CloneFormPanel({
 
         {/* Folder name */}
         <div className="grid gap-1.5">
-          <Label className="text-[0.8125rem]" htmlFor={folderInputId}>
+          <Label className="text-sm" htmlFor={folderInputId}>
             Folder name
           </Label>
           <Input
@@ -315,7 +321,7 @@ function CloneFormPanel({
               errors.folderName ? `${folderInputId}-error` : undefined
             }
             aria-invalid={Boolean(errors.folderName)}
-            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-[0.8125rem] placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
             id={folderInputId}
             onChange={(event) => {
               setFolderName(event.target.value);
@@ -324,6 +330,7 @@ function CloneFormPanel({
                 ...current,
                 folderName: undefined,
               }));
+              setFormError(null);
             }}
             placeholder="repository-name"
             spellCheck={false}
@@ -337,7 +344,7 @@ function CloneFormPanel({
               {errors.folderName}
             </p>
           ) : (
-            <p className="text-[0.75rem] text-muted-foreground/70">
+            <p className="text-muted-foreground/70 text-xs">
               Auto-filled from URL — rename before cloning if needed
             </p>
           )}
@@ -350,7 +357,7 @@ function CloneFormPanel({
           aria-hidden="true"
           className="size-3.5 shrink-0 text-muted-foreground/70"
         />
-        <p className="min-w-0 truncate font-mono text-[0.75rem] text-foreground/75">
+        <p className="min-w-0 truncate font-mono text-foreground/75 text-xs">
           {fullDestinationPath || (
             <span className="font-sans text-muted-foreground/50">
               Fill in the fields above to preview the clone path
@@ -358,6 +365,20 @@ function CloneFormPanel({
           )}
         </p>
       </div>
+
+      {formError ? (
+        <section
+          aria-live="polite"
+          className="rounded-xl border border-destructive/30 bg-destructive/8 p-4"
+        >
+          <p className="font-medium text-destructive text-sm">
+            Could not clone repository
+          </p>
+          <p className="mt-1 text-foreground/80 text-xs leading-relaxed">
+            {formError}
+          </p>
+        </section>
+      ) : null}
 
       {/* --- Submodules option --- */}
       <label
@@ -372,7 +393,7 @@ function CloneFormPanel({
             setRecurseSubmodules(checked === true);
           }}
         />
-        <span className="select-none text-[0.8125rem] text-foreground/85">
+        <span className="select-none text-foreground/85 text-sm">
           Clone submodules recursively
         </span>
       </label>
@@ -382,7 +403,7 @@ function CloneFormPanel({
         <section
           aria-describedby={statusRegionId}
           aria-live="polite"
-          className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-4"
+          className="space-y-3 rounded-xl border border-primary/20 bg-primary/4 p-4"
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
@@ -391,13 +412,13 @@ function CloneFormPanel({
                 className="size-4 shrink-0 animate-spin text-primary"
               />
               <p
-                className="min-w-0 truncate font-medium text-[0.8125rem] text-foreground"
+                className="min-w-0 truncate font-medium text-foreground text-sm"
                 id={statusRegionId}
               >
                 {progressMessage}
               </p>
             </div>
-            <span className="shrink-0 font-mono text-[0.6875rem] text-muted-foreground tabular-nums">
+            <span className="shrink-0 font-mono text-muted-foreground text-xs tabular-nums">
               {progressPercent}%
             </span>
           </div>
@@ -420,9 +441,7 @@ function CloneFormPanel({
           </div>
 
           {progressDetails && (
-            <p className="text-[0.75rem] text-muted-foreground">
-              {progressDetails}
-            </p>
+            <p className="text-muted-foreground text-xs">{progressDetails}</p>
           )}
         </section>
       )}
@@ -528,6 +547,7 @@ export function RepositoryCloneDialog({
     null
   );
   const [errors, setErrors] = useState<ValidationErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
 
   const urlInputId = useId();
   const destinationInputId = useId();
@@ -548,6 +568,7 @@ export function RepositoryCloneDialog({
       setProgress(null);
       setSuccessState(null);
       setErrors({});
+      setFormError(null);
       return;
     }
 
@@ -663,6 +684,7 @@ export function RepositoryCloneDialog({
     }
 
     setIsCloning(true);
+    setFormError(null);
     setProgress({
       message: "Starting clone request",
       percent: 6,
@@ -678,6 +700,7 @@ export function RepositoryCloneDialog({
       );
 
       if (!openedRepository) {
+        setFormError("Failed to clone repository.");
         return;
       }
 
@@ -691,6 +714,10 @@ export function RepositoryCloneDialog({
         path: openedRepository.path,
         repoId: openedRepository.id,
       });
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Failed to clone repository."
+      );
     } finally {
       setIsCloning(false);
     }
@@ -720,7 +747,7 @@ export function RepositoryCloneDialog({
       return (
         <CheckCircleIcon
           aria-hidden="true"
-          className="size-[1.125rem] text-emerald-400"
+          className="size-4.5 text-emerald-400"
         />
       );
     }
@@ -729,7 +756,7 @@ export function RepositoryCloneDialog({
       return (
         <SpinnerGapIcon
           aria-hidden="true"
-          className="size-[1.125rem] animate-spin text-primary"
+          className="size-4.5 animate-spin text-primary"
         />
       );
     }
@@ -737,7 +764,7 @@ export function RepositoryCloneDialog({
     return (
       <DownloadSimpleIcon
         aria-hidden="true"
-        className="size-[1.125rem] text-primary"
+        className="size-4.5 text-primary"
       />
     );
   })();
@@ -753,11 +780,11 @@ export function RepositoryCloneDialog({
             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/25">
               {headerIcon}
             </div>
-            <DialogTitle className="text-[0.9375rem]">
+            <DialogTitle className="text-sm">
               {successState ? "Repository cloned" : "Clone a repository"}
             </DialogTitle>
           </div>
-          <DialogDescription className="max-w-[44ch] text-[0.8125rem] leading-relaxed">
+          <DialogDescription className="max-w-[44ch] text-sm leading-relaxed">
             {successState
               ? `"${successState.name}" is now available locally.`
               : "Clone from a remote URL into a local folder."}
@@ -774,6 +801,7 @@ export function RepositoryCloneDialog({
               errors={errors}
               folderInputId={folderInputId}
               folderName={folderName}
+              formError={formError}
               fullDestinationPath={fullDestinationPath}
               handlePickDestination={handlePickDestination}
               isBusy={isBusy}
@@ -787,6 +815,7 @@ export function RepositoryCloneDialog({
               setDestinationParent={setDestinationParent}
               setErrors={setErrors}
               setFolderName={setFolderName}
+              setFormError={setFormError}
               setIsFolderDirty={setIsFolderDirty}
               setRecurseSubmodules={setRecurseSubmodules}
               setRepositoryUrl={setRepositoryUrl}
