@@ -21,25 +21,12 @@ import {
 } from "@dnd-kit/sortable";
 import { Button } from "@litgit/ui/components/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@litgit/ui/components/popover";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
-import {
-  CaretLeftIcon,
-  CaretRightIcon,
-  PlusIcon,
-  TrashIcon,
-} from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, PlusIcon } from "@phosphor-icons/react";
 import {
   type ComponentProps,
   useCallback,
@@ -48,6 +35,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { EmptyGroupDialog } from "@/components/tabs/empty-group-dialog";
 import { MAX_DRAG_PREVIEW_TABS } from "@/components/tabs/lib/constants";
 import {
   clamp,
@@ -814,6 +802,15 @@ export function TabBar() {
     dismissEmptyGroupPrompt();
   };
 
+  const handleDeleteEmptyGroup = () => {
+    if (!emptyGroupPrompt) {
+      return;
+    }
+
+    removeGroup(emptyGroupPrompt.id);
+    dismissEmptyGroupPrompt();
+  };
+
   const handleAddTab = useCallback(() => {
     const newTabId = addTab();
 
@@ -1239,52 +1236,16 @@ export function TabBar() {
             )}
           </TooltipProvider>
 
-          <Popover open={Boolean(emptyGroupPrompt)}>
-            <PopoverTrigger
-              render={
-                <button className="sr-only" tabIndex={-1} type="button" />
+          <EmptyGroupDialog
+            group={emptyGroupPrompt}
+            onDeleteGroup={handleDeleteEmptyGroup}
+            onKeepGroup={handleCreateTabInEmptyGroup}
+            onOpenChange={(open) => {
+              if (!open) {
+                dismissEmptyGroupPrompt();
               }
-            >
-              <span className="hidden" />
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              className="w-80"
-              side="bottom"
-              sideOffset={8}
-            >
-              <PopoverHeader>
-                <PopoverTitle>Empty group detected</PopoverTitle>
-                <PopoverDescription>
-                  {emptyGroupPrompt
-                    ? `Group "${emptyGroupPrompt.name}" has no tabs.`
-                    : "A group has no tabs."}
-                </PopoverDescription>
-              </PopoverHeader>
-              <div className="flex items-center justify-end gap-2">
-                <Button
-                  onClick={handleCreateTabInEmptyGroup}
-                  size="sm"
-                  variant="outline"
-                >
-                  Add tab to group
-                </Button>
-                {emptyGroupPrompt && (
-                  <Button
-                    onClick={() => {
-                      removeGroup(emptyGroupPrompt.id);
-                      dismissEmptyGroupPrompt();
-                    }}
-                    size="sm"
-                    variant="destructive"
-                  >
-                    <TrashIcon className="mr-1.5" />
-                    Delete group
-                  </Button>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
+            }}
+          />
         </div>
       </SortableContext>
 
