@@ -1,4 +1,4 @@
-export interface PickedRepository {
+﻿export interface PickedRepository {
   name: string;
   path: string;
 }
@@ -87,6 +87,16 @@ export type OpenRepositoryResult =
     }
   | null;
 
+export type PullActionMode =
+  | "fetch-all"
+  | "pull-ff-possible"
+  | "pull-ff-only"
+  | "pull-rebase";
+
+export interface PullActionResult {
+  headChanged: boolean;
+}
+
 export interface RepoStoreState {
   activeRepoId: string | null;
   applyStash: (id: string, stashRef: string) => Promise<void>;
@@ -125,6 +135,8 @@ export interface RepoStoreState {
   openedRepos: OpenedRepository[];
   openRepository: () => Promise<OpenRepositoryResult>;
   popStash: (id: string, stashRef: string) => Promise<void>;
+  pullBranch: (id: string, mode: PullActionMode) => Promise<PullActionResult>;
+  pushBranch: (id: string) => Promise<void>;
   refreshOpenedRepositories: () => Promise<void>;
   repoBranches: Record<string, RepositoryBranch[]>;
   repoCommits: Record<string, RepositoryCommit[]>;

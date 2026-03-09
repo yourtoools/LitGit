@@ -1,6 +1,8 @@
-import type {
+﻿import type {
   CreateLocalRepositoryInput,
   PickedRepositorySelection,
+  PullActionMode,
+  PullActionResult,
   RepoDataFetchResult,
   RepositoryBranch,
   RepositoryCommit,
@@ -369,6 +371,18 @@ export async function switchRepoBranch(path: string, branchName: string) {
   });
 }
 
+export async function pushRepoBranch(path: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Push works in Tauri desktop app only");
+  }
+
+  await invoke("push_repository_branch", {
+    repoPath: path,
+  });
+}
+
 export async function applyRepoStash(path: string, stashRef: string) {
   const invoke = getTauriInvoke();
 
@@ -663,5 +677,29 @@ export async function fetchRepoData(
     statusPayload,
     wipItemsError,
     wipItemsPayload,
+  };
+}
+
+export async function runRepoPull(
+  path: string,
+  mode: PullActionMode
+): Promise<PullActionResult> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Pull works in Tauri desktop app only");
+  }
+
+  const result = await invoke("pull_repository_action", {
+    repoPath: path,
+    mode,
+  });
+
+  if (!isRecord(result) || typeof result.headChanged !== "boolean") {
+    throw new Error("Invalid pull action payload");
+  }
+
+  return {
+    headChanged: result.headChanged,
   };
 }

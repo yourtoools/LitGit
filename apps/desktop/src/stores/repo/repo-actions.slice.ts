@@ -1,10 +1,12 @@
-import { toast } from "sonner";
+﻿import { toast } from "sonner";
 import {
   applyRepoStash,
   commitRepoChanges,
   dropRepoStash,
   getRepoFileDiff,
   popRepoStash,
+  pushRepoBranch,
+  runRepoPull,
   stageAllRepoChanges,
   stageRepoFile,
   switchRepoBranch,
@@ -21,6 +23,8 @@ type RepoActionsSliceKeys =
   | "dropStash"
   | "getFileDiff"
   | "popStash"
+  | "pullBranch"
+  | "pushBranch"
   | "stageAll"
   | "stageFile"
   | "switchBranch"
@@ -39,6 +43,38 @@ export const createRepoActionsSlice = (
 
     await switchRepoBranch(targetRepo.path, branchName);
     await get().setActiveRepo(id, { forceRefresh: true });
+  },
+  pushBranch: async (id) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    try {
+      await pushRepoBranch(targetRepo.path);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      toast.success("Push completed");
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to push branch"));
+      throw error;
+    }
+  },
+  pullBranch: async (id, mode) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    try {
+      const result = await runRepoPull(targetRepo.path, mode);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      return result;
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to pull changes"));
+      throw error;
+    }
   },
   applyStash: async (id, stashRef) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);

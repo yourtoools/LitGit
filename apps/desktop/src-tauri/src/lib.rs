@@ -1,4 +1,4 @@
-use serde::Serialize;
+﻿use serde::Serialize;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -72,6 +72,12 @@ struct RepositoryFileDiff {
     path: String,
     old_text: String,
     new_text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PullActionResult {
+    head_changed: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -543,16 +549,8 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
             } else {
                 let counts = String::from_utf8_lossy(&sync_count_output.stdout);
                 let mut values = counts.split_whitespace();
-                let ahead = values
-                    .next()
-                    .unwrap_or("0")
-                    .parse::<usize>()
-                    .unwrap_or(0);
-                let behind = values
-                    .next()
-                    .unwrap_or("0")
-                    .parse::<usize>()
-                    .unwrap_or(0);
+                let ahead = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
+                let behind = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
 
                 (ahead, behind)
             }
@@ -599,7 +597,9 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
         .success();
 
     let output = if is_remote_ref {
-        let local_name = branch_name.split_once('/').map_or(branch_name.as_str(), |(_, local)| local);
+        let local_name = branch_name
+            .split_once('/')
+            .map_or(branch_name.as_str(), |(_, local)| local);
         let local_branch_exists = Command::new("git")
             .args([
                 "-C",
@@ -651,6 +651,107 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
     Ok(())
 }
 
+#[tauri::command]
+fn push_repository_branch(repo_path: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let branch_output = Command::new("git")
+        .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
+
+    if !branch_output.status.success() {
+        return Err(git_error_message(
+            &branch_output.stderr,
+            "Failed to resolve current branch",
+        ));
+    }
+
+    let branch_name = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
+
+    if branch_name.is_empty() || branch_name == "HEAD" {
+        return Err("Cannot push from detached HEAD".to_string());
+    }
+
+    let has_upstream = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to check branch upstream: {error}"))?
+        .status
+        .success();
+
+    let push_output = if has_upstream {
+        Command::new("git")
+            .args(["-C", &repo_path, "push"])
+            .output()
+            .map_err(|error| format!("Failed to run git push: {error}"))?
+    } else {
+        Command::new("git")
+            .args(["-C", &repo_path, "push", "-u", "origin", &branch_name])
+            .output()
+            .map_err(|error| format!("Failed to run git push: {error}"))?
+    };
+
+    if !push_output.status.success() {
+        return Err(git_error_message(&push_output.stderr, "Failed to push branch"));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn pull_repository_action(repo_path: String, mode: String) -> Result<PullActionResult, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let head_before = resolve_head_hash(&repo_path)?;
+
+    let mut pull_command = Command::new("git");
+    pull_command.args(["-C", &repo_path]);
+
+    match mode.as_str() {
+        "fetch-all" => {
+            pull_command.args(["fetch", "--all", "--prune"]);
+        }
+        "pull-ff-possible" => {
+            pull_command.arg("pull");
+        }
+        "pull-ff-only" => {
+            pull_command.args(["pull", "--ff-only"]);
+        }
+        "pull-rebase" => {
+            pull_command.args(["pull", "--rebase"]);
+        }
+        _ => {
+            return Err("Unsupported pull mode".to_string());
+        }
+    }
+
+    let output = pull_command
+        .output()
+        .map_err(|error| format!("Failed to run git pull/fetch: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to execute pull action",
+        ));
+    }
+
+    let head_after = resolve_head_hash(&repo_path)?;
+
+    Ok(PullActionResult {
+        head_changed: head_before != head_after,
+    })
+}
 
 #[tauri::command]
 fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, String> {
@@ -715,10 +816,7 @@ fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), St
         .map_err(|error| format!("Failed to run git stash apply: {error}"))?;
 
     if !output.status.success() {
-        return Err(git_error_message(
-            &output.stderr,
-            "Failed to apply stash",
-        ));
+        return Err(git_error_message(&output.stderr, "Failed to apply stash"));
     }
 
     Ok(())
@@ -734,10 +832,7 @@ fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), Stri
         .map_err(|error| format!("Failed to run git stash pop: {error}"))?;
 
     if !output.status.success() {
-        return Err(git_error_message(
-            &output.stderr,
-            "Failed to pop stash",
-        ));
+        return Err(git_error_message(&output.stderr, "Failed to pop stash"));
     }
 
     Ok(())
@@ -753,10 +848,7 @@ fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), Str
         .map_err(|error| format!("Failed to run git stash drop: {error}"))?;
 
     if !output.status.success() {
-        return Err(git_error_message(
-            &output.stderr,
-            "Failed to delete stash",
-        ));
+        return Err(git_error_message(&output.stderr, "Failed to delete stash"));
     }
 
     Ok(())
@@ -1033,7 +1125,7 @@ fn get_repository_working_tree_items(
             let staged = chars.next().unwrap_or(' ');
             let unstaged = chars.next().unwrap_or(' ');
 
-            let path = row.get(3..).unwrap_or("").trim().replace(" -> ", " → ");
+            let path = row.get(3..).unwrap_or("").trim().replace(" -> ", " â†’ ");
 
             if path.is_empty() {
                 return None;
@@ -1121,6 +1213,19 @@ fn parse_progress_counts(line: &str, prefix: &str) -> Option<(u8, usize, usize)>
     let total = parts.next()?.trim().parse::<usize>().ok()?;
 
     Some((percent, current, total))
+}
+
+fn resolve_head_hash(repo_path: &str) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["-C", repo_path, "rev-parse", "HEAD"])
+        .output()
+        .map_err(|error| format!("Failed to resolve HEAD: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(&output.stderr, "Failed to resolve HEAD"));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn git_error_message(stderr: &[u8], fallback: &str) -> String {
@@ -1327,6 +1432,8 @@ pub fn run() {
             get_repository_branches,
             get_repository_stashes,
             switch_repository_branch,
+            pull_repository_action,
+            push_repository_branch,
             apply_repository_stash,
             pop_repository_stash,
             drop_repository_stash,
@@ -1342,4 +1449,10 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+
+
+
+
+
 

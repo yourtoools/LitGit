@@ -1,4 +1,4 @@
-import { Button } from "@litgit/ui/components/button";
+﻿import { Button } from "@litgit/ui/components/button";
 import {
   Combobox,
   ComboboxContent,
@@ -62,6 +62,7 @@ import {
   DownloadSimpleIcon,
   GitBranchIcon,
   GithubLogoIcon,
+  SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
   UploadSimpleIcon,
@@ -78,6 +79,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type {
+  PullActionMode,
   RepositoryCommit,
   RepositoryStash,
 } from "@/stores/repo/repo-store-types";
@@ -99,12 +101,6 @@ interface SidebarGroupItem {
   key: string;
   name: string;
 }
-
-type PullActionMode =
-  | "fetch-all"
-  | "pull-ff-possible"
-  | "pull-ff-only"
-  | "pull-rebase";
 
 interface BranchComboboxOption {
   isRemote: boolean;
@@ -155,6 +151,8 @@ export function RepoInfo() {
   const dropStash = useRepoStore((state) => state.dropStash);
   const stageAll = useRepoStore((state) => state.stageAll);
   const commitChanges = useRepoStore((state) => state.commitChanges);
+  const pullBranch = useRepoStore((state) => state.pullBranch);
+  const pushBranch = useRepoStore((state) => state.pushBranch);
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
     Record<string, boolean>
   >({});
@@ -164,6 +162,8 @@ export function RepoInfo() {
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const [isStagingAll, setIsStagingAll] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isPushing, setIsPushing] = useState(false);
   const [isApplyingStash, setIsApplyingStash] = useState(false);
   const [isPoppingStash, setIsPoppingStash] = useState(false);
   const [isDroppingStash, setIsDroppingStash] = useState(false);
@@ -663,8 +663,122 @@ export function RepoInfo() {
     }
   };
 
-  const handlePullWithSelectedMode = () => {
-    return undefined;
+  const handlePullAction = async (mode: PullActionMode) => {
+    if (!activeRepoId || isPulling) {
+      return;
+    }
+    setIsPulling(true);
+    setPullActionMode(mode);
+    try {
+      const result = await pullBranch(activeRepoId, mode);
+      if (result.headChanged) {
+        toast.success("Pull completed", {
+          description: pullActionLabelByMode[mode],
+        });
+      } else {
+        toast.success("Already up to date", {
+          description: pullActionLabelByMode[mode],
+        });
+      }
+    } finally {
+      setIsPulling(false);
+    }
+  };
+  const handlePullWithSelectedMode = async () => {
+    await handlePullAction(pullActionMode);
+  };
+  const handlePullActionForEntry = async (
+    entry: SidebarEntry,
+    mode: PullActionMode
+  ) => {
+    if (
+      entry.type !== "branch" ||
+      !activeRepoId ||
+      isPulling ||
+      isSwitchingBranch
+    ) {
+      return;
+    }
+
+    setIsPulling(true);
+    setPullActionMode(mode);
+
+    try {
+      if (!entry.active) {
+        setIsSwitchingBranch(true);
+
+        try {
+          await switchBranch(activeRepoId, entry.name);
+        } catch (error) {
+          toast.error("Failed to switch branch", {
+            description: getCheckoutFailureReason(error),
+          });
+          return;
+        } finally {
+          setIsSwitchingBranch(false);
+        }
+      }
+
+      const result = await pullBranch(activeRepoId, mode);
+      if (result.headChanged) {
+        toast.success("Pull completed", {
+          description: `${entry.name} - ${pullActionLabelByMode[mode]}`,
+        });
+      } else {
+        toast.success("Already up to date", {
+          description: `${entry.name} - ${pullActionLabelByMode[mode]}`,
+        });
+      }
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  const handlePushAction = async () => {
+    if (!activeRepoId || isPushing) {
+      return;
+    }
+
+    setIsPushing(true);
+
+    try {
+      await pushBranch(activeRepoId);
+    } finally {
+      setIsPushing(false);
+    }
+  };
+  const handlePushActionForEntry = async (entry: SidebarEntry) => {
+    if (
+      entry.type !== "branch" ||
+      !activeRepoId ||
+      isPushing ||
+      isSwitchingBranch
+    ) {
+      return;
+    }
+
+    setIsPushing(true);
+
+    try {
+      if (!entry.active) {
+        setIsSwitchingBranch(true);
+
+        try {
+          await switchBranch(activeRepoId, entry.name);
+        } catch (error) {
+          toast.error("Failed to switch branch", {
+            description: getCheckoutFailureReason(error),
+          });
+          return;
+        } finally {
+          setIsSwitchingBranch(false);
+        }
+      }
+
+      await pushBranch(activeRepoId);
+    } finally {
+      setIsPushing(false);
+    }
   };
 
   const renderEntryDropdownMenuContent = (entry: SidebarEntry) => {
@@ -780,8 +894,24 @@ export function RepoInfo() {
         side="right"
         sideOffset={6}
       >
-        <DropdownMenuItem>Pull (fast-forward if possible)</DropdownMenuItem>
-        <DropdownMenuItem>Push</DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={isPulling || isSwitchingBranch}
+          onClick={() => {
+            handlePullActionForEntry(entry, "pull-ff-possible").catch(
+              () => undefined
+            );
+          }}
+        >
+          Pull (fast-forward if possible)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={isPushing || isSwitchingBranch}
+          onClick={() => {
+            handlePushActionForEntry(entry).catch(() => undefined);
+          }}
+        >
+          Push
+        </DropdownMenuItem>
         <DropdownMenuItem>Set Upstream</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem>
@@ -951,8 +1081,24 @@ export function RepoInfo() {
         onClick={preventLeftClickInMenus}
         onMouseDown={preventLeftClickInMenus}
       >
-        <ContextMenuItem>Pull (fast-forward if possible)</ContextMenuItem>
-        <ContextMenuItem>Push</ContextMenuItem>
+        <ContextMenuItem
+          disabled={isPulling || isSwitchingBranch}
+          onClick={() => {
+            handlePullActionForEntry(entry, "pull-ff-possible").catch(
+              () => undefined
+            );
+          }}
+        >
+          Pull (fast-forward if possible)
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={isPushing || isSwitchingBranch}
+          onClick={() => {
+            handlePushActionForEntry(entry).catch(() => undefined);
+          }}
+        >
+          Push
+        </ContextMenuItem>
         <ContextMenuItem>Set Upstream</ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem>
@@ -1367,12 +1513,17 @@ export function RepoInfo() {
                           <Button
                             aria-label={`Run ${selectedPullActionLabel}`}
                             className="h-7 rounded-r-none border-0 px-2"
+                            disabled={isPulling}
                             onClick={handlePullWithSelectedMode}
                             size="sm"
                             type="button"
                             variant="ghost"
                           >
-                            <DownloadSimpleIcon className="size-4 text-muted-foreground" />
+                            {isPulling ? (
+                              <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <DownloadSimpleIcon className="size-4 text-muted-foreground" />
+                            )}
                             <span className="hidden whitespace-nowrap lg:inline">
                               Pull
                             </span>
@@ -1383,6 +1534,7 @@ export function RepoInfo() {
                                 <Button
                                   aria-label="Select pull mode"
                                   className="h-7 rounded-l-none border-0 border-border/60 border-l px-1.5"
+                                  disabled={isPulling}
                                   size="sm"
                                   type="button"
                                   variant="ghost"
@@ -1411,6 +1563,7 @@ export function RepoInfo() {
                         pullActionMode === "fetch-all" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
+                      disabled={isPulling}
                       onClick={() => setPullActionMode("fetch-all")}
                     >
                       Fetch All
@@ -1421,6 +1574,7 @@ export function RepoInfo() {
                         pullActionMode === "pull-ff-possible" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
+                      disabled={isPulling}
                       onClick={() => setPullActionMode("pull-ff-possible")}
                     >
                       Pull (fast-forward if possible)
@@ -1431,6 +1585,7 @@ export function RepoInfo() {
                         pullActionMode === "pull-ff-only" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
+                      disabled={isPulling}
                       onClick={() => setPullActionMode("pull-ff-only")}
                     >
                       Pull (fast-forward only)
@@ -1441,6 +1596,7 @@ export function RepoInfo() {
                         pullActionMode === "pull-rebase" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
+                      disabled={isPulling}
                       onClick={() => setPullActionMode("pull-rebase")}
                     >
                       Pull (rebase)
@@ -1452,13 +1608,21 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Push"
+                        disabled={isPushing}
+                        onClick={() => {
+                          handlePushAction().catch(() => undefined);
+                        }}
                         size="default"
                         type="button"
                         variant="ghost"
                       />
                     }
                   >
-                    <UploadSimpleIcon className="size-4 text-muted-foreground" />
+                    {isPushing ? (
+                      <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <UploadSimpleIcon className="size-4 text-muted-foreground" />
+                    )}
                     <span className="hidden whitespace-nowrap lg:inline">
                       Push
                     </span>
