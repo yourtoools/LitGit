@@ -34,15 +34,11 @@ export const createRepoActionsSlice = (
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 
     if (!targetRepo) {
-      return;
+      throw new Error("Repository is no longer available");
     }
 
-    try {
-      await switchRepoBranch(targetRepo.path, branchName);
-      await get().setActiveRepo(id, { forceRefresh: true });
-    } catch (error) {
-      toast.error(resolveErrorMessage(error, "Failed to switch branch"));
-    }
+    await switchRepoBranch(targetRepo.path, branchName);
+    await get().setActiveRepo(id, { forceRefresh: true });
   },
   applyStash: async (id, stashRef) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);

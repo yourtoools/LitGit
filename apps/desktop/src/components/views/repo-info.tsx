@@ -63,6 +63,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { toast } from "sonner";
 import type {
   RepositoryCommit,
   RepositoryStash,
@@ -266,6 +267,65 @@ export function RepoInfo() {
     }).format(parsedDate);
   };
 
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return error.message;
+    }
+
+    if (typeof error === "string" && error.trim().length > 0) {
+      return error;
+    }
+
+    if (error && typeof error === "object" && "message" in error) {
+      const message = Reflect.get(error, "message");
+      if (typeof message === "string" && message.trim().length > 0) {
+        return message;
+      }
+    }
+
+    return "Unknown error";
+  };
+
+  const getCheckoutFailureReason = (error: unknown): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("local changes") &&
+      normalized.includes("would be overwritten")
+    ) {
+      return "You have uncommitted changes that would be overwritten. Commit or stash them, then try again.";
+    }
+
+    if (
+      normalized.includes("did not match any file") ||
+      normalized.includes("pathspec")
+    ) {
+      return "The target branch could not be found. It may have been deleted or renamed.";
+    }
+
+    if (
+      normalized.includes("resolve your current index first") ||
+      normalized.includes("you need to resolve")
+    ) {
+      return "There are unresolved merge conflicts. Resolve them first, then switch branches.";
+    }
+
+    if (
+      normalized.includes("rebase in progress") ||
+      normalized.includes("merge in progress") ||
+      normalized.includes("cherry-pick in progress")
+    ) {
+      return "A Git operation is still in progress. Finish or abort it before switching branches.";
+    }
+
+    if (normalized.includes("not a git repository")) {
+      return "This folder is not recognized as a Git repository.";
+    }
+
+    return `Git could not switch branches: ${rawMessage}`;
+  };
+
   useEffect(() => {
     if (commits.length === 0) {
       setSelectedCommitId(null);
@@ -430,6 +490,13 @@ export function RepoInfo() {
 
     try {
       await switchBranch(activeRepoId, entry.name);
+      toast.success("Checkout Successful", {
+        description: `refs/heads/${entry.name}`,
+      });
+    } catch (error) {
+      toast.error("Failed to switch branch", {
+        description: getCheckoutFailureReason(error),
+      });
     } finally {
       setIsSwitchingBranch(false);
     }
