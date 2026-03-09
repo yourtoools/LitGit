@@ -88,6 +88,34 @@ interface SidebarGroupItem {
   name: string;
 }
 
+const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
+
+function formatStashLabel(stash: RepositoryStash): string {
+  const rawMessage = stash.message.trim();
+
+  if (rawMessage.length === 0) {
+    return stash.ref;
+  }
+
+  const parsedMessage = STASH_WITH_BRANCH_PATTERN.exec(rawMessage);
+
+  if (!parsedMessage) {
+    return rawMessage;
+  }
+
+  const branchName = parsedMessage[1]?.trim();
+  const stashMessage = parsedMessage[2]?.trim();
+
+  if (!branchName) {
+    return rawMessage;
+  }
+
+  if (stashMessage && stashMessage.length > 0) {
+    return `${stashMessage} on: ${branchName}`;
+  }
+
+  return rawMessage;
+}
 export function RepoInfo() {
   const activeRepoId = useRepoStore((state) => state.activeRepoId);
   const openedRepos = useRepoStore((state) => state.openedRepos);
@@ -158,14 +186,11 @@ export function RepoInfo() {
     const localEntries: SidebarEntry[] = [];
     const remoteEntries: SidebarEntry[] = [];
     const stashEntries: SidebarEntry[] = stashes.map((stash) => {
-      const label = stash.message.trim();
+      const label = formatStashLabel(stash);
 
       return {
-        name: label.length > 0 ? `${stash.ref}: ${label}` : stash.ref,
-        searchName:
-          label.length > 0
-            ? `${stash.ref}: ${label}`.toLowerCase()
-            : stash.ref.toLowerCase(),
+        name: label,
+        searchName: label.toLowerCase(),
         stashRef: stash.ref,
         type: "stash",
       };

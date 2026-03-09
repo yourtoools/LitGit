@@ -104,10 +104,10 @@ export interface RepoStoreState {
     description: string,
     includeAll: boolean
   ) => Promise<void>;
-  dropStash: (id: string, stashRef: string) => Promise<void>;
   createLocalRepository: (
     input: CreateLocalRepositoryInput
   ) => Promise<OpenedRepository | null>;
+  dropStash: (id: string, stashRef: string) => Promise<void>;
   getFileDiff: (
     id: string,
     filePath: string
