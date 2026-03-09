@@ -220,6 +220,9 @@ async fn clone_git_repository(
         return Err("Repository folder name is required".to_string());
     }
 
+    validate_clone_repository_url(trimmed_url)?;
+    validate_clone_destination_folder_name(trimmed_folder)?;
+
     let destination_parent_path = Path::new(trimmed_parent);
     validate_repository_path(destination_parent_path)?;
 
@@ -276,6 +279,7 @@ async fn clone_git_repository(
         .map_err(|error| format!("Failed to finalize git clone: {error}"))?;
 
     if !output.status.success() {
+        remove_partial_clone_destination(&destination_path);
         return Err(git_error_message(
             &output.stderr,
             "Failed to clone repository",
@@ -1247,38 +1251,78 @@ fn validate_repository_name(name: &str) -> Result<(), String> {
         return Err("Repository name cannot contain path separators".to_string());
     }
 
+    if name.chars().any(is_invalid_path_character) {
+        return Err("Repository name contains unsupported characters".to_string());
+    }
+
     Ok(())
 }
 
 fn validate_branch_name(name: &str) -> Result<(), String> {
-    if name.contains(' ') {
-        return Err("Default branch name cannot contain spaces".to_string());
-    }
+    let output = Command::new("git")
+        .args(["check-ref-format", "--branch", name])
+        .output()
+        .map_err(|error| format!("Failed to validate default branch name: {error}"))?;
 
-    if name.contains('~')
-        || name.contains('^')
-        || name.contains(':')
-        || name.contains('?')
-        || name.contains('*')
-        || name.contains('[')
-        || name.contains('\\')
-    {
-        return Err("Default branch name contains unsupported characters".to_string());
-    }
-
-    if name.starts_with('/')
-        || name.ends_with('/')
-        || name.starts_with('.')
-        || name.ends_with('.')
-        || name.ends_with(".lock")
-        || name.contains("..")
-        || name.contains("@{")
-        || name.contains("//")
-    {
+    if !output.status.success() {
         return Err("Enter a valid Git branch name".to_string());
     }
 
     Ok(())
+}
+
+fn validate_clone_repository_url(repository_url: &str) -> Result<(), String> {
+    if repository_url.starts_with("file://") {
+        return Err("Local file clone URLs are not supported".to_string());
+    }
+
+    if repository_url.starts_with("https://")
+        || repository_url.starts_with("ssh://")
+        || is_scp_style_ssh_repository_url(repository_url)
+    {
+        return Ok(());
+    }
+
+    Err("Enter a valid HTTPS or SSH repository URL".to_string())
+}
+
+fn validate_clone_destination_folder_name(name: &str) -> Result<(), String> {
+    validate_repository_name(name)?;
+
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Err("Folder name cannot end with a dot or space".to_string());
+    }
+
+    Ok(())
+}
+
+fn is_invalid_path_character(character: char) -> bool {
+    character.is_control() || matches!(character, '<' | '>' | ':' | '"' | '|' | '?' | '*')
+}
+
+fn is_scp_style_ssh_repository_url(repository_url: &str) -> bool {
+    if repository_url.contains(char::is_whitespace) {
+        return false;
+    }
+
+    let Some((user_host, repository_path)) = repository_url.split_once(':') else {
+        return false;
+    };
+
+    let Some((user, host)) = user_host.split_once('@') else {
+        return false;
+    };
+
+    !user.is_empty()
+        && !host.is_empty()
+        && !repository_path.is_empty()
+        && !repository_path.starts_with('/')
+}
+
+fn remove_partial_clone_destination(path: &Path) {
+    if path.exists() {
+        let _ = fs::remove_dir_all(path);
+    }
 }
 
 fn initialize_git_repository(repo_path: &Path, default_branch: &str) -> Result<(), String> {
@@ -1450,8 +1494,6 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-
 
 
 

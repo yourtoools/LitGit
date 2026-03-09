@@ -40,10 +40,19 @@ import { useRepoStore } from "@/stores/repo/use-repo-store";
 const CLONE_PROGRESS_EVENT = "clone-repository-progress";
 const DEFAULT_PROGRESS_MESSAGE = "Waiting to start clone";
 const TRAILING_SLASHES_REGEX = /\/+$/;
-const HTTPS_REPOSITORY_URL_REGEX = /^https?:\/\/.+/i;
+const HTTPS_REPOSITORY_URL_REGEX = /^https:\/\/.+/i;
 const SSH_REPOSITORY_URL_REGEX = /^git@[^\s:]+:.+/i;
 const SSH_PROTOCOL_REPOSITORY_URL_REGEX = /^ssh:\/\/.+/i;
 const TRAILING_PATH_SEPARATOR_REGEX = /[\\/]$/;
+const INVALID_FOLDER_NAME_CHARACTERS = new Set([
+  "<",
+  ">",
+  ":",
+  '"',
+  "|",
+  "?",
+  "*",
+]);
 
 interface ValidationErrors {
   destinationParent?: string;
@@ -107,11 +116,47 @@ const deriveFolderNameFromUrl = (repositoryUrl: string) => {
 const isLikelyRepositoryUrl = (value: string) => {
   const trimmed = value.trim();
 
+  if (trimmed.startsWith("file://")) {
+    return false;
+  }
+
   return (
     HTTPS_REPOSITORY_URL_REGEX.test(trimmed) ||
     SSH_REPOSITORY_URL_REGEX.test(trimmed) ||
     SSH_PROTOCOL_REPOSITORY_URL_REGEX.test(trimmed)
   );
+};
+
+const validateCloneFolderName = (value: string) => {
+  const trimmed = value.trim();
+
+  if (trimmed.length === 0) {
+    return "Enter a folder name for the cloned repository.";
+  }
+
+  if (trimmed === "." || trimmed === "..") {
+    return "Folder name must be more specific.";
+  }
+
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    return "Folder name cannot contain path separators.";
+  }
+
+  if (
+    [...trimmed].some(
+      (character) =>
+        INVALID_FOLDER_NAME_CHARACTERS.has(character) ||
+        character.charCodeAt(0) < 32
+    )
+  ) {
+    return "Folder name contains unsupported characters.";
+  }
+
+  if (trimmed.endsWith(".") || trimmed.endsWith(" ")) {
+    return "Folder name cannot end with a dot or space.";
+  }
+
+  return null;
 };
 
 const formatProgressDetails = (progress: CloneRepositoryProgress) => {
@@ -640,16 +685,17 @@ export function RepositoryCloneDialog({
     const nextErrors: ValidationErrors = {};
 
     if (!isLikelyRepositoryUrl(repositoryUrl)) {
-      nextErrors.repositoryUrl =
-        "Enter a valid HTTPS, SSH, or Git repository URL.";
+      nextErrors.repositoryUrl = "Enter a valid HTTPS or SSH repository URL.";
     }
 
     if (destinationParent.trim().length === 0) {
       nextErrors.destinationParent = "Choose a local destination folder.";
     }
 
-    if (folderName.trim().length === 0) {
-      nextErrors.folderName = "Enter a folder name for the cloned repository.";
+    const folderNameError = validateCloneFolderName(folderName);
+
+    if (folderNameError) {
+      nextErrors.folderName = folderNameError;
     }
 
     setErrors(nextErrors);

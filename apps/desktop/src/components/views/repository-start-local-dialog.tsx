@@ -48,6 +48,15 @@ import type { RepositoryTemplateOption } from "@/stores/repo/use-repo-store";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 const TRAILING_PATH_SEPARATOR_REGEX = /[\\/]$/;
+const INVALID_REPOSITORY_NAME_CHARACTERS = new Set([
+  "<",
+  ">",
+  ":",
+  '"',
+  "|",
+  "?",
+  "*",
+]);
 
 interface TemplateState {
   error: string | null;
@@ -136,6 +145,34 @@ const formatDisplayPath = (destinationParent: string, name: string) => {
   }
 
   return `${trimmedParent.replace(TRAILING_PATH_SEPARATOR_REGEX, "")}/${trimmedName}`;
+};
+
+const validateRepositoryName = (value: string) => {
+  const trimmed = value.trim();
+
+  if (trimmed.length === 0) {
+    return "Enter a repository name.";
+  }
+
+  if (trimmed === "." || trimmed === "..") {
+    return "Repository name must be more specific.";
+  }
+
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    return "Repository name cannot contain path separators.";
+  }
+
+  if (
+    [...trimmed].some(
+      (character) =>
+        INVALID_REPOSITORY_NAME_CHARACTERS.has(character) ||
+        character.charCodeAt(0) < 32
+    )
+  ) {
+    return "Repository name contains unsupported characters.";
+  }
+
+  return null;
 };
 
 function TemplateSelect({
@@ -636,8 +673,10 @@ export function RepositoryStartLocalDialog({
   const validateForm = useCallback(() => {
     const nextErrors: ValidationErrors = {};
 
-    if (name.trim().length === 0) {
-      nextErrors.name = "Enter a repository name.";
+    const nameError = validateRepositoryName(name);
+
+    if (nameError) {
+      nextErrors.name = nameError;
     }
 
     if (destinationParent.trim().length === 0) {
