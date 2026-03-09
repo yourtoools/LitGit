@@ -23,6 +23,10 @@ if (!rootElement) {
   throw new Error("Root element not found");
 }
 
+window.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+});
+
 if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement);
   root.render(<RouterProvider router={router} />);
