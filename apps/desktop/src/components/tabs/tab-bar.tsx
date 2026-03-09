@@ -67,6 +67,7 @@ import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import { useUngroupConfirmation } from "@/hooks/tabs/use-ungroup-confirmation";
 import {
   getNewTabShortcutLabel,
+  isCloseTabShortcut,
   isEditableTarget,
   isPrimaryShortcut,
   isReopenClosedTabShortcut,
@@ -819,6 +820,19 @@ export function TabBar() {
     }
   }, [addTab, setActiveTabFromUrl]);
 
+  const handleCloseActiveTab = useCallback(() => {
+    if (isSingleTab || !activeTabId) {
+      return;
+    }
+
+    const currentIndex = sortedTabs.findIndex((tab) => tab.id === activeTabId);
+    const fallbackTab =
+      sortedTabs[currentIndex + 1] ?? sortedTabs[currentIndex - 1] ?? null;
+
+    pendingKeyboardFocusTabIdRef.current = fallbackTab?.id ?? null;
+    requestCloseTab(activeTabId);
+  }, [activeTabId, isSingleTab, requestCloseTab, sortedTabs]);
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -876,6 +890,31 @@ export function TabBar() {
       window.removeEventListener("keydown", handleReopenClosedTabShortcut);
     };
   }, [reopenClosedTab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleCloseTabShortcut = (event: KeyboardEvent) => {
+      if (event.repeat || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (!isCloseTabShortcut(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      handleCloseActiveTab();
+    };
+
+    window.addEventListener("keydown", handleCloseTabShortcut);
+
+    return () => {
+      window.removeEventListener("keydown", handleCloseTabShortcut);
+    };
+  }, [handleCloseActiveTab]);
 
   const handleTabListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) {

@@ -1,13 +1,18 @@
 import { Button } from "@litgit/ui/components/button";
 import { BellIcon, GearIcon } from "@phosphor-icons/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/page-shell";
 import { TabBar } from "@/components/tabs/tab-bar";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabRepoSync } from "@/hooks/tabs/use-tab-repo-sync";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
-import { isEditableTarget, isPrimaryShortcut } from "@/lib/keyboard-shortcuts";
+import {
+  isEditableTarget,
+  isOpenRepositoryChordEndShortcut,
+  isOpenRepositoryChordStartShortcut,
+  isPrimaryShortcut,
+} from "@/lib/keyboard-shortcuts";
 import type {
   OpenedRepository,
   PickedRepositorySelection,
@@ -32,6 +37,21 @@ export default function Header() {
     useState(false);
   const [pendingRepoInitialization, setPendingRepoInitialization] =
     useState<PickedRepositorySelection | null>(null);
+  const openRepositoryChordTimeoutRef = useRef<number | null>(null);
+
+  const clearOpenRepositoryChord = useCallback(() => {
+    if (openRepositoryChordTimeoutRef.current !== null) {
+      window.clearTimeout(openRepositoryChordTimeoutRef.current);
+      openRepositoryChordTimeoutRef.current = null;
+    }
+  }, []);
+
+  const queueOpenRepositoryChord = useCallback(() => {
+    clearOpenRepositoryChord();
+    openRepositoryChordTimeoutRef.current = window.setTimeout(() => {
+      openRepositoryChordTimeoutRef.current = null;
+    }, 1500);
+  }, [clearOpenRepositoryChord]);
 
   const routePickedRepository = useCallback(
     async (repositoryToRoute: OpenedRepository) => {
@@ -83,6 +103,12 @@ export default function Header() {
     routePickedRepository,
   ]);
 
+  const triggerOpenRepositoryPicker = useCallback(() => {
+    handleOpenRepoPicker().catch(() => {
+      return;
+    });
+  }, [handleOpenRepoPicker]);
+
   const handleInitializeRepository = useCallback(async () => {
     if (!(pendingRepoInitialization && !isInitializingRepository)) {
       return;
@@ -116,8 +142,44 @@ export default function Header() {
       return;
     }
 
+    const hasOpenRepositoryChord = () => {
+      return openRepositoryChordTimeoutRef.current !== null;
+    };
+
+    const shouldIgnoreShortcut = (event: KeyboardEvent) => {
+      return event.repeat || isEditableTarget(event.target);
+    };
+
+    const handleOpenRepositoryChord = (event: KeyboardEvent) => {
+      if (!hasOpenRepositoryChord()) {
+        return false;
+      }
+
+      if (isOpenRepositoryChordEndShortcut(event)) {
+        event.preventDefault();
+        clearOpenRepositoryChord();
+        triggerOpenRepositoryPicker();
+        return true;
+      }
+
+      if (event.key !== "Meta" && event.key !== "Control") {
+        clearOpenRepositoryChord();
+      }
+
+      return true;
+    };
+
     const handleGlobalOpenShortcut = (event: KeyboardEvent) => {
-      if (event.repeat) {
+      if (shouldIgnoreShortcut(event)) {
+        return;
+      }
+
+      if (isOpenRepositoryChordStartShortcut(event)) {
+        queueOpenRepositoryChord();
+        return;
+      }
+
+      if (handleOpenRepositoryChord(event)) {
         return;
       }
 
@@ -125,27 +187,21 @@ export default function Header() {
         return;
       }
 
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-
-      if (isPickingRepo || isInitializingRepository) {
-        return;
-      }
-
       event.preventDefault();
-
-      handleOpenRepoPicker().catch(() => {
-        return;
-      });
+      triggerOpenRepositoryPicker();
     };
 
     window.addEventListener("keydown", handleGlobalOpenShortcut);
 
     return () => {
+      clearOpenRepositoryChord();
       window.removeEventListener("keydown", handleGlobalOpenShortcut);
     };
-  }, [handleOpenRepoPicker, isInitializingRepository, isPickingRepo]);
+  }, [
+    clearOpenRepositoryChord,
+    queueOpenRepositoryChord,
+    triggerOpenRepositoryPicker,
+  ]);
 
   return (
     <header className="border-border/80 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">

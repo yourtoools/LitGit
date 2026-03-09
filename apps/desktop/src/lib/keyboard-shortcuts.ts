@@ -57,27 +57,92 @@ export const isPrimaryShortcut = (event: ShortcutEvent, key: string) => {
   );
 };
 
-export const isShortcutHelpShortcut = (event: ShortcutEvent) => {
-  return isPrimaryShortcut(event, "/");
+export const isPrimaryAltShortcut = (event: ShortcutEvent, key: string) => {
+  const normalizedKey = key.toLowerCase();
+
+  return (
+    !event.shiftKey &&
+    event.altKey &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key.toLowerCase() === normalizedKey
+  );
 };
 
-export const isReopenClosedTabShortcut = (event: ShortcutEvent) => {
-  const normalizedKey = event.key.toLowerCase();
+export const isPrimaryShiftShortcut = (event: ShortcutEvent, key: string) => {
+  const normalizedKey = key.toLowerCase();
 
   return (
     !event.altKey &&
     event.shiftKey &&
     (event.metaKey || event.ctrlKey) &&
-    normalizedKey === "t"
+    event.key.toLowerCase() === normalizedKey
   );
+};
+
+export const isShortcutHelpShortcut = (event: ShortcutEvent) => {
+  return isPrimaryShortcut(event, "/");
+};
+
+export const isReopenClosedTabShortcut = (event: ShortcutEvent) => {
+  return isPrimaryShiftShortcut(event, "t");
+};
+
+export const isCloseTabShortcut = (event: ShortcutEvent) => {
+  return isPrimaryShortcut(event, "w");
+};
+
+export const isZoomInShortcut = (event: ShortcutEvent) => {
+  const normalizedKey = event.key.toLowerCase();
+
+  return (
+    !event.altKey &&
+    (event.metaKey || event.ctrlKey) &&
+    (normalizedKey === "+" || normalizedKey === "=")
+  );
+};
+
+export const isZoomOutShortcut = (event: ShortcutEvent) => {
+  return (
+    !(event.altKey || event.shiftKey) &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key.toLowerCase() === "-"
+  );
+};
+
+export const isOpenRepositoryChordStartShortcut = (event: ShortcutEvent) => {
+  return isPrimaryShortcut(event, "k");
+};
+
+export const isOpenRepositoryChordEndShortcut = (event: ShortcutEvent) => {
+  return !event.altKey && event.key.toLowerCase() === "o";
 };
 
 export const getOpenRepositoryShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + O`;
 };
 
+export const getChangeRepositoryShortcutKeys = () => {
+  return [getPrimaryModifierLabel(), "K", "O"];
+};
+
 export const getNewTabShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + T`;
+};
+
+export const getCloseTabShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + W`;
+};
+
+export const getZoomInShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + +`;
+};
+
+export const getZoomOutShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + -`;
+};
+
+export const getSidebarFilterShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + Alt + F`;
 };
 
 export const getReopenClosedTabShortcutLabel = () => {

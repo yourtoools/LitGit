@@ -13,8 +13,12 @@ import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
 import { KeyboardShortcutsDialog } from "@/components/shell/footer/keyboard-shortcuts-dialog";
 import { FooterZoomControl } from "@/components/shell/footer/zoom-control";
+import { isZoomInShortcut, isZoomOutShortcut } from "@/lib/keyboard-shortcuts";
 
 const ZOOM_OPTIONS = [130, 120, 110, 100, 90, 80];
+const MIN_ZOOM = ZOOM_OPTIONS.at(-1) ?? 80;
+const MAX_ZOOM = ZOOM_OPTIONS[0] ?? 130;
+const ZOOM_STEP = 10;
 const RELEASE_NOTES_URL = env.VITE_RELEASE_NOTES_URL;
 
 export default function Footer() {
@@ -72,6 +76,37 @@ export default function Footer() {
       }
     });
   }, [zoom]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleZoomShortcut = (event: KeyboardEvent) => {
+      const shouldZoomIn = isZoomInShortcut(event);
+      const shouldZoomOut = isZoomOutShortcut(event);
+
+      if (!(shouldZoomIn || shouldZoomOut)) {
+        return;
+      }
+
+      event.preventDefault();
+
+      setZoom((currentZoom) => {
+        const nextZoom = shouldZoomIn
+          ? currentZoom + ZOOM_STEP
+          : currentZoom - ZOOM_STEP;
+
+        return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+      });
+    };
+
+    window.addEventListener("keydown", handleZoomShortcut);
+
+    return () => {
+      window.removeEventListener("keydown", handleZoomShortcut);
+    };
+  }, []);
 
   const openReleaseNotes = async () => {
     if (isTauri()) {

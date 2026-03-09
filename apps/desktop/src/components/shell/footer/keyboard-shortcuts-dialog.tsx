@@ -15,11 +15,15 @@ import {
 import { KeyboardIcon, XIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  getChangeRepositoryShortcutKeys,
+  getCloseTabShortcutLabel,
   getKeyboardShortcutsShortcutLabel,
   getNewTabShortcutLabel,
   getOpenRepositoryShortcutLabel,
   getPrimaryModifierAriaKey,
   getReopenClosedTabShortcutLabel,
+  getZoomInShortcutLabel,
+  getZoomOutShortcutLabel,
   isEditableTarget,
   isShortcutHelpShortcut,
 } from "@/lib/keyboard-shortcuts";
@@ -77,6 +81,15 @@ export function KeyboardShortcutsDialog() {
         label: "Open Repository",
       },
       {
+        description:
+          "Start the command-style chord to switch repositories without leaving your keyboard.",
+        group: "Workspace",
+        id: "change-repository",
+        keywords: ["repository", "repo", "change", "switch", "chord"],
+        keys: getChangeRepositoryShortcutKeys(),
+        label: "Change Repository",
+      },
+      {
         description: "Create a fresh tab without leaving the current context.",
         group: "Tabs",
         id: "new-tab",
@@ -85,12 +98,37 @@ export function KeyboardShortcutsDialog() {
         label: "New Tab",
       },
       {
+        description:
+          "Close the active tab while keeping the rest of the workspace open.",
+        group: "Tabs",
+        id: "close-tab",
+        keywords: ["tab", "close", "active", "remove"],
+        keys: shortcutLabelToKeys(getCloseTabShortcutLabel()),
+        label: "Close Tab",
+      },
+      {
         description: "Restore the most recently closed tab.",
         group: "Tabs",
         id: "reopen-tab",
         keywords: ["tab", "reopen", "restore", "closed", "history"],
         keys: shortcutLabelToKeys(getReopenClosedTabShortcutLabel()),
         label: "Reopen Closed Tab",
+      },
+      {
+        description: "Increase interface zoom in 10% steps up to 130%.",
+        group: "View",
+        id: "zoom-in",
+        keywords: ["zoom", "view", "increase", "plus", "scale"],
+        keys: shortcutLabelToKeys(getZoomInShortcutLabel()),
+        label: "Zoom In",
+      },
+      {
+        description: "Decrease interface zoom in 10% steps down to 80%.",
+        group: "View",
+        id: "zoom-out",
+        keywords: ["zoom", "view", "decrease", "minus", "scale"],
+        keys: shortcutLabelToKeys(getZoomOutShortcutLabel()),
+        label: "Zoom Out",
       },
       {
         description: "Open this shortcuts panel from anywhere in the app.",
@@ -104,8 +142,8 @@ export function KeyboardShortcutsDialog() {
         description: "Move between visible shortcut rows inside the dialog.",
         group: "Dialog Navigation",
         id: "dialog-navigation",
-        keywords: ["up", "down", "arrow", "navigate", "dialog"],
-        keys: ["Up", "Down"],
+        keywords: ["up", "down", "arrow", "navigate", "dialog", "home", "end"],
+        keys: ["Up", "Down", "Home", "End"],
         label: "Navigate Shortcuts",
       },
       {
