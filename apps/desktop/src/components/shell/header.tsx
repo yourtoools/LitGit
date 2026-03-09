@@ -2,6 +2,7 @@ import { Button } from "@litgit/ui/components/button";
 import { BellIcon, GearIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/page-shell";
+import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
 import { TabBar } from "@/components/tabs/tab-bar";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
@@ -210,12 +211,13 @@ export default function Header() {
           <TabBar />
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-1 border-border border-l pl-2 sm:pl-3">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <HeaderTabsSearch />
           <Button
             aria-label="Notifications"
             disabled
             size="icon"
-            variant="outline"
+            variant="ghost"
           >
             <BellIcon />
           </Button>
@@ -224,7 +226,7 @@ export default function Header() {
             className="hidden sm:inline-flex"
             disabled
             size="icon"
-            variant="outline"
+            variant="ghost"
           >
             <GearIcon />
           </Button>

@@ -24,6 +24,7 @@ import {
   getPreviousTabShortcutLabel,
   getPrimaryModifierAriaKey,
   getReopenClosedTabShortcutLabel,
+  getSearchTabsShortcutLabel,
   getZoomInShortcutLabel,
   getZoomOutShortcutLabel,
   isEditableTarget,
@@ -131,6 +132,14 @@ export function KeyboardShortcutsDialog() {
         keywords: ["tab", "reopen", "restore", "closed", "history"],
         keys: shortcutLabelToKeys(getReopenClosedTabShortcutLabel()),
         label: "Reopen Closed Tab",
+      },
+      {
+        description: "Search and jump to any open or recently closed tab.",
+        group: "Tabs",
+        id: "search-tabs",
+        keywords: ["tab", "search", "find", "jump", "switch"],
+        keys: shortcutLabelToKeys(getSearchTabsShortcutLabel()),
+        label: "Search Tabs",
       },
       {
         description: "Increase interface zoom in 10% steps up to 130%.",
