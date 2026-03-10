@@ -5,6 +5,8 @@ import {
   commitRepoChanges,
   discardRepoPathChanges,
   dropRepoStash,
+  getRepoCommitFileDiff,
+  getRepoCommitFiles,
   getRepoFileDiff,
   popRepoStash,
   pushRepoBranch,
@@ -25,6 +27,8 @@ type RepoActionsSliceKeys =
   | "commitChanges"
   | "discardPathChanges"
   | "dropStash"
+  | "getCommitFileDiff"
+  | "getCommitFiles"
   | "getFileDiff"
   | "popStash"
   | "pullBranch"
@@ -227,6 +231,36 @@ export const createRepoActionsSlice = (
       await get().setActiveRepo(id, { forceRefresh: true });
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to unstage file"));
+    }
+  },
+  getCommitFiles: async (id, commitHash) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return [];
+    }
+
+    try {
+      return await getRepoCommitFiles(targetRepo.path, commitHash);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to load commit files"));
+      return [];
+    }
+  },
+  getCommitFileDiff: async (id, commitHash, filePath) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoCommitFileDiff(targetRepo.path, commitHash, filePath);
+    } catch (error) {
+      toast.error(
+        resolveErrorMessage(error, "Failed to load commit file diff")
+      );
+      return null;
     }
   },
   getFileDiff: async (id, filePath) => {

@@ -26,6 +26,9 @@ export interface CreateLocalRepositoryInput {
 
 export interface RepositoryCommit {
   author: string;
+  authorAvatarUrl: string | null;
+  authorEmail: string | null;
+  authorUsername: string | null;
   date: string;
   hash: string;
   message: string;
@@ -76,6 +79,21 @@ export interface RepositoryFileDiff {
   path: string;
 }
 
+export interface RepositoryCommitFile {
+  additions: number;
+  deletions: number;
+  path: string;
+  previousPath: string | null;
+  status: string;
+}
+
+export interface RepositoryCommitFileDiff {
+  commitHash: string;
+  newText: string;
+  oldText: string;
+  path: string;
+}
+
 export type OpenRepositoryResult =
   | {
       repository: OpenedRepository;
@@ -120,6 +138,15 @@ export interface RepoStoreState {
   ) => Promise<OpenedRepository | null>;
   discardPathChanges: (id: string, filePath: string) => Promise<void>;
   dropStash: (id: string, stashRef: string) => Promise<void>;
+  getCommitFileDiff: (
+    id: string,
+    commitHash: string,
+    filePath: string
+  ) => Promise<RepositoryCommitFileDiff | null>;
+  getCommitFiles: (
+    id: string,
+    commitHash: string
+  ) => Promise<RepositoryCommitFile[]>;
   getFileDiff: (
     id: string,
     filePath: string

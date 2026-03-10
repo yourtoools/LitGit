@@ -6,6 +6,8 @@ import type {
   RepoDataFetchResult,
   RepositoryBranch,
   RepositoryCommit,
+  RepositoryCommitFile,
+  RepositoryCommitFileDiff,
   RepositoryFileDiff,
   RepositoryStash,
   RepositoryWorkingTreeItem,
@@ -95,7 +97,18 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     throw new Error("Invalid repository history payload");
   }
 
-  const { hash, shortHash, parentHashes, message, author, date, refs } = value;
+  const {
+    hash,
+    shortHash,
+    parentHashes,
+    message,
+    author,
+    authorEmail,
+    authorUsername,
+    authorAvatarUrl,
+    date,
+    refs,
+  } = value;
 
   if (
     typeof hash !== "string" ||
@@ -104,6 +117,9 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     parentHashes.some((parentHash) => typeof parentHash !== "string") ||
     typeof message !== "string" ||
     typeof author !== "string" ||
+    !(typeof authorEmail === "string" || authorEmail === null) ||
+    !(typeof authorUsername === "string" || authorUsername === null) ||
+    !(typeof authorAvatarUrl === "string" || authorAvatarUrl === null) ||
     typeof date !== "string"
   ) {
     throw new Error("Invalid repository history payload");
@@ -121,6 +137,9 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     parentHashes,
     message,
     author,
+    authorEmail,
+    authorUsername,
+    authorAvatarUrl,
     date,
     refs: parsedRefs,
   };
@@ -276,6 +295,40 @@ function parseRepositoryHistory(value: unknown): RepositoryCommit[] {
   }
 
   return value.map(parseRepositoryCommit);
+}
+
+function parseRepositoryCommitFile(value: unknown): RepositoryCommitFile {
+  if (!isRecord(value)) {
+    throw new Error("Invalid repository commit files payload");
+  }
+
+  const { additions, deletions, path, previousPath, status } = value;
+
+  if (
+    typeof additions !== "number" ||
+    typeof deletions !== "number" ||
+    typeof path !== "string" ||
+    typeof status !== "string" ||
+    !(typeof previousPath === "string" || previousPath === null)
+  ) {
+    throw new Error("Invalid repository commit files payload");
+  }
+
+  return {
+    additions,
+    deletions,
+    path,
+    previousPath,
+    status,
+  };
+}
+
+function parseRepositoryCommitFiles(value: unknown): RepositoryCommitFile[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid repository commit files payload");
+  }
+
+  return value.map(parseRepositoryCommitFile);
 }
 
 export function getTauriInvoke() {
@@ -612,6 +665,69 @@ export async function discardRepoPathChanges(path: string, filePath: string) {
     filePath,
   });
 }
+export async function getRepoCommitFiles(
+  path: string,
+  commitHash: string
+): Promise<RepositoryCommitFile[]> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Commit files works in Tauri desktop app only");
+  }
+
+  const result = await invoke("get_repository_commit_files", {
+    repoPath: path,
+    commitHash,
+  });
+
+  return parseRepositoryCommitFiles(result);
+}
+
+export async function getRepoCommitFileDiff(
+  path: string,
+  commitHash: string,
+  filePath: string
+): Promise<RepositoryCommitFileDiff> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Commit diff works in Tauri desktop app only");
+  }
+
+  const result = await invoke("get_repository_commit_file_diff", {
+    repoPath: path,
+    commitHash,
+    filePath,
+  });
+
+  if (!isRecord(result)) {
+    throw new Error("Invalid repository commit file diff payload");
+  }
+
+  const {
+    commitHash: parsedCommitHash,
+    path: diffPath,
+    oldText,
+    newText,
+  } = result;
+
+  if (
+    typeof parsedCommitHash !== "string" ||
+    typeof diffPath !== "string" ||
+    typeof oldText !== "string" ||
+    typeof newText !== "string"
+  ) {
+    throw new Error("Invalid repository commit file diff payload");
+  }
+
+  return {
+    commitHash: parsedCommitHash,
+    path: diffPath,
+    oldText,
+    newText,
+  } satisfies RepositoryCommitFileDiff;
+}
+
 export async function getRepoFileDiff(path: string, filePath: string) {
   const invoke = getTauriInvoke();
 

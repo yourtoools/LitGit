@@ -84,6 +84,8 @@ import { IntegratedTerminalPanel } from "@/components/terminal/integrated-termin
 import type {
   PullActionMode,
   RepositoryCommit,
+  RepositoryCommitFile,
+  RepositoryCommitFileDiff,
   RepositoryFileDiff,
   RepositoryStash,
   RepositoryWorkingTreeItem,
@@ -117,6 +119,13 @@ interface ChangeTreeNode {
   children: Map<string, ChangeTreeNode>;
   fullPath: string;
   item: RepositoryWorkingTreeItem | null;
+  name: string;
+}
+
+interface CommitFileTreeNode {
+  children: Map<string, CommitFileTreeNode>;
+  file: RepositoryCommitFile | null;
+  fullPath: string;
   name: string;
 }
 
@@ -240,6 +249,72 @@ function buildChangeTree(items: RepositoryWorkingTreeItem[]): ChangeTreeNode[] {
       .sort((left, right) => {
         const leftIsFolder = left.item === null;
         const rightIsFolder = right.item === null;
+
+        if (leftIsFolder !== rightIsFolder) {
+          return leftIsFolder ? -1 : 1;
+        }
+
+        return left.name.localeCompare(right.name);
+      });
+
+  return toSortedArray(root);
+}
+
+function createEmptyCommitTreeNode(
+  name: string,
+  fullPath: string
+): CommitFileTreeNode {
+  return {
+    children: new Map<string, CommitFileTreeNode>(),
+    file: null,
+    fullPath,
+    name,
+  };
+}
+
+function buildCommitFileTree(
+  files: RepositoryCommitFile[]
+): CommitFileTreeNode[] {
+  const root = createEmptyCommitTreeNode("", "");
+
+  for (const file of files) {
+    const normalizedPath = file.path.replaceAll("\\", "/");
+    const segments = normalizedPath
+      .split("/")
+      .filter((segment) => segment.length > 0);
+
+    let cursor = root;
+    let segmentPath = "";
+
+    for (const segment of segments) {
+      segmentPath =
+        segmentPath.length > 0 ? `${segmentPath}/${segment}` : segment;
+      const existing = cursor.children.get(segment);
+
+      if (existing) {
+        cursor = existing;
+        continue;
+      }
+
+      const nextNode = createEmptyCommitTreeNode(segment, segmentPath);
+      cursor.children.set(segment, nextNode);
+      cursor = nextNode;
+    }
+
+    cursor.file = file;
+  }
+
+  const toSortedArray = (node: CommitFileTreeNode): CommitFileTreeNode[] =>
+    Array.from(node.children.values())
+      .map((childNode) => ({
+        ...childNode,
+        children: new Map(
+          toSortedArray(childNode).map((entry) => [entry.name, entry])
+        ),
+      }))
+      .sort((left, right) => {
+        const leftIsFolder = left.file === null;
+        const rightIsFolder = right.file === null;
 
         if (leftIsFolder !== rightIsFolder) {
           return leftIsFolder ? -1 : 1;
@@ -385,6 +460,8 @@ export function RepoInfo() {
   const stageFile = useRepoStore((state) => state.stageFile);
   const unstageFile = useRepoStore((state) => state.unstageFile);
   const getFileDiff = useRepoStore((state) => state.getFileDiff);
+  const getCommitFiles = useRepoStore((state) => state.getCommitFiles);
+  const getCommitFileDiff = useRepoStore((state) => state.getCommitFileDiff);
   const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
   const commitChanges = useRepoStore((state) => state.commitChanges);
   const pullBranch = useRepoStore((state) => state.pullBranch);
@@ -430,6 +507,21 @@ export function RepoInfo() {
   );
   const [openedDiff, setOpenedDiff] = useState<RepositoryFileDiff | null>(null);
   const [openedDiffPath, setOpenedDiffPath] = useState<string | null>(null);
+  const [commitDetailsViewMode, setCommitDetailsViewMode] =
+    useState<ChangesViewMode>("tree");
+  const [expandedCommitTreeNodePaths, setExpandedCommitTreeNodePaths] =
+    useState<Record<string, boolean>>({});
+  const [commitFilesByHash, setCommitFilesByHash] = useState<
+    Record<string, RepositoryCommitFile[]>
+  >({});
+  const [isLoadingCommitFilesHash, setIsLoadingCommitFilesHash] = useState<
+    string | null
+  >(null);
+  const [openedCommitDiff, setOpenedCommitDiff] =
+    useState<RepositoryCommitFileDiff | null>(null);
+  const [isLoadingCommitDiffPath, setIsLoadingCommitDiffPath] = useState<
+    string | null
+  >(null);
   const [pullActionMode, setPullActionMode] =
     useState<PullActionMode>("pull-ff-possible");
   const [openEntryMenuKey, setOpenEntryMenuKey] = useState<string | null>(null);
@@ -547,6 +639,45 @@ export function RepoInfo() {
     () => commits.find((item) => item.hash === selectedCommitId) ?? null,
     [commits, selectedCommitId]
   );
+  const selectedCommitFiles = useMemo<RepositoryCommitFile[]>(
+    () =>
+      selectedCommit
+        ? (commitFilesByHash[selectedCommit.hash] ?? [])
+        : ([] as RepositoryCommitFile[]),
+    [commitFilesByHash, selectedCommit]
+  );
+  const selectedCommitTree = useMemo(
+    () => buildCommitFileTree(selectedCommitFiles),
+    [selectedCommitFiles]
+  );
+  const selectedCommitFileSummary = useMemo(() => {
+    let addedCount = 0;
+    let modifiedCount = 0;
+    let removedCount = 0;
+
+    for (const file of selectedCommitFiles) {
+      const status = file.status.charAt(0);
+
+      if (status === "A") {
+        addedCount += 1;
+        continue;
+      }
+
+      if (status === "D") {
+        removedCount += 1;
+        continue;
+      }
+
+      modifiedCount += 1;
+    }
+
+    return {
+      addedCount,
+      modifiedCount,
+      removedCount,
+      totalCount: selectedCommitFiles.length,
+    };
+  }, [selectedCommitFiles]);
   const branchComboboxOptions = useMemo<BranchComboboxOption[]>(
     () =>
       branches
@@ -784,6 +915,52 @@ export function RepoInfo() {
     setOpenedDiff(null);
     setOpenedDiffPath(null);
   }, [activeRepoId]);
+
+  useEffect(() => {
+    if (!activeRepoId || isWorkingTreeSelection || !selectedCommit) {
+      setOpenedCommitDiff(null);
+      setIsLoadingCommitFilesHash(null);
+      return;
+    }
+
+    if (commitFilesByHash[selectedCommit.hash]) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingCommitFilesHash(selectedCommit.hash);
+
+    getCommitFiles(activeRepoId, selectedCommit.hash)
+      .then((files) => {
+        if (cancelled) {
+          return;
+        }
+
+        setCommitFilesByHash((current) => ({
+          ...current,
+          [selectedCommit.hash]: files,
+        }));
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setIsLoadingCommitFilesHash((current) =>
+          current === selectedCommit.hash ? null : current
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeRepoId,
+    commitFilesByHash,
+    getCommitFiles,
+    isWorkingTreeSelection,
+    selectedCommit,
+  ]);
 
   useEffect(() => {
     const handleFocusSidebarFilter = (event: KeyboardEvent) => {
@@ -1811,6 +1988,8 @@ export function RepoInfo() {
       return;
     }
 
+    setOpenedCommitDiff(null);
+
     const isTogglingCurrentDiff =
       openedDiffPath === filePath && openedDiff !== null;
 
@@ -1834,27 +2013,6 @@ export function RepoInfo() {
       setIsLoadingDiffPath(null);
     }
   };
-
-  useEffect(() => {
-    if (openedDiff === null) {
-      return;
-    }
-
-    const handleEscapeToCloseDiff = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      setOpenedDiff(null);
-      setOpenedDiffPath(null);
-    };
-
-    globalThis.addEventListener("keydown", handleEscapeToCloseDiff);
-
-    return () => {
-      globalThis.removeEventListener("keydown", handleEscapeToCloseDiff);
-    };
-  }, [openedDiff]);
 
   const openedDiffActionMode = useMemo<"stage" | "unstage" | null>(() => {
     if (openedDiffPath === null) {
@@ -1893,6 +2051,224 @@ export function RepoInfo() {
     await handleFileStageToggle(openedDiffPath, openedDiffActionMode);
   };
 
+  const closeOpenedCommitDiff = () => {
+    setOpenedCommitDiff(null);
+  };
+
+  const handleOpenCommitFileDiff = async (
+    commitHash: string,
+    filePath: string
+  ) => {
+    if (!activeRepoId || isLoadingCommitDiffPath !== null) {
+      return;
+    }
+
+    setOpenedDiff(null);
+    setOpenedDiffPath(null);
+
+    const isTogglingCurrentDiff =
+      openedCommitDiff !== null &&
+      openedCommitDiff.commitHash === commitHash &&
+      openedCommitDiff.path === filePath;
+
+    if (isTogglingCurrentDiff) {
+      closeOpenedCommitDiff();
+      return;
+    }
+
+    setIsLoadingCommitDiffPath(`${commitHash}:${filePath}`);
+
+    try {
+      const diff = await getCommitFileDiff(activeRepoId, commitHash, filePath);
+
+      if (!diff) {
+        return;
+      }
+
+      setOpenedCommitDiff(diff);
+    } finally {
+      setIsLoadingCommitDiffPath(null);
+    }
+  };
+
+  const getCommitTreeNodeStateKey = (commitHash: string, nodePath: string) =>
+    `${commitHash}:${nodePath}`;
+
+  const toggleCommitTreeNode = (commitHash: string, nodePath: string) => {
+    const key = getCommitTreeNodeStateKey(commitHash, nodePath);
+
+    setExpandedCommitTreeNodePaths((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  };
+
+  const renderCommitStatusBadge = (status: string): ReactNode => {
+    const descriptor = getStatusDescriptor(status.charAt(0));
+
+    if (!descriptor) {
+      return null;
+    }
+
+    return (
+      <span className={cn("inline-flex items-center", descriptor.className)}>
+        {status.charAt(0) === "M" ? (
+          <PencilSimpleIcon className="size-3" />
+        ) : (
+          <span className="font-semibold text-xs leading-none">
+            {descriptor.short}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  const renderCommitTreeNodes = (
+    nodes: CommitFileTreeNode[],
+    commitHash: string,
+    depth = 0
+  ): ReactNode => {
+    return nodes.map((node) => {
+      const nodeStateKey = getCommitTreeNodeStateKey(commitHash, node.fullPath);
+      const isExpanded = expandedCommitTreeNodePaths[nodeStateKey] ?? depth < 1;
+
+      if (node.file) {
+        const file = node.file;
+        const loadingKey = `${commitHash}:${file.path}`;
+
+        return (
+          <button
+            className={cn(
+              "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors",
+              openedCommitDiff?.commitHash === commitHash &&
+                openedCommitDiff.path === file.path
+                ? "bg-accent/30"
+                : "hover:bg-accent/20"
+            )}
+            key={`${commitHash}-${file.path}`}
+            onClick={() => {
+              handleOpenCommitFileDiff(commitHash, file.path).catch(
+                () => undefined
+              );
+            }}
+            style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
+            type="button"
+          >
+            <span className="w-4" />
+            <span className="min-w-0 flex-1 truncate">{node.name}</span>
+            <span className="inline-flex items-center gap-1 text-[0.72rem] text-muted-foreground">
+              {file.additions > 0 ? (
+                <span className="text-emerald-400">+{file.additions}</span>
+              ) : null}
+              {file.deletions > 0 ? (
+                <span className="text-rose-400">-{file.deletions}</span>
+              ) : null}
+            </span>
+            {isLoadingCommitDiffPath === loadingKey ? (
+              <SpinnerGapIcon className="size-3 animate-spin text-muted-foreground" />
+            ) : (
+              renderCommitStatusBadge(node.file.status)
+            )}
+          </button>
+        );
+      }
+
+      return (
+        <div key={`${commitHash}-${node.fullPath}`}>
+          <button
+            className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+            onClick={() => toggleCommitTreeNode(commitHash, node.fullPath)}
+            style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
+            type="button"
+          >
+            {isExpanded ? (
+              <CaretDownIcon className="size-3" />
+            ) : (
+              <CaretRightIcon className="size-3" />
+            )}
+            <span className="truncate">{node.name}</span>
+          </button>
+          {isExpanded
+            ? renderCommitTreeNodes(
+                Array.from(node.children.values()),
+                commitHash,
+                depth + 1
+              )
+            : null}
+        </div>
+      );
+    });
+  };
+
+  const renderCommitPathRows = (
+    files: RepositoryCommitFile[],
+    commitHash: string
+  ): ReactNode => {
+    return files.map((file) => {
+      const loadingKey = `${commitHash}:${file.path}`;
+
+      return (
+        <button
+          className={cn(
+            "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors",
+            openedCommitDiff?.commitHash === commitHash &&
+              openedCommitDiff.path === file.path
+              ? "bg-accent/30"
+              : "hover:bg-accent/20"
+          )}
+          key={`${commitHash}-${file.path}`}
+          onClick={() => {
+            handleOpenCommitFileDiff(commitHash, file.path).catch(
+              () => undefined
+            );
+          }}
+          type="button"
+        >
+          <span className="min-w-0 flex-1 truncate">{file.path}</span>
+          <span className="inline-flex items-center gap-1 text-[0.72rem] text-muted-foreground">
+            {file.additions > 0 ? (
+              <span className="text-emerald-400">+{file.additions}</span>
+            ) : null}
+            {file.deletions > 0 ? (
+              <span className="text-rose-400">-{file.deletions}</span>
+            ) : null}
+          </span>
+          {isLoadingCommitDiffPath === loadingKey ? (
+            <SpinnerGapIcon className="size-3 animate-spin text-muted-foreground" />
+          ) : (
+            renderCommitStatusBadge(file.status)
+          )}
+        </button>
+      );
+    });
+  };
+
+  useEffect(() => {
+    if (openedDiff === null && openedCommitDiff === null) {
+      return;
+    }
+
+    const handleEscapeToCloseDiff = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (openedDiff !== null) {
+        setOpenedDiff(null);
+        setOpenedDiffPath(null);
+      }
+
+      if (openedCommitDiff !== null) {
+        setOpenedCommitDiff(null);
+      }
+    };
+
+    globalThis.addEventListener("keydown", handleEscapeToCloseDiff);
+
+    return () => {
+      globalThis.removeEventListener("keydown", handleEscapeToCloseDiff);
+    };
+  }, [openedCommitDiff, openedDiff]);
   const renderChangeContextMenuContent = (
     targetPath: string,
     section: "staged" | "unstaged",
@@ -2978,31 +3354,38 @@ export function RepoInfo() {
                 contextKey={`${activeTabIdFromUrl}:${activeRepoId ?? "repo:none"}`}
                 cwd={activeRepo?.path ?? ""}
               />
-              {openedDiff ? (
+              {openedDiff || openedCommitDiff ? (
                 <div className="absolute inset-0 z-20 flex flex-col bg-background/95">
                   <div className="flex items-center gap-2 border-border/70 border-b px-3 py-2">
                     <p className="min-w-0 flex-1 truncate font-medium text-sm">
-                      {openedDiff.path}
+                      {openedDiff?.path ?? openedCommitDiff?.path}
                     </p>
-                    <Button
-                      className="h-7 px-2 text-xs"
-                      disabled={
-                        openedDiffActionMode === null ||
-                        isUpdatingFilePath !== null
-                      }
-                      onClick={() => {
-                        handleOpenedDiffShortcutAction().catch(() => undefined);
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      {openedDiffActionLabel ?? "Action"}
-                    </Button>
+                    {openedDiff ? (
+                      <Button
+                        className="h-7 px-2 text-xs"
+                        disabled={
+                          openedDiffActionMode === null ||
+                          isUpdatingFilePath !== null
+                        }
+                        onClick={() => {
+                          handleOpenedDiffShortcutAction().catch(
+                            () => undefined
+                          );
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        {openedDiffActionLabel ?? "Action"}
+                      </Button>
+                    ) : null}
                     <Button
                       aria-label="Close diff editor"
                       className="h-7 w-7 p-0"
-                      onClick={closeOpenedDiff}
+                      onClick={() => {
+                        closeOpenedDiff();
+                        closeOpenedCommitDiff();
+                      }}
                       size="icon-sm"
                       type="button"
                       variant="ghost"
@@ -3013,8 +3396,12 @@ export function RepoInfo() {
                   <div className="min-h-0 flex-1">
                     <DiffEditor
                       height="100%"
-                      language={resolveMonacoLanguage(openedDiff.path)}
-                      modified={openedDiff.newText}
+                      language={resolveMonacoLanguage(
+                        openedDiff?.path ?? openedCommitDiff?.path ?? ""
+                      )}
+                      modified={
+                        openedDiff?.newText ?? openedCommitDiff?.newText ?? ""
+                      }
                       options={{
                         automaticLayout: true,
                         minimap: { enabled: false },
@@ -3022,7 +3409,9 @@ export function RepoInfo() {
                         renderSideBySide: true,
                         scrollBeyondLastLine: false,
                       }}
-                      original={openedDiff.oldText}
+                      original={
+                        openedDiff?.oldText ?? openedCommitDiff?.oldText ?? ""
+                      }
                     />
                   </div>
                 </div>
@@ -3047,48 +3436,115 @@ export function RepoInfo() {
             >
               {!isWorkingTreeSelection && selectedCommit ? (
                 <>
-                  <header className="border-border/70 border-b px-4 py-3">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium text-sm">Commit details</p>
-                      <span className="rounded border border-border/70 bg-background/70 px-2 py-0.5 font-mono text-[0.65rem] text-muted-foreground">
-                        {selectedCommit.shortHash}
+                  <header className="border-border/70 border-b px-3 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-sm">
+                        Commit {selectedCommit.shortHash}
+                      </p>
+                      <span className="truncate text-muted-foreground text-xs">
+                        parent:{" "}
+                        {selectedCommit.parentHashes.at(0)?.slice(0, 7) ??
+                          "none"}
                       </span>
                     </div>
                   </header>
 
-                  <div className="space-y-4 px-4 py-4 text-sm">
-                    <div className="space-y-1">
-                      <p className="text-muted-foreground text-xs">Message</p>
-                      <p className="font-medium">{selectedCommit.message}</p>
-                    </div>
-
-                    <div className="space-y-2 rounded-md border border-border/70 bg-background/70 p-3 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">Author</span>
-                        <span className="truncate">
-                          {selectedCommit.author}
-                        </span>
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="space-y-3 border-border/70 border-b px-3 py-3 text-sm">
+                      <div className="rounded border border-border/70 bg-background/70 p-3">
+                        <p className="font-medium leading-snug">
+                          {selectedCommit.message}
+                        </p>
                       </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">Committed</span>
-                        <span>{formatCommitDate(selectedCommit.date)}</span>
-                      </div>
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-muted-foreground">Refs</span>
-                        <div className="flex flex-wrap justify-end gap-1">
-                          {(selectedCommit.refs.length > 0
-                            ? selectedCommit.refs
-                            : ["-"]
-                          ).map((ref) => (
-                            <span
-                              className="rounded border border-border/70 bg-background px-1.5 py-0.5 text-[0.65rem]"
-                              key={ref}
-                            >
-                              {ref}
+                      <div className="rounded border border-border/70 bg-background/50 p-2.5">
+                        <div className="min-w-0 flex-1 space-y-0.5 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-medium text-foreground text-sm">
+                              {selectedCommit.author}
                             </span>
-                          ))}
+                            <span className="truncate text-muted-foreground">
+                              parent:{" "}
+                              {selectedCommit.parentHashes.at(0)?.slice(0, 7) ??
+                                "none"}
+                            </span>
+                          </div>
+                          <p className="text-muted-foreground">
+                            authored {formatCommitDate(selectedCommit.date)}
+                          </p>
                         </div>
                       </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <span className="inline-flex items-center gap-1 text-muted-foreground">
+                          <PencilSimpleIcon className="size-3" />
+                          {selectedCommitFileSummary.modifiedCount} modified
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-emerald-300">
+                          + {selectedCommitFileSummary.addedCount} added
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-rose-300">
+                          - {selectedCommitFileSummary.removedCount} deleted
+                        </span>
+                      </div>
+                      <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
+                        <button
+                          className={cn(
+                            "rounded px-3 py-1 font-medium text-xs transition-colors",
+                            commitDetailsViewMode === "path"
+                              ? "bg-accent text-accent-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => setCommitDetailsViewMode("path")}
+                          type="button"
+                        >
+                          Path
+                        </button>
+                        <button
+                          className={cn(
+                            "rounded px-3 py-1 font-medium text-xs transition-colors",
+                            commitDetailsViewMode === "tree"
+                              ? "bg-accent text-accent-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => setCommitDetailsViewMode("tree")}
+                          type="button"
+                        >
+                          Tree
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-hidden">
+                      {(() => {
+                        if (isLoadingCommitFilesHash === selectedCommit.hash) {
+                          return (
+                            <div className="px-3 py-4 text-muted-foreground text-sm">
+                              Loading changed files...
+                            </div>
+                          );
+                        }
+
+                        if (selectedCommitFiles.length === 0) {
+                          return (
+                            <div className="px-3 py-4 text-muted-foreground text-sm">
+                              No changed files for this commit.
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="h-full overflow-y-auto px-2 py-2">
+                            {commitDetailsViewMode === "tree"
+                              ? renderCommitTreeNodes(
+                                  selectedCommitTree,
+                                  selectedCommit.hash
+                                )
+                              : renderCommitPathRows(
+                                  selectedCommitFiles,
+                                  selectedCommit.hash
+                                )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </>

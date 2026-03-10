@@ -29,6 +29,9 @@ struct RepositoryCommit {
     parent_hashes: Vec<String>,
     message: String,
     author: String,
+    author_email: Option<String>,
+    author_username: Option<String>,
+    author_avatar_url: Option<String>,
     date: String,
     refs: Vec<String>,
 }
@@ -76,6 +79,25 @@ struct RepositoryWorkingTreeItem {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryFileDiff {
+    path: String,
+    old_text: String,
+    new_text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryCommitFile {
+    status: String,
+    path: String,
+    previous_path: Option<String>,
+    additions: usize,
+    deletions: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryCommitFileDiff {
+    commit_hash: String,
     path: String,
     old_text: String,
     new_text: String,
@@ -406,7 +428,7 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
             "--decorate=short",
             "--date=iso-strict",
             "--max-count=150",
-            "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%an%x1f%ad%x1f%D%x1e",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
         ])
         .output()
         .map_err(|error| format!("Failed to run git log: {error}"))?;
@@ -438,6 +460,16 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
             let parents_raw = parts.next()?.to_string();
             let message = parts.next()?.to_string();
             let author = parts.next()?.to_string();
+            let author_email_raw = parts.next().unwrap_or("").trim().to_string();
+            let author_email = if author_email_raw.is_empty() {
+                None
+            } else {
+                Some(author_email_raw)
+            };
+            let github_identity = author_email
+                .as_deref()
+                .map(resolve_github_identity_from_email)
+                .unwrap_or_default();
             let date = parts.next()?.to_string();
             let refs_raw = parts.next().unwrap_or("").to_string();
 
@@ -462,6 +494,9 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
                 parent_hashes,
                 message,
                 author,
+                author_email: author_email.clone(),
+                author_username: github_identity.username,
+                author_avatar_url: github_identity.avatar_url,
                 date,
                 refs,
             })
@@ -1078,13 +1113,168 @@ fn discard_repository_path_changes(repo_path: String, file_path: String) -> Resu
         return Err(restore_stderr);
     }
 
-    let clean_stderr = String::from_utf8_lossy(&clean_output.stderr).trim().to_string();
+    let clean_stderr = String::from_utf8_lossy(&clean_output.stderr)
+        .trim()
+        .to_string();
     if !clean_stderr.is_empty() {
         return Err(clean_stderr);
     }
 
     Err("Failed to discard changes".to_string())
 }
+#[tauri::command]
+fn get_repository_commit_files(
+    repo_path: String,
+    commit_hash: String,
+) -> Result<Vec<RepositoryCommitFile>, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "show",
+            "--pretty=format:",
+            "--name-status",
+            "--find-renames",
+            "--find-copies",
+            &commit_hash,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git show for commit files: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to load commit file list",
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut files: Vec<RepositoryCommitFile> = Vec::new();
+
+    for row in stdout.lines() {
+        let trimmed = row.trim();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed.split('\t').collect();
+        if parts.len() < 2 {
+            continue;
+        }
+
+        let status_token = parts[0];
+        let status_char = status_token.chars().next().unwrap_or('M');
+        let status = status_char.to_string();
+
+        let (path, previous_path) = if status_char == 'R' || status_char == 'C' {
+            if parts.len() < 3 {
+                continue;
+            }
+
+            (parts[2].to_string(), Some(parts[1].to_string()))
+        } else {
+            (parts[1].to_string(), None)
+        };
+
+        let numstat_output = Command::new("git")
+            .args([
+                "-C",
+                &repo_path,
+                "show",
+                "--pretty=format:",
+                "--numstat",
+                &commit_hash,
+                "--",
+                &path,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git show --numstat: {error}"))?;
+
+        let mut additions: usize = 0;
+        let mut deletions: usize = 0;
+
+        if numstat_output.status.success() {
+            let numstat_stdout = String::from_utf8_lossy(&numstat_output.stdout);
+            for numstat_row in numstat_stdout.lines() {
+                let numstat_trimmed = numstat_row.trim();
+                if numstat_trimmed.is_empty() {
+                    continue;
+                }
+
+                let numstat_parts: Vec<&str> = numstat_trimmed.split('\t').collect();
+                if numstat_parts.len() < 3 {
+                    continue;
+                }
+
+                additions = numstat_parts[0].parse::<usize>().unwrap_or(0);
+                deletions = numstat_parts[1].parse::<usize>().unwrap_or(0);
+                break;
+            }
+        }
+
+        files.push(RepositoryCommitFile {
+            status,
+            path,
+            previous_path,
+            additions,
+            deletions,
+        });
+    }
+
+    Ok(files)
+}
+
+#[tauri::command]
+fn get_repository_commit_file_diff(
+    repo_path: String,
+    commit_hash: String,
+    file_path: String,
+) -> Result<RepositoryCommitFileDiff, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let old_output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "show",
+            &format!("{commit_hash}^:{file_path}"),
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git show for previous commit file: {error}"))?;
+
+    let old_text = if old_output.status.success() {
+        String::from_utf8_lossy(&old_output.stdout).to_string()
+    } else {
+        String::new()
+    };
+
+    let new_output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "show",
+            &format!("{commit_hash}:{file_path}"),
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git show for commit file: {error}"))?;
+
+    let new_text = if new_output.status.success() {
+        String::from_utf8_lossy(&new_output.stdout).to_string()
+    } else {
+        String::new()
+    };
+
+    Ok(RepositoryCommitFileDiff {
+        commit_hash,
+        path: file_path,
+        old_text,
+        new_text,
+    })
+}
+
 #[tauri::command]
 fn get_repository_file_diff(
     repo_path: String,
@@ -1316,6 +1506,73 @@ fn resolve_head_hash(repo_path: &str) -> Result<String, String> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn is_valid_github_username(username: &str) -> bool {
+    let length = username.len();
+
+    if length == 0 || length > 39 {
+        return false;
+    }
+
+    if username.starts_with('-') || username.ends_with('-') {
+        return false;
+    }
+
+    username
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '-')
+}
+
+
+#[derive(Default)]
+struct GitHubIdentity {
+    avatar_url: Option<String>,
+    username: Option<String>,
+}
+
+fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
+    let normalized = email.trim().to_lowercase();
+
+    if normalized.is_empty() {
+        return GitHubIdentity::default();
+    }
+
+    let Some(local_part) = normalized.strip_suffix("@users.noreply.github.com") else {
+        return GitHubIdentity::default();
+    };
+
+    if let Some((left, right)) = local_part.split_once('+') {
+        let username = if is_valid_github_username(right) {
+            Some(right.to_string())
+        } else if is_valid_github_username(left) {
+            Some(left.to_string())
+        } else {
+            None
+        };
+
+        let avatar_url = if left.chars().all(|character| character.is_ascii_digit()) {
+            Some(format!("https://avatars.githubusercontent.com/u/{left}?v=4"))
+        } else {
+            username
+                .as_ref()
+                .map(|value| format!("https://github.com/{value}.png"))
+        };
+
+        return GitHubIdentity {
+            avatar_url,
+            username,
+        };
+    }
+
+    if is_valid_github_username(local_part) {
+        return GitHubIdentity {
+            avatar_url: Some(format!("https://github.com/{local_part}.png")),
+            username: Some(local_part.to_string()),
+        };
+    }
+
+    GitHubIdentity::default()
 }
 
 fn git_error_message(stderr: &[u8], fallback: &str) -> String {
@@ -1771,6 +2028,8 @@ pub fn run() {
             unstage_repository_file,
             discard_repository_path_changes,
             get_repository_file_diff,
+            get_repository_commit_files,
+            get_repository_commit_file_diff,
             get_repository_working_tree_status,
             get_repository_working_tree_items,
             create_terminal_session,
@@ -1781,5 +2040,7 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+
 
 
