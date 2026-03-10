@@ -242,11 +242,7 @@ export function HeaderTabsSearch() {
           </Tooltip>
         </TooltipProvider>
 
-        <PopoverContent
-          align="end"
-          className="w-88 overflow-hidden p-0 shadow-lg"
-          sideOffset={8}
-        >
+        <PopoverContent align="end" className="w-88 p-0" sideOffset={8}>
           <Combobox
             inputValue={query}
             itemToStringLabel={(item: SearchTabItem) => item.title}
@@ -258,10 +254,10 @@ export function HeaderTabsSearch() {
             }}
             open
           >
-            <div className="border-border/40 border-b bg-muted/30 px-3 py-3">
+            <div className="border-b px-3 py-2">
               <ComboboxInput
                 autoFocus
-                className="h-8 w-full border-0 bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-hidden focus:ring-0"
+                className="flex h-7 w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
                 placeholder="Search tabs..."
                 showClear
                 showTrigger={false}
@@ -272,37 +268,35 @@ export function HeaderTabsSearch() {
               style={{ maxHeight: "min(40vh, 320px)" }}
             >
               {!hasResults && (
-                <div className="py-8 text-center text-muted-foreground/70 text-sm">
+                <div className="py-6 text-center text-muted-foreground text-sm">
                   No matching tabs found.
                 </div>
               )}
 
               {filteredOpen.length > 0 && (
                 <ComboboxGroup>
-                  <ComboboxLabel className="px-2.5 pt-2 pb-1 font-medium text-muted-foreground/60 text-xs uppercase tracking-wider">
+                  <ComboboxLabel className="px-2 py-1.5 font-semibold text-muted-foreground text-xs">
                     Open Tabs
                   </ComboboxLabel>
                   {filteredOpen.map((item) => (
                     <ComboboxItem
-                      className="group/tab-item gap-2.5 rounded-md py-2 pr-2 pl-2.5"
+                      className="group/tab-item relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
                       key={item.id}
                       value={item}
                     >
                       {item.repoId ? (
-                        <GraphIcon className="shrink-0 text-muted-foreground/60" />
+                        <GraphIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
                       ) : (
-                        <FileIcon className="shrink-0 text-muted-foreground/60" />
+                        <FileIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
                       )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {item.title}
-                      </span>
+                      <span className="flex-1 truncate">{item.title}</span>
                       <button
                         aria-label={`Close ${item.title}`}
-                        className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted group-hover/tab-item:opacity-100"
+                        className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity hover:bg-muted group-data-highlighted/tab-item:opacity-100"
                         onClick={(e) => handleCloseTab(e, item)}
                         type="button"
                       >
-                        <XIcon className="size-3 text-muted-foreground" />
+                        <XIcon className="size-3.5 text-muted-foreground" />
                       </button>
                     </ComboboxItem>
                   ))}
@@ -312,26 +306,24 @@ export function HeaderTabsSearch() {
               {filteredClosed.length > 0 && (
                 <>
                   {filteredOpen.length > 0 && (
-                    <div className="-mx-1.5 my-2 h-px bg-border/40" />
+                    <div className="-mx-1 my-1 h-px bg-border" />
                   )}
                   <ComboboxGroup>
-                    <ComboboxLabel className="px-2.5 pt-2 pb-1 font-medium text-muted-foreground/60 text-xs uppercase tracking-wider">
+                    <ComboboxLabel className="px-2 py-1.5 font-semibold text-muted-foreground text-xs">
                       Closed Recently
                     </ComboboxLabel>
                     {filteredClosed.map((item) => (
                       <ComboboxItem
-                        className="gap-2.5 rounded-md py-2 pr-2 pl-2.5"
+                        className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
                         key={item.id}
                         value={item}
                       >
                         {item.repoId ? (
-                          <GraphIcon className="shrink-0 text-muted-foreground/60" />
+                          <GraphIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
                         ) : (
-                          <FileIcon className="shrink-0 text-muted-foreground/60" />
+                          <FileIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
                         )}
-                        <span className="min-w-0 flex-1 truncate">
-                          {item.title}
-                        </span>
+                        <span className="flex-1 truncate">{item.title}</span>
                       </ComboboxItem>
                     ))}
                   </ComboboxGroup>
