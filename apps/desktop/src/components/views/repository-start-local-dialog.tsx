@@ -809,7 +809,7 @@ export function RepositoryStartLocalDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="max-h-[min(92dvh,46rem)] max-w-[min(96vw,32rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-background)_96%,transparent),color-mix(in_oklab,var(--color-muted)_70%,transparent))] p-0 shadow-[0_24px_72px_-24px_rgba(0,0,0,0.55)] sm:max-w-[min(96vw,32rem)]"
+        className="max-h-[min(92dvh,38rem)] max-w-[min(96vw,32rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
         showCloseButton={!isBusy}
       >
         <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">

@@ -276,7 +276,7 @@ export function KeyboardShortcutsDialog() {
 
       <Dialog onOpenChange={setIsOpen} open={isOpen}>
         <DialogContent
-          className="max-w-[min(96vw,30rem)] gap-0 overflow-hidden border border-border/70 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-background)_94%,transparent),color-mix(in_oklab,var(--color-muted)_78%,transparent))] p-0 shadow-2xl sm:max-w-[min(96vw,30rem)]"
+          className="max-w-[min(96vw,30rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,30rem)]"
           showCloseButton={false}
         >
           <DialogHeader className="border-border/60 border-b px-5 py-4">
