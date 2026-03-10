@@ -24,6 +24,7 @@ import {
   getPreviousTabShortcutLabel,
   getPrimaryModifierAriaKey,
   getReopenClosedTabShortcutLabel,
+  getResetZoomShortcutLabel,
   getSearchTabsShortcutLabel,
   getToggleTerminalShortcutLabel,
   getZoomInShortcutLabel,
@@ -157,6 +158,14 @@ export function KeyboardShortcutsDialog() {
         keywords: ["zoom", "view", "decrease", "minus", "scale"],
         keys: shortcutLabelToKeys(getZoomOutShortcutLabel()),
         label: "Zoom Out",
+      },
+      {
+        description: "Reset interface zoom back to the default 100% scale.",
+        group: "View",
+        id: "zoom-reset",
+        keywords: ["zoom", "view", "reset", "default", "100%"],
+        keys: shortcutLabelToKeys(getResetZoomShortcutLabel()),
+        label: "Reset Zoom",
       },
       {
         description: "Toggle the integrated terminal panel.",

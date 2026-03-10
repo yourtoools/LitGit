@@ -14,6 +14,7 @@ import { PageShell } from "@/components/layout/page-shell";
 import { KeyboardShortcutsDialog } from "@/components/shell/footer/keyboard-shortcuts-dialog";
 import { FooterZoomControl } from "@/components/shell/footer/zoom-control";
 import {
+  isResetZoomShortcut,
   isToggleTerminalShortcut,
   isZoomInShortcut,
   isZoomOutShortcut,
@@ -98,14 +99,19 @@ export default function Footer() {
 
       const shouldZoomIn = isZoomInShortcut(event);
       const shouldZoomOut = isZoomOutShortcut(event);
+      const shouldResetZoom = isResetZoomShortcut(event);
 
-      if (!(shouldZoomIn || shouldZoomOut)) {
+      if (!(shouldZoomIn || shouldZoomOut || shouldResetZoom)) {
         return;
       }
 
       event.preventDefault();
 
       setZoom((currentZoom) => {
+        if (shouldResetZoom) {
+          return 100;
+        }
+
         const nextZoom = shouldZoomIn
           ? currentZoom + ZOOM_STEP
           : currentZoom - ZOOM_STEP;

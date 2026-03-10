@@ -123,6 +123,14 @@ export const isZoomOutShortcut = (event: ShortcutEvent) => {
   );
 };
 
+export const isResetZoomShortcut = (event: ShortcutEvent) => {
+  return (
+    !(event.altKey || event.shiftKey) &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key === "0"
+  );
+};
+
 export const isToggleTerminalShortcut = (event: ShortcutEvent) => {
   return (
     !(event.altKey || event.metaKey || event.shiftKey) &&
@@ -212,6 +220,10 @@ export const getZoomInShortcutLabel = () => {
 
 export const getZoomOutShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + -`;
+};
+
+export const getResetZoomShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + 0`;
 };
 
 export const getToggleTerminalShortcutLabel = () => {
