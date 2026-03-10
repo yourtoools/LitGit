@@ -1917,6 +1917,43 @@ export function RepoInfo() {
     return counts;
   };
 
+  const collectCommitTreeChangeSummary = (node: CommitFileTreeNode) => {
+    let addedCount = 0;
+    let modifiedCount = 0;
+    let removedCount = 0;
+
+    const visitNode = (current: CommitFileTreeNode) => {
+      if (current.file) {
+        const statusCode = current.file.status.charAt(0);
+
+        if (statusCode === "A") {
+          addedCount += 1;
+          return;
+        }
+
+        if (statusCode === "D") {
+          removedCount += 1;
+          return;
+        }
+
+        modifiedCount += 1;
+        return;
+      }
+
+      for (const child of current.children.values()) {
+        visitNode(child);
+      }
+    };
+
+    visitNode(node);
+
+    return {
+      addedCount,
+      modifiedCount,
+      removedCount,
+    };
+  };
+
   const handleUnstageAll = async () => {
     if (!activeRepoId || isUnstagingAll || !hasStagedChanges) {
       return;
@@ -2131,6 +2168,11 @@ export function RepoInfo() {
     return nodes.map((node) => {
       const nodeStateKey = getCommitTreeNodeStateKey(commitHash, node.fullPath);
       const isExpanded = expandedCommitTreeNodePaths[nodeStateKey] ?? depth < 1;
+      const hasChildren = node.children.size > 0;
+      const collapsedChangeSummary =
+        hasChildren && !isExpanded
+          ? collectCommitTreeChangeSummary(node)
+          : null;
 
       if (node.file) {
         const file = node.file;
@@ -2186,7 +2228,27 @@ export function RepoInfo() {
             ) : (
               <CaretRightIcon className="size-3" />
             )}
-            <span className="truncate">{node.name}</span>
+            <span className="min-w-0 truncate">{node.name}</span>
+            {collapsedChangeSummary ? (
+              <span className="ml-auto inline-flex items-center gap-2 text-[0.72rem] leading-none">
+                {collapsedChangeSummary.modifiedCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-amber-300">
+                    <PencilSimpleIcon className="size-2.5" />
+                    {collapsedChangeSummary.modifiedCount}
+                  </span>
+                ) : null}
+                {collapsedChangeSummary.addedCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-300">
+                    +{collapsedChangeSummary.addedCount}
+                  </span>
+                ) : null}
+                {collapsedChangeSummary.removedCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-rose-300">
+                    -{collapsedChangeSummary.removedCount}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </button>
           {isExpanded
             ? renderCommitTreeNodes(
@@ -2199,7 +2261,6 @@ export function RepoInfo() {
       );
     });
   };
-
   const renderCommitPathRows = (
     files: RepositoryCommitFile[],
     commitHash: string
