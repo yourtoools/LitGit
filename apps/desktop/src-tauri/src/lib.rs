@@ -1123,6 +1123,43 @@ fn discard_repository_path_changes(repo_path: String, file_path: String) -> Resu
     Err("Failed to discard changes".to_string())
 }
 #[tauri::command]
+fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let reset_output = Command::new("git")
+        .args(["-C", &repo_path, "reset", "--hard", "HEAD"])
+        .output()
+        .map_err(|error| format!("Failed to run git reset --hard: {error}"))?;
+
+    if !reset_output.status.success() {
+        let stderr = String::from_utf8_lossy(&reset_output.stderr).trim().to_string();
+
+        if !stderr.is_empty() {
+            return Err(stderr);
+        }
+
+        return Err("Failed to discard tracked changes".to_string());
+    }
+
+    let clean_output = Command::new("git")
+        .args(["-C", &repo_path, "clean", "-fd"])
+        .output()
+        .map_err(|error| format!("Failed to run git clean: {error}"))?;
+
+    if !clean_output.status.success() {
+        let stderr = String::from_utf8_lossy(&clean_output.stderr).trim().to_string();
+
+        if !stderr.is_empty() {
+            return Err(stderr);
+        }
+
+        return Err("Failed to discard untracked changes".to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_repository_commit_files(
     repo_path: String,
     commit_hash: String,
@@ -2027,6 +2064,7 @@ pub fn run() {
             stage_repository_file,
             unstage_repository_file,
             discard_repository_path_changes,
+            discard_all_repository_changes,
             get_repository_file_diff,
             get_repository_commit_files,
             get_repository_commit_file_diff,
@@ -2040,6 +2078,10 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+
+
+
 
 
 

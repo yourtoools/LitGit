@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@litgit/ui/components/alert-dialog";
 import { Button } from "@litgit/ui/components/button";
 import {
   Combobox,
@@ -66,6 +76,7 @@ import {
   SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
+  TrashIcon,
   UploadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -462,6 +473,7 @@ export function RepoInfo() {
   const getFileDiff = useRepoStore((state) => state.getFileDiff);
   const getCommitFiles = useRepoStore((state) => state.getCommitFiles);
   const getCommitFileDiff = useRepoStore((state) => state.getCommitFileDiff);
+  const discardAllChanges = useRepoStore((state) => state.discardAllChanges);
   const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
   const commitChanges = useRepoStore((state) => state.commitChanges);
   const pullBranch = useRepoStore((state) => state.pullBranch);
@@ -484,6 +496,8 @@ export function RepoInfo() {
     null
   );
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isDiscardingAllChanges, setIsDiscardingAllChanges] = useState(false);
+  const [isDiscardAllConfirmOpen, setIsDiscardAllConfirmOpen] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [isApplyingStash, setIsApplyingStash] = useState(false);
@@ -1989,6 +2003,20 @@ export function RepoInfo() {
     }
   };
 
+  const handleDiscardAllChanges = async () => {
+    if (!activeRepoId || isDiscardingAllChanges || !hasAnyWorkingTreeChanges) {
+      return;
+    }
+
+    setIsDiscardingAllChanges(true);
+
+    try {
+      await discardAllChanges(activeRepoId);
+      setIsDiscardAllConfirmOpen(false);
+    } finally {
+      setIsDiscardingAllChanges(false);
+    }
+  };
   const handleDiscardPathChanges = async (filePath: string) => {
     if (!activeRepoId || isUpdatingFilePath !== null) {
       return;
@@ -3616,11 +3644,15 @@ export function RepoInfo() {
                       <Button
                         aria-label="Discard all changes"
                         className="h-8 w-8 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                        disabled={
+                          !hasAnyWorkingTreeChanges || isDiscardingAllChanges
+                        }
+                        onClick={() => setIsDiscardAllConfirmOpen(true)}
                         size="icon-sm"
                         type="button"
                         variant="ghost"
                       >
-                        <XIcon className="size-4" />
+                        <TrashIcon className="size-4" />
                       </Button>
                       <p className="truncate text-sm">
                         <span className="font-medium">
@@ -3631,18 +3663,9 @@ export function RepoInfo() {
                           {currentBranch}
                         </span>
                       </p>
-                      <Button
-                        aria-label="Sidebar actions"
-                        className="h-8 w-8 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                        size="icon-sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <DotsThreeVerticalIcon className="size-4" />
-                      </Button>
                     </div>
 
-                    <div className="flex items-center justify-center">
+                    <div className="flex items-center">
                       <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
                         <button
                           className={cn(
@@ -3825,6 +3848,43 @@ export function RepoInfo() {
           </div>
         </div>
       </div>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (isDiscardingAllChanges && !open) {
+            return;
+          }
+
+          setIsDiscardAllConfirmOpen(open);
+        }}
+        open={isDiscardAllConfirmOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Discard all working tree changes?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently discard all staged, unstaged, and untracked
+              changes in this repository.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDiscardingAllChanges} size="sm">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDiscardingAllChanges}
+              onClick={() => {
+                handleDiscardAllChanges().catch(() => undefined);
+              }}
+              size="sm"
+              variant="destructive"
+            >
+              {isDiscardingAllChanges ? "Discarding..." : "Discard all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import {
   addRepoIgnoreRule,
   applyRepoStash,
   commitRepoChanges,
+  discardAllRepoChanges,
   discardRepoPathChanges,
   dropRepoStash,
   getRepoCommitFileDiff,
@@ -25,6 +26,7 @@ type RepoActionsSliceKeys =
   | "addIgnoreRule"
   | "applyStash"
   | "commitChanges"
+  | "discardAllChanges"
   | "discardPathChanges"
   | "dropStash"
   | "getCommitFileDiff"
@@ -203,6 +205,22 @@ export const createRepoActionsSlice = (
       await get().setActiveRepo(id, { forceRefresh: true });
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to stage file"));
+    }
+  },
+  discardAllChanges: async (id) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return;
+    }
+
+    try {
+      await discardAllRepoChanges(targetRepo.path);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      toast.success("All changes discarded");
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to discard all changes"));
+      throw error;
     }
   },
   discardPathChanges: async (id, filePath) => {

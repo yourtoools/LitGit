@@ -665,6 +665,17 @@ export async function discardRepoPathChanges(path: string, filePath: string) {
     filePath,
   });
 }
+export async function discardAllRepoChanges(path: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Discard changes works in Tauri desktop app only");
+  }
+
+  await invoke("discard_all_repository_changes", {
+    repoPath: path,
+  });
+}
 export async function getRepoCommitFiles(
   path: string,
   commitHash: string
