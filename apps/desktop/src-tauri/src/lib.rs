@@ -972,7 +972,7 @@ fn stage_repository_file(repo_path: String, file_path: String) -> Result<(), Str
     validate_git_repo(Path::new(&repo_path))?;
 
     let output = Command::new("git")
-        .args(["-C", &repo_path, "add", "--", &file_path])
+        .args(["-C", &repo_path, "add", "-A", "--", &file_path])
         .output()
         .map_err(|error| format!("Failed to run git add: {error}"))?;
 
@@ -1009,6 +1009,82 @@ fn unstage_repository_file(repo_path: String, file_path: String) -> Result<(), S
     Ok(())
 }
 
+#[tauri::command]
+fn add_repository_ignore_rule(repo_path: String, pattern: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_pattern = pattern.trim();
+    if trimmed_pattern.is_empty() {
+        return Err("Ignore rule cannot be empty".to_string());
+    }
+
+    let gitignore_path = Path::new(&repo_path).join(".gitignore");
+    let mut existing_contents = fs::read_to_string(&gitignore_path).unwrap_or_default();
+
+    if existing_contents
+        .lines()
+        .any(|line| line.trim() == trimmed_pattern)
+    {
+        return Ok(());
+    }
+
+    if !existing_contents.is_empty() && !existing_contents.ends_with('\n') {
+        existing_contents.push('\n');
+    }
+
+    existing_contents.push_str(trimmed_pattern);
+    existing_contents.push('\n');
+
+    fs::write(&gitignore_path, existing_contents)
+        .map_err(|error| format!("Failed to update .gitignore: {error}"))?;
+
+    Ok(())
+}
+#[tauri::command]
+fn discard_repository_path_changes(repo_path: String, file_path: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let restore_output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            &file_path,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git restore: {error}"))?;
+
+    if restore_output.status.success() {
+        return Ok(());
+    }
+
+    let clean_output = Command::new("git")
+        .args(["-C", &repo_path, "clean", "-fd", "--", &file_path])
+        .output()
+        .map_err(|error| format!("Failed to run git clean: {error}"))?;
+
+    if clean_output.status.success() {
+        return Ok(());
+    }
+
+    let restore_stderr = String::from_utf8_lossy(&restore_output.stderr)
+        .trim()
+        .to_string();
+    if !restore_stderr.is_empty() {
+        return Err(restore_stderr);
+    }
+
+    let clean_stderr = String::from_utf8_lossy(&clean_output.stderr).trim().to_string();
+    if !clean_stderr.is_empty() {
+        return Err(clean_stderr);
+    }
+
+    Err("Failed to discard changes".to_string())
+}
 #[tauri::command]
 fn get_repository_file_diff(
     repo_path: String,
@@ -1688,10 +1764,12 @@ pub fn run() {
             pop_repository_stash,
             drop_repository_stash,
             commit_repository_changes,
+            add_repository_ignore_rule,
             stage_all_repository_changes,
             unstage_all_repository_changes,
             stage_repository_file,
             unstage_repository_file,
+            discard_repository_path_changes,
             get_repository_file_diff,
             get_repository_working_tree_status,
             get_repository_working_tree_items,
@@ -1703,3 +1781,5 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+

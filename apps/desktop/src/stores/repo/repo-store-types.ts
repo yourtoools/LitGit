@@ -1,4 +1,4 @@
-﻿export interface PickedRepository {
+export interface PickedRepository {
   name: string;
   path: string;
 }
@@ -99,6 +99,7 @@ export interface PullActionResult {
 
 export interface RepoStoreState {
   activeRepoId: string | null;
+  addIgnoreRule: (id: string, pattern: string) => Promise<void>;
   applyStash: (id: string, stashRef: string) => Promise<void>;
   clearActiveRepo: () => void;
   cloneRepository: (
@@ -117,6 +118,7 @@ export interface RepoStoreState {
   createLocalRepository: (
     input: CreateLocalRepositoryInput
   ) => Promise<OpenedRepository | null>;
+  discardPathChanges: (id: string, filePath: string) => Promise<void>;
   dropStash: (id: string, stashRef: string) => Promise<void>;
   getFileDiff: (
     id: string,

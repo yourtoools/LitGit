@@ -1,7 +1,9 @@
-﻿import { toast } from "sonner";
+import { toast } from "sonner";
 import {
+  addRepoIgnoreRule,
   applyRepoStash,
   commitRepoChanges,
+  discardRepoPathChanges,
   dropRepoStash,
   getRepoFileDiff,
   popRepoStash,
@@ -18,8 +20,10 @@ import type { RepoStoreGet } from "@/stores/repo/repo-store.slice-types";
 import type { RepoStoreState } from "@/stores/repo/repo-store-types";
 
 type RepoActionsSliceKeys =
+  | "addIgnoreRule"
   | "applyStash"
   | "commitChanges"
+  | "discardPathChanges"
   | "dropStash"
   | "getFileDiff"
   | "popStash"
@@ -74,6 +78,20 @@ export const createRepoActionsSlice = (
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to pull changes"));
       throw error;
+    }
+  },
+  addIgnoreRule: async (id, pattern) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return;
+    }
+
+    try {
+      await addRepoIgnoreRule(targetRepo.path, pattern);
+      await get().setActiveRepo(id, { forceRefresh: true });
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to update .gitignore"));
     }
   },
   applyStash: async (id, stashRef) => {
@@ -181,6 +199,20 @@ export const createRepoActionsSlice = (
       await get().setActiveRepo(id, { forceRefresh: true });
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to stage file"));
+    }
+  },
+  discardPathChanges: async (id, filePath) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return;
+    }
+
+    try {
+      await discardRepoPathChanges(targetRepo.path, filePath);
+      await get().setActiveRepo(id, { forceRefresh: true });
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to discard changes"));
     }
   },
   unstageFile: async (id, filePath) => {

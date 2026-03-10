@@ -56,12 +56,12 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   CircleIcon,
-  ClockCounterClockwiseIcon,
   DotOutlineIcon,
   DotsThreeVerticalIcon,
   DownloadSimpleIcon,
   GitBranchIcon,
   GithubLogoIcon,
+  PencilSimpleIcon,
   SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
@@ -84,6 +84,7 @@ import type {
   PullActionMode,
   RepositoryCommit,
   RepositoryStash,
+  RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
@@ -110,7 +111,130 @@ interface BranchComboboxOption {
   name: string;
 }
 
+interface ChangeTreeNode {
+  children: Map<string, ChangeTreeNode>;
+  fullPath: string;
+  item: RepositoryWorkingTreeItem | null;
+  name: string;
+}
+
+type ChangesViewMode = "path" | "tree";
+
+const GIT_STATUS_STYLE_BY_CODE: Record<
+  string,
+  { className: string; label: string; short: string }
+> = {
+  A: {
+    className: "text-emerald-500 dark:text-emerald-400",
+    label: "Added",
+    short: "+",
+  },
+  C: {
+    className: "text-sky-500 dark:text-sky-400",
+    label: "Copied",
+    short: "C",
+  },
+  D: {
+    className: "text-rose-500 dark:text-rose-400",
+    label: "Removed",
+    short: "-",
+  },
+  M: {
+    className: "text-amber-500 dark:text-amber-400",
+    label: "Edited",
+    short: "~",
+  },
+  R: {
+    className: "text-indigo-500 dark:text-indigo-400",
+    label: "Renamed",
+    short: "R",
+  },
+  T: {
+    className: "text-cyan-500 dark:text-cyan-400",
+    label: "Type",
+    short: "T",
+  },
+  U: {
+    className: "text-orange-500 dark:text-orange-400",
+    label: "Conflict",
+    short: "!",
+  },
+  "?": {
+    className: "text-emerald-500 dark:text-emerald-400",
+    label: "Added",
+    short: "+",
+  },
+};
+
+function getStatusDescriptor(code: string) {
+  return GIT_STATUS_STYLE_BY_CODE[code] ?? null;
+}
+
+const TREE_STATUS_SUMMARY_ORDER = ["M", "A", "D", "R", "C", "U", "T", "?"];
+
+function createEmptyTreeNode(name: string, fullPath: string): ChangeTreeNode {
+  return {
+    children: new Map<string, ChangeTreeNode>(),
+    fullPath,
+    item: null,
+    name,
+  };
+}
+
+function buildChangeTree(items: RepositoryWorkingTreeItem[]): ChangeTreeNode[] {
+  const root = createEmptyTreeNode("", "");
+
+  for (const item of items) {
+    const normalizedPath = item.path.replaceAll("\\", "/");
+    const segments = normalizedPath
+      .split("/")
+      .filter((segment) => segment.length > 0);
+
+    let cursor = root;
+    let segmentPath = "";
+
+    for (const segment of segments) {
+      segmentPath =
+        segmentPath.length > 0 ? `${segmentPath}/${segment}` : segment;
+      const existing = cursor.children.get(segment);
+
+      if (existing) {
+        cursor = existing;
+        continue;
+      }
+
+      const nextNode = createEmptyTreeNode(segment, segmentPath);
+      cursor.children.set(segment, nextNode);
+      cursor = nextNode;
+    }
+
+    cursor.item = item;
+  }
+
+  const toSortedArray = (node: ChangeTreeNode): ChangeTreeNode[] =>
+    Array.from(node.children.values())
+      .map((childNode) => ({
+        ...childNode,
+        children: new Map(
+          toSortedArray(childNode).map((entry) => [entry.name, entry])
+        ),
+      }))
+      .sort((left, right) => {
+        const leftIsFolder = left.item === null;
+        const rightIsFolder = right.item === null;
+
+        if (leftIsFolder !== rightIsFolder) {
+          return leftIsFolder ? -1 : 1;
+        }
+
+        return left.name.localeCompare(right.name);
+      });
+
+  return toSortedArray(root);
+}
+
 const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
+const WORKING_TREE_ROW_ID = "__working_tree__";
 
 function formatStashLabel(stash: RepositoryStash): string {
   const rawMessage = stash.message.trim();
@@ -144,15 +268,20 @@ export function RepoInfo() {
   const repoCommits = useRepoStore((state) => state.repoCommits);
   const repoBranches = useRepoStore((state) => state.repoBranches);
   const repoStashes = useRepoStore((state) => state.repoStashes);
-  const repoWorkingTreeStatuses = useRepoStore(
-    (state) => state.repoWorkingTreeStatuses
+  const repoWorkingTreeItems = useRepoStore(
+    (state) => state.repoWorkingTreeItems
   );
   const isLoadingHistory = useRepoStore((state) => state.isLoadingHistory);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
   const popStash = useRepoStore((state) => state.popStash);
   const dropStash = useRepoStore((state) => state.dropStash);
+  const addIgnoreRule = useRepoStore((state) => state.addIgnoreRule);
   const stageAll = useRepoStore((state) => state.stageAll);
+  const unstageAll = useRepoStore((state) => state.unstageAll);
+  const stageFile = useRepoStore((state) => state.stageFile);
+  const unstageFile = useRepoStore((state) => state.unstageFile);
+  const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
   const commitChanges = useRepoStore((state) => state.commitChanges);
   const pullBranch = useRepoStore((state) => state.pullBranch);
   const pushBranch = useRepoStore((state) => state.pushBranch);
@@ -160,10 +289,13 @@ export function RepoInfo() {
     Record<string, boolean>
   >({});
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
-  const [rightMode, setRightMode] = useState<"commit" | "details">("details");
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const [isStagingAll, setIsStagingAll] = useState(false);
+  const [isUnstagingAll, setIsUnstagingAll] = useState(false);
+  const [isUpdatingFilePath, setIsUpdatingFilePath] = useState<string | null>(
+    null
+  );
   const [isCommitting, setIsCommitting] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
@@ -173,6 +305,16 @@ export function RepoInfo() {
   const [draftCommitSummary, setDraftCommitSummary] = useState("");
   const [draftCommitDescription, setDraftCommitDescription] = useState("");
   const [amendPreviousCommit, setAmendPreviousCommit] = useState(false);
+  const [changesViewMode, setChangesViewMode] =
+    useState<ChangesViewMode>("tree");
+  const [isUnstagedSectionCollapsed, setIsUnstagedSectionCollapsed] =
+    useState(false);
+  const [isStagedSectionCollapsed, setIsStagedSectionCollapsed] =
+    useState(false);
+  const [expandedTreeNodePaths, setExpandedTreeNodePaths] = useState<
+    Record<string, boolean>
+  >({});
+  const [workingTreeWipInput, setWorkingTreeWipInput] = useState("");
   const [pullActionMode, setPullActionMode] =
     useState<PullActionMode>("pull-ff-possible");
   const [openEntryMenuKey, setOpenEntryMenuKey] = useState<string | null>(null);
@@ -209,18 +351,79 @@ export function RepoInfo() {
     () => (activeRepoId ? (repoStashes[activeRepoId] ?? []) : []),
     [activeRepoId, repoStashes]
   );
-  const workingTreeStatus = activeRepoId
-    ? repoWorkingTreeStatuses[activeRepoId]
-    : undefined;
-  const hasUnstagedChanges = Boolean(
-    workingTreeStatus &&
-      (workingTreeStatus.unstagedCount > 0 ||
-        workingTreeStatus.untrackedCount > 0)
+  const workingTreeItems = useMemo<RepositoryWorkingTreeItem[]>(
+    () => (activeRepoId ? (repoWorkingTreeItems[activeRepoId] ?? []) : []),
+    [activeRepoId, repoWorkingTreeItems]
   );
-  const hasStagedChanges = Boolean(workingTreeStatus?.stagedCount);
+  const unstagedItems = useMemo(
+    () =>
+      workingTreeItems.filter(
+        (item) => item.unstagedStatus !== " " || item.isUntracked
+      ),
+    [workingTreeItems]
+  );
+  const stagedItems = useMemo(
+    () =>
+      workingTreeItems.filter(
+        (item) =>
+          !item.isUntracked &&
+          item.stagedStatus !== " " &&
+          item.stagedStatus !== "?"
+      ),
+    [workingTreeItems]
+  );
+  const hasUnstagedChanges = unstagedItems.length > 0;
+  const hasStagedChanges = stagedItems.length > 0;
+  const hasAnyWorkingTreeChanges = workingTreeItems.length > 0;
+  const workingTreeIndicators = useMemo(() => {
+    let addedCount = 0;
+    let editedCount = 0;
+    let removedCount = 0;
+
+    for (const item of workingTreeItems) {
+      const stagedStatus = item.stagedStatus;
+      const unstagedStatus = item.unstagedStatus;
+
+      if (
+        item.isUntracked ||
+        stagedStatus === "A" ||
+        unstagedStatus === "A" ||
+        stagedStatus === "?" ||
+        unstagedStatus === "?"
+      ) {
+        addedCount += 1;
+        continue;
+      }
+
+      if (stagedStatus === "D" || unstagedStatus === "D") {
+        removedCount += 1;
+        continue;
+      }
+
+      if (stagedStatus !== " " || unstagedStatus !== " ") {
+        editedCount += 1;
+      }
+    }
+
+    return {
+      addedCount,
+      editedCount,
+      removedCount,
+    };
+  }, [workingTreeItems]);
   const canCommit = draftCommitSummary.trim().length > 0 && hasStagedChanges;
+  const unstagedTree = useMemo(
+    () => buildChangeTree(unstagedItems),
+    [unstagedItems]
+  );
+  const stagedTree = useMemo(() => buildChangeTree(stagedItems), [stagedItems]);
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
+  const isWorkingTreeSelection = selectedCommitId === WORKING_TREE_ROW_ID;
+  const selectedCommit = useMemo(
+    () => commits.find((item) => item.hash === selectedCommitId) ?? null,
+    [commits, selectedCommitId]
+  );
   const branchComboboxOptions = useMemo<BranchComboboxOption[]>(
     () =>
       branches
@@ -333,10 +536,6 @@ export function RepoInfo() {
       filteredSidebarGroups.reduce((total, group) => total + group.count, 0),
     [filteredSidebarGroups]
   );
-  const selectedCommit = useMemo(
-    () => commits.find((item) => item.hash === selectedCommitId) ?? null,
-    [commits, selectedCommitId]
-  );
   const formatCommitDate = (value: string): string => {
     const parsedDate = new Date(value);
 
@@ -349,7 +548,6 @@ export function RepoInfo() {
       timeStyle: "short",
     }).format(parsedDate);
   };
-
   const getErrorMessage = (error: unknown): string => {
     if (error instanceof Error && error.message.trim().length > 0) {
       return error.message;
@@ -410,8 +608,14 @@ export function RepoInfo() {
   };
 
   useEffect(() => {
+    if (selectedCommitId === WORKING_TREE_ROW_ID && hasAnyWorkingTreeChanges) {
+      return;
+    }
+
     if (commits.length === 0) {
-      setSelectedCommitId(null);
+      setSelectedCommitId(
+        hasAnyWorkingTreeChanges ? WORKING_TREE_ROW_ID : null
+      );
       return;
     }
 
@@ -423,7 +627,7 @@ export function RepoInfo() {
     ) {
       setSelectedCommitId(commits[0].hash);
     }
-  }, [commits, selectedCommitId]);
+  }, [commits, hasAnyWorkingTreeChanges, selectedCommitId]);
 
   useEffect(() => {
     if (activeRepoId === null) {
@@ -437,6 +641,14 @@ export function RepoInfo() {
     setDraftCommitDescription("");
     setAmendPreviousCommit(false);
   }, [activeRepoId]);
+
+  useEffect(() => {
+    if (activeRepoId === null) {
+      setWorkingTreeWipInput("");
+      return;
+    }
+  }, [activeRepoId]);
+
   useEffect(() => {
     const handleFocusSidebarFilter = (event: KeyboardEvent) => {
       if (!(event.ctrlKey && event.altKey) || event.key.toLowerCase() !== "f") {
@@ -1172,6 +1384,527 @@ export function RepoInfo() {
       </ContextMenuContent>
     );
   };
+  const toggleTreeNode = (nodePath: string) => {
+    setExpandedTreeNodePaths((current) => ({
+      ...current,
+      [nodePath]: !current[nodePath],
+    }));
+  };
+
+  const getStatusCodes = (
+    item: RepositoryWorkingTreeItem,
+    section: "staged" | "unstaged"
+  ) => {
+    if (section === "staged") {
+      if (item.stagedStatus === " " || item.stagedStatus === "?") {
+        return [] as string[];
+      }
+
+      return [item.stagedStatus];
+    }
+
+    if (item.isUntracked) {
+      return ["?"];
+    }
+
+    if (item.unstagedStatus === " ") {
+      return [] as string[];
+    }
+
+    return [item.unstagedStatus];
+  };
+
+  const renderStatusBadges = (
+    item: RepositoryWorkingTreeItem,
+    section: "staged" | "unstaged"
+  ) => {
+    const statusCodes = getStatusCodes(item, section);
+
+    if (statusCodes.length === 0) {
+      return null;
+    }
+
+    return statusCodes.map((code) => {
+      const descriptor = getStatusDescriptor(code);
+
+      if (!descriptor) {
+        return null;
+      }
+
+      return (
+        <span
+          className={cn(
+            "inline-flex items-center justify-center",
+            descriptor.className
+          )}
+          key={`${item.path}-${section}-${descriptor.label}`}
+        >
+          {code === "M" ? (
+            <PencilSimpleIcon className="size-3" />
+          ) : (
+            <span className="font-semibold text-xs leading-none">
+              {descriptor.short}
+            </span>
+          )}
+        </span>
+      );
+    });
+  };
+
+  const collectTreeStatusCounts = (
+    node: ChangeTreeNode,
+    section: "staged" | "unstaged"
+  ) => {
+    const counts = new Map<string, number>();
+
+    const visitNode = (current: ChangeTreeNode) => {
+      if (current.item) {
+        const statusCodes = getStatusCodes(current.item, section);
+
+        for (const code of statusCodes) {
+          counts.set(code, (counts.get(code) ?? 0) + 1);
+        }
+
+        return;
+      }
+
+      for (const child of current.children.values()) {
+        visitNode(child);
+      }
+    };
+
+    visitNode(node);
+
+    return counts;
+  };
+
+  const handleUnstageAll = async () => {
+    if (!activeRepoId || isUnstagingAll || !hasStagedChanges) {
+      return;
+    }
+
+    setIsUnstagingAll(true);
+
+    try {
+      await unstageAll(activeRepoId);
+    } finally {
+      setIsUnstagingAll(false);
+    }
+  };
+
+  const handleFileStageToggle = async (
+    filePath: string,
+    mode: "stage" | "unstage"
+  ) => {
+    if (!activeRepoId || isUpdatingFilePath !== null) {
+      return;
+    }
+
+    setIsUpdatingFilePath(filePath);
+
+    try {
+      if (mode === "stage") {
+        await stageFile(activeRepoId, filePath);
+      } else {
+        await unstageFile(activeRepoId, filePath);
+      }
+    } finally {
+      setIsUpdatingFilePath(null);
+    }
+  };
+
+  const handleDiscardPathChanges = async (filePath: string) => {
+    if (!activeRepoId || isUpdatingFilePath !== null) {
+      return;
+    }
+
+    setIsUpdatingFilePath(filePath);
+
+    try {
+      await discardPathChanges(activeRepoId, filePath);
+    } finally {
+      setIsUpdatingFilePath(null);
+    }
+  };
+  const handleAddIgnoreRule = async (pattern: string) => {
+    if (!activeRepoId || isUpdatingFilePath !== null) {
+      return;
+    }
+
+    setIsUpdatingFilePath(pattern);
+
+    try {
+      await addIgnoreRule(activeRepoId, pattern);
+    } finally {
+      setIsUpdatingFilePath(null);
+    }
+  };
+  const renderChangeContextMenuContent = (
+    targetPath: string,
+    section: "staged" | "unstaged",
+    options?: { isFolder?: boolean; folderName?: string }
+  ) => {
+    const isFolder = options?.isFolder ?? false;
+    const fileName = targetPath.split("/").at(-1) ?? targetPath;
+    const lastDotIndex = fileName.lastIndexOf(".");
+    const fileExtension =
+      lastDotIndex > 0 ? fileName.slice(lastDotIndex + 1) : null;
+    const primaryActionLabel =
+      section === "unstaged" ? "Stage folder" : "Unstage folder";
+    const discardLabel = isFolder
+      ? "Discard all changes in folder"
+      : "Discard changes";
+    const pathSegments = targetPath
+      .split("/")
+      .filter((segment) => segment.length > 0);
+    const ignoreTarget = isFolder
+      ? `${options?.folderName ?? targetPath.split("/").at(-1) ?? targetPath}/`
+      : targetPath;
+    const parentFolderName = pathSegments.at(-2) ?? null;
+    const stashLabel = isFolder ? "Stash folder" : "Stash file";
+    const patchLabel = isFolder
+      ? "Create Patch from changes in directory"
+      : "Create patch from file changes";
+
+    if (!isFolder) {
+      return (
+        <ContextMenuContent
+          className="w-72"
+          onClick={preventLeftClickInMenus}
+          onMouseDown={preventLeftClickInMenus}
+        >
+          <ContextMenuItem
+            disabled={isUpdatingFilePath !== null}
+            onClick={() => {
+              handleFileStageToggle(
+                targetPath,
+                section === "unstaged" ? "stage" : "unstage"
+              ).catch(() => undefined);
+            }}
+          >
+            {section === "unstaged" ? "Stage" : "Unstage"}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={isUpdatingFilePath !== null}
+            onClick={() => {
+              handleDiscardPathChanges(targetPath).catch(() => undefined);
+            }}
+          >
+            {discardLabel}
+          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>Ignore</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem
+                disabled={isUpdatingFilePath !== null}
+                onClick={() => {
+                  handleAddIgnoreRule(fileName).catch(() => undefined);
+                }}
+              >{`Ignore '${fileName}'`}</ContextMenuItem>
+              {fileExtension ? (
+                <ContextMenuItem
+                  disabled={isUpdatingFilePath !== null}
+                  onClick={() => {
+                    handleAddIgnoreRule(`*.${fileExtension}`).catch(
+                      () => undefined
+                    );
+                  }}
+                >
+                  {`All files with the extension '.${fileExtension}'`}
+                </ContextMenuItem>
+              ) : null}
+              {parentFolderName ? (
+                <ContextMenuItem
+                  disabled={isUpdatingFilePath !== null}
+                  onClick={() => {
+                    handleAddIgnoreRule(`${parentFolderName}/`).catch(
+                      () => undefined
+                    );
+                  }}
+                >
+                  {`All files in '${parentFolderName}/'`}
+                </ContextMenuItem>
+              ) : null}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuItem>{stashLabel}</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>File History</ContextMenuItem>
+          <ContextMenuItem>File Blame</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Open in external diff tool</ContextMenuItem>
+          <ContextMenuItem>Open in external editor</ContextMenuItem>
+          <ContextMenuItem>Open file in default program</ContextMenuItem>
+          <ContextMenuItem>Show in folder</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Copy file path</ContextMenuItem>
+          <ContextMenuItem>{patchLabel}</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem>Edit file</ContextMenuItem>
+          <ContextMenuItem>Delete file</ContextMenuItem>
+        </ContextMenuContent>
+      );
+    }
+
+    return (
+      <ContextMenuContent
+        className="w-72"
+        onClick={preventLeftClickInMenus}
+        onMouseDown={preventLeftClickInMenus}
+      >
+        <ContextMenuItem
+          disabled={isUpdatingFilePath !== null}
+          onClick={() => {
+            handleFileStageToggle(
+              targetPath,
+              section === "unstaged" ? "stage" : "unstage"
+            ).catch(() => undefined);
+          }}
+        >
+          {primaryActionLabel}
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={isUpdatingFilePath !== null}
+          onClick={() => {
+            handleDiscardPathChanges(targetPath).catch(() => undefined);
+          }}
+        >
+          {discardLabel}
+        </ContextMenuItem>
+        <ContextMenuItem>{`Ignore all files in '${ignoreTarget}'`}</ContextMenuItem>
+        <ContextMenuItem>{stashLabel}</ContextMenuItem>
+        <ContextMenuItem>{patchLabel}</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem>Open folder</ContextMenuItem>
+        <ContextMenuItem>Create a file in this folder</ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+  const renderChangeTreeNodes = (
+    nodes: ChangeTreeNode[],
+    section: "staged" | "unstaged",
+    depth = 0
+  ): ReactNode => {
+    return nodes.map((node) => {
+      const hasChildren = node.children.size > 0;
+      const isExpanded = expandedTreeNodePaths[node.fullPath] ?? depth < 1;
+      const collapsedStatusCounts =
+        hasChildren && !isExpanded
+          ? collectTreeStatusCounts(node, section)
+          : null;
+
+      if (node.item) {
+        const actionMode = section === "unstaged" ? "stage" : "unstage";
+        const actionLabel = section === "unstaged" ? "Stage" : "Unstage";
+        const isBusy = isUpdatingFilePath === node.item.path;
+
+        return (
+          <ContextMenu key={`${section}-${node.fullPath}`}>
+            <ContextMenuTrigger>
+              <div
+                className="group flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20"
+                style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
+              >
+                <div className="inline-flex min-w-3 items-center justify-center">
+                  {renderStatusBadges(node.item, section)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate">{node.name}</p>
+                </div>
+                <Button
+                  className={cn(
+                    "h-6 px-2 text-[0.65rem] transition-opacity",
+                    isBusy
+                      ? "opacity-100"
+                      : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                  )}
+                  disabled={isBusy}
+                  onClick={() => {
+                    handleFileStageToggle(
+                      node.item?.path ?? "",
+                      actionMode
+                    ).catch(() => undefined);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {isBusy ? "..." : actionLabel}
+                </Button>
+              </div>
+            </ContextMenuTrigger>
+            {renderChangeContextMenuContent(node.item?.path ?? "", section)}
+          </ContextMenu>
+        );
+      }
+
+      return (
+        <div key={`${section}-${node.fullPath}`}>
+          <ContextMenu>
+            <ContextMenuTrigger>
+              <button
+                className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+                onClick={() => toggleTreeNode(node.fullPath)}
+                style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
+                type="button"
+              >
+                {isExpanded ? (
+                  <CaretDownIcon className="size-3" />
+                ) : (
+                  <CaretRightIcon className="size-3" />
+                )}
+                <span className="truncate">{node.name}</span>
+                {collapsedStatusCounts ? (
+                  <span className="ml-1 inline-flex items-center gap-2">
+                    {TREE_STATUS_SUMMARY_ORDER.map((code) => {
+                      const count = collapsedStatusCounts.get(code) ?? 0;
+
+                      if (count <= 0) {
+                        return null;
+                      }
+
+                      const descriptor = getStatusDescriptor(code);
+
+                      if (!descriptor) {
+                        return null;
+                      }
+
+                      return (
+                        <span
+                          className="inline-flex items-center gap-1"
+                          key={`${node.fullPath}-${code}`}
+                        >
+                          <span
+                            className={cn(
+                              "inline-flex items-center justify-center",
+                              descriptor.className
+                            )}
+                          >
+                            {code === "M" ? (
+                              <PencilSimpleIcon className="size-3" />
+                            ) : (
+                              <span className="font-semibold text-xs leading-none">
+                                {descriptor.short}
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-medium text-muted-foreground text-xs leading-none">
+                            {count}
+                          </span>
+                        </span>
+                      );
+                    })}
+                  </span>
+                ) : null}
+              </button>
+            </ContextMenuTrigger>
+            {renderChangeContextMenuContent(node.fullPath, section, {
+              folderName: node.name,
+              isFolder: true,
+            })}
+          </ContextMenu>
+          {hasChildren && isExpanded ? (
+            <div>
+              {renderChangeTreeNodes(
+                Array.from(node.children.values()),
+                section,
+                depth + 1
+              )}
+            </div>
+          ) : null}
+        </div>
+      );
+    });
+  };
+
+  const renderFlatChangeRows = (
+    items: RepositoryWorkingTreeItem[],
+    section: "staged" | "unstaged"
+  ) => {
+    return items.map((item) => {
+      const isBusy = isUpdatingFilePath === item.path;
+      const nextAction = section === "unstaged" ? "stage" : "unstage";
+      const nextLabel = section === "unstaged" ? "Stage" : "Unstage";
+
+      return (
+        <ContextMenu key={`${section}-${item.path}`}>
+          <ContextMenuTrigger>
+            <div className="group flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20">
+              <div className="inline-flex min-w-3 items-center justify-center">
+                {renderStatusBadges(item, section)}
+              </div>
+              <p className="min-w-0 flex-1 truncate">{item.path}</p>
+              <Button
+                className={cn(
+                  "h-6 px-2 text-[0.65rem] transition-opacity",
+                  isBusy
+                    ? "opacity-100"
+                    : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                )}
+                disabled={isBusy}
+                onClick={() => {
+                  handleFileStageToggle(item.path, nextAction).catch(
+                    () => undefined
+                  );
+                }}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                {isBusy ? "..." : nextLabel}
+              </Button>
+            </div>
+          </ContextMenuTrigger>
+          {renderChangeContextMenuContent(item.path, section)}
+        </ContextMenu>
+      );
+    });
+  };
+
+  const renderChangesSectionContent = (
+    items: RepositoryWorkingTreeItem[],
+    tree: ChangeTreeNode[],
+    section: "staged" | "unstaged"
+  ) => {
+    if (items.length === 0) {
+      return (
+        <p className="px-2 py-1.5 text-muted-foreground text-xs">
+          {section === "unstaged" ? "No unstaged files." : "No staged files."}
+        </p>
+      );
+    }
+
+    if (changesViewMode === "tree") {
+      return renderChangeTreeNodes(tree, section);
+    }
+
+    return renderFlatChangeRows(items, section);
+  };
+
+  const handleWorkingTreeRowClick = () => {
+    if (!hasAnyWorkingTreeChanges) {
+      return;
+    }
+
+    const isSameRow = selectedCommitId === WORKING_TREE_ROW_ID;
+
+    if (isSameRow && isRightSidebarOpen) {
+      setIsRightSidebarOpen(false);
+      return;
+    }
+
+    setSelectedCommitId(WORKING_TREE_ROW_ID);
+    setIsRightSidebarOpen(true);
+  };
+
+  const handleWorkingTreeInputClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+  };
+
+  const handleWorkingTreeInputKeyDown = (event: React.KeyboardEvent) => {
+    event.stopPropagation();
+  };
+
   const handleStageAll = async () => {
     if (!activeRepoId || isStagingAll || !hasUnstagedChanges) {
       return;
@@ -1206,15 +1939,6 @@ export function RepoInfo() {
     } finally {
       setIsCommitting(false);
     }
-  };
-
-  const handlePrimaryCommitAction = () => {
-    if (hasUnstagedChanges) {
-      handleStageAll().catch(() => undefined);
-      return;
-    }
-
-    handleCommit().catch(() => undefined);
   };
 
   if (!activeRepo) {
@@ -1715,6 +2439,65 @@ export function RepoInfo() {
                   isTerminalPanelOpen && "pb-52"
                 )}
               >
+                {hasAnyWorkingTreeChanges ? (
+                  <button
+                    className={cn(
+                      "group grid w-full cursor-pointer grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 py-2 text-left transition-colors",
+                      selectedCommitId === WORKING_TREE_ROW_ID
+                        ? "bg-accent/30"
+                        : "hover:bg-accent/20"
+                    )}
+                    onClick={handleWorkingTreeRowClick}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleWorkingTreeRowClick();
+                      }
+                    }}
+                    type="button"
+                  >
+                    <div className="min-w-0" />
+                    <div className="flex items-center justify-center">
+                      <CircleIcon className="size-3 text-muted-foreground" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Input
+                          className="h-7 w-full max-w-52"
+                          onChange={(event) => {
+                            setWorkingTreeWipInput(event.target.value);
+                          }}
+                          onClick={handleWorkingTreeInputClick}
+                          onFocus={() => {
+                            if (selectedCommitId !== WORKING_TREE_ROW_ID) {
+                              setSelectedCommitId(WORKING_TREE_ROW_ID);
+                            }
+
+                            if (!isRightSidebarOpen) {
+                              setIsRightSidebarOpen(true);
+                            }
+                          }}
+                          onKeyDown={handleWorkingTreeInputKeyDown}
+                          placeholder="// WIP"
+                          value={workingTreeWipInput}
+                        />
+                        <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-300">
+                          <span aria-hidden>~</span>
+                          {workingTreeIndicators.editedCount}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[0.78rem] text-emerald-300">
+                          <span aria-hidden>+</span>
+                          {workingTreeIndicators.addedCount}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[0.78rem] text-rose-300">
+                          <span aria-hidden>-</span>
+                          {workingTreeIndicators.removedCount}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ) : null}
+
                 {commits.map((item, index) => (
                   <button
                     className={cn(
@@ -1734,7 +2517,6 @@ export function RepoInfo() {
 
                       setSelectedCommitId(item.hash);
                       setIsRightSidebarOpen(true);
-                      setRightMode("details");
                     }}
                     type="button"
                   >
@@ -1794,142 +2576,268 @@ export function RepoInfo() {
 
             <aside
               className={cn(
-                "flex h-full w-80 shrink-0 flex-col border-border/70 border-l bg-muted/20",
+                "flex h-full w-80 shrink-0 flex-col overflow-hidden border-border/70 border-l bg-muted/20",
                 !isRightSidebarOpen && "hidden"
               )}
             >
-              <header className="border-border/70 border-b px-4 py-3">
-                <div className="inline-flex rounded-md border border-border/80 bg-background/70 p-0.5">
-                  <button
-                    className={cn(
-                      "rounded px-2.5 py-1 font-medium text-xs transition-colors",
-                      rightMode === "details"
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                    onClick={() => setRightMode("details")}
-                    type="button"
-                  >
-                    Details
-                  </button>
-                  <button
-                    className={cn(
-                      "rounded px-2.5 py-1 font-medium text-xs transition-colors",
-                      rightMode === "commit"
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                    onClick={() => setRightMode("commit")}
-                    type="button"
-                  >
-                    Commit
-                  </button>
-                </div>
-              </header>
-
-              {rightMode === "details" && selectedCommit ? (
-                <div className="space-y-4 px-4 py-4">
-                  <div>
-                    <p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.16em]">
-                      Selected Commit
-                    </p>
-                    <p className="mt-2 font-medium text-sm">
-                      {selectedCommit.message}
-                    </p>
-                    <p className="mt-1 text-muted-foreground text-xs">
-                      {selectedCommit.shortHash}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2 rounded-md border border-border/70 bg-background/80 p-3">
-                    <div className="flex items-center gap-2 text-xs">
-                      <CircleIcon className="size-3.5 text-muted-foreground" />
-                      <span className="text-muted-foreground">SHA</span>
-                      <code className="ml-auto font-mono text-foreground">
+              {!isWorkingTreeSelection && selectedCommit ? (
+                <>
+                  <header className="border-border/70 border-b px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-sm">Commit details</p>
+                      <span className="rounded border border-border/70 bg-background/70 px-2 py-0.5 font-mono text-[0.65rem] text-muted-foreground">
                         {selectedCommit.shortHash}
-                      </code>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <ArrowBendRightUpIcon className="size-3.5 text-muted-foreground" />
-                      <span className="text-muted-foreground">Author</span>
-                      <span className="ml-auto">{selectedCommit.author}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <ClockCounterClockwiseIcon className="size-3.5 text-muted-foreground" />
-                      <span className="text-muted-foreground">Committed</span>
-                      <span className="ml-auto">
-                        {formatCommitDate(selectedCommit.date)}
                       </span>
                     </div>
-                    <div className="flex items-start gap-2 text-xs">
-                      <TagIcon className="mt-0.5 size-3.5 text-muted-foreground" />
-                      <span className="text-muted-foreground">Refs</span>
-                      <div className="ml-auto flex flex-wrap justify-end gap-1">
-                        {(selectedCommit.refs.length > 0
-                          ? selectedCommit.refs
-                          : ["-"]
-                        ).map((ref) => (
-                          <span
-                            className="rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
-                            key={ref}
-                          >
-                            {ref}
-                          </span>
-                        ))}
+                  </header>
+
+                  <div className="space-y-4 px-4 py-4 text-sm">
+                    <div className="space-y-1">
+                      <p className="text-muted-foreground text-xs">Message</p>
+                      <p className="font-medium">{selectedCommit.message}</p>
+                    </div>
+
+                    <div className="space-y-2 rounded-md border border-border/70 bg-background/70 p-3 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Author</span>
+                        <span className="truncate">
+                          {selectedCommit.author}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Committed</span>
+                        <span>{formatCommitDate(selectedCommit.date)}</span>
+                      </div>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-muted-foreground">Refs</span>
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {(selectedCommit.refs.length > 0
+                            ? selectedCommit.refs
+                            : ["-"]
+                          ).map((ref) => (
+                            <span
+                              className="rounded border border-border/70 bg-background px-1.5 py-0.5 text-[0.65rem]"
+                              key={ref}
+                            >
+                              {ref}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                </>
               ) : (
-                <form className="flex min-h-0 flex-1 flex-col px-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="commit-summary">Commit summary</Label>
-                    <Input
-                      id="commit-summary"
-                      onChange={(event) =>
-                        setDraftCommitSummary(event.target.value)
-                      }
-                      placeholder="Describe your changes"
-                      value={draftCommitSummary}
-                    />
+                <>
+                  <header className="shrink-0 space-y-3 border-border/70 border-b px-3 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Button
+                        aria-label="Discard all changes"
+                        className="h-8 w-8 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                        size="icon-sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <XIcon className="size-4" />
+                      </Button>
+                      <p className="truncate text-sm">
+                        <span className="font-medium">
+                          {workingTreeItems.length} file changes
+                        </span>{" "}
+                        on{" "}
+                        <span className="rounded bg-accent px-2 py-0.5 font-medium text-accent-foreground">
+                          {currentBranch}
+                        </span>
+                      </p>
+                      <Button
+                        aria-label="Sidebar actions"
+                        className="h-8 w-8 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                        size="icon-sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <DotsThreeVerticalIcon className="size-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center justify-center">
+                      <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
+                        <button
+                          className={cn(
+                            "rounded px-3 py-1 font-medium text-xs transition-colors",
+                            changesViewMode === "path"
+                              ? "bg-accent text-accent-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => setChangesViewMode("path")}
+                          type="button"
+                        >
+                          Path
+                        </button>
+                        <button
+                          className={cn(
+                            "rounded px-3 py-1 font-medium text-xs transition-colors",
+                            changesViewMode === "tree"
+                              ? "bg-accent text-accent-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => setChangesViewMode("tree")}
+                          type="button"
+                        >
+                          Tree
+                        </button>
+                      </div>
+                    </div>
+                  </header>
+
+                  <div className="min-h-0 flex-1 overflow-hidden px-3 py-3">
+                    <div className="flex h-full min-h-0 flex-col rounded-md border border-border/70 bg-background/50">
+                      <section
+                        className={cn(
+                          "flex min-h-0 flex-col",
+                          isUnstagedSectionCollapsed ? "shrink-0" : "flex-1"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                          <button
+                            className="inline-flex items-center gap-1 text-left font-medium text-sm"
+                            onClick={() =>
+                              setIsUnstagedSectionCollapsed(
+                                (current) => !current
+                              )
+                            }
+                            type="button"
+                          >
+                            {isUnstagedSectionCollapsed ? (
+                              <CaretRightIcon className="size-3" />
+                            ) : (
+                              <CaretDownIcon className="size-3" />
+                            )}
+                            Unstaged Files ({unstagedItems.length})
+                          </button>
+                          <Button
+                            className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                            disabled={!hasUnstagedChanges || isStagingAll}
+                            onClick={() => {
+                              handleStageAll().catch(() => undefined);
+                            }}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            {isStagingAll ? "Staging..." : "Stage All Changes"}
+                          </Button>
+                        </div>
+
+                        {isUnstagedSectionCollapsed ? null : (
+                          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                            {renderChangesSectionContent(
+                              unstagedItems,
+                              unstagedTree,
+                              "unstaged"
+                            )}
+                          </div>
+                        )}
+                      </section>
+
+                      <section
+                        className={cn(
+                          "flex min-h-0 flex-col border-border/70 border-t",
+                          isStagedSectionCollapsed
+                            ? "mt-auto shrink-0"
+                            : "flex-1"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                          <button
+                            className="inline-flex items-center gap-1 text-left font-medium text-sm"
+                            onClick={() =>
+                              setIsStagedSectionCollapsed((current) => !current)
+                            }
+                            type="button"
+                          >
+                            {isStagedSectionCollapsed ? (
+                              <CaretRightIcon className="size-3" />
+                            ) : (
+                              <CaretDownIcon className="size-3" />
+                            )}
+                            Staged Files ({stagedItems.length})
+                          </button>
+                          <Button
+                            className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                            disabled={!hasStagedChanges || isUnstagingAll}
+                            onClick={() => {
+                              handleUnstageAll().catch(() => undefined);
+                            }}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            {isUnstagingAll
+                              ? "Unstaging..."
+                              : "Unstage All Changes"}
+                          </Button>
+                        </div>
+
+                        {isStagedSectionCollapsed ? null : (
+                          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                            {renderChangesSectionContent(
+                              stagedItems,
+                              stagedTree,
+                              "staged"
+                            )}
+                          </div>
+                        )}
+                      </section>
+                    </div>
                   </div>
-                  <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2">
-                    <Label htmlFor="commit-description">Description</Label>
-                    <textarea
-                      className="min-h-32 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                      id="commit-description"
-                      onChange={(event) =>
-                        setDraftCommitDescription(event.target.value)
-                      }
-                      placeholder="Optional details..."
-                      value={draftCommitDescription}
-                    />
-                  </div>
-                  <label className="mt-3 inline-flex items-center gap-2 text-xs">
-                    <input
-                      checked={amendPreviousCommit}
-                      className="rounded border-input"
-                      onChange={(event) =>
-                        setAmendPreviousCommit(event.target.checked)
-                      }
-                      type="checkbox"
-                    />
-                    Amend previous commit
-                  </label>
-                  <Button
-                    className="mt-4 w-full"
-                    disabled={
-                      isStagingAll ||
-                      isCommitting ||
-                      (hasUnstagedChanges ? false : !canCommit)
-                    }
-                    onClick={handlePrimaryCommitAction}
-                    type="button"
-                  >
-                    <DotOutlineIcon className="size-4" />
-                    Stage Changes to Commit
-                  </Button>
-                </form>
+
+                  <form className="shrink-0 border-border/70 border-t px-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="commit-summary">Title</Label>
+                      <Input
+                        id="commit-summary"
+                        onChange={(event) =>
+                          setDraftCommitSummary(event.target.value)
+                        }
+                        placeholder="Describe your changes"
+                        value={draftCommitSummary}
+                      />
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      <Label htmlFor="commit-description">Description</Label>
+                      <textarea
+                        className="min-h-24 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                        id="commit-description"
+                        onChange={(event) =>
+                          setDraftCommitDescription(event.target.value)
+                        }
+                        placeholder="Optional details..."
+                        value={draftCommitDescription}
+                      />
+                    </div>
+                    <label className="mt-3 inline-flex items-center gap-2 text-xs">
+                      <input
+                        checked={amendPreviousCommit}
+                        className="rounded border-input"
+                        onChange={(event) =>
+                          setAmendPreviousCommit(event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      Amend previous commit
+                    </label>
+                    <Button
+                      className="mt-4 w-full"
+                      disabled={isCommitting || !canCommit}
+                      onClick={handleCommit}
+                      type="button"
+                    >
+                      <DotOutlineIcon className="size-4" />
+                      Commit staged changes
+                    </Button>
+                  </form>
+                </>
               )}
             </aside>
           </div>

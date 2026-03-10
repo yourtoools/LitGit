@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   CreateLocalRepositoryInput,
   PickedRepositorySelection,
   PullActionMode,
@@ -588,6 +588,30 @@ export async function unstageRepoFile(path: string, filePath: string) {
   });
 }
 
+export async function addRepoIgnoreRule(path: string, pattern: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Ignore rule update works in Tauri desktop app only");
+  }
+
+  await invoke("add_repository_ignore_rule", {
+    repoPath: path,
+    pattern,
+  });
+}
+export async function discardRepoPathChanges(path: string, filePath: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Discard changes works in Tauri desktop app only");
+  }
+
+  await invoke("discard_repository_path_changes", {
+    repoPath: path,
+    filePath,
+  });
+}
 export async function getRepoFileDiff(path: string, filePath: string) {
   const invoke = getTauriInvoke();
 
