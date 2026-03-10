@@ -28,9 +28,9 @@ interface UseUngroupConfirmationReturn {
 }
 
 const DEFAULT_DIALOG_CONTENT: UngroupConfirmDialogContent = {
-  title: "Ungroup this tab?",
+  title: "Remove tab from group",
   description: "This is the last tab in the group.",
-  actionText: "Confirm ungroup",
+  actionText: "Remove from group",
 };
 
 export const useUngroupConfirmation = ({
@@ -76,11 +76,13 @@ export const useUngroupConfirmation = ({
     const isCloseAction = pendingUngroupTab.action === "close";
 
     return {
-      title: isCloseAction ? "Close this tab?" : "Ungroup this tab?",
+      title: isCloseAction
+        ? "Close last tab in group"
+        : "Remove last tab from group",
       description: isCloseAction
-        ? `"${tab.title}" is the last tab in the "${group.name}" group. Group and Tab will be deleted/closed.`
-        : `"${tab.title}" is the last tab in the "${group.name}" group. The group will be deleted, but the tab will remain.`,
-      actionText: isCloseAction ? "Close" : "Confirm ungroup",
+        ? `"${tab.title}" is the last tab in the "${group.name}" group. Closing it will also remove the empty group.`
+        : `"${tab.title}" is the last tab in the "${group.name}" group. Removing it from the group will delete the empty group, but the tab will stay open.`,
+      actionText: isCloseAction ? "Close tab" : "Remove group",
     };
   }, [pendingUngroupTab, pendingUngroupTabDetails]);
 

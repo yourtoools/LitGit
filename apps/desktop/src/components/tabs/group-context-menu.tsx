@@ -221,13 +221,13 @@ export function GroupContextMenu({ groupId, children }: GroupContextMenuProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmMode === "ungroup"
-                ? "Ungroup this group?"
-                : "Delete group and tabs?"}
+                ? "Remove last tab group"
+                : "Delete tab group"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmMode === "ungroup"
-                ? `The group "${group.name}" will be deleted, but the tab will remain as a regular tab.`
-                : `Permanently close all tabs in group "${group.name}".`}
+                ? `Group "${group.name}" only has one tab left. Removing the group will keep the tab open as a regular tab.`
+                : `Delete group "${group.name}" and close all tabs inside it.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -237,7 +237,7 @@ export function GroupContextMenu({ groupId, children }: GroupContextMenuProps) {
               size="sm"
               variant={confirmMode === "ungroup" ? "default" : "destructive"}
             >
-              {confirmMode === "ungroup" ? "Confirm ungroup" : "Delete"}
+              {confirmMode === "ungroup" ? "Remove group" : "Delete group"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

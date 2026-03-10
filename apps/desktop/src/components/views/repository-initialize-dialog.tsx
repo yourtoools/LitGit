@@ -27,22 +27,22 @@ export function RepositoryInitializeDialog({
   onConfirm,
 }: RepositoryInitializeDialogProps) {
   const title = isRepositoryInitialized
-    ? "Initialize repository?"
-    : "Initialize folder as repository?";
+    ? "Create first commit"
+    : "Create repository and first commit";
   const description = isRepositoryInitialized
-    ? `Repository "${repositoryName}" must have an initial commit to be opened. Do you want LitGit to make that first commit for you?`
-    : `Folder "${repositoryName}" is not a Git repository yet. Do you want LitGit to initialize it and create the first commit for you?`;
+    ? `Repository "${repositoryName}" needs an initial commit before LitGit can open it. LitGit can create that first commit for you now.`
+    : `Folder "${repositoryName}" is not a Git repository yet. LitGit can initialize it and create the first commit for you now.`;
 
-  let actionLabel = "Create repository";
+  let actionLabel = "Create repo";
 
   if (isRepositoryInitialized) {
-    actionLabel = "Initialize";
+    actionLabel = "Create commit";
   }
 
   if (isInitializing) {
     actionLabel = isRepositoryInitialized
-      ? "Initializing..."
-      : "Creating repository...";
+      ? "Creating commit..."
+      : "Creating repo...";
   }
 
   return (

@@ -207,12 +207,12 @@ export function TabItem({
           )}
         </Button>
 
-        <AlertDialogContent>
+        <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Close loading tab?</AlertDialogTitle>
+            <AlertDialogTitle>Close tab while loading</AlertDialogTitle>
             <AlertDialogDescription>
-              This tab is still loading. Closing it now will cancel the loading
-              process.
+              This tab is still loading. Closing it now will stop loading and
+              close the tab immediately.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -223,7 +223,7 @@ export function TabItem({
                 setShowConfirmDialog(false);
               }}
             >
-              Close Tab
+              Close tab
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

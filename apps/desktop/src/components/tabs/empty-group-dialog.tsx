@@ -36,7 +36,7 @@ export function EmptyGroupDialog({
         </AlertDialogHeader>
         <AlertDialogFooter className="sm:grid-cols-[1fr_1fr]">
           <AlertDialogAction onClick={onKeepGroup} size="sm" variant="outline">
-            Keep group and add tab
+            Keep group
           </AlertDialogAction>
           {group && (
             <AlertDialogAction
@@ -45,7 +45,7 @@ export function EmptyGroupDialog({
               variant="destructive"
             >
               <TrashIcon data-icon="inline-start" />
-              Delete empty group
+              Delete group
             </AlertDialogAction>
           )}
         </AlertDialogFooter>
