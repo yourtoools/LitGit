@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
+import { DiffEditor } from "@monaco-editor/react";
 import {
   ArrowBendRightUpIcon,
   ArrowClockwiseIcon,
@@ -83,6 +84,7 @@ import { IntegratedTerminalPanel } from "@/components/terminal/integrated-termin
 import type {
   PullActionMode,
   RepositoryCommit,
+  RepositoryFileDiff,
   RepositoryStash,
   RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
@@ -235,6 +237,33 @@ function buildChangeTree(items: RepositoryWorkingTreeItem[]): ChangeTreeNode[] {
 
 const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const WORKING_TREE_ROW_ID = "__working_tree__";
+const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
+
+const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  c: "c",
+  cpp: "cpp",
+  css: "css",
+  go: "go",
+  h: "c",
+  hpp: "cpp",
+  html: "html",
+  java: "java",
+  js: "javascript",
+  json: "json",
+  jsx: "javascript",
+  md: "markdown",
+  mjs: "javascript",
+  py: "python",
+  rs: "rust",
+  sh: "shell",
+  sql: "sql",
+  svg: "xml",
+  ts: "typescript",
+  tsx: "typescript",
+  xml: "xml",
+  yaml: "yaml",
+  yml: "yaml",
+};
 
 function formatStashLabel(stash: RepositoryStash): string {
   const rawMessage = stash.message.trim();
@@ -262,6 +291,18 @@ function formatStashLabel(stash: RepositoryStash): string {
 
   return rawMessage;
 }
+
+function resolveMonacoLanguage(filePath: string): string {
+  const normalizedPath = filePath.toLowerCase();
+  const extension = FILE_EXTENSION_PATTERN.exec(normalizedPath)?.[1] ?? "";
+
+  if (extension.length === 0) {
+    return "plaintext";
+  }
+
+  return MONACO_LANGUAGE_BY_EXTENSION[extension] ?? "plaintext";
+}
+
 export function RepoInfo() {
   const activeRepoId = useRepoStore((state) => state.activeRepoId);
   const openedRepos = useRepoStore((state) => state.openedRepos);
@@ -281,6 +322,7 @@ export function RepoInfo() {
   const unstageAll = useRepoStore((state) => state.unstageAll);
   const stageFile = useRepoStore((state) => state.stageFile);
   const unstageFile = useRepoStore((state) => state.unstageFile);
+  const getFileDiff = useRepoStore((state) => state.getFileDiff);
   const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
   const commitChanges = useRepoStore((state) => state.commitChanges);
   const pullBranch = useRepoStore((state) => state.pullBranch);
@@ -315,6 +357,11 @@ export function RepoInfo() {
     Record<string, boolean>
   >({});
   const [workingTreeWipInput, setWorkingTreeWipInput] = useState("");
+  const [isLoadingDiffPath, setIsLoadingDiffPath] = useState<string | null>(
+    null
+  );
+  const [openedDiff, setOpenedDiff] = useState<RepositoryFileDiff | null>(null);
+  const [openedDiffPath, setOpenedDiffPath] = useState<string | null>(null);
   const [pullActionMode, setPullActionMode] =
     useState<PullActionMode>("pull-ff-possible");
   const [openEntryMenuKey, setOpenEntryMenuKey] = useState<string | null>(null);
@@ -647,6 +694,19 @@ export function RepoInfo() {
       setWorkingTreeWipInput("");
       return;
     }
+  }, [activeRepoId]);
+
+  useEffect(() => {
+    if (activeRepoId === null) {
+      setIsLoadingDiffPath(null);
+      setOpenedDiff(null);
+      setOpenedDiffPath(null);
+      return;
+    }
+
+    setIsLoadingDiffPath(null);
+    setOpenedDiff(null);
+    setOpenedDiffPath(null);
   }, [activeRepoId]);
 
   useEffect(() => {
@@ -1384,10 +1444,17 @@ export function RepoInfo() {
       </ContextMenuContent>
     );
   };
-  const toggleTreeNode = (nodePath: string) => {
+  const getTreeNodeStateKey = (
+    section: "staged" | "unstaged",
+    nodePath: string
+  ) => `${section}:${nodePath}`;
+
+  const toggleTreeNode = (section: "staged" | "unstaged", nodePath: string) => {
+    const key = getTreeNodeStateKey(section, nodePath);
+
     setExpandedTreeNodePaths((current) => ({
       ...current,
-      [nodePath]: !current[nodePath],
+      [key]: !current[key],
     }));
   };
 
@@ -1539,6 +1606,98 @@ export function RepoInfo() {
       setIsUpdatingFilePath(null);
     }
   };
+  const closeOpenedDiff = () => {
+    setOpenedDiff(null);
+    setOpenedDiffPath(null);
+  };
+
+  const handleOpenFileDiff = async (filePath: string) => {
+    if (!activeRepoId || isLoadingDiffPath !== null) {
+      return;
+    }
+
+    const isTogglingCurrentDiff =
+      openedDiffPath === filePath && openedDiff !== null;
+
+    if (isTogglingCurrentDiff) {
+      closeOpenedDiff();
+      return;
+    }
+
+    setIsLoadingDiffPath(filePath);
+
+    try {
+      const diff = await getFileDiff(activeRepoId, filePath);
+
+      if (!diff) {
+        return;
+      }
+
+      setOpenedDiff(diff);
+      setOpenedDiffPath(filePath);
+    } finally {
+      setIsLoadingDiffPath(null);
+    }
+  };
+
+  useEffect(() => {
+    if (openedDiff === null) {
+      return;
+    }
+
+    const handleEscapeToCloseDiff = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setOpenedDiff(null);
+      setOpenedDiffPath(null);
+    };
+
+    globalThis.addEventListener("keydown", handleEscapeToCloseDiff);
+
+    return () => {
+      globalThis.removeEventListener("keydown", handleEscapeToCloseDiff);
+    };
+  }, [openedDiff]);
+
+  const openedDiffActionMode = useMemo<"stage" | "unstage" | null>(() => {
+    if (openedDiffPath === null) {
+      return null;
+    }
+
+    const isInStaged = stagedItems.some((item) => item.path === openedDiffPath);
+    const isInUnstaged = unstagedItems.some(
+      (item) => item.path === openedDiffPath
+    );
+
+    if (isInStaged) {
+      return "unstage";
+    }
+
+    if (isInUnstaged) {
+      return "stage";
+    }
+
+    return null;
+  }, [openedDiffPath, stagedItems, unstagedItems]);
+
+  const openedDiffActionLabel = useMemo(() => {
+    if (openedDiffActionMode === null) {
+      return null;
+    }
+
+    return openedDiffActionMode === "stage" ? "Stage" : "Unstage";
+  }, [openedDiffActionMode]);
+
+  const handleOpenedDiffShortcutAction = async () => {
+    if (openedDiffPath === null || openedDiffActionMode === null) {
+      return;
+    }
+
+    await handleFileStageToggle(openedDiffPath, openedDiffActionMode);
+  };
+
   const renderChangeContextMenuContent = (
     targetPath: string,
     section: "staged" | "unstaged",
@@ -1575,7 +1734,8 @@ export function RepoInfo() {
         >
           <ContextMenuItem
             disabled={isUpdatingFilePath !== null}
-            onClick={() => {
+            onClick={(event) => {
+              event.stopPropagation();
               handleFileStageToggle(
                 targetPath,
                 section === "unstaged" ? "stage" : "unstage"
@@ -1654,7 +1814,8 @@ export function RepoInfo() {
       >
         <ContextMenuItem
           disabled={isUpdatingFilePath !== null}
-          onClick={() => {
+          onClick={(event) => {
+            event.stopPropagation();
             handleFileStageToggle(
               targetPath,
               section === "unstaged" ? "stage" : "unstage"
@@ -1687,7 +1848,8 @@ export function RepoInfo() {
   ): ReactNode => {
     return nodes.map((node) => {
       const hasChildren = node.children.size > 0;
-      const isExpanded = expandedTreeNodePaths[node.fullPath] ?? depth < 1;
+      const nodeStateKey = getTreeNodeStateKey(section, node.fullPath);
+      const isExpanded = expandedTreeNodePaths[nodeStateKey] ?? depth < 1;
       const collapsedStatusCounts =
         hasChildren && !isExpanded
           ? collectTreeStatusCounts(node, section)
@@ -1697,29 +1859,45 @@ export function RepoInfo() {
         const actionMode = section === "unstaged" ? "stage" : "unstage";
         const actionLabel = section === "unstaged" ? "Stage" : "Unstage";
         const isBusy = isUpdatingFilePath === node.item.path;
+        const isLoadingDiff = isLoadingDiffPath === node.item.path;
+        const isDiffOpened = openedDiffPath === node.item.path;
 
         return (
           <ContextMenu key={`${section}-${node.fullPath}`}>
             <ContextMenuTrigger>
               <div
-                className="group flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20"
+                className={cn(
+                  "group relative flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20",
+                  isDiffOpened && "bg-accent/30"
+                )}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
               >
-                <div className="inline-flex min-w-3 items-center justify-center">
+                <button
+                  aria-label={`Open diff for ${node.item.path}`}
+                  className="absolute inset-0 z-0 rounded"
+                  onClick={() => {
+                    handleOpenFileDiff(node.item?.path ?? "").catch(
+                      () => undefined
+                    );
+                  }}
+                  type="button"
+                />
+                <div className="pointer-events-none inline-flex min-w-3 items-center justify-center">
                   {renderStatusBadges(node.item, section)}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="pointer-events-none min-w-0 flex-1">
                   <p className="truncate">{node.name}</p>
                 </div>
                 <Button
                   className={cn(
-                    "h-6 px-2 text-[0.65rem] transition-opacity",
+                    "relative z-10 h-6 px-2 text-[0.65rem] transition-opacity",
                     isBusy
                       ? "opacity-100"
                       : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
                   )}
                   disabled={isBusy}
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation();
                     handleFileStageToggle(
                       node.item?.path ?? "",
                       actionMode
@@ -1731,6 +1909,9 @@ export function RepoInfo() {
                 >
                   {isBusy ? "..." : actionLabel}
                 </Button>
+                {isLoadingDiff ? (
+                  <SpinnerGapIcon className="relative z-10 size-3 animate-spin text-muted-foreground" />
+                ) : null}
               </div>
             </ContextMenuTrigger>
             {renderChangeContextMenuContent(node.item?.path ?? "", section)}
@@ -1744,7 +1925,7 @@ export function RepoInfo() {
             <ContextMenuTrigger>
               <button
                 className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
-                onClick={() => toggleTreeNode(node.fullPath)}
+                onClick={() => toggleTreeNode(section, node.fullPath)}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
                 type="button"
               >
@@ -1825,24 +2006,42 @@ export function RepoInfo() {
       const isBusy = isUpdatingFilePath === item.path;
       const nextAction = section === "unstaged" ? "stage" : "unstage";
       const nextLabel = section === "unstaged" ? "Stage" : "Unstage";
+      const isLoadingDiff = isLoadingDiffPath === item.path;
+      const isDiffOpened = openedDiffPath === item.path;
 
       return (
         <ContextMenu key={`${section}-${item.path}`}>
           <ContextMenuTrigger>
-            <div className="group flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20">
-              <div className="inline-flex min-w-3 items-center justify-center">
+            <div
+              className={cn(
+                "group relative flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20",
+                isDiffOpened && "bg-accent/30"
+              )}
+            >
+              <button
+                aria-label={`Open diff for ${item.path}`}
+                className="absolute inset-0 z-0 rounded"
+                onClick={() => {
+                  handleOpenFileDiff(item.path).catch(() => undefined);
+                }}
+                type="button"
+              />
+              <div className="pointer-events-none inline-flex min-w-3 items-center justify-center">
                 {renderStatusBadges(item, section)}
               </div>
-              <p className="min-w-0 flex-1 truncate">{item.path}</p>
+              <p className="pointer-events-none min-w-0 flex-1 truncate">
+                {item.path}
+              </p>
               <Button
                 className={cn(
-                  "h-6 px-2 text-[0.65rem] transition-opacity",
+                  "relative z-10 h-6 px-2 text-[0.65rem] transition-opacity",
                   isBusy
                     ? "opacity-100"
                     : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
                 )}
                 disabled={isBusy}
-                onClick={() => {
+                onClick={(event) => {
+                  event.stopPropagation();
                   handleFileStageToggle(item.path, nextAction).catch(
                     () => undefined
                   );
@@ -1853,6 +2052,9 @@ export function RepoInfo() {
               >
                 {isBusy ? "..." : nextLabel}
               </Button>
+              {isLoadingDiff ? (
+                <SpinnerGapIcon className="relative z-10 size-3 animate-spin text-muted-foreground" />
+              ) : null}
             </div>
           </ContextMenuTrigger>
           {renderChangeContextMenuContent(item.path, section)}
@@ -2435,7 +2637,7 @@ export function RepoInfo() {
               </div>
               <div
                 className={cn(
-                  "min-h-0 flex-1 overflow-y-auto",
+                  "relative min-h-0 flex-1 overflow-y-auto",
                   isTerminalPanelOpen && "pb-52"
                 )}
               >
@@ -2572,6 +2774,55 @@ export function RepoInfo() {
                 contextKey={`${activeTabIdFromUrl}:${activeRepoId ?? "repo:none"}`}
                 cwd={activeRepo?.path ?? ""}
               />
+              {openedDiff ? (
+                <div className="absolute inset-0 z-20 flex flex-col bg-background/95">
+                  <div className="flex items-center gap-2 border-border/70 border-b px-3 py-2">
+                    <p className="min-w-0 flex-1 truncate font-medium text-sm">
+                      {openedDiff.path}
+                    </p>
+                    <Button
+                      className="h-7 px-2 text-xs"
+                      disabled={
+                        openedDiffActionMode === null ||
+                        isUpdatingFilePath !== null
+                      }
+                      onClick={() => {
+                        handleOpenedDiffShortcutAction().catch(() => undefined);
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      {openedDiffActionLabel ?? "Action"}
+                    </Button>
+                    <Button
+                      aria-label="Close diff editor"
+                      className="h-7 w-7 p-0"
+                      onClick={closeOpenedDiff}
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <XIcon className="size-3.5" />
+                    </Button>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    <DiffEditor
+                      height="100%"
+                      language={resolveMonacoLanguage(openedDiff.path)}
+                      modified={openedDiff.newText}
+                      options={{
+                        automaticLayout: true,
+                        minimap: { enabled: false },
+                        readOnly: true,
+                        renderSideBySide: true,
+                        scrollBeyondLastLine: false,
+                      }}
+                      original={openedDiff.oldText}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <aside
