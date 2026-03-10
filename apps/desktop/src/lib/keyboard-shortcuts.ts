@@ -7,14 +7,24 @@ interface ShortcutEvent {
 }
 
 const MAC_PLATFORM_PATTERN = /Mac|iPhone|iPad|iPod/i;
+const WINDOWS_PLATFORM_PATTERN = /Win/i;
 
 export const isMacPlatform = () => {
   if (typeof navigator === "undefined") {
     return false;
   }
 
-  const platform = navigator.platform || navigator.userAgent;
-  return MAC_PLATFORM_PATTERN.test(platform);
+  const userAgent = navigator.userAgent;
+  return MAC_PLATFORM_PATTERN.test(userAgent);
+};
+
+export const isWindowsPlatform = () => {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent;
+  return WINDOWS_PLATFORM_PATTERN.test(userAgent);
 };
 
 export const getPrimaryModifierLabel = () => {
@@ -130,19 +140,49 @@ export const isOpenRepositoryChordEndShortcut = (event: ShortcutEvent) => {
 };
 
 export const isNextTabShortcut = (event: ShortcutEvent) => {
+  const isMac = isMacPlatform();
+  const isWindows = isWindowsPlatform();
+
+  if (isWindows) {
+    return (
+      !(event.altKey || event.shiftKey) && event.ctrlKey && event.key === "Tab"
+    );
+  }
+
+  if (isMac) {
+    return (
+      !(event.altKey || event.shiftKey) &&
+      event.metaKey &&
+      event.key === "PageUp"
+    );
+  }
+
   return (
-    !(event.altKey || event.shiftKey) &&
-    (event.metaKey || event.ctrlKey) &&
-    event.key === "Tab"
+    !(event.altKey || event.shiftKey) && event.ctrlKey && event.key === "PageUp"
   );
 };
 
 export const isPreviousTabShortcut = (event: ShortcutEvent) => {
+  const isMac = isMacPlatform();
+  const isWindows = isWindowsPlatform();
+
+  if (isWindows) {
+    return (
+      !event.altKey && event.shiftKey && event.ctrlKey && event.key === "Tab"
+    );
+  }
+
+  if (isMac) {
+    return (
+      !event.altKey &&
+      event.shiftKey &&
+      event.metaKey &&
+      event.key === "PageDown"
+    );
+  }
+
   return (
-    !event.altKey &&
-    event.shiftKey &&
-    (event.metaKey || event.ctrlKey) &&
-    event.key === "Tab"
+    !event.altKey && event.shiftKey && event.ctrlKey && event.key === "PageDown"
   );
 };
 
@@ -187,11 +227,21 @@ export const getReopenClosedTabShortcutLabel = () => {
 };
 
 export const getNextTabShortcutLabel = () => {
-  return `${getPrimaryModifierLabel()} + Tab`;
+  if (isWindowsPlatform()) {
+    return "Ctrl + Tab";
+  }
+
+  const modifier = getPrimaryModifierLabel();
+  return `${modifier} + PageUp`;
 };
 
 export const getPreviousTabShortcutLabel = () => {
-  return `${getPrimaryModifierLabel()} + Shift + Tab`;
+  if (isWindowsPlatform()) {
+    return "Ctrl + Shift + Tab";
+  }
+
+  const modifier = getPrimaryModifierLabel();
+  return `${modifier} + Shift + PageDown`;
 };
 
 export const getKeyboardShortcutsShortcutLabel = () => {
