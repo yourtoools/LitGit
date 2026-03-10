@@ -25,6 +25,7 @@ import {
   getPrimaryModifierAriaKey,
   getReopenClosedTabShortcutLabel,
   getSearchTabsShortcutLabel,
+  getToggleTerminalShortcutLabel,
   getZoomInShortcutLabel,
   getZoomOutShortcutLabel,
   isEditableTarget,
@@ -156,6 +157,14 @@ export function KeyboardShortcutsDialog() {
         keywords: ["zoom", "view", "decrease", "minus", "scale"],
         keys: shortcutLabelToKeys(getZoomOutShortcutLabel()),
         label: "Zoom Out",
+      },
+      {
+        description: "Toggle the integrated terminal panel.",
+        group: "View",
+        id: "toggle-terminal",
+        keywords: ["terminal", "toggle", "console", "footer"],
+        keys: shortcutLabelToKeys(getToggleTerminalShortcutLabel()),
+        label: "Toggle Terminal",
       },
       {
         description: "Open this shortcuts panel from anywhere in the app.",

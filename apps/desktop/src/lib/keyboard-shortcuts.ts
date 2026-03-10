@@ -113,6 +113,14 @@ export const isZoomOutShortcut = (event: ShortcutEvent) => {
   );
 };
 
+export const isToggleTerminalShortcut = (event: ShortcutEvent) => {
+  return (
+    !(event.altKey || event.metaKey || event.shiftKey) &&
+    event.ctrlKey &&
+    (event.key === "`" || event.key === "~")
+  );
+};
+
 export const isOpenRepositoryChordStartShortcut = (event: ShortcutEvent) => {
   return isPrimaryShortcut(event, "k");
 };
@@ -137,6 +145,7 @@ export const isPreviousTabShortcut = (event: ShortcutEvent) => {
     event.key === "Tab"
   );
 };
+
 export const getOpenRepositoryShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + O`;
 };
@@ -165,6 +174,10 @@ export const getZoomOutShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + -`;
 };
 
+export const getToggleTerminalShortcutLabel = () => {
+  return "Ctrl + `";
+};
+
 export const getSidebarFilterShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + Alt + F`;
 };
@@ -180,6 +193,7 @@ export const getNextTabShortcutLabel = () => {
 export const getPreviousTabShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + Shift + Tab`;
 };
+
 export const getKeyboardShortcutsShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + /`;
 };

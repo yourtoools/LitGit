@@ -1,4 +1,4 @@
-﻿import { Button } from "@litgit/ui/components/button";
+import { Button } from "@litgit/ui/components/button";
 import {
   Combobox,
   ComboboxContent,
@@ -68,6 +68,7 @@ import {
   UploadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { useSearch } from "@tanstack/react-router";
 import {
   type ReactNode,
   useDeferredValue,
@@ -78,12 +79,14 @@ import {
   useTransition,
 } from "react";
 import { toast } from "sonner";
+import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import type {
   PullActionMode,
   RepositoryCommit,
   RepositoryStash,
 } from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
+import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
 interface SidebarEntry {
   active?: boolean;
@@ -188,6 +191,10 @@ export function RepoInfo() {
   );
   const [, startSidebarFilterTransition] = useTransition();
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
+  const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
+  const routeSearch = useSearch({ strict: false });
+  const activeTabIdFromUrl =
+    typeof routeSearch.tabId === "string" ? routeSearch.tabId : "tab:default";
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
   const commits = useMemo<RepositoryCommit[]>(
@@ -1696,13 +1703,18 @@ export function RepoInfo() {
           </div>
 
           <div className="flex min-h-0 flex-1">
-            <section className="flex min-w-0 flex-1 flex-col">
+            <section className="relative flex min-w-0 flex-1 flex-col">
               <div className="grid grid-cols-[180px_60px_minmax(0,1fr)] border-border/60 border-b px-3 py-2 text-[0.68rem] text-muted-foreground uppercase tracking-[0.14em]">
                 <span>Branch / Tag</span>
                 <span className="text-center">Graph</span>
                 <span>Commit Message</span>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div
+                className={cn(
+                  "min-h-0 flex-1 overflow-y-auto",
+                  isTerminalPanelOpen && "pb-52"
+                )}
+              >
                 {commits.map((item, index) => (
                   <button
                     className={cn(
@@ -1774,6 +1786,10 @@ export function RepoInfo() {
                   </div>
                 ) : null}
               </div>
+              <IntegratedTerminalPanel
+                contextKey={`${activeTabIdFromUrl}:${activeRepoId ?? "repo:none"}`}
+                cwd={activeRepo?.path ?? ""}
+              />
             </section>
 
             <aside

@@ -36,6 +36,8 @@
     "react-dom": "catalog:",
     "sonner": "catalog:",
     "spdx-license-list": "^6.11.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
     "zod": "catalog:",
     "zustand": "^5.0.11"
   },

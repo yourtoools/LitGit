@@ -1,8 +1,15 @@
-﻿use serde::Serialize;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use serde::Serialize;
+use std::collections::HashMap;
+use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::Write;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use tauri::State;
 use tauri::{AppHandle, Emitter};
 
 #[derive(Serialize)]
@@ -706,7 +713,10 @@ fn push_repository_branch(repo_path: String) -> Result<(), String> {
     };
 
     if !push_output.status.success() {
-        return Err(git_error_message(&push_output.stderr, "Failed to push branch"));
+        return Err(git_error_message(
+            &push_output.stderr,
+            "Failed to push branch",
+        ));
     }
 
     Ok(())
@@ -1129,7 +1139,7 @@ fn get_repository_working_tree_items(
             let staged = chars.next().unwrap_or(' ');
             let unstaged = chars.next().unwrap_or(' ');
 
-            let path = row.get(3..).unwrap_or("").trim().replace(" -> ", " â†’ ");
+            let path = row.get(3..).unwrap_or("").trim().replace(" -> ", " -> ");
 
             if path.is_empty() {
                 return None;
@@ -1451,10 +1461,205 @@ fn folder_name(path: &Path) -> Option<String> {
         .map(std::string::ToString::to_string)
 }
 
+static NEXT_TERMINAL_SESSION_ID: AtomicUsize = AtomicUsize::new(1);
+
+struct TerminalSession {
+    child: Box<dyn portable_pty::Child + Send>,
+    master: Box<dyn portable_pty::MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+}
+
+#[derive(Default)]
+struct TerminalState {
+    sessions: Mutex<HashMap<String, TerminalSession>>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TerminalOutputPayload {
+    data: String,
+}
+
+fn default_shell() -> String {
+    if cfg!(windows) {
+        env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
+    } else {
+        env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+    }
+}
+
+#[tauri::command]
+fn create_terminal_session(
+    app: AppHandle,
+    state: State<'_, TerminalState>,
+    cwd: String,
+) -> Result<String, String> {
+    let trimmed_cwd = cwd.trim();
+    let pty_system = native_pty_system();
+    let pty_pair = pty_system
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| format!("Failed to open pty: {error}"))?;
+
+    let shell = default_shell();
+    let mut command = CommandBuilder::new(shell);
+
+    if !trimmed_cwd.is_empty() {
+        let cwd_path = Path::new(trimmed_cwd);
+
+        if !cwd_path.exists() {
+            return Err("Terminal working directory does not exist".to_string());
+        }
+
+        if !cwd_path.is_dir() {
+            return Err("Terminal working directory is not a folder".to_string());
+        }
+
+        command.cwd(cwd_path);
+    }
+
+    let child = pty_pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| format!("Failed to start shell: {error}"))?;
+    let writer = pty_pair
+        .master
+        .take_writer()
+        .map_err(|error| format!("Failed to create terminal writer: {error}"))?;
+    let mut reader = pty_pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| format!("Failed to create terminal reader: {error}"))?;
+
+    let session_id = format!(
+        "terminal-{}",
+        NEXT_TERMINAL_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+    );
+    let event_name = format!("terminal-output:{session_id}");
+    let output_app = app.clone();
+
+    std::thread::spawn(move || {
+        let mut buffer = vec![0_u8; 8192];
+
+        loop {
+            let bytes_read = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => size,
+                Err(_) => break,
+            };
+
+            let chunk = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
+
+            if output_app
+                .emit(&event_name, TerminalOutputPayload { data: chunk })
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+
+    sessions.insert(
+        session_id.clone(),
+        TerminalSession {
+            child,
+            master: pty_pair.master,
+            writer,
+        },
+    );
+
+    Ok(session_id)
+}
+
+#[tauri::command]
+fn write_terminal_session(
+    state: State<'_, TerminalState>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| "Terminal session not found".to_string())?;
+
+    session
+        .writer
+        .write_all(data.as_bytes())
+        .map_err(|error| format!("Failed to write to terminal: {error}"))?;
+    session
+        .writer
+        .flush()
+        .map_err(|error| format!("Failed to flush terminal input: {error}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn resize_terminal_session(
+    state: State<'_, TerminalState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+
+    let session = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| "Terminal session not found".to_string())?;
+
+    session
+        .master
+        .resize(PtySize {
+            rows: rows.max(1),
+            cols: cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| format!("Failed to resize terminal: {error}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn close_terminal_session(
+    state: State<'_, TerminalState>,
+    session_id: String,
+) -> Result<(), String> {
+    let mut sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+
+    let mut session = sessions
+        .remove(&session_id)
+        .ok_or_else(|| "Terminal session not found".to_string())?;
+
+    let _ = session.child.kill();
+    let _ = session.child.wait();
+
+    Ok(())
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(TerminalState::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -1489,13 +1694,12 @@ pub fn run() {
             unstage_repository_file,
             get_repository_file_diff,
             get_repository_working_tree_status,
-            get_repository_working_tree_items
+            get_repository_working_tree_items,
+            create_terminal_session,
+            write_terminal_session,
+            resize_terminal_session,
+            close_terminal_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-
-
-
-
