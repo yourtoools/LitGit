@@ -18,9 +18,32 @@ import {
   unstageAllRepoChanges,
   unstageRepoFile,
 } from "@/lib/tauri-repo-client";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
 import type { RepoStoreGet } from "@/stores/repo/repo-store.slice-types";
 import type { RepoStoreState } from "@/stores/repo/repo-store-types";
+
+const getRepoCommandPreferences = () => {
+  const preferences = usePreferencesStore.getState();
+
+  return {
+    enableProxy: preferences.network.enableProxy,
+    gpgProgramPath: preferences.signing.gpgProgramPath,
+    proxyAuthEnabled: preferences.network.proxyAuthEnabled,
+    proxyHost: preferences.network.proxyHost,
+    proxyPort: preferences.network.proxyPort,
+    proxyType: preferences.network.proxyType,
+    proxyUsername: preferences.network.proxyUsername,
+    sshPrivateKeyPath: preferences.ssh.privateKeyPath,
+    sshPublicKeyPath: preferences.ssh.publicKeyPath,
+    signingFormat: preferences.signing.signingFormat,
+    signingKey: preferences.signing.signingKey,
+    signCommitsByDefault: preferences.signing.signCommitsByDefault,
+    sslVerification: preferences.network.sslVerification,
+    useGitCredentialManager: preferences.network.useGitCredentialManager,
+    useLocalSshAgent: preferences.ssh.useLocalAgent,
+  };
+};
 
 type RepoActionsSliceKeys =
   | "addIgnoreRule"
@@ -62,7 +85,7 @@ export const createRepoActionsSlice = (
     }
 
     try {
-      await pushRepoBranch(targetRepo.path);
+      await pushRepoBranch(targetRepo.path, getRepoCommandPreferences());
       await get().setActiveRepo(id, { forceRefresh: true });
       toast.success("Push completed");
     } catch (error) {
@@ -78,7 +101,11 @@ export const createRepoActionsSlice = (
     }
 
     try {
-      const result = await runRepoPull(targetRepo.path, mode);
+      const result = await runRepoPull(
+        targetRepo.path,
+        mode,
+        getRepoCommandPreferences()
+      );
       await get().setActiveRepo(id, { forceRefresh: true });
       return result;
     } catch (error) {
@@ -157,7 +184,8 @@ export const createRepoActionsSlice = (
         targetRepo.path,
         summary,
         description,
-        includeAll
+        includeAll,
+        getRepoCommandPreferences()
       );
       await get().setActiveRepo(id, { forceRefresh: true });
       toast.success("Commit created");

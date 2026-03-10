@@ -25,6 +25,7 @@
     "@litgit/env": "workspace:*",
     "@litgit/ui": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
+    "monaco-editor": "^0.52.2",
     "@phosphor-icons/react": "catalog:",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-router": "^1.163.3",

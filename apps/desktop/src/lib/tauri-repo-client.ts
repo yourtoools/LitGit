@@ -3,6 +3,7 @@ import type {
   PickedRepositorySelection,
   PullActionMode,
   PullActionResult,
+  RepoCommandPreferences,
   RepoDataFetchResult,
   RepositoryBranch,
   RepositoryCommit,
@@ -19,6 +20,14 @@ interface TauriCoreLike {
     command: string,
     args?: Record<string, unknown>
   ) => Promise<unknown>;
+}
+
+function parseRepositoryRemoteNames(value: unknown): string[] {
+  if (value === null) {
+    return [];
+  }
+
+  return parseStringArray(value, "Invalid repository remotes payload");
 }
 
 interface TauriV1Like {
@@ -368,6 +377,21 @@ async function loadBranchesForRepo(id: string, path: string) {
   return { branches, id };
 }
 
+async function loadRemoteNamesForRepo(id: string, path: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    return null;
+  }
+
+  const result = await invoke("get_repository_remote_names", {
+    repoPath: path,
+  });
+  const remoteNames = parseRepositoryRemoteNames(result);
+
+  return { id, remoteNames };
+}
+
 async function loadStashesForRepo(id: string, path: string) {
   const invoke = getTauriInvoke();
 
@@ -424,7 +448,10 @@ export async function switchRepoBranch(path: string, branchName: string) {
   });
 }
 
-export async function pushRepoBranch(path: string) {
+export async function pushRepoBranch(
+  path: string,
+  preferences?: RepoCommandPreferences
+) {
   const invoke = getTauriInvoke();
 
   if (!invoke) {
@@ -432,6 +459,7 @@ export async function pushRepoBranch(path: string) {
   }
 
   await invoke("push_repository_branch", {
+    preferences,
     repoPath: path,
   });
 }
@@ -497,7 +525,8 @@ export async function commitRepoChanges(
   path: string,
   summary: string,
   description: string,
-  includeAll: boolean
+  includeAll: boolean,
+  preferences?: RepoCommandPreferences
 ) {
   const invoke = getTauriInvoke();
 
@@ -506,6 +535,7 @@ export async function commitRepoChanges(
   }
 
   await invoke("commit_repository_changes", {
+    preferences,
     repoPath: path,
     summary,
     description,
@@ -549,7 +579,8 @@ export async function cloneRepo(
   repositoryUrl: string,
   destinationParent: string,
   folderName: string,
-  recurseSubmodules: boolean
+  recurseSubmodules: boolean,
+  preferences?: RepoCommandPreferences
 ) {
   const invoke = getTauriInvoke();
 
@@ -560,6 +591,7 @@ export async function cloneRepo(
   const result = await invoke("clone_git_repository", {
     destinationParent,
     destinationFolderName: folderName,
+    preferences,
     recurseSubmodules,
     repositoryUrl,
   });
@@ -777,6 +809,7 @@ export async function fetchRepoData(
   path: string,
   hasCommits: boolean,
   hasBranches: boolean,
+  hasRemoteNames: boolean,
   hasStashes: boolean,
   hasStatus: boolean,
   hasWipItems: boolean
@@ -784,12 +817,14 @@ export async function fetchRepoData(
   const [
     historyResult,
     branchesResult,
+    remoteNamesResult,
     stashesResult,
     statusResult,
     wipItemsResult,
   ] = await Promise.allSettled([
     hasCommits ? Promise.resolve(null) : loadHistoryForRepo(id, path),
     hasBranches ? Promise.resolve(null) : loadBranchesForRepo(id, path),
+    hasRemoteNames ? Promise.resolve(null) : loadRemoteNamesForRepo(id, path),
     hasStashes ? Promise.resolve(null) : loadStashesForRepo(id, path),
     hasStatus ? Promise.resolve(null) : loadWorkingTreeStatusForRepo(id, path),
     hasWipItems ? Promise.resolve(null) : loadWorkingTreeItemsForRepo(id, path),
@@ -801,6 +836,8 @@ export async function fetchRepoData(
     branchesResult.status === "fulfilled" ? branchesResult.value : null;
   const stashesPayload =
     stashesResult.status === "fulfilled" ? stashesResult.value : null;
+  const remoteNamesPayload =
+    remoteNamesResult.status === "fulfilled" ? remoteNamesResult.value : null;
   const statusPayload =
     statusResult.status === "fulfilled" ? statusResult.value : null;
   const wipItemsPayload =
@@ -812,6 +849,8 @@ export async function fetchRepoData(
     branchesResult.status === "rejected" ? branchesResult.reason : null;
   const stashesError =
     stashesResult.status === "rejected" ? stashesResult.reason : null;
+  const remoteNamesError =
+    remoteNamesResult.status === "rejected" ? remoteNamesResult.reason : null;
   const statusError =
     statusResult.status === "rejected" ? statusResult.reason : null;
   const wipItemsError =
@@ -822,6 +861,8 @@ export async function fetchRepoData(
     branchesPayload,
     historyError,
     historyPayload,
+    remoteNamesError,
+    remoteNamesPayload,
     stashesError,
     stashesPayload,
     statusError,
@@ -833,7 +874,8 @@ export async function fetchRepoData(
 
 export async function runRepoPull(
   path: string,
-  mode: PullActionMode
+  mode: PullActionMode,
+  preferences?: RepoCommandPreferences
 ): Promise<PullActionResult> {
   const invoke = getTauriInvoke();
 
@@ -844,6 +886,7 @@ export async function runRepoPull(
   const result = await invoke("pull_repository_action", {
     repoPath: path,
     mode,
+    preferences,
   });
 
   if (!isRecord(result) || typeof result.headChanged !== "boolean") {

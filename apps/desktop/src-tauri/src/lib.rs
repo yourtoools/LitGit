@@ -1,6 +1,7 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use serde::Serialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -8,9 +9,11 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use tauri::State;
 use tauri::{AppHandle, Emitter};
+use ureq::Proxy;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +112,112 @@ struct PullActionResult {
     head_changed: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsBackendCapabilities {
+    secure_storage_available: bool,
+    session_secrets_supported: bool,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SecretStatusPayload {
+    has_stored_value: bool,
+    storage_mode: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct HttpCredentialEntryMetadata {
+    host: String,
+    id: String,
+    port: Option<u16>,
+    protocol: String,
+    username: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyTestResult {
+    message: String,
+    ok: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickedFilePath {
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SigningKeyInfo {
+    id: String,
+    label: String,
+    r#type: String,
+}
+
+#[derive(Clone)]
+struct StoredSecretValue {
+    storage_mode: String,
+    value: String,
+}
+
+impl StoredSecretValue {
+    fn session(value: &str) -> Self {
+        Self {
+            storage_mode: "session".to_string(),
+            value: value.to_string(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct StoredHttpCredential {
+    host: String,
+    port: Option<u16>,
+    protocol: String,
+    secret: StoredSecretValue,
+    username: String,
+}
+
+struct NetworkOperationGuard<'a> {
+    active_operations: &'a Arc<Mutex<HashSet<String>>>,
+    repo_path: String,
+}
+
+impl Drop for NetworkOperationGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active_operations) = self.active_operations.lock() {
+            active_operations.remove(&self.repo_path);
+        }
+    }
+}
+
+const AI_SECRET_SERVICE: &str = "litgit.ai.provider";
+const PROXY_SECRET_SERVICE: &str = "litgit.proxy.auth";
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RepoCommandPreferences {
+    enable_proxy: Option<bool>,
+    gpg_program_path: Option<String>,
+    proxy_auth_password: Option<String>,
+    proxy_auth_enabled: Option<bool>,
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
+    proxy_type: Option<String>,
+    proxy_username: Option<String>,
+    ssh_private_key_path: Option<String>,
+    ssh_public_key_path: Option<String>,
+    signing_format: Option<String>,
+    signing_key: Option<String>,
+    sign_commits_by_default: Option<bool>,
+    ssl_verification: Option<bool>,
+    use_git_credential_manager: Option<bool>,
+    use_local_ssh_agent: Option<bool>,
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct CloneRepositoryProgress {
@@ -152,6 +261,133 @@ fn pick_clone_destination_folder() -> Result<Option<String>, String> {
     };
 
     Ok(Some(folder.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn pick_settings_file() -> Result<Option<PickedFilePath>, String> {
+    let file = match rfd::FileDialog::new().pick_file() {
+        Some(file) => file,
+        None => return Ok(None),
+    };
+
+    Ok(Some(PickedFilePath {
+        path: file.to_string_lossy().to_string(),
+    }))
+}
+
+#[tauri::command]
+fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, String> {
+    let trimmed_name = file_name.trim();
+
+    if trimmed_name.is_empty() {
+        return Err("Key file name is required".to_string());
+    }
+
+    let home = env::var("HOME").map_err(|_| "HOME is not available".to_string())?;
+    let ssh_dir = Path::new(&home).join(".ssh");
+    fs::create_dir_all(&ssh_dir)
+        .map_err(|error| format!("Failed to create ~/.ssh directory: {error}"))?;
+
+    let key_path = ssh_dir.join(trimmed_name);
+
+    let output = Command::new("ssh-keygen")
+        .args([
+            "-t",
+            "ed25519",
+            "-N",
+            "",
+            "-f",
+            key_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run ssh-keygen: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to generate SSH keypair",
+        ));
+    }
+
+    Ok(PickedFilePath {
+        path: key_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
+    let mut keys = Vec::new();
+
+    let gpg_output = Command::new("gpg")
+        .args([
+            "--list-secret-keys",
+            "--keyid-format",
+            "LONG",
+            "--with-colons",
+        ])
+        .output();
+
+    if let Ok(output) = gpg_output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            let mut current_key_id: Option<String> = None;
+
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+
+                if parts.is_empty() {
+                    continue;
+                }
+
+                match parts[0] {
+                    "sec" => {
+                        current_key_id = parts.get(4).map(|value| value.to_string());
+                    }
+                    "uid" => {
+                        if let Some(key_id) = current_key_id.clone() {
+                            let label = parts.get(9).unwrap_or(&"GPG key").to_string();
+                            keys.push(SigningKeyInfo {
+                                id: key_id,
+                                label,
+                                r#type: "gpg".to_string(),
+                            });
+                            current_key_id = None;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let home = env::var("HOME").unwrap_or_default();
+    let ssh_dir = Path::new(&home).join(".ssh");
+
+    if ssh_dir.exists() {
+        let entries = fs::read_dir(&ssh_dir)
+            .map_err(|error| format!("Failed to read ~/.ssh directory: {error}"))?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            if path.extension().and_then(|value| value.to_str()) == Some("pub") {
+                let label = path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("SSH public key")
+                    .to_string();
+
+                keys.push(SigningKeyInfo {
+                    id: path.to_string_lossy().to_string(),
+                    label,
+                    r#type: "ssh".to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(keys)
 }
 
 #[tauri::command]
@@ -228,10 +464,12 @@ fn create_local_repository(
 #[tauri::command]
 async fn clone_git_repository(
     app: AppHandle,
+    state: State<'_, SettingsState>,
     repository_url: String,
     destination_parent: String,
     destination_folder_name: String,
     recurse_submodules: bool,
+    preferences: Option<RepoCommandPreferences>,
 ) -> Result<PickedRepository, String> {
     let trimmed_url = repository_url.trim();
     let trimmed_parent = destination_parent.trim();
@@ -256,6 +494,7 @@ async fn clone_git_repository(
     validate_repository_path(destination_parent_path)?;
 
     let destination_path = destination_parent_path.join(trimmed_folder);
+    let command_preferences = preferences.unwrap_or_default();
 
     if destination_path.exists() {
         return Err("Destination folder already exists".to_string());
@@ -274,6 +513,7 @@ async fn clone_git_repository(
     );
 
     let mut clone_command = Command::new("git");
+    apply_git_preferences(&mut clone_command, &command_preferences, Some(&state))?;
     clone_command.args([
         "clone",
         "--progress",
@@ -698,8 +938,14 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
 }
 
 #[tauri::command]
-fn push_repository_branch(repo_path: String) -> Result<(), String> {
+fn push_repository_branch(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
+    let command_preferences = preferences.unwrap_or_default();
+    let _network_operation = begin_network_operation(&state, &repo_path)?;
 
     let branch_output = Command::new("git")
         .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
@@ -736,12 +982,16 @@ fn push_repository_branch(repo_path: String) -> Result<(), String> {
         .success();
 
     let push_output = if has_upstream {
-        Command::new("git")
+        let mut command = Command::new("git");
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+        command
             .args(["-C", &repo_path, "push"])
             .output()
             .map_err(|error| format!("Failed to run git push: {error}"))?
     } else {
-        Command::new("git")
+        let mut command = Command::new("git");
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+        command
             .args(["-C", &repo_path, "push", "-u", "origin", &branch_name])
             .output()
             .map_err(|error| format!("Failed to run git push: {error}"))?
@@ -758,13 +1008,21 @@ fn push_repository_branch(repo_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn pull_repository_action(repo_path: String, mode: String) -> Result<PullActionResult, String> {
+fn pull_repository_action(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    mode: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<PullActionResult, String> {
     validate_git_repo(Path::new(&repo_path))?;
+    let command_preferences = preferences.unwrap_or_default();
+    let _network_operation = begin_network_operation(&state, &repo_path)?;
 
     let head_before = resolve_head_hash(&repo_path)?;
 
     let mut pull_command = Command::new("git");
     pull_command.args(["-C", &repo_path]);
+    apply_git_preferences(&mut pull_command, &command_preferences, Some(&state))?;
 
     match mode.as_str() {
         "fetch-all" => {
@@ -908,8 +1166,10 @@ fn commit_repository_changes(
     summary: String,
     description: String,
     include_all: bool,
+    preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
+    let command_preferences = preferences.unwrap_or_default();
 
     let summary_trimmed = summary.trim();
 
@@ -938,7 +1198,29 @@ fn commit_repository_changes(
     let description_trimmed = description.trim();
     let mut commit_command = Command::new("git");
 
-    commit_command.args(["-C", &repo_path, "commit", "-m", summary_trimmed]);
+    commit_command.args(["-C", &repo_path]);
+    apply_git_preferences(&mut commit_command, &command_preferences, None)?;
+    commit_command.args(["commit", "-m", summary_trimmed]);
+
+    if let Some(signing_format) = command_preferences
+        .signing_format
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        commit_command.args(["-c", &format!("gpg.format={}", signing_format.trim())]);
+    }
+
+    if let Some(signing_key) = command_preferences
+        .signing_key
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        commit_command.args(["-c", &format!("user.signingkey={}", signing_key.trim())]);
+    }
+
+    if command_preferences.sign_commits_by_default == Some(true) {
+        commit_command.arg("-S");
+    }
 
     if !description_trimmed.is_empty() {
         commit_command.args(["-m", description_trimmed]);
@@ -1831,6 +2113,589 @@ fn folder_name(path: &Path) -> Option<String> {
         .map(std::string::ToString::to_string)
 }
 
+fn build_http_credential_entry_id(
+    protocol: &str,
+    host: &str,
+    port: Option<u16>,
+    username: &str,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(protocol.as_bytes());
+    hasher.update(b"|");
+    hasher.update(host.as_bytes());
+    hasher.update(b"|");
+    hasher.update(port.unwrap_or_default().to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(username.as_bytes());
+
+    format!("{:x}", hasher.finalize())
+}
+
+fn load_keyring_entry(service: &str, account: &str) -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(service, account)
+        .map_err(|error| format!("Failed to access secure storage: {error}"))?;
+
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(format!("Failed to read secure storage: {error}")),
+    }
+}
+
+fn save_keyring_entry(service: &str, account: &str, secret: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new(service, account)
+        .map_err(|error| format!("Failed to access secure storage: {error}"))?;
+
+    entry
+        .set_password(secret)
+        .map_err(|error| format!("Failed to save secure secret: {error}"))
+}
+
+fn clear_keyring_entry(service: &str, account: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new(service, account)
+        .map_err(|error| format!("Failed to access secure storage: {error}"))?;
+
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Failed to clear secure secret: {error}")),
+    }
+}
+
+fn get_proxy_secret_from_session(
+    state: &SettingsState,
+    username: &str,
+) -> Result<Option<String>, String> {
+    let credentials = state
+        .http_credentials
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    Ok(credentials
+        .values()
+        .find(|entry| entry.protocol == "proxy" && entry.username == username)
+        .map(|entry| entry.secret.value.clone()))
+}
+
+fn resolve_proxy_secret(
+    state: Option<&State<'_, SettingsState>>,
+    username: &str,
+    supplied_secret: Option<&str>,
+) -> Result<Option<String>, String> {
+    if let Some(secret) = supplied_secret.filter(|value| !value.trim().is_empty()) {
+        return Ok(Some(secret.trim().to_string()));
+    }
+
+    if let Some(secret) = load_keyring_entry(PROXY_SECRET_SERVICE, username)? {
+        return Ok(Some(secret));
+    }
+
+    let Some(state) = state else {
+        return Ok(None);
+    };
+
+    get_proxy_secret_from_session(state.inner(), username)
+}
+
+fn configure_git_ssh_command(preferences: &RepoCommandPreferences) -> Option<String> {
+    if preferences.use_local_ssh_agent != Some(false) {
+        return None;
+    }
+
+  let private_key_path = preferences
+    .ssh_private_key_path
+    .as_ref()
+    .filter(|value| !value.trim().is_empty())?;
+    let public_key_path = preferences
+        .ssh_public_key_path
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_string());
+
+    if let Some(public_key_path) = public_key_path {
+        let expected_public_key_path = format!("{}.pub", private_key_path.trim());
+
+        if public_key_path != expected_public_key_path {
+            return None;
+        }
+    }
+
+    Some(format!(
+        "ssh -i '{}' -o IdentitiesOnly=yes -o IdentityAgent=none",
+        private_key_path.trim().replace('\'', "'\\''")
+    ))
+}
+
+fn apply_git_preferences(
+    command: &mut Command,
+    preferences: &RepoCommandPreferences,
+    settings_state: Option<&State<'_, SettingsState>>,
+) -> Result<(), String> {
+    if preferences.use_local_ssh_agent == Some(false) {
+        command.env("SSH_AUTH_SOCK", "");
+    }
+
+    if preferences.ssl_verification == Some(false) {
+        command.env("GIT_SSL_NO_VERIFY", "true");
+    }
+
+    if preferences.use_git_credential_manager == Some(true) {
+        command.env("GIT_TERMINAL_PROMPT", "1");
+    }
+
+    if let Some(ssh_command) = configure_git_ssh_command(preferences) {
+        command.env("GIT_SSH_COMMAND", ssh_command);
+        command.env("SSH_AUTH_SOCK", "");
+    }
+
+    if preferences.enable_proxy == Some(true) {
+        if let Some(host) = preferences.proxy_host.as_ref().filter(|value| !value.trim().is_empty()) {
+            let scheme = preferences
+                .proxy_type
+                .clone()
+                .unwrap_or_else(|| "http".to_string());
+            let port = preferences.proxy_port.unwrap_or(80);
+
+            if preferences.proxy_auth_enabled == Some(true) {
+                if let Some(username) = preferences
+                    .proxy_username
+                    .as_ref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    if let Some(secret) =
+                        resolve_proxy_secret(
+                            settings_state,
+                            username.trim(),
+                            preferences.proxy_auth_password.as_deref(),
+                        )?
+                    {
+                        command.env("LITGIT_PROXY_USERNAME", username.trim());
+                        command.env("LITGIT_PROXY_PASSWORD", secret);
+                    }
+                }
+            }
+
+            command.env("LITGIT_PROXY_HOST", host.trim());
+            command.env("LITGIT_PROXY_PORT", port.to_string());
+            command.env("LITGIT_PROXY_TYPE", scheme);
+        }
+    }
+
+    if let Some(gpg_program_path) = preferences
+        .gpg_program_path
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        command.args(["-c", &format!("gpg.program={}", gpg_program_path.trim())]);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_settings_backend_capabilities() -> Result<SettingsBackendCapabilities, String> {
+    let secure_storage_available = keyring::Entry::new(AI_SECRET_SERVICE, "capability-check")
+        .is_ok();
+
+    Ok(SettingsBackendCapabilities {
+        secure_storage_available,
+        session_secrets_supported: true,
+    })
+}
+
+#[tauri::command]
+fn save_ai_provider_secret(
+    state: State<'_, SettingsState>,
+    provider: String,
+    secret: String,
+) -> Result<SecretStatusPayload, String> {
+    let trimmed_provider = provider.trim();
+    let trimmed_secret = secret.trim();
+
+    if trimmed_provider.is_empty() {
+        return Err("Provider is required".to_string());
+    }
+
+    if trimmed_secret.is_empty() {
+        return Err("Secret is required".to_string());
+    }
+
+    if save_keyring_entry(AI_SECRET_SERVICE, trimmed_provider, trimmed_secret).is_ok() {
+        return Ok(SecretStatusPayload {
+            has_stored_value: true,
+            storage_mode: "secure".to_string(),
+        });
+    }
+
+    let mut secrets = state
+        .ai_secrets
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    secrets.insert(
+        trimmed_provider.to_string(),
+        StoredSecretValue::session(trimmed_secret),
+    );
+
+    Ok(SecretStatusPayload {
+        has_stored_value: true,
+        storage_mode: "session".to_string(),
+    })
+}
+
+#[tauri::command]
+fn get_ai_provider_secret_status(
+    state: State<'_, SettingsState>,
+    provider: String,
+) -> Result<SecretStatusPayload, String> {
+    if load_keyring_entry(AI_SECRET_SERVICE, provider.trim())?.is_some() {
+        return Ok(SecretStatusPayload {
+            has_stored_value: true,
+            storage_mode: "secure".to_string(),
+        });
+    }
+
+    let secrets = state
+        .ai_secrets
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    let status = secrets.get(provider.trim());
+
+    Ok(SecretStatusPayload {
+        has_stored_value: status.is_some(),
+        storage_mode: status
+            .map(|value| value.storage_mode.clone())
+            .unwrap_or_else(|| "session".to_string()),
+    })
+}
+
+#[tauri::command]
+fn clear_ai_provider_secret(
+    state: State<'_, SettingsState>,
+    provider: String,
+) -> Result<(), String> {
+    let trimmed_provider = provider.trim();
+
+    if trimmed_provider.is_empty() {
+        return Ok(());
+    }
+
+    let _ = clear_keyring_entry(AI_SECRET_SERVICE, trimmed_provider);
+
+    let mut secrets = state
+        .ai_secrets
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+    secrets.remove(trimmed_provider);
+
+    Ok(())
+}
+
+#[tauri::command]
+fn save_proxy_auth_secret(
+    state: State<'_, SettingsState>,
+    username: String,
+    secret: String,
+) -> Result<SecretStatusPayload, String> {
+    let trimmed_username = username.trim();
+    let trimmed_secret = secret.trim();
+
+    if trimmed_username.is_empty() {
+        return Err("Proxy username is required".to_string());
+    }
+
+    if trimmed_secret.is_empty() {
+        return Err("Proxy password is required".to_string());
+    }
+
+    if save_keyring_entry(PROXY_SECRET_SERVICE, trimmed_username, trimmed_secret).is_ok() {
+        return Ok(SecretStatusPayload {
+            has_stored_value: true,
+            storage_mode: "secure".to_string(),
+        });
+    }
+
+    let mut credentials = state
+        .http_credentials
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    let entry_id = build_http_credential_entry_id("proxy", "proxy", None, trimmed_username);
+    credentials.insert(
+        entry_id,
+        StoredHttpCredential {
+            host: "proxy".to_string(),
+            port: None,
+            protocol: "proxy".to_string(),
+            secret: StoredSecretValue::session(trimmed_secret),
+            username: trimmed_username.to_string(),
+        },
+    );
+
+    Ok(SecretStatusPayload {
+        has_stored_value: true,
+        storage_mode: "session".to_string(),
+    })
+}
+
+#[tauri::command]
+fn get_proxy_auth_secret_status(
+    state: State<'_, SettingsState>,
+    username: String,
+) -> Result<SecretStatusPayload, String> {
+    let trimmed_username = username.trim();
+
+    if trimmed_username.is_empty() {
+        return Ok(SecretStatusPayload {
+            has_stored_value: false,
+            storage_mode: "session".to_string(),
+        });
+    }
+
+    if load_keyring_entry(PROXY_SECRET_SERVICE, trimmed_username)?.is_some() {
+        return Ok(SecretStatusPayload {
+            has_stored_value: true,
+            storage_mode: "secure".to_string(),
+        });
+    }
+
+    let credentials = state
+        .http_credentials
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    let has_session_value = credentials
+        .values()
+        .any(|entry| entry.protocol == "proxy" && entry.username == trimmed_username);
+
+    Ok(SecretStatusPayload {
+        has_stored_value: has_session_value,
+        storage_mode: "session".to_string(),
+    })
+}
+
+#[tauri::command]
+fn clear_proxy_auth_secret(
+    state: State<'_, SettingsState>,
+    username: String,
+) -> Result<(), String> {
+    let trimmed_username = username.trim();
+
+    if trimmed_username.is_empty() {
+        return Ok(());
+    }
+
+    let _ = clear_keyring_entry(PROXY_SECRET_SERVICE, trimmed_username);
+
+    let mut credentials = state
+        .http_credentials
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+    credentials.retain(|_, entry| !(entry.protocol == "proxy" && entry.username == trimmed_username));
+    Ok(())
+}
+
+fn begin_network_operation<'a>(
+    state: &'a State<'_, SettingsState>,
+    repo_path: &str,
+) -> Result<NetworkOperationGuard<'a>, String> {
+    let mut active_operations = state
+        .active_network_repo_paths
+        .lock()
+        .map_err(|_| "Failed to access scheduler state".to_string())?;
+
+    if active_operations.contains(repo_path) {
+        return Err("Another network operation is already running for this repository".to_string());
+    }
+
+    active_operations.insert(repo_path.to_string());
+
+    Ok(NetworkOperationGuard {
+        active_operations: &state.active_network_repo_paths,
+        repo_path: repo_path.to_string(),
+    })
+}
+
+#[tauri::command]
+fn list_http_credential_entries(
+    state: State<'_, SettingsState>,
+) -> Result<Vec<HttpCredentialEntryMetadata>, String> {
+    let credentials = state
+        .http_credentials
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    Ok(credentials
+        .iter()
+        .map(|(entry_id, credential)| HttpCredentialEntryMetadata {
+            host: credential.host.clone(),
+            id: entry_id.clone(),
+            port: credential.port,
+            protocol: credential.protocol.clone(),
+            username: credential.username.clone(),
+        })
+        .collect())
+}
+
+#[tauri::command]
+fn clear_http_credential_entry(
+    state: State<'_, SettingsState>,
+    entry_id: String,
+) -> Result<(), String> {
+    let mut credentials = state
+        .http_credentials
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    credentials.remove(entry_id.trim());
+    Ok(())
+}
+
+#[tauri::command]
+fn test_proxy_connection(
+    host: String,
+    port: u16,
+    proxy_type: String,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<ProxyTestResult, String> {
+    let trimmed_host = host.trim();
+
+    if trimmed_host.is_empty() {
+        return Err("Proxy host is required".to_string());
+    }
+
+    let supported = matches!(proxy_type.as_str(), "http" | "https" | "socks5");
+
+    if !supported {
+        return Err("Unsupported proxy type".to_string());
+    }
+
+    let proxy_url = if let (Some(username), Some(password)) = (username, password) {
+        format!("{}://{}:{}@{}:{}", proxy_type, username, password, trimmed_host, port)
+    } else {
+        format!("{}://{}:{}", proxy_type, trimmed_host, port)
+    };
+    let proxy = Proxy::new(&proxy_url)
+        .map_err(|error| format!("Failed to configure proxy: {error}"))?;
+    let agent = ureq::AgentBuilder::new()
+        .proxy(proxy)
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+
+    let response = agent
+        .get("https://example.com/")
+        .call()
+        .map_err(|error| format!("Proxy request failed: {error}"))?;
+
+    let status = response.status();
+
+    if !(200..400).contains(&status) {
+        return Ok(ProxyTestResult {
+            message: format!("Proxy responded with unexpected status code {status}"),
+            ok: false,
+        });
+    }
+
+    Ok(ProxyTestResult {
+        message: format!(
+            "Proxy request to https://example.com/ succeeded via {}://{}:{}",
+            proxy_type, trimmed_host, port,
+        ),
+        ok: true,
+    })
+}
+
+#[tauri::command]
+fn start_auto_fetch_scheduler(
+    state: State<'_, SettingsState>,
+    interval_minutes: u64,
+    repo_path: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let mut scheduler = state
+        .auto_fetch_scheduler
+        .lock()
+        .map_err(|_| "Failed to access scheduler state".to_string())?;
+
+    if let Some(existing) = scheduler.take() {
+        let _ = existing.shutdown_tx.send(());
+        let _ = existing.worker.join();
+    }
+
+    if interval_minutes == 0 {
+        return Ok(());
+    }
+
+    let active_network_repo_paths = Arc::clone(&state.active_network_repo_paths);
+
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
+    let repo_path_for_worker = repo_path.clone();
+    let worker_preferences = preferences.unwrap_or_default();
+    let worker = std::thread::spawn(move || {
+        let interval = std::time::Duration::from_secs(interval_minutes.saturating_mul(60));
+
+        loop {
+            match shutdown_rx.recv_timeout(interval) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let network_operation = match active_network_repo_paths.lock() {
+                        Ok(mut active_operations) => {
+                            if active_operations.contains(&repo_path_for_worker) {
+                                None
+                            } else {
+                                active_operations.insert(repo_path_for_worker.clone());
+                                Some(NetworkOperationGuard {
+                                    active_operations: &active_network_repo_paths,
+                                    repo_path: repo_path_for_worker.clone(),
+                                })
+                            }
+                        }
+                        Err(_) => None,
+                    };
+
+                    if network_operation.is_none() {
+                        continue;
+                    }
+
+                    let _ = run_network_git_command(
+                        &repo_path_for_worker,
+                        &["fetch", "--all", "--prune"],
+                        &worker_preferences,
+                    );
+                    drop(network_operation);
+                }
+            }
+        }
+    });
+
+    *scheduler = Some(AutoFetchSchedulerHandle {
+        shutdown_tx,
+        worker,
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_auto_fetch_scheduler(state: State<'_, SettingsState>) -> Result<(), String> {
+    let mut scheduler = state
+        .auto_fetch_scheduler
+        .lock()
+        .map_err(|_| "Failed to access scheduler state".to_string())?;
+
+    if let Some(existing) = scheduler.take() {
+        let _ = existing.shutdown_tx.send(());
+        let _ = existing.worker.join();
+    }
+
+    Ok(())
+}
+
 static NEXT_TERMINAL_SESSION_ID: AtomicUsize = AtomicUsize::new(1);
 
 struct TerminalSession {
@@ -1842,6 +2707,43 @@ struct TerminalSession {
 #[derive(Default)]
 struct TerminalState {
     sessions: Mutex<HashMap<String, TerminalSession>>,
+}
+
+struct SettingsState {
+    ai_secrets: Mutex<HashMap<String, StoredSecretValue>>,
+    http_credentials: Mutex<HashMap<String, StoredHttpCredential>>,
+    active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
+    auto_fetch_scheduler: Mutex<Option<AutoFetchSchedulerHandle>>,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            ai_secrets: Mutex::default(),
+            http_credentials: Mutex::default(),
+            active_network_repo_paths: Arc::new(Mutex::new(HashSet::new())),
+            auto_fetch_scheduler: Mutex::default(),
+        }
+    }
+}
+
+struct AutoFetchSchedulerHandle {
+    shutdown_tx: std::sync::mpsc::Sender<()>,
+    worker: JoinHandle<()>,
+}
+
+fn run_network_git_command(
+    repo_path: &str,
+    args: &[&str],
+    preferences: &RepoCommandPreferences,
+) -> Result<std::process::Output, String> {
+    let mut command = Command::new("git");
+    apply_git_preferences(&mut command, preferences, None)?;
+    command.args(["-C", repo_path]);
+    command.args(args);
+    command
+        .output()
+        .map_err(|error| format!("Failed to run git command: {error}"))
 }
 
 #[derive(Serialize, Clone)]
@@ -2030,6 +2932,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(TerminalState::default())
+        .manage(SettingsState::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -2044,6 +2947,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             pick_git_repository,
             pick_clone_destination_folder,
+            pick_settings_file,
+            generate_ssh_keypair,
+            list_signing_keys,
             create_local_repository,
             clone_git_repository,
             validate_opened_repositories,
@@ -2070,6 +2976,18 @@ pub fn run() {
             get_repository_commit_file_diff,
             get_repository_working_tree_status,
             get_repository_working_tree_items,
+            get_settings_backend_capabilities,
+            save_ai_provider_secret,
+            get_ai_provider_secret_status,
+            clear_ai_provider_secret,
+            save_proxy_auth_secret,
+            get_proxy_auth_secret_status,
+            clear_proxy_auth_secret,
+            list_http_credential_entries,
+            clear_http_credential_entry,
+            test_proxy_connection,
+            start_auto_fetch_scheduler,
+            stop_auto_fetch_scheduler,
             create_terminal_session,
             write_terminal_session,
             resize_terminal_session,
@@ -2078,11 +2996,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-
-
-
-
-
-
-

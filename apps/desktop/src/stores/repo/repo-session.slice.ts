@@ -67,7 +67,8 @@ export const createRepoSessionSlice = (
     repositoryUrl,
     destinationParent,
     folderName,
-    recurseSubmodules
+    recurseSubmodules,
+    preferences
   ) => {
     const invoke = getTauriInvoke();
 
@@ -81,7 +82,8 @@ export const createRepoSessionSlice = (
         repositoryUrl,
         destinationParent,
         folderName,
-        recurseSubmodules
+        recurseSubmodules,
+        preferences
       );
 
       if (!cloned) {
@@ -127,6 +129,7 @@ export const createRepoSessionSlice = (
       openedRepos,
       repoCommits,
       repoBranches,
+      repoRemoteNames,
       repoStashes,
       repoWorkingTreeStatuses,
       repoWorkingTreeItems,
@@ -142,6 +145,7 @@ export const createRepoSessionSlice = (
 
     const nextRepoCommits = clearRepoDataById(repoCommits, id);
     const nextRepoBranches = clearRepoDataById(repoBranches, id);
+    const nextRepoRemoteNames = clearRepoDataById(repoRemoteNames, id);
     const nextRepoStashes = clearRepoDataById(repoStashes, id);
     const nextRepoWorkingTreeStatuses = clearRepoDataById(
       repoWorkingTreeStatuses,
@@ -156,6 +160,7 @@ export const createRepoSessionSlice = (
       openedRepos: nextOpenedRepos,
       repoCommits: nextRepoCommits,
       repoBranches: nextRepoBranches,
+      repoRemoteNames: nextRepoRemoteNames,
       repoStashes: nextRepoStashes,
       repoWorkingTreeStatuses: nextRepoWorkingTreeStatuses,
       repoWorkingTreeItems: nextRepoWorkingTreeItems,

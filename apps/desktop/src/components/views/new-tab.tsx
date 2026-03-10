@@ -21,6 +21,7 @@ import {
   GlobeIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mayarLogo from "@/assets/mayar-logo.png";
@@ -48,6 +49,7 @@ const RECENT_LIST_SCROLL_EDGE_THRESHOLD = 2;
 const RECENT_REPOS_COLLAPSED_LIMIT = 5;
 
 export function NewTabContent() {
+  const navigate = useNavigate();
   const initializeRepository = useRepoStore(
     (state) => state.initializeRepository
   );
@@ -674,17 +676,15 @@ export function NewTabContent() {
               </li>
               <li>
                 <Button
-                  aria-disabled="true"
                   className="h-7 gap-1.5 px-2 text-muted-foreground text-xs opacity-45 hover:text-foreground"
-                  disabled
+                  onClick={() => {
+                    navigate({ to: "/settings" }).catch(() => undefined);
+                  }}
                   type="button"
                   variant="ghost"
                 >
                   <GearIcon aria-hidden="true" className="size-3.5" />
                   Settings
-                  <span className="text-muted-foreground/60 text-xs leading-none">
-                    (Soon)
-                  </span>
                 </Button>
               </li>
             </ul>

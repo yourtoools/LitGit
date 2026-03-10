@@ -44,6 +44,7 @@ import {
   localLicenseTemplateOptions,
 } from "@/lib/repository-template-data";
 import { pickLocalRepositoryParentFolder } from "@/lib/tauri-repo-client";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type { RepositoryTemplateOption } from "@/stores/repo/use-repo-store";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
@@ -604,6 +605,9 @@ export function RepositoryStartLocalDialog({
   onOpenChange,
   open,
 }: RepositoryStartLocalDialogProps) {
+  const preferredDefaultBranchName = usePreferencesStore(
+    (state) => state.general.defaultBranchName
+  );
   const createLocalRepository = useRepoStore(
     (state) => state.createLocalRepository
   );
@@ -611,7 +615,9 @@ export function RepositoryStartLocalDialog({
 
   const [name, setName] = useState("");
   const [destinationParent, setDestinationParent] = useState("");
-  const [defaultBranch, setDefaultBranch] = useState("main");
+  const [defaultBranch, setDefaultBranch] = useState(
+    preferredDefaultBranchName
+  );
   const [gitignoreTemplateKey, setGitignoreTemplateKey] = useState<
     string | null
   >(null);
@@ -647,7 +653,7 @@ export function RepositoryStartLocalDialog({
     if (!open) {
       setName("");
       setDestinationParent("");
-      setDefaultBranch("main");
+      setDefaultBranch(preferredDefaultBranchName);
       setGitignoreTemplateKey(null);
       setLicenseTemplateKey(null);
       setErrors({});
@@ -659,11 +665,17 @@ export function RepositoryStartLocalDialog({
     }
 
     if (!successState) {
+      setDefaultBranch((currentValue) => {
+        return currentValue.trim().length === 0
+          ? preferredDefaultBranchName
+          : currentValue;
+      });
+
       queueMicrotask(() => {
         nameInputRef.current?.focus();
       });
     }
-  }, [open, successState]);
+  }, [open, preferredDefaultBranchName, successState]);
 
   const fullDestinationPath = useMemo(
     () => formatDisplayPath(destinationParent, name),

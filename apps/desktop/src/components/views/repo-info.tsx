@@ -76,11 +76,14 @@ import {
   SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
+  TerminalWindowIcon,
   TrashIcon,
   UploadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useSearch } from "@tanstack/react-router";
+import type { editor as MonacoEditor } from "monaco-editor";
+import { useTheme } from "next-themes";
 import {
   type ReactNode,
   useDeferredValue,
@@ -92,6 +95,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type {
   PullActionMode,
   RepositoryCommit,
@@ -367,6 +371,53 @@ const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
   yml: "yaml",
 };
 
+const resolveRuntimeSurfaceTheme = (
+  preference: "follow-app" | "light" | "dark",
+  resolvedTheme: string | undefined
+) => {
+  if (preference === "light" || preference === "dark") {
+    return preference;
+  }
+
+  return resolvedTheme === "light" ? "light" : "dark";
+};
+
+const resolveMonacoEol = (
+  preference: "system" | "lf" | "crlf"
+): MonacoEditor.EndOfLineSequence | null => {
+  if (preference === "lf") {
+    return 0;
+  }
+
+  if (preference === "crlf") {
+    return 1;
+  }
+
+  return null;
+};
+
+const applyDiffEditorPreferences = (
+  editor: MonacoEditor.IStandaloneDiffEditor,
+  lineNumbers: "on" | "off",
+  tabSize: number,
+  eolPreference: "system" | "lf" | "crlf"
+) => {
+  editor.getOriginalEditor().updateOptions({
+    lineNumbers,
+    tabSize,
+  });
+  editor.getModifiedEditor().updateOptions({
+    lineNumbers,
+    tabSize,
+  });
+  const eol = resolveMonacoEol(eolPreference);
+
+  if (eol !== null) {
+    editor.getOriginalEditor().getModel()?.setEOL(eol);
+    editor.getModifiedEditor().getModel()?.setEOL(eol);
+  }
+};
+
 function formatStashLabel(stash: RepositoryStash): string {
   const rawMessage = stash.message.trim();
 
@@ -559,6 +610,17 @@ export function RepoInfo() {
   const [, startSidebarFilterTransition] = useTransition();
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
   const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
+  const toggleTerminalPanel = useTerminalPanelStore((state) => state.toggle);
+  const dateFormatPreference = usePreferencesStore(
+    (state) => state.ui.dateFormat
+  );
+  const localePreference = usePreferencesStore((state) => state.ui.locale);
+  const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
+  const editorPreferences = usePreferencesStore((state) => state.editor);
+  const openedDiffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
+    null
+  );
+  const { resolvedTheme } = useTheme();
   const routeSearch = useSearch({ strict: false });
   const activeTabIdFromUrl =
     typeof routeSearch.tabId === "string" ? routeSearch.tabId : "tab:default";
@@ -804,6 +866,26 @@ export function RepoInfo() {
       filteredSidebarGroups.reduce((total, group) => total + group.count, 0),
     [filteredSidebarGroups]
   );
+
+  useEffect(() => {
+    const diffEditor = openedDiffEditorRef.current;
+
+    if (!diffEditor) {
+      return;
+    }
+
+    applyDiffEditorPreferences(
+      diffEditor,
+      editorPreferences.lineNumbers,
+      editorPreferences.tabSize,
+      editorPreferences.eol
+    );
+  }, [
+    editorPreferences.eol,
+    editorPreferences.lineNumbers,
+    editorPreferences.tabSize,
+  ]);
+
   const formatCommitDate = (value: string): string => {
     const parsedDate = new Date(value);
 
@@ -811,9 +893,14 @@ export function RepoInfo() {
       return value;
     }
 
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
+    const locale =
+      localePreference === "system" || localePreference.trim().length === 0
+        ? undefined
+        : localePreference;
+
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: dateFormatPreference === "verbose" ? "full" : "medium",
+      timeStyle: dateFormatPreference === "verbose" ? "medium" : "short",
     }).format(parsedDate);
   };
   const getErrorMessage = (error: unknown): string => {
@@ -3079,11 +3166,12 @@ export function RepoInfo() {
                     }
                   >
                     <ArrowCounterClockwiseIcon className="size-4 text-muted-foreground" />
-                    <span className="hidden whitespace-nowrap lg:inline">
-                      Undo
-                    </span>
+                    <span className={cn(!toolbarLabels && "hidden")}>Undo</span>
                   </TooltipTrigger>
-                  <TooltipContent className="lg:hidden" side="bottom">
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
                     Undo
                   </TooltipContent>
                 </Tooltip>
@@ -3099,11 +3187,12 @@ export function RepoInfo() {
                     }
                   >
                     <ArrowClockwiseIcon className="size-4 text-muted-foreground" />
-                    <span className="hidden whitespace-nowrap lg:inline">
-                      Redo
-                    </span>
+                    <span className={cn(!toolbarLabels && "hidden")}>Redo</span>
                   </TooltipTrigger>
-                  <TooltipContent className="lg:hidden" side="bottom">
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
                     Redo
                   </TooltipContent>
                 </Tooltip>
@@ -3126,7 +3215,7 @@ export function RepoInfo() {
                             ) : (
                               <DownloadSimpleIcon className="size-4 text-muted-foreground" />
                             )}
-                            <span className="hidden whitespace-nowrap lg:inline">
+                            <span className={cn(!toolbarLabels && "hidden")}>
                               Pull
                             </span>
                           </Button>
@@ -3149,7 +3238,10 @@ export function RepoInfo() {
                         </InputGroup>
                       }
                     />
-                    <TooltipContent className="lg:hidden" side="bottom">
+                    <TooltipContent
+                      className={cn(toolbarLabels && "hidden")}
+                      side="bottom"
+                    >
                       {selectedPullActionLabel}
                     </TooltipContent>
                   </Tooltip>
@@ -3225,11 +3317,12 @@ export function RepoInfo() {
                     ) : (
                       <UploadSimpleIcon className="size-4 text-muted-foreground" />
                     )}
-                    <span className="hidden whitespace-nowrap lg:inline">
-                      Push
-                    </span>
+                    <span className={cn(!toolbarLabels && "hidden")}>Push</span>
                   </TooltipTrigger>
-                  <TooltipContent className="lg:hidden" side="bottom">
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
                     Push
                   </TooltipContent>
                 </Tooltip>
@@ -3245,11 +3338,14 @@ export function RepoInfo() {
                     }
                   >
                     <GitBranchIcon className="size-4 text-muted-foreground" />
-                    <span className="hidden whitespace-nowrap lg:inline">
+                    <span className={cn(!toolbarLabels && "hidden")}>
                       Branch
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent className="lg:hidden" side="bottom">
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
                     Branch
                   </TooltipContent>
                 </Tooltip>
@@ -3265,11 +3361,14 @@ export function RepoInfo() {
                     }
                   >
                     <StackSimpleIcon className="size-4 text-muted-foreground" />
-                    <span className="hidden whitespace-nowrap lg:inline">
+                    <span className={cn(!toolbarLabels && "hidden")}>
                       Stash
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent className="lg:hidden" side="bottom">
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
                     Stash
                   </TooltipContent>
                 </Tooltip>
@@ -3285,12 +3384,37 @@ export function RepoInfo() {
                     }
                   >
                     <ArrowBendRightUpIcon className="size-4 text-muted-foreground" />
-                    <span className="hidden whitespace-nowrap lg:inline">
-                      Pop
+                    <span className={cn(!toolbarLabels && "hidden")}>Pop</span>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
+                    Pop
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Terminal"
+                        onClick={toggleTerminalPanel}
+                        size={toolbarLabels ? "default" : "icon"}
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <TerminalWindowIcon className="size-4 text-muted-foreground" />
+                    <span className={cn(!toolbarLabels && "hidden")}>
+                      Terminal
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent className="lg:hidden" side="bottom">
-                    Pop
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
+                    {isTerminalPanelOpen ? "Hide terminal" : "Show terminal"}
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -3485,21 +3609,55 @@ export function RepoInfo() {
                   <div className="min-h-0 flex-1">
                     <DiffEditor
                       height="100%"
-                      language={resolveMonacoLanguage(
-                        openedDiff?.path ?? openedCommitDiff?.path ?? ""
-                      )}
+                      keepCurrentModifiedModel={false}
+                      keepCurrentOriginalModel={false}
+                      language={
+                        editorPreferences.syntaxHighlighting
+                          ? resolveMonacoLanguage(
+                              openedDiff?.path ?? openedCommitDiff?.path ?? ""
+                            )
+                          : "plaintext"
+                      }
                       modified={
                         openedDiff?.newText ?? openedCommitDiff?.newText ?? ""
                       }
+                      onMount={(editor) => {
+                        openedDiffEditorRef.current = editor;
+                        applyDiffEditorPreferences(
+                          editor,
+                          editorPreferences.lineNumbers,
+                          editorPreferences.tabSize,
+                          editorPreferences.eol
+                        );
+                      }}
                       options={{
                         automaticLayout: true,
+                        experimentalWhitespaceRendering: "svg",
+                        fontFamily: editorPreferences.fontFamily,
+                        fontSize: editorPreferences.fontSize,
+                        lineNumbers: editorPreferences.lineNumbers,
                         minimap: { enabled: false },
                         readOnly: true,
                         renderSideBySide: true,
                         scrollBeyondLastLine: false,
+                        // handled in onMount/updateOptions because the wrapper
+                        // typing omits this diff-editor option
+                        wordSeparators: editorPreferences.syntaxHighlighting
+                          ? undefined
+                          : "",
+                        wordWrap: editorPreferences.wordWrap,
                       }}
                       original={
                         openedDiff?.oldText ?? openedCommitDiff?.oldText ?? ""
+                      }
+                      originalModelPath={undefined}
+                      theme={
+                        resolveRuntimeSurfaceTheme(
+                          editorPreferences.theme,
+                          resolvedTheme
+                        ) === "light"
+                          ? "vs"
+                          : "vs-dark"
                       }
                     />
                   </div>

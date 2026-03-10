@@ -1,5 +1,12 @@
 import { Button } from "@litgit/ui/components/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@litgit/ui/components/tooltip";
+import { cn } from "@litgit/ui/lib/utils";
 import { BellIcon, GearIcon } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/page-shell";
 import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
@@ -14,6 +21,7 @@ import {
   isOpenRepositoryChordStartShortcut,
   isPrimaryShortcut,
 } from "@/lib/keyboard-shortcuts";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type {
   OpenedRepository,
   PickedRepositorySelection,
@@ -23,6 +31,7 @@ import { useTabStore } from "@/stores/tabs/use-tab-store";
 
 export default function Header() {
   useTabRepoSync();
+  const navigate = useNavigate();
 
   const openRepository = useRepoStore((state) => state.openRepository);
   const initializeRepository = useRepoStore(
@@ -31,6 +40,7 @@ export default function Header() {
   const isPickingRepo = useRepoStore((state) => state.isPickingRepo);
   const { routeRepository } = useOpenRepositoryTabRouting();
   const { activeTabId, setActiveTabFromUrl } = useTabUrlState();
+  const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const tabs = useTabStore((state) => state.tabs);
   const linkTabToRepo = useTabStore((state) => state.linkTabToRepo);
 
@@ -216,20 +226,36 @@ export default function Header() {
           <Button
             aria-label="Notifications"
             disabled
-            size="icon"
+            size={toolbarLabels ? "default" : "icon"}
             variant="ghost"
           >
             <BellIcon />
+            {toolbarLabels ? <span>Notifications</span> : null}
           </Button>
-          <Button
-            aria-label="Workspace settings"
-            className="hidden sm:inline-flex"
-            disabled
-            size="icon"
-            variant="ghost"
-          >
-            <GearIcon />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label="Workspace settings"
+                  className="text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                  onClick={() => {
+                    navigate({ to: "/settings" }).catch(() => undefined);
+                  }}
+                  size={toolbarLabels ? "default" : "icon"}
+                  variant="ghost"
+                >
+                  <GearIcon className="text-current" />
+                  {toolbarLabels ? <span>Settings</span> : null}
+                </Button>
+              }
+            />
+            <TooltipContent
+              className={cn(toolbarLabels && "hidden")}
+              side="bottom"
+            >
+              Settings
+            </TooltipContent>
+          </Tooltip>
         </div>
       </PageShell>
       <RepositoryInitializeDialog

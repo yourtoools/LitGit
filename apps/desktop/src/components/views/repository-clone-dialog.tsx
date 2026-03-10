@@ -35,6 +35,7 @@ import {
   type CloneRepositoryProgress,
   pickCloneDestinationFolder,
 } from "@/lib/tauri-repo-client";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 const CLONE_PROGRESS_EVENT = "clone-repository-progress";
@@ -58,6 +59,7 @@ interface ValidationErrors {
   destinationParent?: string;
   folderName?: string;
   repositoryUrl?: string;
+  sshKeyPair?: string;
 }
 
 interface CloneSuccessState {
@@ -125,6 +127,20 @@ const isLikelyRepositoryUrl = (value: string) => {
     SSH_REPOSITORY_URL_REGEX.test(trimmed) ||
     SSH_PROTOCOL_REPOSITORY_URL_REGEX.test(trimmed)
   );
+};
+
+const isMatchingSshKeyPair = (
+  privateKeyPath: string | null | undefined,
+  publicKeyPath: string | null | undefined
+) => {
+  const trimmedPrivateKeyPath = privateKeyPath?.trim() ?? "";
+  const trimmedPublicKeyPath = publicKeyPath?.trim() ?? "";
+
+  if (!(trimmedPrivateKeyPath && trimmedPublicKeyPath)) {
+    return true;
+  }
+
+  return trimmedPublicKeyPath === `${trimmedPrivateKeyPath}.pub`;
 };
 
 const validateCloneFolderName = (value: string) => {
@@ -425,6 +441,20 @@ function CloneFormPanel({
         </section>
       ) : null}
 
+      {errors.sshKeyPair ? (
+        <section
+          aria-live="polite"
+          className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4"
+        >
+          <p className="font-medium text-amber-700 text-sm dark:text-amber-300">
+            SSH key paths need attention
+          </p>
+          <p className="mt-1 text-foreground/80 text-xs leading-relaxed">
+            {errors.sshKeyPair}
+          </p>
+        </section>
+      ) : null}
+
       {/* --- Submodules option --- */}
       <label
         className="flex cursor-pointer items-center gap-2.5 rounded-lg px-0.5 py-1"
@@ -576,6 +606,8 @@ export function RepositoryCloneDialog({
   onOpenChange,
 }: RepositoryCloneDialogProps) {
   const cloneRepository = useRepoStore((state) => state.cloneRepository);
+  const networkPreferences = usePreferencesStore((state) => state.network);
+  const sshPreferences = usePreferencesStore((state) => state.ssh);
   const { routeRepository } = useOpenRepositoryTabRouting();
 
   const [repositoryUrl, setRepositoryUrl] = useState("");
@@ -698,10 +730,30 @@ export function RepositoryCloneDialog({
       nextErrors.folderName = folderNameError;
     }
 
+    if (
+      !(
+        sshPreferences.useLocalAgent ||
+        isMatchingSshKeyPair(
+          sshPreferences.privateKeyPath,
+          sshPreferences.publicKeyPath
+        )
+      )
+    ) {
+      nextErrors.sshKeyPair =
+        "Selected SSH public key must match the private key path (`<private>.pub`).";
+    }
+
     setErrors(nextErrors);
 
     return Object.keys(nextErrors).length === 0;
-  }, [destinationParent, folderName, repositoryUrl]);
+  }, [
+    destinationParent,
+    folderName,
+    repositoryUrl,
+    sshPreferences.privateKeyPath,
+    sshPreferences.publicKeyPath,
+    sshPreferences.useLocalAgent,
+  ]);
 
   const handlePickDestination = useCallback(async () => {
     if (isCloning) {
@@ -742,7 +794,18 @@ export function RepositoryCloneDialog({
         repositoryUrl.trim(),
         destinationParent.trim(),
         folderName.trim(),
-        recurseSubmodules
+        recurseSubmodules,
+        {
+          enableProxy: networkPreferences.enableProxy,
+          proxyHost: networkPreferences.proxyHost,
+          proxyPort: networkPreferences.proxyPort,
+          proxyType: networkPreferences.proxyType,
+          sshPrivateKeyPath: sshPreferences.privateKeyPath,
+          sshPublicKeyPath: sshPreferences.publicKeyPath,
+          sslVerification: networkPreferences.sslVerification,
+          useGitCredentialManager: networkPreferences.useGitCredentialManager,
+          useLocalSshAgent: sshPreferences.useLocalAgent,
+        }
       );
 
       if (!openedRepository) {
@@ -772,8 +835,17 @@ export function RepositoryCloneDialog({
     destinationParent,
     folderName,
     isCloning,
+    networkPreferences.enableProxy,
+    networkPreferences.proxyHost,
+    networkPreferences.proxyPort,
+    networkPreferences.proxyType,
+    networkPreferences.sslVerification,
+    networkPreferences.useGitCredentialManager,
     recurseSubmodules,
     repositoryUrl,
+    sshPreferences.privateKeyPath,
+    sshPreferences.publicKeyPath,
+    sshPreferences.useLocalAgent,
     validateForm,
   ]);
 

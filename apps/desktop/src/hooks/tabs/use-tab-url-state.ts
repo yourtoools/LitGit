@@ -1,9 +1,12 @@
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef } from "react";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 
 export function useTabUrlState() {
   const navigate = useNavigate();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const firstTabId = useTabStore((state) => state.tabs[0]?.id ?? null);
   const activeTabId = useTabStore((state) => state.activeTabId);
   const setActiveTab = useTabStore((state) => state.setActiveTab);
@@ -88,6 +91,10 @@ export function useTabUrlState() {
       return;
     }
 
+    if (pathname === "/settings") {
+      return;
+    }
+
     const fallbackTabId = activeTabId ?? firstTabId ?? undefined;
 
     if (isInitialMount.current) {
@@ -102,7 +109,14 @@ export function useTabUrlState() {
     if (!urlTabId && fallbackTabId) {
       navigateWithTab(fallbackTabId);
     }
-  }, [activeTabId, firstTabId, isUrlTabValid, navigateWithTab, urlTabId]);
+  }, [
+    activeTabId,
+    firstTabId,
+    isUrlTabValid,
+    navigateWithTab,
+    pathname,
+    urlTabId,
+  ]);
 
   const setActiveTabFromUrl = (tabId: string) => {
     if (activeTabId !== tabId) {

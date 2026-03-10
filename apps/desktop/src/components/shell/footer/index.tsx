@@ -5,8 +5,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
-import { cn } from "@litgit/ui/lib/utils";
-import { TerminalWindowIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -15,11 +13,9 @@ import { KeyboardShortcutsDialog } from "@/components/shell/footer/keyboard-shor
 import { FooterZoomControl } from "@/components/shell/footer/zoom-control";
 import {
   isResetZoomShortcut,
-  isToggleTerminalShortcut,
   isZoomInShortcut,
   isZoomOutShortcut,
 } from "@/lib/keyboard-shortcuts";
-import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
 const ZOOM_OPTIONS = [130, 120, 110, 100, 90, 80];
 const MIN_ZOOM = ZOOM_OPTIONS.at(-1) ?? 80;
@@ -30,8 +26,6 @@ const RELEASE_NOTES_URL = env.VITE_RELEASE_NOTES_URL;
 export default function Footer() {
   const [zoom, setZoom] = useState(100);
   const [appVersion, setAppVersion] = useState("dev");
-  const isTerminalOpen = useTerminalPanelStore((state) => state.isOpen);
-  const toggleTerminal = useTerminalPanelStore((state) => state.toggle);
 
   useEffect(() => {
     if (!isTauri()) {
@@ -91,12 +85,6 @@ export default function Footer() {
     }
 
     const handleZoomShortcut = (event: KeyboardEvent) => {
-      if (isToggleTerminalShortcut(event)) {
-        event.preventDefault();
-        toggleTerminal();
-        return;
-      }
-
       const shouldZoomIn = isZoomInShortcut(event);
       const shouldZoomOut = isZoomOutShortcut(event);
       const shouldResetZoom = isResetZoomShortcut(event);
@@ -125,7 +113,7 @@ export default function Footer() {
     return () => {
       window.removeEventListener("keydown", handleZoomShortcut);
     };
-  }, [toggleTerminal]);
+  }, []);
 
   const openReleaseNotes = async () => {
     if (isTauri()) {
@@ -148,20 +136,6 @@ export default function Footer() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-4">
             <KeyboardShortcutsDialog />
-            <button
-              aria-label="Terminal"
-              className={cn(
-                "relative flex cursor-pointer items-center gap-1 py-1 text-xs leading-none outline-none transition-colors focus-visible:text-foreground",
-                isTerminalOpen
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-              onClick={toggleTerminal}
-              type="button"
-            >
-              <TerminalWindowIcon className="size-3.5" />
-              <span className="whitespace-nowrap">Terminal</span>
-            </button>
             <FooterZoomControl
               onSelectZoom={setZoom}
               zoom={zoom}

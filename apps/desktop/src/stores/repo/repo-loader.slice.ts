@@ -15,6 +15,7 @@ type RepoLoaderSliceKeys = "setActiveRepo";
 interface RepoCacheState {
   hasBranches: boolean;
   hasCommits: boolean;
+  hasRemoteNames: boolean;
   hasStashes: boolean;
   hasStatus: boolean;
   hasWipItems: boolean;
@@ -27,6 +28,7 @@ const getRepoCacheState = (
 ): RepoCacheState => ({
   hasCommits: !forceRefresh && Boolean(get().repoCommits[id]),
   hasBranches: !forceRefresh && Boolean(get().repoBranches[id]),
+  hasRemoteNames: !forceRefresh && Boolean(get().repoRemoteNames[id]),
   hasStashes: !forceRefresh && Boolean(get().repoStashes[id]),
   hasStatus: !forceRefresh && Boolean(get().repoWorkingTreeStatuses[id]),
   hasWipItems: !forceRefresh && Boolean(get().repoWorkingTreeItems[id]),
@@ -35,6 +37,7 @@ const getRepoCacheState = (
 const hasAllRepoData = (cacheState: RepoCacheState): boolean =>
   cacheState.hasCommits &&
   cacheState.hasBranches &&
+  cacheState.hasRemoteNames &&
   cacheState.hasStashes &&
   cacheState.hasStatus &&
   cacheState.hasWipItems;
@@ -84,6 +87,16 @@ const applyRepoPayloads = (
     }));
   }
 
+  const remoteNamesPayload = result.remoteNamesPayload;
+  if (remoteNamesPayload) {
+    set((state) => ({
+      repoRemoteNames: {
+        ...state.repoRemoteNames,
+        [id]: remoteNamesPayload.remoteNames,
+      },
+    }));
+  }
+
   const stashesPayload = result.stashesPayload;
   if (stashesPayload) {
     set((state) => ({
@@ -124,6 +137,10 @@ const notifyRepoLoadErrors = (result: RepoDataFetchResult) => {
     {
       error: result.branchesError,
       fallbackMessage: "Failed to load repository branches",
+    },
+    {
+      error: result.remoteNamesError,
+      fallbackMessage: "Failed to load repository remotes",
     },
     {
       error: result.stashesError,
@@ -179,6 +196,7 @@ export const createRepoLoaderSlice = (
         targetRepo.path,
         cacheState.hasCommits,
         cacheState.hasBranches,
+        cacheState.hasRemoteNames,
         cacheState.hasStashes,
         cacheState.hasStatus,
         cacheState.hasWipItems

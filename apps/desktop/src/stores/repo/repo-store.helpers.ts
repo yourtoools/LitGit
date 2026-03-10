@@ -9,3 +9,11 @@ export function clearRepoDataById<T>(
   const { [id]: _removed, ...nextData } = data;
   return nextData;
 }
+
+export function countUniqueRemoteNames(remoteNames: readonly string[]): number {
+  return new Set(
+    remoteNames
+      .map((remoteName) => remoteName.trim())
+      .filter((remoteName) => remoteName.length > 0)
+  ).size;
+}

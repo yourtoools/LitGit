@@ -13,6 +13,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { useTheme } from "next-themes";
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -29,6 +30,8 @@ import {
   resizeTerminalSession,
   writeTerminalSession,
 } from "@/lib/tauri-terminal-client";
+import type { AppPreferences } from "@/stores/preferences/preferences-store-types";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import {
   terminalPanelHeightLimits,
   useTerminalPanelStore,
@@ -93,6 +96,52 @@ const resolveThemeColor = (
   return resolved || fallback;
 };
 
+const resolveTerminalThemeMode = (
+  preference: AppPreferences["terminal"]["theme"],
+  resolvedAppTheme: string | undefined
+) => {
+  if (preference === "light" || preference === "dark") {
+    return preference;
+  }
+
+  return resolvedAppTheme === "light" ? "light" : "dark";
+};
+
+const createTerminalTheme = (mode: "light" | "dark") => {
+  if (typeof document === "undefined") {
+    return {
+      background: "rgba(0, 0, 0, 0)",
+      cursor: mode === "light" ? "rgb(17, 24, 39)" : "rgb(243, 244, 246)",
+      foreground: mode === "light" ? "rgb(17, 24, 39)" : "rgb(243, 244, 246)",
+      selectionBackground:
+        mode === "light"
+          ? "rgba(59, 130, 246, 0.18)"
+          : "rgba(148, 163, 184, 0.24)",
+    };
+  }
+
+  const rootStyles = window.getComputedStyle(document.documentElement);
+  const foregroundFallback =
+    mode === "light" ? "rgb(17, 24, 39)" : "rgb(243, 244, 246)";
+  const selectionFallback =
+    mode === "light" ? "rgba(59, 130, 246, 0.18)" : "rgba(148, 163, 184, 0.24)";
+
+  return {
+    background: "rgba(0, 0, 0, 0)",
+    cursor: resolveThemeColor(rootStyles, "--foreground", foregroundFallback),
+    foreground: resolveThemeColor(
+      rootStyles,
+      "--foreground",
+      foregroundFallback
+    ),
+    selectionBackground: resolveThemeColor(
+      rootStyles,
+      "--accent",
+      selectionFallback
+    ),
+  };
+};
+
 export function IntegratedTerminalPanel({
   contextKey,
   cwd,
@@ -101,6 +150,16 @@ export function IntegratedTerminalPanel({
   const height = useTerminalPanelStore((state) => state.height);
   const setHeight = useTerminalPanelStore((state) => state.setHeight);
   const toggle = useTerminalPanelStore((state) => state.toggle);
+  const cursorStyle = usePreferencesStore(
+    (state) => state.terminal.cursorStyle
+  );
+  const fontFamily = usePreferencesStore((state) => state.terminal.fontFamily);
+  const fontSize = usePreferencesStore((state) => state.terminal.fontSize);
+  const terminalThemePreference = usePreferencesStore(
+    (state) => state.terminal.theme
+  );
+  const lineHeight = usePreferencesStore((state) => state.terminal.lineHeight);
+  const { resolvedTheme } = useTheme();
   const [isReady, setIsReady] = useState(false);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -117,34 +176,21 @@ export function IntegratedTerminalPanel({
       return;
     }
 
-    const rootStyles = window.getComputedStyle(document.documentElement);
+    const terminalTheme = createTerminalTheme(
+      resolveTerminalThemeMode(terminalThemePreference, resolvedTheme)
+    );
 
     const terminal = new Terminal({
       allowTransparency: true,
       cols: INITIAL_COLS,
       convertEol: true,
       cursorBlink: true,
-      fontFamily: "'JetBrains Mono Variable', 'JetBrains Mono', monospace",
-      fontSize: 12,
+      cursorStyle,
+      fontFamily,
+      fontSize,
+      lineHeight,
       rows: INITIAL_ROWS,
-      theme: {
-        background: "rgba(0, 0, 0, 0)",
-        cursor: resolveThemeColor(
-          rootStyles,
-          "--foreground",
-          "rgb(17, 24, 39)"
-        ),
-        foreground: resolveThemeColor(
-          rootStyles,
-          "--foreground",
-          "rgb(17, 24, 39)"
-        ),
-        selectionBackground: resolveThemeColor(
-          rootStyles,
-          "--accent",
-          "rgb(229, 231, 235)"
-        ),
-      },
+      theme: terminalTheme,
     });
     const fitAddon = new FitAddon();
     const clipboardAddon = new ClipboardAddon();
@@ -258,7 +304,17 @@ export function IntegratedTerminalPanel({
       terminalRef.current = null;
       serializeAddonRef.current = null;
     };
-  }, [canRenderTerminal, contextKey, cwd]);
+  }, [
+    canRenderTerminal,
+    contextKey,
+    cursorStyle,
+    cwd,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    resolvedTheme,
+    terminalThemePreference,
+  ]);
 
   useEffect(() => {
     if (!canRenderTerminal) {
@@ -273,6 +329,30 @@ export function IntegratedTerminalPanel({
 
     terminalRef.current?.focus();
   }, [isOpen, isReady]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+
+    if (!terminal) {
+      return;
+    }
+
+    terminal.options.cursorStyle = cursorStyle;
+    terminal.options.fontFamily = fontFamily;
+    terminal.options.fontSize = fontSize;
+    terminal.options.lineHeight = lineHeight;
+    terminal.options.theme = createTerminalTheme(
+      resolveTerminalThemeMode(terminalThemePreference, resolvedTheme)
+    );
+    terminal.refresh(0, terminal.rows - 1);
+  }, [
+    cursorStyle,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    resolvedTheme,
+    terminalThemePreference,
+  ]);
 
   const onStartResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();

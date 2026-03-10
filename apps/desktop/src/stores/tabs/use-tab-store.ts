@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { TabStoreState } from "@/components/tabs/types/tab-types";
+import { readRememberTabsPreference } from "@/stores/preferences/preferences-store-types";
 import { createTabGroupsSlice } from "@/stores/tabs/tab-groups.slice";
 import { createTabHistorySlice } from "@/stores/tabs/tab-history.slice";
 import {
@@ -58,11 +59,21 @@ export const useTabStore = create<TabStoreState>()(
     {
       name: TAB_STORE_KEY,
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        tabs: state.tabs,
-        groups: state.groups,
-        activeTabId: state.activeTabId,
-      }),
+      partialize: (state) => {
+        if (!readRememberTabsPreference()) {
+          return {
+            tabs: [],
+            groups: [],
+            activeTabId: null,
+          };
+        }
+
+        return {
+          tabs: state.tabs,
+          groups: state.groups,
+          activeTabId: state.activeTabId,
+        };
+      },
       onRehydrateStorage: () => (state) => {
         rehydrateTabStore(state);
       },

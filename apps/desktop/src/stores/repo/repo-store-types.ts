@@ -24,6 +24,25 @@ export interface CreateLocalRepositoryInput {
   name: string;
 }
 
+export interface RepoCommandPreferences {
+  enableProxy?: boolean;
+  gpgProgramPath?: string;
+  proxyAuthEnabled?: boolean;
+  proxyAuthPassword?: string;
+  proxyHost?: string;
+  proxyPort?: number;
+  proxyType?: "http" | "https" | "socks5";
+  proxyUsername?: string;
+  signCommitsByDefault?: boolean;
+  signingFormat?: "gpg" | "ssh";
+  signingKey?: string;
+  sshPrivateKeyPath?: string;
+  sshPublicKeyPath?: string;
+  sslVerification?: boolean;
+  useGitCredentialManager?: boolean;
+  useLocalSshAgent?: boolean;
+}
+
 export interface RepositoryCommit {
   author: string;
   authorAvatarUrl: string | null;
@@ -124,14 +143,16 @@ export interface RepoStoreState {
     repositoryUrl: string,
     destinationParent: string,
     folderName: string,
-    recurseSubmodules: boolean
+    recurseSubmodules: boolean,
+    preferences?: RepoCommandPreferences
   ) => Promise<OpenedRepository | null>;
   closeRepository: (id: string) => void;
   commitChanges: (
     id: string,
     summary: string,
     description: string,
-    includeAll: boolean
+    includeAll: boolean,
+    preferences?: RepoCommandPreferences
   ) => Promise<void>;
   createLocalRepository: (
     input: CreateLocalRepositoryInput
@@ -166,10 +187,14 @@ export interface RepoStoreState {
   openRepository: () => Promise<OpenRepositoryResult>;
   popStash: (id: string, stashRef: string) => Promise<void>;
   pullBranch: (id: string, mode: PullActionMode) => Promise<PullActionResult>;
-  pushBranch: (id: string) => Promise<void>;
+  pushBranch: (
+    id: string,
+    preferences?: RepoCommandPreferences
+  ) => Promise<void>;
   refreshOpenedRepositories: () => Promise<void>;
   repoBranches: Record<string, RepositoryBranch[]>;
   repoCommits: Record<string, RepositoryCommit[]>;
+  repoRemoteNames: Record<string, string[]>;
   repoStashes: Record<string, RepositoryStash[]>;
   repoWorkingTreeItems: Record<string, RepositoryWorkingTreeItem[]>;
   repoWorkingTreeStatuses: Record<string, RepositoryWorkingTreeStatus>;
@@ -189,6 +214,8 @@ export interface RepoDataFetchResult {
   branchesPayload: { branches: RepositoryBranch[]; id: string } | null;
   historyError: unknown;
   historyPayload: { commits: RepositoryCommit[]; id: string } | null;
+  remoteNamesError: unknown;
+  remoteNamesPayload: { id: string; remoteNames: string[] } | null;
   stashesError: unknown;
   stashesPayload: { id: string; stashes: RepositoryStash[] } | null;
   statusError: unknown;

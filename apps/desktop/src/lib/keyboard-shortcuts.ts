@@ -139,6 +139,10 @@ export const isToggleTerminalShortcut = (event: ShortcutEvent) => {
   );
 };
 
+export const isRepositoryRoutePath = (pathname: string) => {
+  return pathname.startsWith("/repo/");
+};
+
 export const isOpenRepositoryChordStartShortcut = (event: ShortcutEvent) => {
   return isPrimaryShortcut(event, "k");
 };
