@@ -1,7 +1,18 @@
 import { Button } from "@litgit/ui/components/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@litgit/ui/components/context-menu";
 import { cn } from "@litgit/ui/lib/utils";
 import { XIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -94,6 +105,7 @@ export function IntegratedTerminalPanel({
   const mountRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const serializeAddonRef = useRef<SerializeAddon | null>(null);
 
   const canRenderTerminal = useMemo(
     () => isTauri() && cwd.trim().length > 0,
@@ -135,13 +147,22 @@ export function IntegratedTerminalPanel({
       },
     });
     const fitAddon = new FitAddon();
+    const clipboardAddon = new ClipboardAddon();
+    const searchAddon = new SearchAddon();
+    const serializeAddon = new SerializeAddon();
+    const webLinksAddon = new WebLinksAddon();
     terminalRef.current = terminal;
 
     let unlistenOutput: (() => void) | null = null;
     let cleanupDone = false;
 
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(clipboardAddon);
+    terminal.loadAddon(searchAddon);
+    terminal.loadAddon(serializeAddon);
+    terminal.loadAddon(webLinksAddon);
     terminal.open(mountRef.current);
+    serializeAddonRef.current = serializeAddon;
     fitAddon.fit();
 
     const syncSizeToBackend = async (sessionId: string) => {
@@ -235,6 +256,7 @@ export function IntegratedTerminalPanel({
       unlistenOutput?.();
       terminal.dispose();
       terminalRef.current = null;
+      serializeAddonRef.current = null;
     };
   }, [canRenderTerminal, contextKey, cwd]);
 
@@ -272,6 +294,44 @@ export function IntegratedTerminalPanel({
     window.addEventListener("pointerup", onStop);
   };
 
+  const copySelection = async (): Promise<void> => {
+    const selection = terminalRef.current?.getSelection() ?? "";
+
+    if (selection.length === 0) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(selection).catch(() => undefined);
+    terminalRef.current?.focus();
+  };
+
+  const pasteClipboard = async (): Promise<void> => {
+    const terminal = terminalRef.current;
+
+    if (!terminal) {
+      return;
+    }
+
+    const text = await navigator.clipboard.readText().catch(() => "");
+
+    if (text.length === 0) {
+      return;
+    }
+
+    terminal.paste(text);
+    terminal.focus();
+  };
+
+  const copyBuffer = async (): Promise<void> => {
+    const serialized = serializeAddonRef.current?.serialize() ?? "";
+
+    if (serialized.length === 0) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(serialized).catch(() => undefined);
+    terminalRef.current?.focus();
+  };
   if (!isTauri()) {
     return null;
   }
@@ -304,15 +364,33 @@ export function IntegratedTerminalPanel({
           <XIcon className="size-3.5" />
         </Button>
       </div>
-      <div className="h-[calc(100%-2.25rem)] py-2 pl-2">
-        <div
-          className={cn(
-            "h-full overflow-hidden rounded-md bg-background",
-            !isReady && "opacity-75"
-          )}
-          ref={mountRef}
-        />
-      </div>
+      <ContextMenu>
+        <ContextMenuTrigger className="h-[calc(100%-2.25rem)] pt-2 pl-2">
+          <div
+            className={cn(
+              "h-full overflow-hidden rounded-md bg-background",
+              !isReady && "opacity-75"
+            )}
+            ref={mountRef}
+          />
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={copySelection}>Copy</ContextMenuItem>
+          <ContextMenuItem onClick={pasteClipboard}>Paste</ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              terminalRef.current?.selectAll();
+              terminalRef.current?.focus();
+            }}
+          >
+            Select All
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={copyBuffer}>
+            Copy Terminal Buffer
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   );
 }
