@@ -286,6 +286,16 @@ export function NewTabContent() {
       } else if (event.key === "End") {
         event.preventDefault();
         nextIndex = visibleRepos.length - 1;
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        if (focusedRepoIndex >= 0 && visibleRepos[focusedRepoIndex]) {
+          const repo = visibleRepos[focusedRepoIndex];
+          routeRepository(repo.id, repo.name, {
+            preferredTabId: tabId,
+          }).catch(() => {
+            return;
+          });
+        }
       } else {
         return;
       }
@@ -297,7 +307,7 @@ export function NewTabContent() {
         button?.focus();
       }
     },
-    [visibleRepos, focusedRepoIndex]
+    [visibleRepos, focusedRepoIndex, routeRepository, tabId]
   );
 
   const totalReposLabel =
@@ -308,6 +318,17 @@ export function NewTabContent() {
   const searchStatusMessage = searchQuery
     ? `${filteredRepos.length} ${filteredReposLabel} found for ${searchQuery}`
     : `${openedRepos.length} recent ${totalReposLabel} available`;
+
+  const getOpenRepoButtonLabel = () => {
+    if (isPickingRepo) {
+      return "Opening…";
+    }
+    if (isInitializingRepository) {
+      return "Initializing…";
+    }
+    return "Open repository";
+  };
+  const openRepoButtonLabel = getOpenRepoButtonLabel();
 
   return (
     <div className="fade-in zoom-in-95 flex min-h-full w-full animate-in flex-col items-center justify-start bg-background text-foreground duration-300">
@@ -355,7 +376,7 @@ export function NewTabContent() {
                       className="size-4.5 shrink-0"
                     />
                     <span className="min-w-0 flex-1 truncate font-medium text-sm">
-                      Open repository
+                      {openRepoButtonLabel}
                     </span>
                     <span
                       aria-hidden="true"
@@ -499,11 +520,18 @@ export function NewTabContent() {
               />
             )}
             <div
+              aria-activedescendant={
+                focusedRepoIndex >= 0 && visibleRepos[focusedRepoIndex]
+                  ? `repo-${visibleRepos[focusedRepoIndex]?.id}`
+                  : undefined
+              }
               aria-label={`Recent repositories list, ${searchStatusMessage}`}
               className="flex max-h-80 min-h-0 flex-col gap-1 overflow-y-auto pr-1 [scrollbar-width:thin]"
+              id="recent-repositories-listbox"
               onKeyDown={handleRepoListKeyDown}
               ref={recentListRef}
               role="listbox"
+              tabIndex={0}
             >
               {visibleRepos.length === 0 ? (
                 <div
@@ -520,6 +548,7 @@ export function NewTabContent() {
                 visibleRepos.map((repo, index) => (
                   <div
                     aria-selected={focusedRepoIndex === index}
+                    id={`repo-${repo.id}`}
                     key={repo.id}
                     role="option"
                     tabIndex={-1}
