@@ -1752,7 +1752,7 @@ export function RepoInfo() {
                         </div>
                       ) : (
                         <span className="text-muted-foreground/70 text-xs">
-                          -
+                          <span className="sr-only">No refs</span>
                         </span>
                       )}
                     </div>
