@@ -121,6 +121,22 @@ interface ChangeTreeNode {
 }
 
 type ChangesViewMode = "path" | "tree";
+type SidebarResizeTarget = "left" | "right";
+
+interface SidebarResizeState {
+  startWidth: number;
+  startX: number;
+  target: SidebarResizeTarget;
+}
+
+const LEFT_SIDEBAR_MIN_WIDTH = 220;
+const LEFT_SIDEBAR_MAX_WIDTH = 520;
+const LEFT_SIDEBAR_DEFAULT_WIDTH = 256;
+const RIGHT_SIDEBAR_MIN_WIDTH = 280;
+const RIGHT_SIDEBAR_MAX_WIDTH = 720;
+const RIGHT_SIDEBAR_DEFAULT_WIDTH = 320;
+const HORIZONTAL_RESIZE_HANDLE_WIDTH = 6;
+const MIN_TIMELINE_CONTENT_WIDTH = 560;
 
 const GIT_STATUS_STYLE_BY_CODE: Record<
   string,
@@ -303,6 +319,52 @@ function resolveMonacoLanguage(filePath: string): string {
   return MONACO_LANGUAGE_BY_EXTENSION[extension] ?? "plaintext";
 }
 
+function clampWidth(value: number, min: number, max: number): number {
+  const lowerBound = Math.min(min, max);
+  const upperBound = Math.max(min, max);
+
+  return Math.min(upperBound, Math.max(lowerBound, value));
+}
+
+function getLeftSidebarMaxWidth(
+  viewportWidth: number,
+  rightSidebarWidth: number,
+  hasRightSidebar: boolean
+): number {
+  const rightSectionWidth = hasRightSidebar
+    ? rightSidebarWidth + HORIZONTAL_RESIZE_HANDLE_WIDTH
+    : 0;
+  const availableWidth =
+    viewportWidth -
+    MIN_TIMELINE_CONTENT_WIDTH -
+    HORIZONTAL_RESIZE_HANDLE_WIDTH -
+    rightSectionWidth;
+
+  return clampWidth(
+    availableWidth,
+    LEFT_SIDEBAR_MIN_WIDTH,
+    LEFT_SIDEBAR_MAX_WIDTH
+  );
+}
+
+function getRightSidebarMaxWidth(
+  viewportWidth: number,
+  leftSidebarWidth: number
+): number {
+  const availableWidth =
+    viewportWidth -
+    MIN_TIMELINE_CONTENT_WIDTH -
+    HORIZONTAL_RESIZE_HANDLE_WIDTH -
+    leftSidebarWidth -
+    HORIZONTAL_RESIZE_HANDLE_WIDTH;
+
+  return clampWidth(
+    availableWidth,
+    RIGHT_SIDEBAR_MIN_WIDTH,
+    RIGHT_SIDEBAR_MAX_WIDTH
+  );
+}
+
 export function RepoInfo() {
   const activeRepoId = useRepoStore((state) => state.activeRepoId);
   const openedRepos = useRepoStore((state) => state.openedRepos);
@@ -332,6 +394,12 @@ export function RepoInfo() {
   >({});
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+    LEFT_SIDEBAR_DEFAULT_WIDTH
+  );
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(
+    RIGHT_SIDEBAR_DEFAULT_WIDTH
+  );
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const [isStagingAll, setIsStagingAll] = useState(false);
   const [isUnstagingAll, setIsUnstagingAll] = useState(false);
@@ -378,12 +446,20 @@ export function RepoInfo() {
   const sidebarFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+  const sidebarResizeStateRef = useRef<SidebarResizeState | null>(null);
+  const leftSidebarWidthRef = useRef(LEFT_SIDEBAR_DEFAULT_WIDTH);
+  const rightSidebarWidthRef = useRef(RIGHT_SIDEBAR_DEFAULT_WIDTH);
+  const isRightSidebarOpenRef = useRef(true);
   const [, startSidebarFilterTransition] = useTransition();
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
   const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
   const routeSearch = useSearch({ strict: false });
   const activeTabIdFromUrl =
     typeof routeSearch.tabId === "string" ? routeSearch.tabId : "tab:default";
+
+  leftSidebarWidthRef.current = leftSidebarWidth;
+  rightSidebarWidthRef.current = rightSidebarWidth;
+  isRightSidebarOpenRef.current = isRightSidebarOpen;
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
   const commits = useMemo<RepositoryCommit[]>(
@@ -735,6 +811,109 @@ export function RepoInfo() {
     []
   );
 
+  useEffect(() => {
+    const clampSidebarWidths = () => {
+      const viewportWidth = globalThis.innerWidth;
+      const hasRightSidebar = isRightSidebarOpen;
+      const leftMaxWidth = getLeftSidebarMaxWidth(
+        viewportWidth,
+        rightSidebarWidthRef.current,
+        hasRightSidebar
+      );
+      const nextLeftWidth = clampWidth(
+        leftSidebarWidthRef.current,
+        LEFT_SIDEBAR_MIN_WIDTH,
+        leftMaxWidth
+      );
+
+      if (nextLeftWidth !== leftSidebarWidthRef.current) {
+        setLeftSidebarWidth(nextLeftWidth);
+      }
+
+      const rightMaxWidth = getRightSidebarMaxWidth(
+        viewportWidth,
+        nextLeftWidth
+      );
+      const nextRightWidth = clampWidth(
+        rightSidebarWidthRef.current,
+        RIGHT_SIDEBAR_MIN_WIDTH,
+        rightMaxWidth
+      );
+
+      if (nextRightWidth !== rightSidebarWidthRef.current) {
+        setRightSidebarWidth(nextRightWidth);
+      }
+    };
+
+    clampSidebarWidths();
+    globalThis.addEventListener("resize", clampSidebarWidths);
+
+    return () => {
+      globalThis.removeEventListener("resize", clampSidebarWidths);
+    };
+  }, [isRightSidebarOpen]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: MouseEvent) => {
+      const resizeState = sidebarResizeStateRef.current;
+
+      if (!resizeState) {
+        return;
+      }
+
+      const delta = event.clientX - resizeState.startX;
+      const viewportWidth = globalThis.innerWidth;
+
+      if (resizeState.target === "left") {
+        const leftMaxWidth = getLeftSidebarMaxWidth(
+          viewportWidth,
+          rightSidebarWidthRef.current,
+          isRightSidebarOpenRef.current
+        );
+        setLeftSidebarWidth(
+          clampWidth(
+            resizeState.startWidth + delta,
+            LEFT_SIDEBAR_MIN_WIDTH,
+            leftMaxWidth
+          )
+        );
+        return;
+      }
+
+      const rightMaxWidth = getRightSidebarMaxWidth(
+        viewportWidth,
+        leftSidebarWidthRef.current
+      );
+      setRightSidebarWidth(
+        clampWidth(
+          resizeState.startWidth - delta,
+          RIGHT_SIDEBAR_MIN_WIDTH,
+          rightMaxWidth
+        )
+      );
+    };
+
+    const handlePointerUp = () => {
+      if (!sidebarResizeStateRef.current) {
+        return;
+      }
+
+      sidebarResizeStateRef.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+
+    globalThis.addEventListener("mousemove", handlePointerMove);
+    globalThis.addEventListener("mouseup", handlePointerUp);
+
+    return () => {
+      globalThis.removeEventListener("mousemove", handlePointerMove);
+      globalThis.removeEventListener("mouseup", handlePointerUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, []);
+
   const scheduleSidebarFilterUpdate = (nextValue: string) => {
     if (sidebarFilterDebounceRef.current !== null) {
       globalThis.clearTimeout(sidebarFilterDebounceRef.current);
@@ -757,6 +936,22 @@ export function RepoInfo() {
     setSidebarFilterInputValue("");
     setSidebarFilterQuery("");
   };
+
+  const startSidebarResize =
+    (target: SidebarResizeTarget) =>
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      sidebarResizeStateRef.current = {
+        startWidth: target === "left" ? leftSidebarWidth : rightSidebarWidth,
+        startX: event.clientX,
+        target,
+      };
+
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    };
 
   const preventLeftClickInMenus = (event: React.MouseEvent) => {
     if (event.button === 0) {
@@ -2154,7 +2349,10 @@ export function RepoInfo() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Sidebar className="w-64">
+        <Sidebar
+          className="shrink-0"
+          style={{ width: `${leftSidebarWidth}px` }}
+        >
           <SidebarHeader>
             <p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.16em]">
               Repository
@@ -2355,6 +2553,12 @@ export function RepoInfo() {
             ))}
           </SidebarContent>
         </Sidebar>
+        <button
+          aria-label="Resize left sidebar"
+          className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent hover:bg-accent/30"
+          onMouseDown={startSidebarResize("left")}
+          type="button"
+        />
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="grid w-full grid-cols-[minmax(0,14rem)_minmax(0,1fr)] items-center gap-2 border-border/60 border-b bg-background px-3 py-1.5 text-foreground">
@@ -2825,11 +3029,21 @@ export function RepoInfo() {
               ) : null}
             </section>
 
+            {isRightSidebarOpen ? (
+              <button
+                aria-label="Resize right sidebar"
+                className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-l bg-transparent hover:bg-accent/30"
+                onMouseDown={startSidebarResize("right")}
+                type="button"
+              />
+            ) : null}
+
             <aside
               className={cn(
-                "flex h-full w-80 shrink-0 flex-col overflow-hidden border-border/70 border-l bg-muted/20",
+                "flex h-full shrink-0 flex-col overflow-hidden border-border/70 border-l bg-muted/20",
                 !isRightSidebarOpen && "hidden"
               )}
+              style={{ width: `${rightSidebarWidth}px` }}
             >
               {!isWorkingTreeSelection && selectedCommit ? (
                 <>
