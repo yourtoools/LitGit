@@ -1,13 +1,3 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@litgit/ui/components/alert-dialog";
 import { Button } from "@litgit/ui/components/button";
 import {
   Tooltip,
@@ -52,7 +42,6 @@ export function TabItem({
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
   const [isCloseButtonHovered, setIsCloseButtonHovered] = useState(false);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const repoPath = useRepoStore((state) => {
     if (!tab.repoId) {
       return null;
@@ -171,63 +160,33 @@ export function TabItem({
         </TooltipContent>
       </Tooltip>
 
-      <AlertDialog onOpenChange={setShowConfirmDialog} open={showConfirmDialog}>
-        <Button
-          aria-label={isLoading ? `Loading ${tabLabel}` : `Close ${tabLabel}`}
-          className={cn(
-            "absolute right-1 size-4 rounded-sm border border-transparent p-0 transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/70",
-            showCloseButton
-              ? "pointer-events-auto opacity-100 hover:border-border/70 hover:bg-background/80"
-              : "pointer-events-none opacity-0"
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isLoading) {
-              setShowConfirmDialog(true);
-            } else {
-              onClose(tab.id);
-            }
-          }}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-          }}
-          onPointerEnter={() => setIsCloseButtonHovered(true)}
-          onPointerLeave={() => setIsCloseButtonHovered(false)}
-          tabIndex={showCloseButton ? 0 : -1}
-          type="button"
-          variant="ghost"
-        >
-          {isLoading && !isCloseButtonHovered ? (
-            <SpinnerGapIcon
-              aria-hidden="true"
-              className="size-3 animate-spin"
-            />
-          ) : (
-            <XIcon aria-hidden="true" className="size-3" />
-          )}
-        </Button>
-
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Close tab while loading</AlertDialogTitle>
-            <AlertDialogDescription>
-              This tab is still loading. Closing it now will stop loading and
-              close the tab immediately.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                onClose(tab.id);
-                setShowConfirmDialog(false);
-              }}
-            >
-              Close tab
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Button
+        aria-label={isLoading ? `Loading ${tabLabel}` : `Close ${tabLabel}`}
+        className={cn(
+          "absolute right-1 size-4 rounded-sm border border-transparent p-0 transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/70",
+          showCloseButton
+            ? "pointer-events-auto opacity-100 hover:border-border/70 hover:bg-background/80"
+            : "pointer-events-none opacity-0"
+        )}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose(tab.id);
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+        }}
+        onPointerEnter={() => setIsCloseButtonHovered(true)}
+        onPointerLeave={() => setIsCloseButtonHovered(false)}
+        tabIndex={showCloseButton ? 0 : -1}
+        type="button"
+        variant="ghost"
+      >
+        {isLoading && !isCloseButtonHovered ? (
+          <SpinnerGapIcon aria-hidden="true" className="size-3 animate-spin" />
+        ) : (
+          <XIcon aria-hidden="true" className="size-3" />
+        )}
+      </Button>
     </div>
   );
 }

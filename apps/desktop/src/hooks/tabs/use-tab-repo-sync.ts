@@ -3,6 +3,35 @@ import { toast } from "sonner";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 
+async function refreshActiveTab(
+  setActiveRepo: ReturnType<typeof useRepoStore.getState>["setActiveRepo"],
+  refreshOpenedRepositories: ReturnType<
+    typeof useRepoStore.getState
+  >["refreshOpenedRepositories"]
+) {
+  await refreshOpenedRepositories();
+
+  const tabState = useTabStore.getState();
+  const activeTab = tabState.tabs.find(
+    (tab) => tab.id === tabState.activeTabId
+  );
+  const activeTabRepoId = activeTab?.repoId ?? null;
+
+  if (!activeTabRepoId) {
+    return;
+  }
+
+  const repoStillExists = useRepoStore
+    .getState()
+    .openedRepos.some((repo) => repo.id === activeTabRepoId);
+
+  if (!repoStillExists) {
+    return;
+  }
+
+  await setActiveRepo(activeTabRepoId, { forceRefresh: true });
+}
+
 export function useTabRepoSync() {
   const clearActiveRepo = useRepoStore((state) => state.clearActiveRepo);
   const openedRepos = useRepoStore((state) => state.openedRepos);
@@ -40,29 +69,13 @@ export function useTabRepoSync() {
 
       if (didTabChange) {
         setActiveRepo(activeTabRepoId, { forceRefresh: true }).catch(
-          (error: unknown) => {
-            if (import.meta.env.DEV) {
-              toast.error(
-                error instanceof Error
-                  ? error.message
-                  : "Failed to refresh active repository"
-              );
-            }
-          }
+          () => undefined
         );
         return;
       }
 
       if (activeRepoId !== activeTabRepoId) {
-        setActiveRepo(activeTabRepoId).catch((error: unknown) => {
-          if (import.meta.env.DEV) {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : "Failed to sync active repository"
-            );
-          }
-        });
+        setActiveRepo(activeTabRepoId).catch(() => undefined);
       }
 
       return;
@@ -72,15 +85,7 @@ export function useTabRepoSync() {
       clearActiveRepo();
     }
 
-    refreshOpenedRepositories().catch((error: unknown) => {
-      if (import.meta.env.DEV) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to refresh recent repositories"
-        );
-      }
-    });
+    refreshOpenedRepositories().catch(() => undefined);
   }, [
     activeTabId,
     activeTabRepoId,
@@ -103,13 +108,25 @@ export function useTabRepoSync() {
 
     if (removedRepoIds.length > 0) {
       const removedRepoIdSet = new Set(removedRepoIds);
+      const removedRepoNames = prevOpenedRepos.current
+        .filter((repo) => removedRepoIdSet.has(repo.id))
+        .map((repo) => repo.name);
       const currentTabState = useTabStore.getState();
-      const tabsToUnlink = currentTabState.tabs.filter(
+      const tabsToClose = currentTabState.tabs.filter(
         (tab) => tab.repoId && removedRepoIdSet.has(tab.repoId)
       );
 
-      for (const tab of tabsToUnlink) {
-        currentTabState.unlinkTabFromRepo(tab.id);
+      if (tabsToClose.length > 0) {
+        const closedCount = currentTabState.closeTabsForDeletedRepos(
+          tabsToClose.map((tab) => tab.id)
+        );
+
+        if (closedCount > 0) {
+          const repoLabel = removedRepoNames.join(", ");
+          toast.error(
+            `Repository "${repoLabel}" has been deleted. The tab has been closed.`
+          );
+        }
       }
     }
 
@@ -142,6 +159,37 @@ export function useTabRepoSync() {
 
     prevOpenedRepos.current = openedRepos;
   }, [openedRepos]);
+
+  useEffect(() => {
+    let unlistenTauriFocus: (() => void) | null = null;
+
+    const setupTauriFocusListener = async () => {
+      const { isTauri } = await import("@tauri-apps/api/core");
+
+      if (!isTauri()) {
+        return;
+      }
+
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const appWindow = getCurrentWindow();
+
+      unlistenTauriFocus = await appWindow.onFocusChanged(({ payload }) => {
+        if (!payload) {
+          return;
+        }
+
+        refreshActiveTab(setActiveRepo, refreshOpenedRepositories).catch(
+          () => undefined
+        );
+      });
+    };
+
+    setupTauriFocusListener().catch(() => undefined);
+
+    return () => {
+      unlistenTauriFocus?.();
+    };
+  }, [refreshOpenedRepositories, setActiveRepo]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {

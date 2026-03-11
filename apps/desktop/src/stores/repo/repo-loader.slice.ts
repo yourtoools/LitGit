@@ -202,8 +202,22 @@ export const createRepoLoaderSlice = (
         cacheState.hasWipItems
       );
 
+      const repoStillExists = get().openedRepos.some((repo) => repo.id === id);
+
+      if (!repoStillExists) {
+        return;
+      }
+
       applyRepoPayloads(set, id, result);
       notifyRepoLoadErrors(result);
+    } catch (error) {
+      const repoStillExists = get().openedRepos.some((repo) => repo.id === id);
+
+      if (!repoStillExists) {
+        return;
+      }
+
+      toast.error(resolveErrorMessage(error, "Failed to load repository data"));
     } finally {
       clearRepoLoadingFlags(set);
     }

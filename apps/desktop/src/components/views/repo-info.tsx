@@ -507,7 +507,10 @@ export function RepoInfo() {
   const repoWorkingTreeItems = useRepoStore(
     (state) => state.repoWorkingTreeItems
   );
+  const isLoadingBranches = useRepoStore((state) => state.isLoadingBranches);
   const isLoadingHistory = useRepoStore((state) => state.isLoadingHistory);
+  const isLoadingStatus = useRepoStore((state) => state.isLoadingStatus);
+  const isLoadingWip = useRepoStore((state) => state.isLoadingWip);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
   const popStash = useRepoStore((state) => state.popStash);
@@ -596,9 +599,18 @@ export function RepoInfo() {
   const [sidebarFilterInputValue, setSidebarFilterInputValue] = useState("");
   const [sidebarFilterQuery, setSidebarFilterQuery] = useState("");
   const sidebarFilterInputRef = useRef<HTMLInputElement | null>(null);
+  const mainScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const sidebarFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+  const pendingMainScrollRestoreRef = useRef<{
+    repoId: string;
+    scrollTop: number;
+    tabId: string;
+  } | null>(null);
+  const isRepoRefreshLoading =
+    isLoadingBranches || isLoadingHistory || isLoadingStatus || isLoadingWip;
+  const wasRepoRefreshLoadingRef = useRef(isRepoRefreshLoading);
   const sidebarResizeStateRef = useRef<SidebarResizeState | null>(null);
   const leftSidebarWidthRef = useRef(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const rightSidebarWidthRef = useRef(RIGHT_SIDEBAR_DEFAULT_WIDTH);
@@ -1058,6 +1070,52 @@ export function RepoInfo() {
     isWorkingTreeSelection,
     selectedCommit,
   ]);
+
+  useEffect(() => {
+    if (activeRepoId === null) {
+      pendingMainScrollRestoreRef.current = null;
+      wasRepoRefreshLoadingRef.current = isRepoRefreshLoading;
+      return;
+    }
+
+    const wasRepoRefreshLoading = wasRepoRefreshLoadingRef.current;
+
+    if (!wasRepoRefreshLoading && isRepoRefreshLoading) {
+      const mainScrollContainer = mainScrollContainerRef.current;
+
+      pendingMainScrollRestoreRef.current = mainScrollContainer
+        ? {
+            repoId: activeRepoId,
+            scrollTop: mainScrollContainer.scrollTop,
+            tabId: activeTabIdFromUrl,
+          }
+        : null;
+    }
+
+    if (wasRepoRefreshLoading && !isRepoRefreshLoading) {
+      const pendingMainScrollRestore = pendingMainScrollRestoreRef.current;
+
+      if (
+        pendingMainScrollRestore &&
+        pendingMainScrollRestore.repoId === activeRepoId &&
+        pendingMainScrollRestore.tabId === activeTabIdFromUrl
+      ) {
+        globalThis.requestAnimationFrame(() => {
+          const mainScroller = mainScrollContainerRef.current;
+
+          if (!mainScroller) {
+            return;
+          }
+
+          mainScroller.scrollTop = pendingMainScrollRestore.scrollTop;
+        });
+      }
+
+      pendingMainScrollRestoreRef.current = null;
+    }
+
+    wasRepoRefreshLoadingRef.current = isRepoRefreshLoading;
+  }, [activeRepoId, activeTabIdFromUrl, isRepoRefreshLoading]);
 
   useEffect(() => {
     const handleFocusSidebarFilter = (event: KeyboardEvent) => {
@@ -3429,6 +3487,7 @@ export function RepoInfo() {
                   "relative min-h-0 flex-1 overflow-y-auto",
                   isTerminalPanelOpen && "pb-52"
                 )}
+                ref={mainScrollContainerRef}
               >
                 {hasAnyWorkingTreeChanges ? (
                   <button

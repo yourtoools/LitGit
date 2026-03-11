@@ -32,6 +32,7 @@ export interface TabStoreState {
   closeGroup: (groupId: string) => void;
   closeOtherTabs: (id: string) => void;
   closeTab: (id: string) => void;
+  closeTabsForDeletedRepos: (tabIds: string[]) => number;
   closeTabsToRight: (id: string) => void;
   createGroup: (tabIds: string[], name?: string) => void;
   dismissEmptyGroupPrompt: () => void;

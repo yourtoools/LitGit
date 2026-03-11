@@ -57,6 +57,9 @@ export function NewTabContent() {
   const openRepository = useRepoStore((state) => state.openRepository);
   const openedRepos = useRepoStore((state) => state.openedRepos);
   const isPickingRepo = useRepoStore((state) => state.isPickingRepo);
+  const isRefreshingOpenedRepos = useRepoStore(
+    (state) => state.isRefreshingOpenedRepos
+  );
   const { routeRepository } = useOpenRepositoryTabRouting();
   const { activeTabId } = useTabUrlState();
   const resetSettingsSearch = usePreferencesStore(
@@ -85,7 +88,9 @@ export function NewTabContent() {
   const searchShortcutAria = getPrimaryShortcutAria("k");
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
-  const filteredRepos = openedRepos.filter(
+  const recentRepos = useMemo(() => [...openedRepos].reverse(), [openedRepos]);
+
+  const filteredRepos = recentRepos.filter(
     (repo) =>
       repo.name.toLowerCase().includes(normalizedSearchQuery) ||
       repo.path.toLowerCase().includes(normalizedSearchQuery)
@@ -208,6 +213,23 @@ export function NewTabContent() {
         maxScrollTop > 0
     );
   }, []);
+
+  const wasRefreshingOpenedReposRef = useRef(isRefreshingOpenedRepos);
+
+  useEffect(() => {
+    const wasRefreshingOpenedRepos = wasRefreshingOpenedReposRef.current;
+
+    if (
+      wasRefreshingOpenedRepos &&
+      !isRefreshingOpenedRepos &&
+      recentListRef.current
+    ) {
+      recentListRef.current.scrollTop = 0;
+      updateRecentListFades();
+    }
+
+    wasRefreshingOpenedReposRef.current = isRefreshingOpenedRepos;
+  }, [isRefreshingOpenedRepos, updateRecentListFades]);
 
   useEffect(() => {
     const recentList = recentListRef.current;
