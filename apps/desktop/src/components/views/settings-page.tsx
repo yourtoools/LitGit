@@ -180,8 +180,8 @@ const RUNTIME_THEME_OPTIONS = {
 const AI_ENDPOINT_PLACEHOLDERS: Record<string, string> = {
   anthropic: "https://api.anthropic.com/v1",
   azure:
-    "https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT",
-  custom: "https://api.example.com/v1",
+    "https://<resource-name>.openai.azure.com/openai/deployments/<deployment-name>",
+  custom: "https://localhost:8000/v1",
   google: "https://generativelanguage.googleapis.com/v1beta",
   ollama: "http://localhost:11434/v1",
   openai: "https://api.openai.com/v1",
@@ -2127,9 +2127,15 @@ function AiSection({ query }: { query: string }) {
   const customEndpoint = usePreferencesStore(
     (state) => state.ai.customEndpoint
   );
+  const maxInputTokens = usePreferencesStore(
+    (state) => state.ai.maxInputTokens
+  );
   const provider = usePreferencesStore((state) => state.ai.provider);
   const setAiCustomEndpoint = usePreferencesStore(
     (state) => state.setAiCustomEndpoint
+  );
+  const setAiMaxInputTokens = usePreferencesStore(
+    (state) => state.setAiMaxInputTokens
   );
   const setAiProvider = usePreferencesStore((state) => state.setAiProvider);
   const [aiSecretInput, setAiSecretInput] = useState("");
@@ -2147,6 +2153,7 @@ function AiSection({ query }: { query: string }) {
       .finally(() => {
         setAiProvider(DEFAULT_PREFERENCES.ai.provider);
         setAiCustomEndpoint(DEFAULT_PREFERENCES.ai.customEndpoint);
+        setAiMaxInputTokens(DEFAULT_PREFERENCES.ai.maxInputTokens);
         setAiSecretInput("");
         setAiSecretStatus({
           hasStoredValue: false,
@@ -2225,6 +2232,22 @@ function AiSection({ query }: { query: string }) {
           value={customEndpoint}
         />
       </SettingsField>
+      {provider === "custom" ? (
+        <SettingsField
+          description="Set the maximum input tokens for requests sent to your custom AI provider."
+          label="Max input tokens"
+          query={query}
+        >
+          <Input
+            min={1}
+            onChange={(event) => {
+              setAiMaxInputTokens(Number(event.target.value) || 1);
+            }}
+            type="number"
+            value={maxInputTokens}
+          />
+        </SettingsField>
+      ) : null}
       <SettingsField
         description="Secrets are saved in the desktop backend and only metadata comes back to the renderer."
         label="API key storage"

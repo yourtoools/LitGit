@@ -84,6 +84,7 @@ export interface NetworkPreferences {
 
 export interface AiPreferences {
   customEndpoint: string;
+  maxInputTokens: number;
   provider: "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom";
 }
 
@@ -164,10 +165,19 @@ export const clampTerminalLineHeight = (value: number): number => {
   return Math.min(2, Math.max(1, value));
 };
 
+export const clampAiMaxInputTokens = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return 4096;
+  }
+
+  return Math.min(1_000_000, Math.max(1, Math.round(value)));
+};
+
 export const DEFAULT_PREFERENCES: AppPreferences = {
   ai: {
     provider: "openai",
     customEndpoint: "",
+    maxInputTokens: 4096,
   },
   editor: {
     eol: "system",

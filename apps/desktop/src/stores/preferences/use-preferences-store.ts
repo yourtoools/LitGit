@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   type AppPreferences,
+  clampAiMaxInputTokens,
   clampAutoFetchInterval,
   clampEditorFontSize,
   clampEditorTabSize,
@@ -21,6 +22,7 @@ import { TAB_STORE_KEY } from "@/stores/tabs/tab-store.helpers";
 interface PreferencesStoreState extends AppPreferences {
   resetSettingsSearch: () => void;
   setAiCustomEndpoint: (customEndpoint: string) => void;
+  setAiMaxInputTokens: (maxInputTokens: number) => void;
   setAiProvider: (provider: AppPreferences["ai"]["provider"]) => void;
   setAutoFetchIntervalMinutes: (minutes: number) => void;
   setDateFormat: (dateFormat: DateFormatPreset) => void;
@@ -105,6 +107,14 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
           ai: {
             ...state.ai,
             customEndpoint,
+          },
+        }));
+      },
+      setAiMaxInputTokens: (maxInputTokens) => {
+        set((state) => ({
+          ai: {
+            ...state.ai,
+            maxInputTokens: clampAiMaxInputTokens(maxInputTokens),
           },
         }));
       },
