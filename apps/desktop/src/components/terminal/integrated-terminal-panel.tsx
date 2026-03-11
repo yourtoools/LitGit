@@ -30,7 +30,6 @@ import {
   resizeTerminalSession,
   writeTerminalSession,
 } from "@/lib/tauri-terminal-client";
-import type { AppPreferences } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import {
   terminalPanelHeightLimits,
@@ -96,17 +95,6 @@ const resolveThemeColor = (
   return resolved || fallback;
 };
 
-const resolveTerminalThemeMode = (
-  preference: AppPreferences["terminal"]["theme"],
-  resolvedAppTheme: string | undefined
-) => {
-  if (preference === "light" || preference === "dark") {
-    return preference;
-  }
-
-  return resolvedAppTheme === "light" ? "light" : "dark";
-};
-
 const createTerminalTheme = (mode: "light" | "dark") => {
   if (typeof document === "undefined") {
     return {
@@ -155,9 +143,7 @@ export function IntegratedTerminalPanel({
   );
   const fontFamily = usePreferencesStore((state) => state.terminal.fontFamily);
   const fontSize = usePreferencesStore((state) => state.terminal.fontSize);
-  const terminalThemePreference = usePreferencesStore(
-    (state) => state.terminal.theme
-  );
+
   const lineHeight = usePreferencesStore((state) => state.terminal.lineHeight);
   const { resolvedTheme } = useTheme();
   const [isReady, setIsReady] = useState(false);
@@ -177,7 +163,7 @@ export function IntegratedTerminalPanel({
     }
 
     const terminalTheme = createTerminalTheme(
-      resolveTerminalThemeMode(terminalThemePreference, resolvedTheme)
+      resolvedTheme === "light" ? "light" : "dark"
     );
 
     const terminal = new Terminal({
@@ -313,7 +299,6 @@ export function IntegratedTerminalPanel({
     fontSize,
     lineHeight,
     resolvedTheme,
-    terminalThemePreference,
   ]);
 
   useEffect(() => {
@@ -342,17 +327,10 @@ export function IntegratedTerminalPanel({
     terminal.options.fontSize = fontSize;
     terminal.options.lineHeight = lineHeight;
     terminal.options.theme = createTerminalTheme(
-      resolveTerminalThemeMode(terminalThemePreference, resolvedTheme)
+      resolvedTheme === "light" ? "light" : "dark"
     );
     terminal.refresh(0, terminal.rows - 1);
-  }, [
-    cursorStyle,
-    fontFamily,
-    fontSize,
-    lineHeight,
-    resolvedTheme,
-    terminalThemePreference,
-  ]);
+  }, [cursorStyle, fontFamily, fontSize, lineHeight, resolvedTheme]);
 
   const onStartResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();

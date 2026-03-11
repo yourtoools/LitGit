@@ -171,12 +171,6 @@ const AI_PROVIDER_OPTIONS = {
   openai: "OpenAI",
 } as const;
 
-const RUNTIME_THEME_OPTIONS = {
-  dark: "Dark",
-  "follow-app": "Follow app",
-  light: "Light",
-} as const;
-
 const AI_ENDPOINT_PLACEHOLDERS: Record<string, string> = {
   anthropic: "https://api.anthropic.com/v1",
   azure:
@@ -930,7 +924,6 @@ function TerminalSection({ query }: { query: string }) {
     (state) => state.terminal.fontVisibility
   );
   const lineHeight = usePreferencesStore((state) => state.terminal.lineHeight);
-  const theme = usePreferencesStore((state) => state.terminal.theme);
   const setCursorStyle = usePreferencesStore(
     (state) => state.setTerminalCursorStyle
   );
@@ -943,9 +936,6 @@ function TerminalSection({ query }: { query: string }) {
   );
   const setLineHeight = usePreferencesStore(
     (state) => state.setTerminalLineHeight
-  );
-  const setThemePreference = usePreferencesStore(
-    (state) => state.setTerminalThemePreference
   );
   const [systemTerminalFonts, setSystemTerminalFonts] = useState<
     readonly FontPickerOption[]
@@ -995,54 +985,6 @@ function TerminalSection({ query }: { query: string }) {
 
   return (
     <div className="grid gap-4">
-      <SettingsField
-        description="Follow the system theme by default, or pin the terminal to a light or dark appearance."
-        label="Terminal theme"
-        query={query}
-      >
-        <Select
-          items={RUNTIME_THEME_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setThemePreference(value as "follow-app" | "light" | "dark");
-            }
-          }}
-          value={theme}
-        >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="follow-app">
-              <span className="flex items-center justify-between gap-3">
-                <span>Follow system</span>
-                <span className="flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-zinc-200 ring-1 ring-black/10 dark:bg-zinc-800" />
-                  <span className="size-2 rounded-full bg-zinc-900 ring-1 ring-white/10 dark:bg-zinc-100" />
-                </span>
-              </span>
-            </SelectItem>
-            <SelectItem value="light">
-              <span className="flex items-center justify-between gap-3">
-                <span>Light</span>
-                <span className="flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-zinc-200 ring-1 ring-black/10" />
-                  <span className="size-2 rounded-full bg-zinc-900 ring-1 ring-black/10" />
-                </span>
-              </span>
-            </SelectItem>
-            <SelectItem value="dark">
-              <span className="flex items-center justify-between gap-3">
-                <span>Dark</span>
-                <span className="flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-zinc-800 ring-1 ring-white/10" />
-                  <span className="size-2 rounded-full bg-zinc-100 ring-1 ring-white/10" />
-                </span>
-              </span>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </SettingsField>
       <FontPickerField
         description="Search installed terminal fonts and bundled fallbacks, then optionally filter to monospace only."
         emptyMessage={
@@ -1950,32 +1892,6 @@ function EditorSection({ query }: { query: string }) {
 
   return (
     <div className="grid gap-4">
-      <SettingsField
-        description="Follow the app theme by default, or pin Monaco to a fixed light or dark theme."
-        label="Editor theme"
-        query={query}
-      >
-        <Select
-          items={RUNTIME_THEME_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setEditorPreferences({
-                theme: value as "follow-app" | "light" | "dark",
-              });
-            }
-          }}
-          value={editor.theme}
-        >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="follow-app">Follow app</SelectItem>
-            <SelectItem value="light">Light</SelectItem>
-            <SelectItem value="dark">Dark</SelectItem>
-          </SelectContent>
-        </Select>
-      </SettingsField>
       <FontPickerField
         description="Search installed editor fonts and bundled fallbacks, then optionally filter to monospace only."
         emptyMessage={

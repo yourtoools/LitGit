@@ -1,7 +1,7 @@
 export const PREFERENCES_STORAGE_KEY = "litgit-preferences-store";
 
 export type ThemePreference = "light" | "dark" | "system";
-export type RuntimeSurfaceThemePreference = "follow-app" | "light" | "dark";
+
 export type ToasterPosition =
   | "top-left"
   | "top-center"
@@ -41,7 +41,6 @@ export interface TerminalPreferences {
   fontSize: number;
   fontVisibility: "monospace-only" | "all-fonts";
   lineHeight: number;
-  theme: RuntimeSurfaceThemePreference;
 }
 
 export interface EditorPreferences {
@@ -52,7 +51,6 @@ export interface EditorPreferences {
   lineNumbers: "on" | "off";
   syntaxHighlighting: boolean;
   tabSize: number;
-  theme: RuntimeSurfaceThemePreference;
   wordWrap: "off" | "on";
 }
 
@@ -187,7 +185,6 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     lineNumbers: "on",
     tabSize: 2,
     syntaxHighlighting: true,
-    theme: "follow-app",
     wordWrap: "off",
   },
   general: {
@@ -229,7 +226,6 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     fontVisibility: "monospace-only",
     fontSize: 12,
     lineHeight: 1,
-    theme: "follow-app",
   },
   ui: {
     dateFormat: "compact",

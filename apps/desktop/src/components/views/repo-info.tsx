@@ -372,17 +372,6 @@ const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
   yml: "yaml",
 };
 
-const resolveRuntimeSurfaceTheme = (
-  preference: "follow-app" | "light" | "dark",
-  resolvedTheme: string | undefined
-) => {
-  if (preference === "light" || preference === "dark") {
-    return preference;
-  }
-
-  return resolvedTheme === "light" ? "light" : "dark";
-};
-
 const resolveSystemMonacoEol = (): MonacoEditor.EndOfLineSequence => {
   if (getRuntimePlatform() === "windows") {
     return 1;
@@ -3658,14 +3647,7 @@ export function RepoInfo() {
                         openedDiff?.oldText ?? openedCommitDiff?.oldText ?? ""
                       }
                       originalModelPath={undefined}
-                      theme={
-                        resolveRuntimeSurfaceTheme(
-                          editorPreferences.theme,
-                          resolvedTheme
-                        ) === "light"
-                          ? "vs"
-                          : "vs-dark"
-                      }
+                      theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
                     />
                   </div>
                 </div>

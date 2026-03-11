@@ -35,7 +35,6 @@ interface PreferencesStoreState extends AppPreferences {
     lineNumbers?: AppPreferences["editor"]["lineNumbers"];
     syntaxHighlighting?: boolean;
     tabSize?: number;
-    theme?: AppPreferences["editor"]["theme"];
     wordWrap?: AppPreferences["editor"]["wordWrap"];
   }) => void;
   setLastNonSettingsRoute: (route: string | null) => void;
@@ -74,9 +73,6 @@ interface PreferencesStoreState extends AppPreferences {
     fontVisibility: AppPreferences["terminal"]["fontVisibility"]
   ) => void;
   setTerminalLineHeight: (lineHeight: number) => void;
-  setTerminalThemePreference: (
-    theme: AppPreferences["terminal"]["theme"]
-  ) => void;
   setThemePreference: (theme: ThemePreference) => void;
   setToasterPosition: (position: ToasterPosition) => void;
   setToolbarLabels: (toolbarLabels: boolean) => void;
@@ -293,14 +289,6 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
           terminal: {
             ...state.terminal,
             lineHeight: clampTerminalLineHeight(lineHeight),
-          },
-        }));
-      },
-      setTerminalThemePreference: (theme) => {
-        set((state) => ({
-          terminal: {
-            ...state.terminal,
-            theme,
           },
         }));
       },
