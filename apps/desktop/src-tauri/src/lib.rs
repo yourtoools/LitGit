@@ -897,6 +897,33 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
 }
 
 #[tauri::command]
+fn get_repository_remote_names(repo_path: String) -> Result<Vec<String>, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "remote"])
+        .output()
+        .map_err(|error| format!("Failed to run git remote: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to read repository remotes",
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let remote_names = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|remote_name| !remote_name.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+
+    Ok(remote_names)
+}
+
+#[tauri::command]
 fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -3002,6 +3029,7 @@ pub fn run() {
             create_repository_initial_commit,
             get_repository_history,
             get_repository_branches,
+            get_repository_remote_names,
             get_repository_stashes,
             switch_repository_branch,
             pull_repository_action,
