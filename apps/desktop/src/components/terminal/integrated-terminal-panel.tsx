@@ -400,6 +400,7 @@ export function IntegratedTerminalPanel({
         "absolute right-0 bottom-0 left-0 z-40 transform-gpu border-border/70 border-t bg-background shadow-[0_-10px_24px_hsl(var(--foreground)/0.07)] transition-transform duration-250 ease-out will-change-transform",
         isOpen ? "translate-y-0" : "pointer-events-none translate-y-full"
       )}
+      data-integrated-terminal-panel="true"
       ref={panelRef}
       style={{ height }}
     >

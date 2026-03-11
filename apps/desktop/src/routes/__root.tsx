@@ -51,6 +51,14 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   }),
 });
 
+const isTerminalPanelTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return Boolean(target.closest("[data-integrated-terminal-panel='true']"));
+};
+
 function RootComponent() {
   const toasterPosition = usePreferencesStore(
     (state) => state.ui.toasterPosition
@@ -164,7 +172,10 @@ function RootPreferenceEffects() {
     }
 
     const handleToggleTerminalShortcut = (event: KeyboardEvent) => {
-      if (event.repeat || isEditableTarget(event.target)) {
+      if (
+        event.repeat ||
+        (isEditableTarget(event.target) && !isTerminalPanelTarget(event.target))
+      ) {
         return;
       }
 
