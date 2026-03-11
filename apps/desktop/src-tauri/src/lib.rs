@@ -157,6 +157,12 @@ struct SigningKeyInfo {
     r#type: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemFontFamily {
+    family: String,
+}
+
 #[derive(Clone)]
 struct StoredSecretValue {
     storage_mode: String,
@@ -388,6 +394,30 @@ fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
     }
 
     Ok(keys)
+}
+
+#[tauri::command]
+fn list_system_font_families() -> Result<Vec<SystemFontFamily>, String> {
+    let mut database = fontdb::Database::new();
+    database.load_system_fonts();
+
+    let families = database
+        .faces()
+        .flat_map(|face| face.families.iter())
+        .map(|(family, _language)| family.trim())
+        .filter(|family| !family.is_empty())
+        .collect::<HashSet<_>>();
+
+    let mut font_families = families
+        .into_iter()
+        .map(|family| SystemFontFamily {
+            family: family.to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    font_families.sort_by(|left, right| left.family.cmp(&right.family));
+
+    Ok(font_families)
 }
 
 #[tauri::command]
@@ -2950,6 +2980,7 @@ pub fn run() {
             pick_settings_file,
             generate_ssh_keypair,
             list_signing_keys,
+            list_system_font_families,
             create_local_repository,
             clone_git_repository,
             validate_opened_repositories,

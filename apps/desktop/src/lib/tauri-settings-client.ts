@@ -39,6 +39,10 @@ interface SigningKeyInfo {
   type: "gpg" | "ssh";
 }
 
+interface SystemFontFamily {
+  family: string;
+}
+
 const parseRecord = (value: unknown, errorMessage: string) => {
   if (typeof value !== "object" || value === null) {
     throw new Error(errorMessage);
@@ -388,4 +392,32 @@ export const listSigningKeys = async (): Promise<SigningKeyInfo[]> => {
       type: parsed.type,
     } satisfies SigningKeyInfo;
   });
+};
+
+export const listSystemFontFamilies = async (): Promise<string[]> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    return [];
+  }
+
+  const result = await invoke("list_system_font_families");
+
+  if (!Array.isArray(result)) {
+    throw new Error("Invalid system font payload");
+  }
+
+  return result
+    .map((entry) => {
+      const parsed = parseRecord(entry, "Invalid system font payload");
+
+      if (typeof parsed.family !== "string") {
+        throw new Error("Invalid system font payload");
+      }
+
+      return {
+        family: parsed.family,
+      } satisfies SystemFontFamily;
+    })
+    .map((entry) => entry.family);
 };

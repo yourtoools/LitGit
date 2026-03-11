@@ -1,11 +1,4 @@
 import { Button } from "@litgit/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@litgit/ui/components/card";
 import { Checkbox } from "@litgit/ui/components/checkbox";
 import {
   Combobox,
@@ -24,13 +17,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@litgit/ui/components/select";
-import { Separator } from "@litgit/ui/components/separator";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+} from "@litgit/ui/components/sidebar";
 import { Switch } from "@litgit/ui/components/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
 import {
-  CaretDownIcon,
   CaretLeftIcon,
-  CaretUpIcon,
   CpuIcon,
   GitBranchIcon,
   GlobeIcon,
@@ -41,7 +41,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getLocaleOption,
   LOCALE_OPTIONS,
@@ -58,6 +58,7 @@ import {
   getSettingsBackendCapabilities,
   listSigningKeys,
   listStoredHttpCredentialEntries,
+  listSystemFontFamilies,
   pickSettingsFile,
   runProxyConnectionTest,
   saveAiProviderSecret,
@@ -65,8 +66,6 @@ import {
 } from "@/lib/tauri-settings-client";
 import {
   AUTO_FETCH_INTERVAL_LIMITS,
-  CURATED_ALL_FONT_FAMILIES,
-  CURATED_MONOSPACE_FONT_FAMILIES,
   DEFAULT_EDITOR_FONT_FAMILY,
   DEFAULT_PREFERENCES,
   DEFAULT_TERMINAL_FONT_FAMILY,
@@ -208,14 +207,27 @@ interface FontPickerOption {
   source: "curated" | "system";
 }
 
+interface SystemFontReadResult {
+  options: FontPickerOption[];
+  status: "available" | "unavailable";
+}
+
+interface SidebarResizeState {
+  pointerId: number;
+  startWidth: number;
+  startX: number;
+}
+
+const LEFT_SIDEBAR_MIN_WIDTH = 220;
+const LEFT_SIDEBAR_MAX_WIDTH = 400;
+const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
+const MIN_CONTENT_WIDTH = 560;
+const RESIZE_HANDLE_WIDTH = 6;
+const SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY = "litgit:settings-sidebar-width";
+
 const LINE_NUMBER_OPTIONS = {
   off: "Hidden",
   on: "Visible",
-} as const;
-
-const WORD_WRAP_OPTIONS = {
-  off: "Off",
-  on: "On",
 } as const;
 
 const SIGNING_FORMAT_OPTIONS = {
@@ -231,6 +243,59 @@ const EOL_OPTIONS = {
   system: "System default",
 } as const;
 
+const clampWidth = (value: number, min: number, max: number) => {
+  return Math.min(max, Math.max(min, value));
+};
+
+const getSettingsLayoutWidth = () => {
+  if (typeof window === "undefined") {
+    return LEFT_SIDEBAR_DEFAULT_WIDTH + MIN_CONTENT_WIDTH + RESIZE_HANDLE_WIDTH;
+  }
+
+  return window.innerWidth;
+};
+
+const getSidebarResizeBounds = (availableWidth: number) => {
+  const maxWidth = Math.max(
+    0,
+    Math.min(
+      LEFT_SIDEBAR_MAX_WIDTH,
+      availableWidth - MIN_CONTENT_WIDTH - RESIZE_HANDLE_WIDTH
+    )
+  );
+  const minWidth = Math.min(LEFT_SIDEBAR_MIN_WIDTH, maxWidth);
+
+  return {
+    maxWidth,
+    minWidth,
+  };
+};
+
+const getInitialSidebarWidth = () => {
+  if (typeof window === "undefined") {
+    return LEFT_SIDEBAR_DEFAULT_WIDTH;
+  }
+
+  const storedWidth = window.localStorage.getItem(
+    SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY
+  );
+  const parsedStoredWidth = storedWidth
+    ? Number.parseInt(storedWidth, 10)
+    : Number.NaN;
+  const preferredWidth = Number.isFinite(parsedStoredWidth)
+    ? parsedStoredWidth
+    : LEFT_SIDEBAR_DEFAULT_WIDTH;
+  const { maxWidth, minWidth } = getSidebarResizeBounds(
+    getSettingsLayoutWidth()
+  );
+
+  if (maxWidth <= 0) {
+    return 0;
+  }
+
+  return clampWidth(preferredWidth, minWidth, maxWidth);
+};
+
 const getVisibleFonts = (
   fonts: readonly FontPickerOption[],
   visibility: "all-fonts" | "monospace-only"
@@ -242,27 +307,6 @@ const getVisibleFonts = (
   return fonts.filter((font) => font.isMonospace);
 };
 
-const createCuratedFontOptions = () => {
-  const curatedMonospace = CURATED_MONOSPACE_FONT_FAMILIES.map((family) => ({
-    family,
-    isMonospace: true,
-    source: "curated" as const,
-  }));
-  const curatedAll = CURATED_ALL_FONT_FAMILIES.map((family) => ({
-    family,
-    isMonospace: MONOSPACE_FONT_NAMES.has(family),
-    source: "curated" as const,
-  }));
-
-  return Array.from(
-    new Map(
-      [...curatedMonospace, ...curatedAll].map((font) => [font.family, font])
-    ).values()
-  );
-};
-
-const CURATED_FONT_OPTIONS = createCuratedFontOptions();
-
 const detectMonospaceFont = (fontName: string) => {
   const normalizedFontName = fontName.toLowerCase();
 
@@ -270,13 +314,47 @@ const detectMonospaceFont = (fontName: string) => {
     normalizedFontName.includes("mono") ||
     normalizedFontName.includes("code") ||
     normalizedFontName.includes("console") ||
-    normalizedFontName.includes("courier")
+    normalizedFontName.includes("courier") ||
+    MONOSPACE_FONT_NAMES.has(fontName)
   );
 };
 
-const readSystemFontFamilies = async (): Promise<FontPickerOption[]> => {
+const BUNDLED_FONT_OPTIONS = [
+  {
+    family: "Geist Variable, Geist, sans-serif",
+    isMonospace: false,
+    source: "curated" as const,
+  },
+  {
+    family: "JetBrains Mono Variable, JetBrains Mono, monospace",
+    isMonospace: true,
+    source: "curated" as const,
+  },
+] as const satisfies readonly FontPickerOption[];
+
+const readSystemFontFamilies = async (): Promise<SystemFontReadResult> => {
+  try {
+    const tauriFontFamilies = await listSystemFontFamilies();
+
+    if (tauriFontFamilies.length > 0) {
+      return {
+        options: tauriFontFamilies.map((family) => ({
+          family,
+          isMonospace: detectMonospaceFont(family),
+          source: "system" as const,
+        })),
+        status: "available",
+      };
+    }
+  } catch {
+    // Fall back to browser APIs when native enumeration is unavailable.
+  }
+
   if (!(typeof window !== "undefined" && "queryLocalFonts" in window)) {
-    return [];
+    return {
+      options: [],
+      status: "unavailable",
+    };
   }
 
   try {
@@ -287,31 +365,40 @@ const readSystemFontFamilies = async (): Promise<FontPickerOption[]> => {
     ).queryLocalFonts;
 
     if (!queryLocalFonts) {
-      return [];
+      return {
+        options: [],
+        status: "unavailable",
+      };
     }
 
     const fonts = await queryLocalFonts();
 
-    return Array.from(
-      new Map(
-        fonts
-          .filter((font) => typeof font.family === "string")
-          .map((font) => {
-            const family = font.family.trim();
+    return {
+      options: Array.from(
+        new Map(
+          fonts
+            .filter((font) => typeof font.family === "string")
+            .map((font) => {
+              const family = font.family.trim();
 
-            return [
-              family,
-              {
+              return [
                 family,
-                isMonospace: detectMonospaceFont(family),
-                source: "system" as const,
-              },
-            ];
-          })
-      ).values()
-    ).filter((font) => font.family.length > 0);
+                {
+                  family,
+                  isMonospace: detectMonospaceFont(family),
+                  source: "system" as const,
+                },
+              ];
+            })
+        ).values()
+      ).filter((font) => font.family.length > 0),
+      status: "available",
+    };
   } catch {
-    return [];
+    return {
+      options: [],
+      status: "unavailable",
+    };
   }
 };
 
@@ -441,22 +528,6 @@ function DefaultSelectValue({
   return <SelectValue placeholder={placeholder} />;
 }
 
-function LocalComboboxScrollUpIndicator() {
-  return (
-    <div className="pointer-events-none sticky top-0 z-10 flex justify-center bg-linear-to-b from-popover via-popover/90 to-transparent py-1 text-muted-foreground">
-      <CaretUpIcon className="size-4" />
-    </div>
-  );
-}
-
-function LocalComboboxScrollDownIndicator() {
-  return (
-    <div className="pointer-events-none sticky bottom-0 z-10 flex justify-center bg-linear-to-t from-popover via-popover/90 to-transparent py-1 text-muted-foreground">
-      <CaretDownIcon className="size-4" />
-    </div>
-  );
-}
-
 function FontPickerField({
   description,
   emptyMessage,
@@ -469,7 +540,6 @@ function FontPickerField({
   query,
   searchPlaceholder,
   selectedFont,
-  showSystemFontsHint,
   monospaceOnly,
 }: {
   description: string;
@@ -484,7 +554,6 @@ function FontPickerField({
   query: string;
   searchPlaceholder: string;
   selectedFont: string;
-  showSystemFontsHint: boolean;
 }) {
   const selectedOption =
     options.find((option) => option.family === selectedFont) ?? null;
@@ -511,7 +580,6 @@ function FontPickerField({
           />
           <ComboboxContent>
             <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
-            <LocalComboboxScrollUpIndicator />
             <ComboboxList className="[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
               {(option: FontPickerOption) => (
                 <ComboboxItem key={option.family} value={option}>
@@ -526,7 +594,6 @@ function FontPickerField({
                 </ComboboxItem>
               )}
             </ComboboxList>
-            <LocalComboboxScrollDownIndicator />
           </ComboboxContent>
         </Combobox>
         <label className="inline-flex items-center gap-3">
@@ -539,12 +606,6 @@ function FontPickerField({
           <span className="text-sm">Show monospace fonts only</span>
         </label>
         <SettingsHelpText>{helperText}</SettingsHelpText>
-        {showSystemFontsHint ? (
-          <SettingsHelpText>
-            System fonts are loaded from `queryLocalFonts()` when supported by
-            the desktop runtime.
-          </SettingsHelpText>
-        ) : null}
       </div>
     </SettingsField>
   );
@@ -792,7 +853,6 @@ function UiSection({ query }: { query: string }) {
             />
             <ComboboxContent>
               <ComboboxEmpty>No matching locale found.</ComboboxEmpty>
-              <LocalComboboxScrollUpIndicator />
               <ComboboxList className="[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
                 {(option: LocaleOption) => (
                   <ComboboxItem key={option.code} value={option}>
@@ -811,7 +871,6 @@ function UiSection({ query }: { query: string }) {
                   </ComboboxItem>
                 )}
               </ComboboxList>
-              <LocalComboboxScrollDownIndicator />
             </ComboboxContent>
           </Combobox>
           <SettingsHelpText>
@@ -891,12 +950,14 @@ function TerminalSection({ query }: { query: string }) {
   const [systemTerminalFonts, setSystemTerminalFonts] = useState<
     readonly FontPickerOption[]
   >([]);
+  const [terminalFontStatus, setTerminalFontStatus] =
+    useState<SystemFontReadResult["status"]>("available");
   const [terminalFontQuery, setTerminalFontQuery] = useState("");
   const terminalFonts = useMemo(
     () =>
       Array.from(
         new Map(
-          [...CURATED_FONT_OPTIONS, ...systemTerminalFonts].map((font) => [
+          [...systemTerminalFonts, ...BUNDLED_FONT_OPTIONS].map((font) => [
             font.family,
             font,
           ])
@@ -925,7 +986,10 @@ function TerminalSection({ query }: { query: string }) {
 
   useEffect(() => {
     readSystemFontFamilies()
-      .then(setSystemTerminalFonts)
+      .then((result) => {
+        setSystemTerminalFonts(result.options);
+        setTerminalFontStatus(result.status);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -980,9 +1044,17 @@ function TerminalSection({ query }: { query: string }) {
         </Select>
       </SettingsField>
       <FontPickerField
-        description="Search bundled and system terminal fonts, then optionally filter to monospace only."
-        emptyMessage="No matching terminal fonts found."
-        helperText="The picker prefers system fonts when available and falls back to the bundled list."
+        description="Search installed terminal fonts and bundled fallbacks, then optionally filter to monospace only."
+        emptyMessage={
+          terminalFontStatus === "unavailable"
+            ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
+            : "No matching terminal fonts found."
+        }
+        helperText={
+          terminalFontStatus === "unavailable"
+            ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
+            : "Installed system fonts are shown first, with bundled fallbacks available when needed."
+        }
         label="Terminal font"
         monospaceOnly={fontVisibility === "monospace-only"}
         onMonospaceOnlyChange={(checked) => {
@@ -994,7 +1066,6 @@ function TerminalSection({ query }: { query: string }) {
         query={query}
         searchPlaceholder="Search terminal fonts"
         selectedFont={fontFamily}
-        showSystemFontsHint
       />
       <SettingsField
         description="Applied immediately to the mounted xterm instance."
@@ -1834,12 +1905,14 @@ function EditorSection({ query }: { query: string }) {
   const [systemEditorFonts, setSystemEditorFonts] = useState<
     readonly FontPickerOption[]
   >([]);
+  const [editorFontStatus, setEditorFontStatus] =
+    useState<SystemFontReadResult["status"]>("available");
   const [editorFontQuery, setEditorFontQuery] = useState("");
   const editorFonts = useMemo(
     () =>
       Array.from(
         new Map(
-          [...CURATED_FONT_OPTIONS, ...systemEditorFonts].map((font) => [
+          [...systemEditorFonts, ...BUNDLED_FONT_OPTIONS].map((font) => [
             font.family,
             font,
           ])
@@ -1868,7 +1941,10 @@ function EditorSection({ query }: { query: string }) {
 
   useEffect(() => {
     readSystemFontFamilies()
-      .then(setSystemEditorFonts)
+      .then((result) => {
+        setSystemEditorFonts(result.options);
+        setEditorFontStatus(result.status);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -1901,9 +1977,17 @@ function EditorSection({ query }: { query: string }) {
         </Select>
       </SettingsField>
       <FontPickerField
-        description="Search bundled and system editor fonts, then optionally filter to monospace only."
-        emptyMessage="No matching editor fonts found."
-        helperText="The picker prefers system fonts when available and falls back to the bundled list."
+        description="Search installed editor fonts and bundled fallbacks, then optionally filter to monospace only."
+        emptyMessage={
+          editorFontStatus === "unavailable"
+            ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
+            : "No matching editor fonts found."
+        }
+        helperText={
+          editorFontStatus === "unavailable"
+            ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
+            : "Installed system fonts are shown first, with bundled fallbacks available when needed."
+        }
         label="Editor font"
         monospaceOnly={editor.fontVisibility === "monospace-only"}
         onMonospaceOnlyChange={(checked) => {
@@ -1917,7 +2001,6 @@ function EditorSection({ query }: { query: string }) {
         query={query}
         searchPlaceholder="Search editor fonts"
         selectedFont={editor.fontFamily}
-        showSystemFontsHint
       />
       <SettingsField
         description="Changes Monaco font size immediately for open diff views."
@@ -1977,23 +2060,19 @@ function EditorSection({ query }: { query: string }) {
         label="Word wrap"
         query={query}
       >
-        <Select
-          items={WORD_WRAP_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setEditorPreferences({ wordWrap: value as "on" | "off" });
-            }
-          }}
-          value={editor.wordWrap}
-        >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="off">Off</SelectItem>
-            <SelectItem value="on">On</SelectItem>
-          </SelectContent>
-        </Select>
+        <label className="inline-flex items-center gap-3">
+          <Switch
+            checked={editor.wordWrap === "on"}
+            onCheckedChange={(checked) => {
+              setEditorPreferences({ wordWrap: checked ? "on" : "off" });
+            }}
+          />
+          <span className="text-sm">
+            {editor.wordWrap === "on"
+              ? "Word wrap enabled"
+              : "Word wrap disabled"}
+          </span>
+        </label>
       </SettingsField>
       <SettingsField
         description="Disable language detection and syntax coloring when you want a plain-text diff view."
@@ -2202,9 +2281,27 @@ function AiSection({ query }: { query: string }) {
 }
 
 export function SettingsPage() {
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+    getInitialSidebarWidth
+  );
+  const sidebarResizeStateRef = useRef<SidebarResizeState | null>(null);
+  const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
+  const contentPanelRef = useRef<HTMLDivElement | null>(null);
+  const resizeAnimationFrameRef = useRef<number | null>(null);
+  const pendingSidebarWidthRef = useRef<number | null>(null);
+  const bodyStyleSnapshotRef = useRef<{
+    cursor: string;
+    userSelect: string;
+  } | null>(null);
   const activeSection = usePreferencesStore(
     (state) => state.settings.activeSection
   );
+
+  useEffect(() => {
+    if (contentPanelRef.current) {
+      contentPanelRef.current.scrollTop = 0;
+    }
+  }, []);
   const lastNonSettingsRoute = usePreferencesStore(
     (state) => state.settings.lastNonSettingsRoute
   );
@@ -2214,6 +2311,7 @@ export function SettingsPage() {
   );
   const setSearchQuery = usePreferencesStore((state) => state.setSearchQuery);
   const setSection = usePreferencesStore((state) => state.setSection);
+  const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const currentPathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -2238,115 +2336,345 @@ export function SettingsPage() {
     SETTINGS_SECTIONS.find((section) => section.id === activeSection) ??
     SETTINGS_SECTIONS[0];
 
-  return (
-    <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-6 px-6 py-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-muted-foreground text-xs uppercase tracking-[0.16em]">
-            Preferences
-          </p>
-          <h1 className="mt-1 font-semibold text-2xl">Application settings</h1>
-        </div>
-        <Button
-          onClick={() => {
-            const nextPath =
-              lastNonSettingsRoute &&
-              lastNonSettingsRoute !== "/settings" &&
-              lastNonSettingsRoute !== currentPathname
-                ? lastNonSettingsRoute
-                : "/";
+  const handleExitPreferences = useCallback(() => {
+    const nextPath =
+      lastNonSettingsRoute &&
+      lastNonSettingsRoute !== "/settings" &&
+      lastNonSettingsRoute !== currentPathname
+        ? lastNonSettingsRoute
+        : "/";
 
-            window.location.assign(nextPath);
-          }}
-          type="button"
-          variant="outline"
-        >
-          <CaretLeftIcon className="size-4" />
-          Exit preferences
-        </Button>
-      </div>
-      <Separator />
-      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-sm">Browse settings</CardTitle>
-            <CardDescription>
-              Filter categories and jump between preference groups.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="settings-search">Search settings</Label>
-              <div className="relative">
-                <Input
-                  id="settings-search"
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search categories"
-                  value={query}
-                />
-                {query.length > 0 ? (
+    window.location.assign(nextPath);
+  }, [currentPathname, lastNonSettingsRoute]);
+
+  const getAvailableSettingsWidth = useCallback(() => {
+    return sidebarContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
+  }, []);
+
+  const scheduleSidebarWidthUpdate = useCallback((nextWidth: number) => {
+    pendingSidebarWidthRef.current = nextWidth;
+
+    if (resizeAnimationFrameRef.current !== null) {
+      return;
+    }
+
+    resizeAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      const width = pendingSidebarWidthRef.current;
+
+      resizeAnimationFrameRef.current = null;
+      pendingSidebarWidthRef.current = null;
+
+      if (typeof width === "number") {
+        setLeftSidebarWidth(width);
+      }
+    });
+  }, []);
+
+  const resetResizeState = useCallback(() => {
+    sidebarResizeStateRef.current = null;
+
+    if (resizeAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(resizeAnimationFrameRef.current);
+      resizeAnimationFrameRef.current = null;
+    }
+
+    pendingSidebarWidthRef.current = null;
+
+    if (bodyStyleSnapshotRef.current) {
+      document.body.style.userSelect = bodyStyleSnapshotRef.current.userSelect;
+      document.body.style.cursor = bodyStyleSnapshotRef.current.cursor;
+      bodyStyleSnapshotRef.current = null;
+    }
+  }, []);
+
+  const startSidebarResize = (event: React.PointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { maxWidth, minWidth } = getSidebarResizeBounds(
+      getAvailableSettingsWidth()
+    );
+
+    if (maxWidth <= 0) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    bodyStyleSnapshotRef.current = {
+      cursor: document.body.style.cursor,
+      userSelect: document.body.style.userSelect,
+    };
+
+    sidebarResizeStateRef.current = {
+      pointerId: event.pointerId,
+      startWidth: leftSidebarWidth,
+      startX: event.clientX,
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    scheduleSidebarWidthUpdate(
+      clampWidth(leftSidebarWidth, minWidth, maxWidth)
+    );
+  };
+
+  const adjustSidebarWidth = (delta: number) => {
+    const { maxWidth, minWidth } = getSidebarResizeBounds(
+      getAvailableSettingsWidth()
+    );
+
+    if (maxWidth <= 0) {
+      setLeftSidebarWidth(0);
+      return;
+    }
+
+    setLeftSidebarWidth((currentWidth) =>
+      clampWidth(currentWidth + delta, minWidth, maxWidth)
+    );
+  };
+
+  const handleResizeHandleKeyDown = (
+    event: React.KeyboardEvent<HTMLElement>
+  ) => {
+    const resizeStep = event.shiftKey ? 40 : 16;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      adjustSidebarWidth(-resizeStep);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      adjustSidebarWidth(resizeStep);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      const { minWidth } = getSidebarResizeBounds(getAvailableSettingsWidth());
+      setLeftSidebarWidth(minWidth);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      const { maxWidth } = getSidebarResizeBounds(getAvailableSettingsWidth());
+      setLeftSidebarWidth(maxWidth);
+    }
+  };
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = sidebarResizeStateRef.current;
+
+      if (!resizeState || event.pointerId !== resizeState.pointerId) {
+        return;
+      }
+
+      const delta = event.clientX - resizeState.startX;
+      const { maxWidth, minWidth } = getSidebarResizeBounds(
+        getAvailableSettingsWidth()
+      );
+
+      if (maxWidth <= 0) {
+        scheduleSidebarWidthUpdate(0);
+        return;
+      }
+
+      scheduleSidebarWidthUpdate(
+        clampWidth(resizeState.startWidth + delta, minWidth, maxWidth)
+      );
+    };
+
+    const handlePointerUp = () => {
+      if (!sidebarResizeStateRef.current) {
+        return;
+      }
+
+      resetResizeState();
+    };
+
+    const handleWindowBlur = () => {
+      if (!sidebarResizeStateRef.current) {
+        return;
+      }
+
+      resetResizeState();
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("blur", handleWindowBlur);
+      resetResizeState();
+    };
+  }, [getAvailableSettingsWidth, resetResizeState, scheduleSidebarWidthUpdate]);
+
+  useEffect(() => {
+    const clampSidebarWidthToViewport = () => {
+      const { maxWidth, minWidth } = getSidebarResizeBounds(
+        getAvailableSettingsWidth()
+      );
+
+      setLeftSidebarWidth((currentWidth) => {
+        if (maxWidth <= 0) {
+          return 0;
+        }
+
+        return clampWidth(currentWidth, minWidth, maxWidth);
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      clampSidebarWidthToViewport();
+    });
+
+    if (sidebarContainerRef.current) {
+      resizeObserver.observe(sidebarContainerRef.current);
+    }
+
+    clampSidebarWidthToViewport();
+    window.addEventListener("resize", clampSidebarWidthToViewport);
+
+    return () => {
+      window.removeEventListener("resize", clampSidebarWidthToViewport);
+      resizeObserver.disconnect();
+    };
+  }, [getAvailableSettingsWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY,
+      String(Math.round(leftSidebarWidth))
+    );
+  }, [leftSidebarWidth]);
+
+  return (
+    <div
+      className="flex h-full min-h-0 overflow-hidden bg-background text-foreground"
+      ref={sidebarContainerRef}
+    >
+      <Sidebar
+        className="shrink-0 border-border/70 border-r"
+        style={{
+          width: leftSidebarWidth > 0 ? `${leftSidebarWidth}px` : "0px",
+        }}
+      >
+        <SidebarHeader className="flex flex-col gap-1 border-border/70 border-b px-2 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground text-xs uppercase tracking-[0.12em]">
+              Settings
+            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
                   <Button
-                    aria-label="Clear search"
-                    className="absolute top-1 right-1"
-                    onClick={resetSettingsSearch}
-                    size="icon-sm"
+                    aria-label="Exit preferences"
+                    className="shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                    onClick={handleExitPreferences}
+                    size={toolbarLabels ? "sm" : "icon-sm"}
                     type="button"
                     variant="ghost"
-                  >
-                    <XIcon className="size-3.5" />
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-            <div className="grid gap-2">
-              {filteredSections.length === 0 ? (
-                <div className="rounded-xl border border-border/70 border-dashed px-4 py-6 text-center text-muted-foreground text-sm">
-                  No categories match this search yet.
-                </div>
-              ) : (
-                filteredSections.map((section) => {
-                  const Icon = section.icon;
-                  const isActive = section.id === activeDefinition?.id;
+                  />
+                }
+              >
+                <CaretLeftIcon className="size-4 shrink-0" />
+                <span className={cn(!toolbarLabels && "hidden")}>Exit</span>
+              </TooltipTrigger>
+              <TooltipContent
+                className={cn(toolbarLabels && "hidden")}
+                side="right"
+              >
+                Exit preferences
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="relative">
+            <Input
+              id="settings-search"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search categories"
+              value={query}
+            />
+            {query.length > 0 ? (
+              <Button
+                aria-label="Clear search"
+                className="absolute top-1 right-1"
+                onClick={resetSettingsSearch}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <XIcon className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        </SidebarHeader>
+        <SidebarContent className="overflow-y-auto px-2 py-2">
+          {filteredSections.length === 0 ? (
+            <p className="px-3 py-6 text-center text-muted-foreground text-sm">
+              No categories match this search.
+            </p>
+          ) : (
+            <div className="grid gap-1">
+              {filteredSections.map((section) => {
+                const Icon = section.icon;
+                const isActive = section.id === activeDefinition?.id;
 
-                  return (
-                    <button
-                      className={cn(
-                        "flex items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
-                        isActive
-                          ? "border-primary/40 bg-primary/6"
-                          : "border-border/70 bg-background hover:border-border hover:bg-muted/20"
-                      )}
-                      key={section.id}
-                      onClick={() => setSection(section.id)}
-                      type="button"
-                    >
-                      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0">
-                        <span className="block font-medium text-sm">
-                          {SETTINGS_SECTION_LABELS[section.id]}
-                        </span>
-                        <span className="mt-1 block text-muted-foreground text-xs leading-relaxed">
-                          {section.description}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })
-              )}
+                return (
+                  <button
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                      isActive
+                        ? "bg-primary/10 font-medium text-primary"
+                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                    )}
+                    key={section.id}
+                    onClick={() => setSection(section.id)}
+                    type="button"
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    {SETTINGS_SECTION_LABELS[section.id]}
+                  </button>
+                );
+              })}
             </div>
-          </CardContent>
-        </Card>
-        <Card className="min-h-[36rem]">
-          <CardHeader>
-            <CardTitle>
-              {SETTINGS_SECTION_LABELS[activeDefinition.id]}
-            </CardTitle>
-            <CardDescription>{activeDefinition.description}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
+          )}
+        </SidebarContent>
+      </Sidebar>
+      <button
+        aria-controls="settings-content-panel"
+        aria-label="Resize left sidebar"
+        className="h-full w-1.5 shrink-0 cursor-col-resize bg-transparent outline-none transition-colors hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/50"
+        onKeyDown={handleResizeHandleKeyDown}
+        onPointerDown={startSidebarResize}
+        type="button"
+      />
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        id="settings-content-panel"
+        ref={contentPanelRef}
+      >
+        <div className="px-8 py-8">
+          <h2 className="font-semibold text-xl">
+            {SETTINGS_SECTION_LABELS[activeDefinition.id]}
+          </h2>
+          <p className="mt-1 text-muted-foreground text-sm">
+            {activeDefinition.description}
+          </p>
+          <div className="mt-6 grid gap-4">
             {renderSection(activeDefinition.id, query)}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

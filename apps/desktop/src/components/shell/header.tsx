@@ -40,6 +40,10 @@ export default function Header() {
   const isPickingRepo = useRepoStore((state) => state.isPickingRepo);
   const { routeRepository } = useOpenRepositoryTabRouting();
   const { activeTabId, setActiveTabFromUrl } = useTabUrlState();
+  const resetSettingsSearch = usePreferencesStore(
+    (state) => state.resetSettingsSearch
+  );
+  const setSection = usePreferencesStore((state) => state.setSection);
   const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const tabs = useTabStore((state) => state.tabs);
   const linkTabToRepo = useTabStore((state) => state.linkTabToRepo);
@@ -239,6 +243,8 @@ export default function Header() {
                   aria-label="Workspace settings"
                   className="text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
                   onClick={() => {
+                    resetSettingsSearch();
+                    setSection("general");
                     navigate({ to: "/settings" }).catch(() => undefined);
                   }}
                   size={toolbarLabels ? "default" : "icon"}

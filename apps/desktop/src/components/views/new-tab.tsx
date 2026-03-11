@@ -36,6 +36,7 @@ import {
   isEditableTarget,
   isPrimaryShortcut,
 } from "@/lib/keyboard-shortcuts";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type { PickedRepositorySelection } from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
@@ -58,6 +59,10 @@ export function NewTabContent() {
   const isPickingRepo = useRepoStore((state) => state.isPickingRepo);
   const { routeRepository } = useOpenRepositoryTabRouting();
   const { activeTabId } = useTabUrlState();
+  const resetSettingsSearch = usePreferencesStore(
+    (state) => state.resetSettingsSearch
+  );
+  const setSection = usePreferencesStore((state) => state.setSection);
 
   const tabId = activeTabId || "";
   const [searchQuery, setSearchQuery] = useState("");
@@ -676,8 +681,10 @@ export function NewTabContent() {
               </li>
               <li>
                 <Button
-                  className="h-7 gap-1.5 px-2 text-muted-foreground text-xs opacity-45 hover:text-foreground"
+                  className="h-7 gap-1.5 px-2 text-muted-foreground text-xs hover:text-foreground"
                   onClick={() => {
+                    resetSettingsSearch();
+                    setSection("general");
                     navigate({ to: "/settings" }).catch(() => undefined);
                   }}
                   type="button"

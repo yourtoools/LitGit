@@ -108,23 +108,6 @@ export const DEFAULT_TERMINAL_FONT_FAMILY =
 
 export const DEFAULT_EDITOR_FONT_FAMILY = DEFAULT_TERMINAL_FONT_FAMILY;
 
-export const CURATED_MONOSPACE_FONT_FAMILIES = [
-  DEFAULT_TERMINAL_FONT_FAMILY,
-  "Geist Mono, monospace",
-  "Fira Code, monospace",
-  "IBM Plex Mono, monospace",
-  "Cascadia Code, monospace",
-] as const;
-
-export const CURATED_ALL_FONT_FAMILIES = [
-  ...CURATED_MONOSPACE_FONT_FAMILIES,
-  "Geist Variable, Geist, sans-serif",
-  "IBM Plex Sans, sans-serif",
-  "SF Pro Display, Segoe UI, sans-serif",
-  "Inter, sans-serif",
-  "Arial, sans-serif",
-] as const;
-
 export const AUTO_FETCH_INTERVAL_LIMITS = {
   max: 60,
   min: 0,
@@ -246,10 +229,6 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     toolbarLabels: false,
   },
 };
-
-export const AVAILABLE_TERMINAL_FONTS = [...CURATED_ALL_FONT_FAMILIES] as const;
-
-export const AVAILABLE_EDITOR_FONTS = [...CURATED_ALL_FONT_FAMILIES] as const;
 
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, string> = {
   general: "General",
