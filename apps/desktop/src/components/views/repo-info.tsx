@@ -95,6 +95,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
+import { getRuntimePlatform } from "@/lib/runtime-platform";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type {
   PullActionMode,
@@ -383,15 +384,8 @@ const resolveRuntimeSurfaceTheme = (
 };
 
 const resolveSystemMonacoEol = (): MonacoEditor.EndOfLineSequence => {
-  if (typeof navigator !== "undefined") {
-    const userAgentData = Reflect.get(navigator, "userAgentData") as
-      | { platform?: string }
-      | undefined;
-    const platform = userAgentData?.platform ?? navigator.userAgent;
-
-    if (platform.toLowerCase().includes("win")) {
-      return 1;
-    }
+  if (getRuntimePlatform() === "windows") {
+    return 1;
   }
 
   return 0;

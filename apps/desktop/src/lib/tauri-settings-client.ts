@@ -1,3 +1,4 @@
+import type { RuntimePlatform } from "@/lib/runtime-platform";
 import { getTauriInvoke } from "@/lib/tauri-repo-client";
 
 interface RedactedCredentialEntry {
@@ -24,9 +25,23 @@ interface PickedFilePath {
 }
 
 interface SettingsBackendCapabilities {
+  runtimePlatform: RuntimePlatform;
   secureStorageAvailable: boolean;
   sessionSecretsSupported: boolean;
 }
+
+const parseRuntimePlatform = (value: unknown): RuntimePlatform => {
+  switch (value) {
+    case "android":
+    case "ios":
+    case "linux":
+    case "macos":
+    case "windows":
+      return value;
+    default:
+      return "unknown";
+  }
+};
 
 interface ProxyTestResult {
   message: string;
@@ -57,6 +72,7 @@ export const getSettingsBackendCapabilities =
 
     if (!invoke) {
       return {
+        runtimePlatform: "unknown",
         secureStorageAvailable: false,
         sessionSecretsSupported: false,
       };
@@ -68,6 +84,7 @@ export const getSettingsBackendCapabilities =
     );
 
     if (
+      typeof result.runtimePlatform !== "string" ||
       typeof result.secureStorageAvailable !== "boolean" ||
       typeof result.sessionSecretsSupported !== "boolean"
     ) {
@@ -75,6 +92,7 @@ export const getSettingsBackendCapabilities =
     }
 
     return {
+      runtimePlatform: parseRuntimePlatform(result.runtimePlatform),
       secureStorageAvailable: result.secureStorageAvailable,
       sessionSecretsSupported: result.sessionSecretsSupported,
     };

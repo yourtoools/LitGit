@@ -115,6 +115,7 @@ struct PullActionResult {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SettingsBackendCapabilities {
+    runtime_platform: String,
     secure_storage_available: bool,
     session_secrets_supported: bool,
 }
@@ -2325,8 +2326,22 @@ fn apply_git_preferences(
 fn get_settings_backend_capabilities() -> Result<SettingsBackendCapabilities, String> {
     let secure_storage_available = keyring::Entry::new(AI_SECRET_SERVICE, "capability-check")
         .is_ok();
+    let runtime_platform = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "ios") {
+        "ios"
+    } else if cfg!(target_os = "android") {
+        "android"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unknown"
+    };
 
     Ok(SettingsBackendCapabilities {
+        runtime_platform: runtime_platform.to_string(),
         secure_storage_available,
         session_secrets_supported: true,
     })

@@ -15,7 +15,9 @@ import {
   isRepositoryRoutePath,
   isToggleTerminalShortcut,
 } from "@/lib/keyboard-shortcuts";
+import { RUNTIME_PLATFORM_DATA_ATTRIBUTE } from "@/lib/runtime-platform";
 import {
+  getSettingsBackendCapabilities,
   startAutoFetchScheduler,
   stopAutoFetchScheduler,
 } from "@/lib/tauri-settings-client";
@@ -234,6 +236,25 @@ function RootPreferenceEffects() {
 
     document.documentElement.dataset.resolvedTheme = resolvedTheme;
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getSettingsBackendCapabilities()
+      .then((capabilities) => {
+        if (cancelled || typeof document === "undefined") {
+          return;
+        }
+
+        document.documentElement.dataset[RUNTIME_PLATFORM_DATA_ATTRIBUTE] =
+          capabilities.runtimePlatform;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return null;
 }

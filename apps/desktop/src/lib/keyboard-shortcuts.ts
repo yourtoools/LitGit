@@ -1,3 +1,5 @@
+import { isMacPlatform, isWindowsPlatform } from "@/lib/runtime-platform";
+
 interface ShortcutEvent {
   altKey: boolean;
   ctrlKey: boolean;
@@ -5,27 +7,6 @@ interface ShortcutEvent {
   metaKey: boolean;
   shiftKey: boolean;
 }
-
-const MAC_PLATFORM_PATTERN = /Mac|iPhone|iPad|iPod/i;
-const WINDOWS_PLATFORM_PATTERN = /Win/i;
-
-export const isMacPlatform = () => {
-  if (typeof navigator === "undefined") {
-    return false;
-  }
-
-  const userAgent = navigator.userAgent;
-  return MAC_PLATFORM_PATTERN.test(userAgent);
-};
-
-export const isWindowsPlatform = () => {
-  if (typeof navigator === "undefined") {
-    return false;
-  }
-
-  const userAgent = navigator.userAgent;
-  return WINDOWS_PLATFORM_PATTERN.test(userAgent);
-};
 
 export const getPrimaryModifierLabel = () => {
   return isMacPlatform() ? "Cmd" : "Ctrl";
