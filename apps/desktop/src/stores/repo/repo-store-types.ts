@@ -134,6 +134,11 @@ export interface PullActionResult {
   headChanged: boolean;
 }
 
+export interface LatestRepositoryCommitMessage {
+  description: string;
+  summary: string;
+}
+
 export interface RepoStoreState {
   activeRepoId: string | null;
   addIgnoreRule: (id: string, pattern: string) => Promise<void>;
@@ -152,6 +157,8 @@ export interface RepoStoreState {
     summary: string,
     description: string,
     includeAll: boolean,
+    amend: boolean,
+    skipHooks: boolean,
     preferences?: RepoCommandPreferences
   ) => Promise<void>;
   createLocalRepository: (
@@ -173,6 +180,9 @@ export interface RepoStoreState {
     id: string,
     filePath: string
   ) => Promise<RepositoryFileDiff | null>;
+  getLatestCommitMessage: (
+    id: string
+  ) => Promise<LatestRepositoryCommitMessage | null>;
   initializeRepository: (
     repository: PickedRepositorySelection
   ) => Promise<OpenedRepository | null>;
@@ -187,10 +197,7 @@ export interface RepoStoreState {
   openRepository: () => Promise<OpenRepositoryResult>;
   popStash: (id: string, stashRef: string) => Promise<void>;
   pullBranch: (id: string, mode: PullActionMode) => Promise<PullActionResult>;
-  pushBranch: (
-    id: string,
-    preferences?: RepoCommandPreferences
-  ) => Promise<void>;
+  pushBranch: (id: string, forceWithLease?: boolean) => Promise<void>;
   refreshOpenedRepositories: () => Promise<void>;
   repoBranches: Record<string, RepositoryBranch[]>;
   repoCommits: Record<string, RepositoryCommit[]>;

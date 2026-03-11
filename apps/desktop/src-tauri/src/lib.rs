@@ -114,6 +114,13 @@ struct PullActionResult {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LatestRepositoryCommitMessage {
+    summary: String,
+    description: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SettingsBackendCapabilities {
     runtime_platform: String,
     secure_storage_available: bool,
@@ -778,6 +785,46 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
 }
 
 #[tauri::command]
+fn get_latest_repository_commit_message(
+    repo_path: String,
+) -> Result<LatestRepositoryCommitMessage, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "log",
+            "-1",
+            "--pretty=format:%s%x1f%b",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git log: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to read latest commit message",
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut parts = stdout.splitn(2, '\x1f');
+    let summary = parts.next().unwrap_or("").trim().to_string();
+
+    if summary.is_empty() {
+        return Err("No commit message available".to_string());
+    }
+
+    let description = parts.next().unwrap_or("").trim().to_string();
+
+    Ok(LatestRepositoryCommitMessage {
+        summary,
+        description,
+    })
+}
+
+#[tauri::command]
 fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -1000,6 +1047,7 @@ fn push_repository_branch(
     state: State<'_, SettingsState>,
     repo_path: String,
     preferences: Option<RepoCommandPreferences>,
+    force_with_lease: Option<bool>,
 ) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
     let command_preferences = preferences.unwrap_or_default();
@@ -1039,18 +1087,33 @@ fn push_repository_branch(
         .status
         .success();
 
+    let should_force_with_lease = force_with_lease == Some(true);
+
     let push_output = if has_upstream {
         let mut command = Command::new("git");
         apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+
+        command.args(["-C", &repo_path, "push"]);
+
+        if should_force_with_lease {
+            command.arg("--force-with-lease");
+        }
+
         command
-            .args(["-C", &repo_path, "push"])
             .output()
             .map_err(|error| format!("Failed to run git push: {error}"))?
     } else {
         let mut command = Command::new("git");
         apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+
+        command.args(["-C", &repo_path, "push"]);
+
+        if should_force_with_lease {
+            command.arg("--force-with-lease");
+        }
+
         command
-            .args(["-C", &repo_path, "push", "-u", "origin", &branch_name])
+            .args(["-u", "origin", &branch_name])
             .output()
             .map_err(|error| format!("Failed to run git push: {error}"))?
     };
@@ -1224,6 +1287,8 @@ fn commit_repository_changes(
     summary: String,
     description: String,
     include_all: bool,
+    amend: bool,
+    skip_hooks: bool,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
@@ -1258,7 +1323,6 @@ fn commit_repository_changes(
 
     commit_command.args(["-C", &repo_path]);
     apply_git_preferences(&mut commit_command, &command_preferences, None)?;
-    commit_command.args(["commit", "-m", summary_trimmed]);
 
     if let Some(signing_format) = command_preferences
         .signing_format
@@ -1274,6 +1338,16 @@ fn commit_repository_changes(
         .filter(|value| !value.trim().is_empty())
     {
         commit_command.args(["-c", &format!("user.signingkey={}", signing_key.trim())]);
+    }
+
+    commit_command.args(["commit", "-m", summary_trimmed]);
+
+    if amend {
+        commit_command.arg("--amend");
+    }
+
+    if skip_hooks {
+        commit_command.arg("--no-verify");
     }
 
     if command_preferences.sign_commits_by_default == Some(true) {
@@ -3028,6 +3102,7 @@ pub fn run() {
             validate_opened_repositories,
             create_repository_initial_commit,
             get_repository_history,
+            get_latest_repository_commit_message,
             get_repository_branches,
             get_repository_remote_names,
             get_repository_stashes,

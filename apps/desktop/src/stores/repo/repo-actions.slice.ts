@@ -6,6 +6,7 @@ import {
   discardAllRepoChanges,
   discardRepoPathChanges,
   dropRepoStash,
+  getLatestRepoCommitMessage,
   getRepoCommitFileDiff,
   getRepoCommitFiles,
   getRepoFileDiff,
@@ -55,6 +56,7 @@ type RepoActionsSliceKeys =
   | "getCommitFileDiff"
   | "getCommitFiles"
   | "getFileDiff"
+  | "getLatestCommitMessage"
   | "popStash"
   | "pullBranch"
   | "pushBranch"
@@ -77,7 +79,7 @@ export const createRepoActionsSlice = (
     await switchRepoBranch(targetRepo.path, branchName);
     await get().setActiveRepo(id, { forceRefresh: true });
   },
-  pushBranch: async (id) => {
+  pushBranch: async (id, forceWithLease = false) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 
     if (!targetRepo) {
@@ -85,7 +87,11 @@ export const createRepoActionsSlice = (
     }
 
     try {
-      await pushRepoBranch(targetRepo.path, getRepoCommandPreferences());
+      await pushRepoBranch(
+        targetRepo.path,
+        getRepoCommandPreferences(),
+        forceWithLease
+      );
       await get().setActiveRepo(id, { forceRefresh: true });
       toast.success("Push completed");
     } catch (error) {
@@ -172,7 +178,14 @@ export const createRepoActionsSlice = (
       toast.error(resolveErrorMessage(error, "Failed to delete stash"));
     }
   },
-  commitChanges: async (id, summary, description, includeAll) => {
+  commitChanges: async (
+    id,
+    summary,
+    description,
+    includeAll,
+    amend,
+    skipHooks
+  ) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 
     if (!targetRepo) {
@@ -185,12 +198,15 @@ export const createRepoActionsSlice = (
         summary,
         description,
         includeAll,
+        amend,
+        skipHooks,
         getRepoCommandPreferences()
       );
       await get().setActiveRepo(id, { forceRefresh: true });
       toast.success("Commit created");
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to commit changes"));
+      throw error;
     }
   },
   stageAll: async (id) => {
@@ -320,6 +336,22 @@ export const createRepoActionsSlice = (
       return await getRepoFileDiff(targetRepo.path, filePath);
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to load file diff"));
+      return null;
+    }
+  },
+  getLatestCommitMessage: async (id) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getLatestRepoCommitMessage(targetRepo.path);
+    } catch (error) {
+      toast.error(
+        resolveErrorMessage(error, "Failed to load latest commit message")
+      );
       return null;
     }
   },

@@ -1,5 +1,6 @@
 import type {
   CreateLocalRepositoryInput,
+  LatestRepositoryCommitMessage,
   PickedRepositorySelection,
   PullActionMode,
   PullActionResult,
@@ -448,9 +449,39 @@ export async function switchRepoBranch(path: string, branchName: string) {
   });
 }
 
+export async function getLatestRepoCommitMessage(
+  path: string
+): Promise<LatestRepositoryCommitMessage> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Latest commit message works in Tauri desktop app only");
+  }
+
+  const result = await invoke("get_latest_repository_commit_message", {
+    repoPath: path,
+  });
+
+  if (!isRecord(result)) {
+    throw new Error("Invalid latest commit message payload");
+  }
+
+  const { summary, description } = result;
+
+  if (typeof summary !== "string" || typeof description !== "string") {
+    throw new Error("Invalid latest commit message payload");
+  }
+
+  return {
+    description,
+    summary,
+  } satisfies LatestRepositoryCommitMessage;
+}
+
 export async function pushRepoBranch(
   path: string,
-  preferences?: RepoCommandPreferences
+  preferences?: RepoCommandPreferences,
+  forceWithLease = false
 ) {
   const invoke = getTauriInvoke();
 
@@ -459,6 +490,7 @@ export async function pushRepoBranch(
   }
 
   await invoke("push_repository_branch", {
+    forceWithLease,
     preferences,
     repoPath: path,
   });
@@ -526,6 +558,8 @@ export async function commitRepoChanges(
   summary: string,
   description: string,
   includeAll: boolean,
+  amend: boolean,
+  skipHooks: boolean,
   preferences?: RepoCommandPreferences
 ) {
   const invoke = getTauriInvoke();
@@ -540,6 +574,8 @@ export async function commitRepoChanges(
     summary,
     description,
     includeAll,
+    amend,
+    skipHooks,
   });
 }
 

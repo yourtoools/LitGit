@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
 } from "@litgit/ui/components/alert-dialog";
 import { Button } from "@litgit/ui/components/button";
+import { Checkbox } from "@litgit/ui/components/checkbox";
 import {
   Combobox,
   ComboboxContent,
@@ -521,6 +522,9 @@ export function RepoInfo() {
   const stageFile = useRepoStore((state) => state.stageFile);
   const unstageFile = useRepoStore((state) => state.unstageFile);
   const getFileDiff = useRepoStore((state) => state.getFileDiff);
+  const getLatestCommitMessage = useRepoStore(
+    (state) => state.getLatestCommitMessage
+  );
   const getCommitFiles = useRepoStore((state) => state.getCommitFiles);
   const getCommitFileDiff = useRepoStore((state) => state.getCommitFileDiff);
   const discardAllChanges = useRepoStore((state) => state.discardAllChanges);
@@ -548,6 +552,10 @@ export function RepoInfo() {
   const [isCommitting, setIsCommitting] = useState(false);
   const [isDiscardingAllChanges, setIsDiscardingAllChanges] = useState(false);
   const [isDiscardAllConfirmOpen, setIsDiscardAllConfirmOpen] = useState(false);
+  const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
+  const [forcePushConfirmMode, setForcePushConfirmMode] = useState<
+    "commit" | "push"
+  >("push");
   const [isPulling, setIsPulling] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [isApplyingStash, setIsApplyingStash] = useState(false);
@@ -556,6 +564,10 @@ export function RepoInfo() {
   const [draftCommitSummary, setDraftCommitSummary] = useState("");
   const [draftCommitDescription, setDraftCommitDescription] = useState("");
   const [amendPreviousCommit, setAmendPreviousCommit] = useState(false);
+  const [pushAfterCommit, setPushAfterCommit] = useState(false);
+  const [skipCommitHooks, setSkipCommitHooks] = useState(false);
+  const [isCommitOptionsCollapsed, setIsCommitOptionsCollapsed] =
+    useState(false);
   const [changesViewMode, setChangesViewMode] =
     useState<ChangesViewMode>("tree");
   const [isUnstagedSectionCollapsed, setIsUnstagedSectionCollapsed] =
@@ -628,6 +640,11 @@ export function RepoInfo() {
   const openedDiffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
     null
   );
+  const preAmendDraftRef = useRef<{
+    description: string;
+    summary: string;
+  } | null>(null);
+  const pendingForcePushActionRef = useRef<(() => Promise<void>) | null>(null);
   const { resolvedTheme } = useTheme();
   const routeSearch = useSearch({ strict: false });
   const activeTabIdFromUrl =
@@ -718,6 +735,14 @@ export function RepoInfo() {
   const stagedTree = useMemo(() => buildChangeTree(stagedItems), [stagedItems]);
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
+  const currentLocalBranch = useMemo(
+    () =>
+      branches.find(
+        (branch) =>
+          branch.isCurrent && !branch.isRemote && branch.refType === "branch"
+      ) ?? null,
+    [branches]
+  );
   const isWorkingTreeSelection = selectedCommitId === WORKING_TREE_ROW_ID;
   const selectedCommit = useMemo(
     () => commits.find((item) => item.hash === selectedCommitId) ?? null,
@@ -1545,9 +1570,29 @@ export function RepoInfo() {
       return;
     }
 
+    const hasDivergedBranch =
+      (currentLocalBranch?.aheadCount ?? 0) > 0 &&
+      (currentLocalBranch?.behindCount ?? 0) > 0;
+
+    if (hasDivergedBranch) {
+      openForcePushConfirm("push", async () => {
+        setIsPushing(true);
+
+        try {
+          await pushBranch(activeRepoId, true);
+        } finally {
+          setIsPushing(false);
+        }
+      });
+      return;
+    }
+
     setIsPushing(true);
 
     try {
+      if ((currentLocalBranch?.behindCount ?? 0) > 0) {
+        await pullBranch(activeRepoId, pullActionMode);
+      }
       await pushBranch(activeRepoId);
     } finally {
       setIsPushing(false);
@@ -1560,6 +1605,37 @@ export function RepoInfo() {
       isPushing ||
       isSwitchingBranch
     ) {
+      return;
+    }
+
+    const hasDivergedBranch =
+      (entry.pendingPushCount ?? 0) > 0 && (entry.pendingSyncCount ?? 0) > 0;
+
+    if (hasDivergedBranch) {
+      openForcePushConfirm("push", async () => {
+        setIsPushing(true);
+
+        try {
+          if (!entry.active) {
+            setIsSwitchingBranch(true);
+
+            try {
+              await switchBranch(activeRepoId, entry.name);
+            } catch (error) {
+              toast.error("Failed to switch branch", {
+                description: getCheckoutFailureReason(error),
+              });
+              return;
+            } finally {
+              setIsSwitchingBranch(false);
+            }
+          }
+
+          await pushBranch(activeRepoId, true);
+        } finally {
+          setIsPushing(false);
+        }
+      });
       return;
     }
 
@@ -1579,6 +1655,10 @@ export function RepoInfo() {
         } finally {
           setIsSwitchingBranch(false);
         }
+      }
+
+      if ((entry.pendingSyncCount ?? 0) > 0) {
+        await pullBranch(activeRepoId, pullActionMode);
       }
 
       await pushBranch(activeRepoId);
@@ -3060,6 +3140,15 @@ export function RepoInfo() {
     event.stopPropagation();
   };
 
+  const openForcePushConfirm = (
+    mode: "commit" | "push",
+    action: () => Promise<void>
+  ) => {
+    pendingForcePushActionRef.current = action;
+    setForcePushConfirmMode(mode);
+    setIsForcePushConfirmOpen(true);
+  };
+
   const handleStageAll = async () => {
     if (!activeRepoId || isStagingAll || !hasUnstagedChanges) {
       return;
@@ -3079,6 +3168,25 @@ export function RepoInfo() {
       return;
     }
 
+    const hasDivergedBranch =
+      (currentLocalBranch?.aheadCount ?? 0) > 0 &&
+      (currentLocalBranch?.behindCount ?? 0) > 0;
+
+    if (pushAfterCommit && (amendPreviousCommit || hasDivergedBranch)) {
+      openForcePushConfirm("commit", async () => {
+        await executeCommit(true);
+      });
+      return;
+    }
+
+    await executeCommit(false);
+  };
+
+  const executeCommit = async (forceWithLease: boolean) => {
+    if (!activeRepoId || isCommitting || !canCommit) {
+      return;
+    }
+
     setIsCommitting(true);
 
     try {
@@ -3086,15 +3194,49 @@ export function RepoInfo() {
         activeRepoId,
         draftCommitSummary.trim(),
         draftCommitDescription.trim(),
-        !amendPreviousCommit
+        !amendPreviousCommit,
+        amendPreviousCommit,
+        skipCommitHooks
       );
+      if (pushAfterCommit) {
+        if (!forceWithLease && (currentLocalBranch?.behindCount ?? 0) > 0) {
+          await pullBranch(activeRepoId, pullActionMode);
+        }
+        await pushBranch(activeRepoId, forceWithLease);
+      }
       setDraftCommitSummary("");
       setDraftCommitDescription("");
       setAmendPreviousCommit(false);
+      setPushAfterCommit(false);
+      setSkipCommitHooks(false);
+      preAmendDraftRef.current = null;
     } finally {
       setIsCommitting(false);
     }
   };
+
+  const executeConfirmedForcePush = async () => {
+    const pendingAction = pendingForcePushActionRef.current;
+
+    if (!pendingAction) {
+      setIsForcePushConfirmOpen(false);
+      return;
+    }
+
+    try {
+      await pendingAction();
+    } finally {
+      pendingForcePushActionRef.current = null;
+      setIsForcePushConfirmOpen(false);
+    }
+  };
+  let forcePushConfirmActionLabel = "Force push";
+
+  if (isCommitting) {
+    forcePushConfirmActionLabel = "Committing...";
+  } else if (isPushing) {
+    forcePushConfirmActionLabel = "Pushing...";
+  }
 
   if (!activeRepo) {
     return (
@@ -4180,7 +4322,7 @@ export function RepoInfo() {
                     <div className="mt-3 space-y-2">
                       <Label htmlFor="commit-description">Description</Label>
                       <textarea
-                        className="min-h-24 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className="h-24 w-full resize-none overflow-y-scroll rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                         id="commit-description"
                         onChange={(event) =>
                           setDraftCommitDescription(event.target.value)
@@ -4189,17 +4331,103 @@ export function RepoInfo() {
                         value={draftCommitDescription}
                       />
                     </div>
-                    <label className="mt-3 inline-flex items-center gap-2 text-xs">
-                      <input
-                        checked={amendPreviousCommit}
-                        className="rounded border-input"
-                        onChange={(event) =>
-                          setAmendPreviousCommit(event.target.checked)
+                    <div className="mt-3 rounded-md border border-border/70 px-3 py-2">
+                      <button
+                        className="inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
+                        onClick={() =>
+                          setIsCommitOptionsCollapsed((current) => !current)
                         }
-                        type="checkbox"
-                      />
-                      Amend previous commit
-                    </label>
+                        type="button"
+                      >
+                        {isCommitOptionsCollapsed ? (
+                          <CaretRightIcon className="size-3" />
+                        ) : (
+                          <CaretDownIcon className="size-3" />
+                        )}
+                        Commit options
+                      </button>
+                      {isCommitOptionsCollapsed ? null : (
+                        <div className="mt-2 space-y-2">
+                          <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                            <Checkbox
+                              checked={amendPreviousCommit}
+                              className="shrink-0"
+                              onCheckedChange={(checked) => {
+                                const shouldAmend = checked === true;
+                                setAmendPreviousCommit(shouldAmend);
+
+                                if (!shouldAmend) {
+                                  const previousDraft =
+                                    preAmendDraftRef.current;
+
+                                  if (previousDraft) {
+                                    setDraftCommitSummary(
+                                      previousDraft.summary
+                                    );
+                                    setDraftCommitDescription(
+                                      previousDraft.description
+                                    );
+                                  } else {
+                                    setDraftCommitSummary("");
+                                    setDraftCommitDescription("");
+                                  }
+
+                                  preAmendDraftRef.current = null;
+                                  return;
+                                }
+
+                                if (!activeRepoId) {
+                                  return;
+                                }
+
+                                preAmendDraftRef.current = {
+                                  description: draftCommitDescription,
+                                  summary: draftCommitSummary,
+                                };
+
+                                getLatestCommitMessage(activeRepoId)
+                                  .then((latestCommitMessage) => {
+                                    if (!latestCommitMessage) {
+                                      return;
+                                    }
+
+                                    setDraftCommitSummary(
+                                      latestCommitMessage.summary
+                                    );
+                                    setDraftCommitDescription(
+                                      latestCommitMessage.description
+                                    );
+                                  })
+                                  .catch(() => undefined);
+                              }}
+                            />
+                            Amend previous commit
+                          </label>
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                              <Checkbox
+                                checked={pushAfterCommit}
+                                className="shrink-0"
+                                onCheckedChange={(checked) =>
+                                  setPushAfterCommit(checked === true)
+                                }
+                              />
+                              Push after committing
+                            </label>
+                            <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                              <Checkbox
+                                checked={skipCommitHooks}
+                                className="shrink-0"
+                                onCheckedChange={(checked) =>
+                                  setSkipCommitHooks(checked === true)
+                                }
+                              />
+                              Skip Git hooks
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                     <Button
                       className="mt-4 w-full"
                       disabled={isCommitting || !canCommit}
@@ -4251,6 +4479,57 @@ export function RepoInfo() {
               {isDiscardingAllChanges ? "Discarding..." : "Discard all"}
             </AlertDialogAction>
           </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if ((isCommitting || isPushing) && !open) {
+            return;
+          }
+
+          setIsForcePushConfirmOpen(open);
+
+          if (!open) {
+            pendingForcePushActionRef.current = null;
+          }
+        }}
+        open={isForcePushConfirmOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {forcePushConfirmMode === "commit"
+                ? "Force push amended commit?"
+                : "Force push diverged branch?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {forcePushConfirmMode === "commit"
+                ? "You are amending the previous commit and pushing immediately. This rewrites branch history and requires a force push with lease."
+                : "This branch is both ahead and behind its upstream. A regular push will fail, so this action will push with force-with-lease."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div>
+            <AlertDialogFooter className="sm:grid-cols-[auto_auto] sm:justify-end">
+              <AlertDialogCancel
+                className="w-full sm:w-auto"
+                disabled={isCommitting || isPushing}
+                size="sm"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="w-full sm:w-auto"
+                disabled={isCommitting || isPushing}
+                onClick={() => {
+                  executeConfirmedForcePush().catch(() => undefined);
+                }}
+                size="sm"
+                variant="destructive"
+              >
+                {forcePushConfirmActionLabel}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
     </div>
