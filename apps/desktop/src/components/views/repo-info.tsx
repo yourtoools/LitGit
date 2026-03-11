@@ -1598,51 +1598,80 @@ export function RepoInfo() {
           side="right"
           sideOffset={6}
         >
-          <DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
             Fast-forward {entry.name} to {currentBranch}
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
             Merge {currentBranch} into {entry.name}
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
             Rebase {currentBranch} onto {entry.name}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
             Checkout the commit at {entry.name}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Explain Branch Changes (Preview)</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
+            Explain Branch Changes (Preview)
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Create branch here</DropdownMenuItem>
-          <DropdownMenuItem>Cherry pick commit</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Create branch here</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Cherry pick commit</DropdownMenuItem>
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
+            {/* TODO: Implement this action */}
+            <DropdownMenuSubTrigger disabled>
               Reset {currentBranch} to this commit
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              <DropdownMenuItem>Soft - keep all changes</DropdownMenuItem>
-              <DropdownMenuItem>
+              {/* TODO: Implement this action */}
+              <DropdownMenuItem disabled>
+                Soft - keep all changes
+              </DropdownMenuItem>
+              {/* TODO: Implement this action */}
+              <DropdownMenuItem disabled>
                 Mixed - keep working copy but reset index
               </DropdownMenuItem>
-              <DropdownMenuItem>Hard - discard all changes</DropdownMenuItem>
+              {/* TODO: Implement this action */}
+              <DropdownMenuItem disabled>
+                Hard - discard all changes
+              </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
-          <DropdownMenuItem>Revert commit</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Revert commit</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Delete {entry.name} locally</DropdownMenuItem>
-          <DropdownMenuItem>Delete {entry.name} from origin</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
+            Delete {entry.name} locally
+          </DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
+            Delete {entry.name} from origin
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Copy tag name</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Copy tag name</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
             Copy link to this tag on remote: origin
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Hide</DropdownMenuItem>
-          <DropdownMenuItem>Solo</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Hide</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Solo</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Annotate {entry.name}</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Annotate {entry.name}</DropdownMenuItem>
         </DropdownMenuContent>
       );
     }
@@ -1682,11 +1711,16 @@ export function RepoInfo() {
             Delete Stash
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Edit stash message</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Edit stash message</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Share stash as Cloud Patch</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>
+            Share stash as Cloud Patch
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Hide</DropdownMenuItem>
+          {/* TODO: Implement this action */}
+          <DropdownMenuItem disabled>Hide</DropdownMenuItem>
         </DropdownMenuContent>
       );
     }
@@ -1718,15 +1752,19 @@ export function RepoInfo() {
         >
           Push
         </DropdownMenuItem>
-        <DropdownMenuItem>Set Upstream</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Set Upstream</DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
           Fast-forward {entry.name} to {currentBranch}
         </DropdownMenuItem>
-        <DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
           Merge {currentBranch} into {entry.name}
         </DropdownMenuItem>
-        <DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
           Rebase {currentBranch} onto {entry.name}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -1739,48 +1777,77 @@ export function RepoInfo() {
           Checkout {entry.name}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Create worktree from {entry.name}</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
+          Create worktree from {entry.name}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Create branch here</DropdownMenuItem>
-        <DropdownMenuItem>Cherry pick commit</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Create branch here</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Cherry pick commit</DropdownMenuItem>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
+          {/* TODO: Implement this action */}
+          <DropdownMenuSubTrigger disabled>
             Reset {currentBranch} to this commit
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            <DropdownMenuItem>Soft - keep all changes</DropdownMenuItem>
-            <DropdownMenuItem>
+            {/* TODO: Implement this action */}
+            <DropdownMenuItem disabled>
+              Soft - keep all changes
+            </DropdownMenuItem>
+            {/* TODO: Implement this action */}
+            <DropdownMenuItem disabled>
               Mixed - keep working copy but reset index
             </DropdownMenuItem>
-            <DropdownMenuItem>Hard - discard all changes</DropdownMenuItem>
+            {/* TODO: Implement this action */}
+            <DropdownMenuItem disabled>
+              Hard - discard all changes
+            </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        <DropdownMenuItem>Revert commit</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Revert commit</DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Explain Branch Changes (Preview)</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
+          Explain Branch Changes (Preview)
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Rename {entry.name}</DropdownMenuItem>
-        <DropdownMenuItem>Delete {entry.name}</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Rename {entry.name}</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Delete {entry.name}</DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Copy branch name</DropdownMenuItem>
-        <DropdownMenuItem>Copy commit sha</DropdownMenuItem>
-        <DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Copy branch name</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Copy commit sha</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
           Copy link to branch: origin/{entry.name}
         </DropdownMenuItem>
-        <DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
           Copy link to this commit on remote: origin
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Hide</DropdownMenuItem>
-        <DropdownMenuItem>Pin to Left</DropdownMenuItem>
-        <DropdownMenuItem>Solo</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Hide</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Pin to Left</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Solo</DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>
           Compare commit against working directory
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Create tag here</DropdownMenuItem>
-        <DropdownMenuItem>Create annotated tag here</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Create tag here</DropdownMenuItem>
+        {/* TODO: Implement this action */}
+        <DropdownMenuItem disabled>Create annotated tag here</DropdownMenuItem>
       </DropdownMenuContent>
     );
   };
@@ -1793,49 +1860,80 @@ export function RepoInfo() {
           onClick={preventLeftClickInMenus}
           onMouseDown={preventLeftClickInMenus}
         >
-          <ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
             Fast-forward {entry.name} to {currentBranch}
           </ContextMenuItem>
-          <ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
             Merge {currentBranch} into {entry.name}
           </ContextMenuItem>
-          <ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
             Rebase {currentBranch} onto {entry.name}
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Checkout the commit at {entry.name}</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Checkout the commit at {entry.name}
+          </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Explain Branch Changes (Preview)</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Explain Branch Changes (Preview)
+          </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Create branch here</ContextMenuItem>
-          <ContextMenuItem>Cherry pick commit</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
           <ContextMenuSub>
-            <ContextMenuSubTrigger>
+            {/* TODO: Implement this action */}
+            <ContextMenuSubTrigger disabled>
               Reset {currentBranch} to this commit
             </ContextMenuSubTrigger>
             <ContextMenuSubContent>
-              <ContextMenuItem>Soft - keep all changes</ContextMenuItem>
-              <ContextMenuItem>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>
+                Soft - keep all changes
+              </ContextMenuItem>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>
                 Mixed - keep working copy but reset index
               </ContextMenuItem>
-              <ContextMenuItem>Hard - discard all changes</ContextMenuItem>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>
+                Hard - discard all changes
+              </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
-          <ContextMenuItem>Revert commit</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Delete {entry.name} locally</ContextMenuItem>
-          <ContextMenuItem>Delete {entry.name} from origin</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Delete {entry.name} locally
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Delete {entry.name} from origin
+          </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Copy tag name</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Copy tag name</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
             Copy link to this tag on remote: origin
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Hide</ContextMenuItem>
-          <ContextMenuItem>Solo</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Hide</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Solo</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Annotate {entry.name}</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Annotate {entry.name}</ContextMenuItem>
         </ContextMenuContent>
       );
     }
@@ -1872,11 +1970,14 @@ export function RepoInfo() {
             Delete Stash
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Edit stash message</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Edit stash message</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Share stash as Cloud Patch</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Share stash as Cloud Patch</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Hide</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Hide</ContextMenuItem>
         </ContextMenuContent>
       );
     }
@@ -1905,15 +2006,19 @@ export function RepoInfo() {
         >
           Push
         </ContextMenuItem>
-        <ContextMenuItem>Set Upstream</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
           Fast-forward {entry.name} to {currentBranch}
         </ContextMenuItem>
-        <ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
           Merge {currentBranch} into {entry.name}
         </ContextMenuItem>
-        <ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
           Rebase {currentBranch} onto {entry.name}
         </ContextMenuItem>
         <ContextMenuSeparator />
@@ -1926,48 +2031,75 @@ export function RepoInfo() {
           Checkout {entry.name}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Create worktree from {entry.name}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Create worktree from {entry.name}
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Create branch here</ContextMenuItem>
-        <ContextMenuItem>Cherry pick commit</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create branch here</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
         <ContextMenuSub>
-          <ContextMenuSubTrigger>
+          {/* TODO: Implement this action */}
+          <ContextMenuSubTrigger disabled>
             Reset {currentBranch} to this commit
           </ContextMenuSubTrigger>
           <ContextMenuSubContent>
-            <ContextMenuItem>Soft - keep all changes</ContextMenuItem>
-            <ContextMenuItem>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>Soft - keep all changes</ContextMenuItem>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>
               Mixed - keep working copy but reset index
             </ContextMenuItem>
-            <ContextMenuItem>Hard - discard all changes</ContextMenuItem>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>
+              Hard - discard all changes
+            </ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
-        <ContextMenuItem>Revert commit</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Revert commit</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Explain Branch Changes (Preview)</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Explain Branch Changes (Preview)
+        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Rename {entry.name}</ContextMenuItem>
-        <ContextMenuItem>Delete {entry.name}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Rename {entry.name}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Delete {entry.name}</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Copy branch name</ContextMenuItem>
-        <ContextMenuItem>Copy commit sha</ContextMenuItem>
-        <ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Copy branch name</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Copy commit sha</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
           Copy link to branch: origin/{entry.name}
         </ContextMenuItem>
-        <ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
           Copy link to this commit on remote: origin
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Hide</ContextMenuItem>
-        <ContextMenuItem>Pin to Left</ContextMenuItem>
-        <ContextMenuItem>Solo</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Hide</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Pin to Left</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Solo</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
           Compare commit against working directory
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Create tag here</ContextMenuItem>
-        <ContextMenuItem>Create annotated tag here</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create tag here</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
       </ContextMenuContent>
     );
   };
@@ -2588,21 +2720,34 @@ export function RepoInfo() {
               ) : null}
             </ContextMenuSubContent>
           </ContextMenuSub>
-          <ContextMenuItem>{stashLabel}</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>{stashLabel}</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>File History</ContextMenuItem>
-          <ContextMenuItem>File Blame</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>File History</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>File Blame</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Open in external diff tool</ContextMenuItem>
-          <ContextMenuItem>Open in external editor</ContextMenuItem>
-          <ContextMenuItem>Open file in default program</ContextMenuItem>
-          <ContextMenuItem>Show in folder</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Open in external diff tool</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Open in external editor</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Open file in default program
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Show in folder</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Copy file path</ContextMenuItem>
-          <ContextMenuItem>{patchLabel}</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Copy file path</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>{patchLabel}</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem>Edit file</ContextMenuItem>
-          <ContextMenuItem>Delete file</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Edit file</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Delete file</ContextMenuItem>
         </ContextMenuContent>
       );
     }
@@ -2633,12 +2778,19 @@ export function RepoInfo() {
         >
           {discardLabel}
         </ContextMenuItem>
-        <ContextMenuItem>{`Ignore all files in '${ignoreTarget}'`}</ContextMenuItem>
-        <ContextMenuItem>{stashLabel}</ContextMenuItem>
-        <ContextMenuItem>{patchLabel}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem
+          disabled
+        >{`Ignore all files in '${ignoreTarget}'`}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>{stashLabel}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>{patchLabel}</ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem>Open folder</ContextMenuItem>
-        <ContextMenuItem>Create a file in this folder</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Open folder</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create a file in this folder</ContextMenuItem>
       </ContextMenuContent>
     );
   };
@@ -3208,11 +3360,13 @@ export function RepoInfo() {
             </div>
             <div className="w-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div className="flex min-w-max items-center justify-end gap-1">
+                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Undo"
+                        disabled
                         size="default"
                         type="button"
                         variant="ghost"
@@ -3229,11 +3383,13 @@ export function RepoInfo() {
                     Undo
                   </TooltipContent>
                 </Tooltip>
+                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Redo"
+                        disabled
                         size="default"
                         type="button"
                         variant="ghost"
@@ -3380,11 +3536,13 @@ export function RepoInfo() {
                     Push
                   </TooltipContent>
                 </Tooltip>
+                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Branch"
+                        disabled
                         size="default"
                         type="button"
                         variant="ghost"
@@ -3403,11 +3561,13 @@ export function RepoInfo() {
                     Branch
                   </TooltipContent>
                 </Tooltip>
+                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Stash"
+                        disabled
                         size="default"
                         type="button"
                         variant="ghost"
@@ -3426,11 +3586,13 @@ export function RepoInfo() {
                     Stash
                   </TooltipContent>
                 </Tooltip>
+                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Pop"
+                        disabled
                         size="default"
                         type="button"
                         variant="ghost"
