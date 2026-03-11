@@ -382,9 +382,24 @@ const resolveRuntimeSurfaceTheme = (
   return resolvedTheme === "light" ? "light" : "dark";
 };
 
+const resolveSystemMonacoEol = (): MonacoEditor.EndOfLineSequence => {
+  if (typeof navigator !== "undefined") {
+    const userAgentData = Reflect.get(navigator, "userAgentData") as
+      | { platform?: string }
+      | undefined;
+    const platform = userAgentData?.platform ?? navigator.userAgent;
+
+    if (platform.toLowerCase().includes("win")) {
+      return 1;
+    }
+  }
+
+  return 0;
+};
+
 const resolveMonacoEol = (
   preference: "system" | "lf" | "crlf"
-): MonacoEditor.EndOfLineSequence | null => {
+): MonacoEditor.EndOfLineSequence => {
   if (preference === "lf") {
     return 0;
   }
@@ -393,7 +408,7 @@ const resolveMonacoEol = (
     return 1;
   }
 
-  return null;
+  return resolveSystemMonacoEol();
 };
 
 const applyDiffEditorPreferences = (
@@ -412,10 +427,8 @@ const applyDiffEditorPreferences = (
   });
   const eol = resolveMonacoEol(eolPreference);
 
-  if (eol !== null) {
-    editor.getOriginalEditor().getModel()?.setEOL(eol);
-    editor.getModifiedEditor().getModel()?.setEOL(eol);
-  }
+  editor.getOriginalEditor().getModel()?.setEOL(eol);
+  editor.getModifiedEditor().getModel()?.setEOL(eol);
 };
 
 function formatStashLabel(stash: RepositoryStash): string {
