@@ -2287,6 +2287,7 @@ export function SettingsPage() {
   const sidebarResizeStateRef = useRef<SidebarResizeState | null>(null);
   const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
   const contentPanelRef = useRef<HTMLDivElement | null>(null);
+  const previousActiveSectionRef = useRef<SettingsSectionId | null>(null);
   const resizeAnimationFrameRef = useRef<number | null>(null);
   const pendingSidebarWidthRef = useRef<number | null>(null);
   const bodyStyleSnapshotRef = useRef<{
@@ -2297,11 +2298,6 @@ export function SettingsPage() {
     (state) => state.settings.activeSection
   );
 
-  useEffect(() => {
-    if (contentPanelRef.current) {
-      contentPanelRef.current.scrollTop = 0;
-    }
-  }, []);
   const lastNonSettingsRoute = usePreferencesStore(
     (state) => state.settings.lastNonSettingsRoute
   );
@@ -2335,6 +2331,20 @@ export function SettingsPage() {
   const activeDefinition =
     SETTINGS_SECTIONS.find((section) => section.id === activeSection) ??
     SETTINGS_SECTIONS[0];
+
+  useEffect(() => {
+    const previousActiveSection = previousActiveSectionRef.current;
+
+    if (
+      contentPanelRef.current &&
+      (previousActiveSection === null ||
+        previousActiveSection !== activeSection)
+    ) {
+      contentPanelRef.current.scrollTop = 0;
+    }
+
+    previousActiveSectionRef.current = activeSection;
+  }, [activeSection]);
 
   const handleExitPreferences = useCallback(() => {
     const nextPath =
