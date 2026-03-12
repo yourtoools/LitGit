@@ -15,6 +15,7 @@ import type {
   RepositoryWorkingTreeItem,
   RepositoryWorkingTreeStatus,
 } from "@/stores/repo/repo-store-types";
+import { useOperationLogStore } from "@/stores/ui/use-operation-log-store";
 
 interface TauriCoreLike {
   invoke?: (
@@ -352,6 +353,47 @@ export function getTauriInvoke() {
   );
 }
 
+const invokeRepoCommandWithSystemLog = async <T>(params: {
+  command: string;
+  invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+  invokeArgs: Record<string, unknown>;
+  invokeCommand: string;
+  repoPath: string;
+}): Promise<T> => {
+  const { appendSystemLog } = useOperationLogStore.getState();
+  const { command, invoke, invokeArgs, invokeCommand, repoPath } = params;
+  const startedAt = performance.now();
+
+  try {
+    const result = await invoke(invokeCommand, invokeArgs);
+    appendSystemLog(repoPath, {
+      command,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      level: "info",
+      message: "Command completed",
+    });
+
+    return result as T;
+  } catch (error) {
+    let message = "Command failed";
+
+    if (error instanceof Error) {
+      message = error.message;
+    } else if (typeof error === "string") {
+      message = error;
+    }
+
+    appendSystemLog(repoPath, {
+      command,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      level: "error",
+      message,
+    });
+
+    throw error;
+  }
+};
+
 async function loadHistoryForRepo(id: string, path: string) {
   const invoke = getTauriInvoke();
 
@@ -359,7 +401,13 @@ async function loadHistoryForRepo(id: string, path: string) {
     return null;
   }
 
-  const result = await invoke("get_repository_history", { repoPath: path });
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git log --date=iso-strict --decorate=short",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_history",
+    repoPath: path,
+  });
   const commits = parseRepositoryHistory(result);
 
   return { commits, id };
@@ -372,7 +420,13 @@ async function loadBranchesForRepo(id: string, path: string) {
     return null;
   }
 
-  const result = await invoke("get_repository_branches", { repoPath: path });
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git for-each-ref --sort=-committerdate",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_branches",
+    repoPath: path,
+  });
   const branches = parseRepositoryBranches(result);
 
   return { branches, id };
@@ -385,7 +439,11 @@ async function loadRemoteNamesForRepo(id: string, path: string) {
     return null;
   }
 
-  const result = await invoke("get_repository_remote_names", {
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git remote",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_remote_names",
     repoPath: path,
   });
   const remoteNames = parseRepositoryRemoteNames(result);
@@ -400,7 +458,13 @@ async function loadStashesForRepo(id: string, path: string) {
     return null;
   }
 
-  const result = await invoke("get_repository_stashes", { repoPath: path });
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git stash list",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_stashes",
+    repoPath: path,
+  });
   const stashes = parseRepositoryStashes(result);
 
   return { id, stashes };
@@ -413,7 +477,11 @@ async function loadWorkingTreeStatusForRepo(id: string, path: string) {
     return null;
   }
 
-  const result = await invoke("get_repository_working_tree_status", {
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git status --porcelain --untracked-files=all",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_working_tree_status",
     repoPath: path,
   });
   const status = parseRepositoryWorkingTreeStatus(result);
@@ -428,7 +496,11 @@ async function loadWorkingTreeItemsForRepo(id: string, path: string) {
     return null;
   }
 
-  const result = await invoke("get_repository_working_tree_items", {
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git status --porcelain --untracked-files=all",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_working_tree_items",
     repoPath: path,
   });
   const items = parseRepositoryWorkingTreeItems(result);
@@ -443,9 +515,15 @@ export async function switchRepoBranch(path: string, branchName: string) {
     throw new Error("Switch branch works in Tauri desktop app only");
   }
 
-  await invoke("switch_repository_branch", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git switch ${branchName}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      branchName,
+    },
+    invokeCommand: "switch_repository_branch",
     repoPath: path,
-    branchName,
   });
 }
 
@@ -458,7 +536,11 @@ export async function getLatestRepoCommitMessage(
     throw new Error("Latest commit message works in Tauri desktop app only");
   }
 
-  const result = await invoke("get_latest_repository_commit_message", {
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git log -1 --pretty=format:%s%x1f%b",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_latest_repository_commit_message",
     repoPath: path,
   });
 
@@ -489,9 +571,15 @@ export async function pushRepoBranch(
     throw new Error("Push works in Tauri desktop app only");
   }
 
-  await invoke("push_repository_branch", {
-    forceWithLease,
-    preferences,
+  await invokeRepoCommandWithSystemLog<void>({
+    command: forceWithLease ? "git push --force-with-lease" : "git push",
+    invoke,
+    invokeArgs: {
+      forceWithLease,
+      preferences,
+      repoPath: path,
+    },
+    invokeCommand: "push_repository_branch",
     repoPath: path,
   });
 }
@@ -503,9 +591,15 @@ export async function applyRepoStash(path: string, stashRef: string) {
     throw new Error("Apply stash works in Tauri desktop app only");
   }
 
-  await invoke("apply_repository_stash", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git stash apply ${stashRef}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      stashRef,
+    },
+    invokeCommand: "apply_repository_stash",
     repoPath: path,
-    stashRef,
   });
 }
 
@@ -516,9 +610,15 @@ export async function popRepoStash(path: string, stashRef: string) {
     throw new Error("Pop stash works in Tauri desktop app only");
   }
 
-  await invoke("pop_repository_stash", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git stash pop ${stashRef}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      stashRef,
+    },
+    invokeCommand: "pop_repository_stash",
     repoPath: path,
-    stashRef,
   });
 }
 
@@ -529,9 +629,15 @@ export async function dropRepoStash(path: string, stashRef: string) {
     throw new Error("Drop stash works in Tauri desktop app only");
   }
 
-  await invoke("drop_repository_stash", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git stash drop ${stashRef}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      stashRef,
+    },
+    invokeCommand: "drop_repository_stash",
     repoPath: path,
-    stashRef,
   });
 }
 
@@ -568,14 +674,28 @@ export async function commitRepoChanges(
     throw new Error("Commit changes works in Tauri desktop app only");
   }
 
-  await invoke("commit_repository_changes", {
-    preferences,
+  let command = "git commit";
+
+  if (amend) {
+    command = "git commit --amend";
+  } else if (includeAll) {
+    command = "git add -A && git commit";
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command,
+    invoke,
+    invokeArgs: {
+      preferences,
+      repoPath: path,
+      summary,
+      description,
+      includeAll,
+      amend,
+      skipHooks,
+    },
+    invokeCommand: "commit_repository_changes",
     repoPath: path,
-    summary,
-    description,
-    includeAll,
-    amend,
-    skipHooks,
   });
 }
 
@@ -586,7 +706,11 @@ export async function createRepoInitialCommit(path: string) {
     throw new Error("Initialize repository works in Tauri desktop app only");
   }
 
-  await invoke("create_repository_initial_commit", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: "git add -A && git commit -m Initial commit",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "create_repository_initial_commit",
     repoPath: path,
   });
 }
@@ -666,7 +790,11 @@ export async function stageAllRepoChanges(path: string) {
     throw new Error("Stage all works in Tauri desktop app only");
   }
 
-  await invoke("stage_all_repository_changes", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: "git add -A",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "stage_all_repository_changes",
     repoPath: path,
   });
 }
@@ -678,7 +806,11 @@ export async function unstageAllRepoChanges(path: string) {
     throw new Error("Unstage all works in Tauri desktop app only");
   }
 
-  await invoke("unstage_all_repository_changes", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: "git reset HEAD -- .",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "unstage_all_repository_changes",
     repoPath: path,
   });
 }
@@ -690,9 +822,15 @@ export async function stageRepoFile(path: string, filePath: string) {
     throw new Error("Stage file works in Tauri desktop app only");
   }
 
-  await invoke("stage_repository_file", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git add -- ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+    },
+    invokeCommand: "stage_repository_file",
     repoPath: path,
-    filePath,
   });
 }
 
@@ -703,9 +841,15 @@ export async function unstageRepoFile(path: string, filePath: string) {
     throw new Error("Unstage file works in Tauri desktop app only");
   }
 
-  await invoke("unstage_repository_file", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git reset HEAD -- ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+    },
+    invokeCommand: "unstage_repository_file",
     repoPath: path,
-    filePath,
   });
 }
 
@@ -716,9 +860,15 @@ export async function addRepoIgnoreRule(path: string, pattern: string) {
     throw new Error("Ignore rule update works in Tauri desktop app only");
   }
 
-  await invoke("add_repository_ignore_rule", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `append .gitignore rule: ${pattern}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      pattern,
+    },
+    invokeCommand: "add_repository_ignore_rule",
     repoPath: path,
-    pattern,
   });
 }
 export async function discardRepoPathChanges(path: string, filePath: string) {
@@ -728,9 +878,15 @@ export async function discardRepoPathChanges(path: string, filePath: string) {
     throw new Error("Discard changes works in Tauri desktop app only");
   }
 
-  await invoke("discard_repository_path_changes", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git restore --source=HEAD --staged --worktree -- ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+    },
+    invokeCommand: "discard_repository_path_changes",
     repoPath: path,
-    filePath,
   });
 }
 export async function discardAllRepoChanges(path: string) {
@@ -740,7 +896,11 @@ export async function discardAllRepoChanges(path: string) {
     throw new Error("Discard changes works in Tauri desktop app only");
   }
 
-  await invoke("discard_all_repository_changes", {
+  await invokeRepoCommandWithSystemLog<void>({
+    command: "git reset --hard HEAD && git clean -fd",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "discard_all_repository_changes",
     repoPath: path,
   });
 }
@@ -754,9 +914,15 @@ export async function getRepoCommitFiles(
     throw new Error("Commit files works in Tauri desktop app only");
   }
 
-  const result = await invoke("get_repository_commit_files", {
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `git show --name-status ${commitHash}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      commitHash,
+    },
+    invokeCommand: "get_repository_commit_files",
     repoPath: path,
-    commitHash,
   });
 
   return parseRepositoryCommitFiles(result);
@@ -773,10 +939,16 @@ export async function getRepoCommitFileDiff(
     throw new Error("Commit diff works in Tauri desktop app only");
   }
 
-  const result = await invoke("get_repository_commit_file_diff", {
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `git show ${commitHash}:${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      commitHash,
+      filePath,
+    },
+    invokeCommand: "get_repository_commit_file_diff",
     repoPath: path,
-    commitHash,
-    filePath,
   });
 
   if (!isRecord(result)) {
@@ -814,9 +986,15 @@ export async function getRepoFileDiff(path: string, filePath: string) {
     throw new Error("File diff works in Tauri desktop app only");
   }
 
-  const result = await invoke("get_repository_file_diff", {
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `git show HEAD:${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+    },
+    invokeCommand: "get_repository_file_diff",
     repoPath: path,
-    filePath,
   });
 
   if (!isRecord(result)) {
@@ -919,10 +1097,23 @@ export async function runRepoPull(
     throw new Error("Pull works in Tauri desktop app only");
   }
 
-  const result = await invoke("pull_repository_action", {
+  const commandByMode: Record<PullActionMode, string> = {
+    "fetch-all": "git fetch --all --prune",
+    "pull-ff-only": "git pull --ff-only",
+    "pull-ff-possible": "git pull",
+    "pull-rebase": "git pull --rebase",
+  };
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: commandByMode[mode],
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      mode,
+      preferences,
+    },
+    invokeCommand: "pull_repository_action",
     repoPath: path,
-    mode,
-    preferences,
   });
 
   if (!isRecord(result) || typeof result.headChanged !== "boolean") {

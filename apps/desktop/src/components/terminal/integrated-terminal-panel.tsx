@@ -6,6 +6,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@litgit/ui/components/context-menu";
+import { Tabs, TabsList, TabsTrigger } from "@litgit/ui/components/tabs";
 import { cn } from "@litgit/ui/lib/utils";
 import { XIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
@@ -32,6 +33,10 @@ import {
 } from "@/lib/tauri-terminal-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import {
+  type OperationLogEntry,
+  useOperationLogStore,
+} from "@/stores/ui/use-operation-log-store";
+import {
   terminalPanelHeightLimits,
   useTerminalPanelStore,
 } from "@/stores/ui/use-terminal-panel-store";
@@ -46,11 +51,16 @@ interface TerminalSessionCacheEntry {
   sessionId: string;
 }
 
+const EMPTY_OPERATION_LOGS: readonly OperationLogEntry[] = [];
+
 const sessionCacheByContext = new Map<string, TerminalSessionCacheEntry>();
 
 const INITIAL_COLS = 80;
 const INITIAL_ROWS = 24;
 const MAX_BUFFER_SIZE = 250_000;
+const MAX_RENDERED_SYSTEM_LOGS = 300;
+const MAX_RENDERED_ACTIVITY_LOGS = 300;
+type PanelTabValue = "terminal" | "output" | "activity";
 
 const clampPanelHeight = (height: number): number =>
   Math.min(
@@ -130,6 +140,33 @@ const createTerminalTheme = (mode: "light" | "dark") => {
   };
 };
 
+const formatLogTimestamp = (timestampMs: number): string => {
+  const date = new Date(timestampMs);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hour = `${date.getHours()}`.padStart(2, "0");
+  const minute = `${date.getMinutes()}`.padStart(2, "0");
+  const second = `${date.getSeconds()}`.padStart(2, "0");
+  const milliseconds = `${date.getMilliseconds()}`.padStart(3, "0");
+
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}.${milliseconds}`;
+};
+
+const formatSystemLogLine = (entry: OperationLogEntry) => {
+  if (entry.command) {
+    const durationLabel =
+      typeof entry.durationMs === "number" ? ` [${entry.durationMs}ms]` : "";
+    return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] > ${entry.command}${durationLabel}`;
+  }
+
+  return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] ${entry.message}`;
+};
+
+const formatActivityLogLine = (entry: OperationLogEntry) => {
+  return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] ${entry.message}`;
+};
+
 export function IntegratedTerminalPanel({
   contextKey,
   cwd,
@@ -147,10 +184,44 @@ export function IntegratedTerminalPanel({
   const lineHeight = usePreferencesStore((state) => state.terminal.lineHeight);
   const { resolvedTheme } = useTheme();
   const [isReady, setIsReady] = useState(false);
+  const [activeTab, setActiveTab] = useState<PanelTabValue>("terminal");
   const mountRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  const clearSystemLogs = useOperationLogStore(
+    (state) => state.clearSystemLogs
+  );
+  const clearActivityLogs = useOperationLogStore(
+    (state) => state.clearActivityLogs
+  );
+  const systemLogs = useOperationLogStore(
+    (state) => state.systemLogsByRepoPath[cwd]
+  );
+  const activityLogs = useOperationLogStore(
+    (state) => state.activityLogsByRepoPath[cwd]
+  );
+  const resolvedSystemLogs = systemLogs ?? EMPTY_OPERATION_LOGS;
+  const resolvedActivityLogs = activityLogs ?? EMPTY_OPERATION_LOGS;
+  const renderedSystemLogs = useMemo(() => {
+    if (resolvedSystemLogs.length <= MAX_RENDERED_SYSTEM_LOGS) {
+      return resolvedSystemLogs;
+    }
+
+    return resolvedSystemLogs.slice(-MAX_RENDERED_SYSTEM_LOGS);
+  }, [resolvedSystemLogs]);
+  const renderedActivityLogs = useMemo(() => {
+    if (resolvedActivityLogs.length <= MAX_RENDERED_ACTIVITY_LOGS) {
+      return resolvedActivityLogs;
+    }
+
+    return resolvedActivityLogs.slice(-MAX_RENDERED_ACTIVITY_LOGS);
+  }, [resolvedActivityLogs]);
+  const hiddenSystemLogCount =
+    resolvedSystemLogs.length - renderedSystemLogs.length;
+  const hiddenActivityLogCount =
+    resolvedActivityLogs.length - renderedActivityLogs.length;
 
   const canRenderTerminal = useMemo(
     () => isTauri() && cwd.trim().length > 0,
@@ -184,6 +255,7 @@ export function IntegratedTerminalPanel({
     const serializeAddon = new SerializeAddon();
     const webLinksAddon = new WebLinksAddon();
     terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
 
     let unlistenOutput: (() => void) | null = null;
     let cleanupDone = false;
@@ -288,6 +360,7 @@ export function IntegratedTerminalPanel({
       unlistenOutput?.();
       terminal.dispose();
       terminalRef.current = null;
+      fitAddonRef.current = null;
       serializeAddonRef.current = null;
     };
   }, [
@@ -302,18 +375,27 @@ export function IntegratedTerminalPanel({
   ]);
 
   useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    setActiveTab("terminal");
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!canRenderTerminal) {
       setIsReady(false);
     }
   }, [canRenderTerminal]);
 
   useEffect(() => {
-    if (!(isOpen && isReady)) {
+    if (!(isOpen && isReady && activeTab === "terminal")) {
       return;
     }
 
+    fitAddonRef.current?.fit();
     terminalRef.current?.focus();
-  }, [isOpen, isReady]);
+  }, [activeTab, isOpen, isReady]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -390,6 +472,13 @@ export function IntegratedTerminalPanel({
     await navigator.clipboard.writeText(serialized).catch(() => undefined);
     terminalRef.current?.focus();
   };
+
+  const handleTabValueChange = (value: string) => {
+    if (value === "terminal" || value === "output" || value === "activity") {
+      setActiveTab(value);
+    }
+  };
+
   if (!isTauri()) {
     return null;
   }
@@ -409,47 +498,161 @@ export function IntegratedTerminalPanel({
         onPointerDown={onStartResize}
         role="presentation"
       />
-      <div className="flex h-9 items-center justify-between border-border/60 border-b bg-muted/30 pl-3">
-        <p className="font-medium text-[0.68rem] text-muted-foreground uppercase tracking-[0.12em]">
-          Terminal
-        </p>
-        <Button
-          aria-label="Close terminal"
-          onClick={toggle}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          <XIcon className="size-3.5" />
-        </Button>
-      </div>
-      <ContextMenu>
-        <ContextMenuTrigger className="h-[calc(100%-2.25rem)] pt-2 pl-2">
+      <Tabs
+        className="h-full gap-0"
+        onValueChange={handleTabValueChange}
+        value={activeTab}
+      >
+        <div className="flex h-9 items-center justify-between border-border/60 border-b bg-muted/30 px-2">
+          <TabsList
+            className="h-8 rounded-none bg-transparent p-0"
+            variant="line"
+          >
+            <TabsTrigger
+              className="h-7 rounded-md px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
+              value="terminal"
+            >
+              Terminal
+            </TabsTrigger>
+            <TabsTrigger
+              className="h-7 rounded-md px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
+              value="output"
+            >
+              Output
+            </TabsTrigger>
+            <TabsTrigger
+              className="h-7 rounded-md px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
+              value="activity"
+            >
+              Activity Log
+            </TabsTrigger>
+          </TabsList>
+          <div className="flex items-center gap-1">
+            {activeTab === "output" ? (
+              <Button
+                className="h-7 px-2 text-[0.65rem]"
+                onClick={() => clearSystemLogs(cwd)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Clear
+              </Button>
+            ) : null}
+            {activeTab === "activity" ? (
+              <Button
+                className="h-7 px-2 text-[0.65rem]"
+                onClick={() => clearActivityLogs(cwd)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Clear
+              </Button>
+            ) : null}
+            <Button
+              aria-label="Close terminal"
+              onClick={toggle}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <XIcon className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="h-[calc(100%-2.25rem)]">
           <div
             className={cn(
-              "h-full overflow-hidden rounded-md bg-background",
-              !isReady && "opacity-75"
+              "h-full",
+              activeTab === "terminal" ? "block" : "hidden"
             )}
-            ref={mountRef}
-          />
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onClick={copySelection}>Copy</ContextMenuItem>
-          <ContextMenuItem onClick={pasteClipboard}>Paste</ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              terminalRef.current?.selectAll();
-              terminalRef.current?.focus();
-            }}
           >
-            Select All
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={copyBuffer}>
-            Copy Terminal Buffer
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+            <ContextMenu>
+              <ContextMenuTrigger className="h-full pt-2 pl-2">
+                <div
+                  className={cn(
+                    "h-full overflow-hidden rounded-md bg-background",
+                    !isReady && "opacity-75"
+                  )}
+                  ref={mountRef}
+                />
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={copySelection}>Copy</ContextMenuItem>
+                <ContextMenuItem onClick={pasteClipboard}>
+                  Paste
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={() => {
+                    terminalRef.current?.selectAll();
+                    terminalRef.current?.focus();
+                  }}
+                >
+                  Select All
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={copyBuffer}>
+                  Copy Terminal Buffer
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          </div>
+
+          <div
+            className={cn(
+              "h-full overflow-auto p-3 font-mono text-xs",
+              activeTab === "output" ? "block" : "hidden"
+            )}
+          >
+            {renderedSystemLogs.length > 0 ? (
+              <div className="space-y-1 text-foreground/85">
+                {hiddenSystemLogCount > 0 ? (
+                  <p className="text-muted-foreground">
+                    Showing latest {renderedSystemLogs.length} logs (
+                    {hiddenSystemLogCount} older logs hidden)
+                  </p>
+                ) : null}
+                {renderedSystemLogs.map((entry) => (
+                  <p key={entry.id}>{formatSystemLogLine(entry)}</p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground">
+                No backend/system output yet. Run repository actions to see
+                logs.
+              </p>
+            )}
+          </div>
+
+          <div
+            className={cn(
+              "h-full overflow-auto p-3 font-mono text-xs",
+              activeTab === "activity" ? "block" : "hidden"
+            )}
+          >
+            {renderedActivityLogs.length > 0 ? (
+              <div className="space-y-1 text-foreground/85">
+                {hiddenActivityLogCount > 0 ? (
+                  <p className="text-muted-foreground">
+                    Showing latest {renderedActivityLogs.length} logs (
+                    {hiddenActivityLogCount} older logs hidden)
+                  </p>
+                ) : null}
+                {renderedActivityLogs.map((entry) => (
+                  <p key={entry.id}>{formatActivityLogLine(entry)}</p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground">
+                No activity yet. Commit/push/pull/stage actions will appear
+                here.
+              </p>
+            )}
+          </div>
+        </div>
+      </Tabs>
     </div>
   );
 }
