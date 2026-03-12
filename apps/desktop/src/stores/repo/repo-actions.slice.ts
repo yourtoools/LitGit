@@ -23,7 +23,10 @@ import {
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
 import type { RepoStoreGet } from "@/stores/repo/repo-store.slice-types";
-import type { RepoStoreState } from "@/stores/repo/repo-store-types";
+import type {
+  PublishRepositoryOptions,
+  RepoStoreState,
+} from "@/stores/repo/repo-store-types";
 import { useOperationLogStore } from "@/stores/ui/use-operation-log-store";
 
 const getRepoCommandPreferences = () => {
@@ -99,7 +102,11 @@ export const createRepoActionsSlice = (
       throw error;
     }
   },
-  pushBranch: async (id, forceWithLease = false) => {
+  pushBranch: async (
+    id,
+    forceWithLease = false,
+    publishOptions?: PublishRepositoryOptions
+  ) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 
     if (!targetRepo) {
@@ -117,7 +124,8 @@ export const createRepoActionsSlice = (
       await pushRepoBranch(
         targetRepo.path,
         getRepoCommandPreferences(),
-        forceWithLease
+        forceWithLease,
+        publishOptions
       );
       await get().setActiveRepo(id, { forceRefresh: true });
       toast.success("Push completed");

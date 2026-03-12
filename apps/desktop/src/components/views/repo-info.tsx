@@ -29,6 +29,14 @@ import {
   ContextMenuTrigger,
 } from "@litgit/ui/components/context-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@litgit/ui/components/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -99,6 +107,7 @@ import { IntegratedTerminalPanel } from "@/components/terminal/integrated-termin
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type {
+  PublishRepositoryOptions,
   PullActionMode,
   RepositoryCommit,
   RepositoryCommitFile,
@@ -460,6 +469,43 @@ function clampWidth(value: number, min: number, max: number): number {
   return Math.min(upperBound, Math.max(lowerBound, value));
 }
 
+function resolvePublishRepositoryNameError(name: string): string | null {
+  const trimmedName = name.trim();
+
+  if (trimmedName.length === 0) {
+    return "Repository name is required.";
+  }
+
+  if (trimmedName === "." || trimmedName === "..") {
+    return "Repository name must be more specific.";
+  }
+
+  if (trimmedName.includes("/") || trimmedName.includes("\\")) {
+    return "Repository name cannot contain path separators.";
+  }
+
+  if (
+    [...trimmedName].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+
+      return (
+        character === "<" ||
+        character === ">" ||
+        character === ":" ||
+        character === '"' ||
+        character === "|" ||
+        character === "?" ||
+        character === "*" ||
+        codePoint < 32
+      );
+    })
+  ) {
+    return "Repository name contains unsupported characters.";
+  }
+
+  return null;
+}
+
 function getLeftSidebarMaxWidth(
   viewportWidth: number,
   rightSidebarWidth: number,
@@ -505,6 +551,7 @@ export function RepoInfo() {
   const repoCommits = useRepoStore((state) => state.repoCommits);
   const repoBranches = useRepoStore((state) => state.repoBranches);
   const repoStashes = useRepoStore((state) => state.repoStashes);
+  const repoRemoteNames = useRepoStore((state) => state.repoRemoteNames);
   const repoWorkingTreeItems = useRepoStore(
     (state) => state.repoWorkingTreeItems
   );
@@ -554,6 +601,16 @@ export function RepoInfo() {
   const [isDiscardingAllChanges, setIsDiscardingAllChanges] = useState(false);
   const [isDiscardAllConfirmOpen, setIsDiscardAllConfirmOpen] = useState(false);
   const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
+  const [isPublishRepoConfirmOpen, setIsPublishRepoConfirmOpen] =
+    useState(false);
+  const [publishRepoName, setPublishRepoName] = useState("");
+  const [publishRepoVisibility, setPublishRepoVisibility] = useState<
+    "private" | "public"
+  >("private");
+  const [publishRepoFormError, setPublishRepoFormError] = useState<
+    string | null
+  >(null);
+  const [isSubmittingPublishRepo, setIsSubmittingPublishRepo] = useState(false);
   const [forcePushConfirmMode, setForcePushConfirmMode] = useState<
     "commit" | "push"
   >("push");
@@ -647,6 +704,9 @@ export function RepoInfo() {
     summary: string;
   } | null>(null);
   const pendingForcePushActionRef = useRef<(() => Promise<void>) | null>(null);
+  const pendingPublishPushActionRef = useRef<
+    ((options: PublishRepositoryOptions) => Promise<void>) | null
+  >(null);
   const { resolvedTheme } = useTheme();
   const routeSearch = useSearch({ strict: false });
   const activeTabIdFromUrl =
@@ -732,6 +792,11 @@ export function RepoInfo() {
     };
   }, [workingTreeItems]);
   const canCommit = draftCommitSummary.trim().length > 0 && hasStagedChanges;
+  const activeRepoRemoteNames = useMemo(
+    () => (activeRepoId ? (repoRemoteNames[activeRepoId] ?? []) : []),
+    [activeRepoId, repoRemoteNames]
+  );
+  const hasRemoteConfigured = activeRepoRemoteNames.length > 0;
   const unstagedTree = useMemo(
     () => buildChangeTree(unstagedItems),
     [unstagedItems]
@@ -961,6 +1026,15 @@ export function RepoInfo() {
     }
 
     return "Unknown error";
+  };
+
+  const isMissingRemoteRepositoryError = (error: unknown): boolean => {
+    const normalized = getErrorMessage(error).toLowerCase();
+
+    return (
+      normalized.includes("remote repository for 'origin' was not found") ||
+      normalized.includes("repository not found")
+    );
   };
 
   const getCheckoutFailureReason = (error: unknown): string => {
@@ -1616,6 +1690,29 @@ export function RepoInfo() {
       return;
     }
 
+    if (!hasRemoteConfigured) {
+      openPublishRepoConfirm(async (publishOptions) => {
+        setIsPushing(true);
+
+        try {
+          await pushBranch(activeRepoId, false, publishOptions);
+        } catch (error) {
+          if (isMissingRemoteRepositoryError(error)) {
+            setPublishRepoName(activeRepo?.name ?? "");
+            setPublishRepoVisibility("private");
+            setPublishRepoFormError(null);
+            setIsPublishRepoConfirmOpen(true);
+            return;
+          }
+
+          throw error;
+        } finally {
+          setIsPushing(false);
+        }
+      });
+      return;
+    }
+
     const hasDivergedBranch =
       (currentLocalBranch?.aheadCount ?? 0) > 0 &&
       (currentLocalBranch?.behindCount ?? 0) > 0;
@@ -1640,6 +1737,21 @@ export function RepoInfo() {
         await pullBranch(activeRepoId, pullActionMode);
       }
       await pushBranch(activeRepoId);
+    } catch (error) {
+      if (isMissingRemoteRepositoryError(error)) {
+        openPublishRepoConfirm(async (publishOptions) => {
+          setIsPushing(true);
+
+          try {
+            await pushBranch(activeRepoId, false, publishOptions);
+          } finally {
+            setIsPushing(false);
+          }
+        });
+        return;
+      }
+
+      throw error;
     } finally {
       setIsPushing(false);
     }
@@ -1651,6 +1763,44 @@ export function RepoInfo() {
       isPushing ||
       isSwitchingBranch
     ) {
+      return;
+    }
+
+    if (!hasRemoteConfigured) {
+      openPublishRepoConfirm(async (publishOptions) => {
+        setIsPushing(true);
+
+        try {
+          if (!entry.active) {
+            setIsSwitchingBranch(true);
+
+            try {
+              await switchBranch(activeRepoId, entry.name);
+            } catch (error) {
+              toast.error("Failed to switch branch", {
+                description: getCheckoutFailureReason(error),
+              });
+              return;
+            } finally {
+              setIsSwitchingBranch(false);
+            }
+          }
+
+          await pushBranch(activeRepoId, false, publishOptions);
+        } catch (error) {
+          if (isMissingRemoteRepositoryError(error)) {
+            setPublishRepoName(activeRepo?.name ?? "");
+            setPublishRepoVisibility("private");
+            setPublishRepoFormError(null);
+            setIsPublishRepoConfirmOpen(true);
+            return;
+          }
+
+          throw error;
+        } finally {
+          setIsPushing(false);
+        }
+      });
       return;
     }
 
@@ -1708,6 +1858,36 @@ export function RepoInfo() {
       }
 
       await pushBranch(activeRepoId);
+    } catch (error) {
+      if (isMissingRemoteRepositoryError(error)) {
+        openPublishRepoConfirm(async (publishOptions) => {
+          setIsPushing(true);
+
+          try {
+            if (!entry.active) {
+              setIsSwitchingBranch(true);
+
+              try {
+                await switchBranch(activeRepoId, entry.name);
+              } catch (switchError) {
+                toast.error("Failed to switch branch", {
+                  description: getCheckoutFailureReason(switchError),
+                });
+                return;
+              } finally {
+                setIsSwitchingBranch(false);
+              }
+            }
+
+            await pushBranch(activeRepoId, false, publishOptions);
+          } finally {
+            setIsPushing(false);
+          }
+        });
+        return;
+      }
+
+      throw error;
     } finally {
       setIsPushing(false);
     }
@@ -3195,6 +3375,46 @@ export function RepoInfo() {
     setIsForcePushConfirmOpen(true);
   };
 
+  const openPublishRepoConfirm = (
+    action: (options: PublishRepositoryOptions) => Promise<void>
+  ) => {
+    pendingPublishPushActionRef.current = action;
+    setPublishRepoName(activeRepo?.name ?? "");
+    setPublishRepoVisibility("private");
+    setPublishRepoFormError(null);
+    setIsPublishRepoConfirmOpen(true);
+  };
+
+  const executePublishAndPush = async () => {
+    const pendingAction = pendingPublishPushActionRef.current;
+
+    if (!pendingAction || isSubmittingPublishRepo) {
+      return;
+    }
+
+    const repoNameError = resolvePublishRepositoryNameError(publishRepoName);
+    if (repoNameError) {
+      setPublishRepoFormError(repoNameError);
+      return;
+    }
+
+    setIsSubmittingPublishRepo(true);
+    setPublishRepoFormError(null);
+
+    try {
+      await pendingAction({
+        repoName: publishRepoName.trim(),
+        visibility: publishRepoVisibility,
+      });
+      pendingPublishPushActionRef.current = null;
+      setIsPublishRepoConfirmOpen(false);
+    } catch (error) {
+      setPublishRepoFormError(getErrorMessage(error));
+    } finally {
+      setIsSubmittingPublishRepo(false);
+    }
+  };
+
   const handleStageAll = async () => {
     if (!activeRepoId || isStagingAll || !hasUnstagedChanges) {
       return;
@@ -3218,7 +3438,18 @@ export function RepoInfo() {
       (currentLocalBranch?.aheadCount ?? 0) > 0 &&
       (currentLocalBranch?.behindCount ?? 0) > 0;
 
-    if (pushAfterCommit && (amendPreviousCommit || hasDivergedBranch)) {
+    if (pushAfterCommit && !hasRemoteConfigured) {
+      openPublishRepoConfirm(async (publishOptions) => {
+        await executeCommit(false, publishOptions);
+      });
+      return;
+    }
+
+    if (
+      pushAfterCommit &&
+      hasRemoteConfigured &&
+      (amendPreviousCommit || hasDivergedBranch)
+    ) {
       openForcePushConfirm("commit", async () => {
         await executeCommit(true);
       });
@@ -3228,7 +3459,10 @@ export function RepoInfo() {
     await executeCommit(false);
   };
 
-  const executeCommit = async (forceWithLease: boolean) => {
+  const executeCommit = async (
+    forceWithLease: boolean,
+    publishOptions?: PublishRepositoryOptions
+  ) => {
     if (!activeRepoId || isCommitting || !canCommit) {
       return;
     }
@@ -3245,10 +3479,30 @@ export function RepoInfo() {
         skipCommitHooks
       );
       if (pushAfterCommit) {
-        if (!forceWithLease && (currentLocalBranch?.behindCount ?? 0) > 0) {
-          await pullBranch(activeRepoId, pullActionMode);
+        if (hasRemoteConfigured) {
+          if (!forceWithLease && (currentLocalBranch?.behindCount ?? 0) > 0) {
+            await pullBranch(activeRepoId, pullActionMode);
+          }
+
+          try {
+            await pushBranch(activeRepoId, forceWithLease);
+          } catch (error) {
+            if (isMissingRemoteRepositoryError(error)) {
+              openPublishRepoConfirm(async (resolvedPublishOptions) => {
+                await pushBranch(activeRepoId, false, resolvedPublishOptions);
+              });
+              return;
+            }
+
+            throw error;
+          }
+        } else {
+          if (!publishOptions) {
+            throw new Error("Publish options are required before first push.");
+          }
+
+          await pushBranch(activeRepoId, false, publishOptions);
         }
-        await pushBranch(activeRepoId, forceWithLease);
       }
       setDraftCommitSummary("");
       setDraftCommitDescription("");
@@ -4502,6 +4756,109 @@ export function RepoInfo() {
           </div>
         </div>
       </div>
+      <Dialog
+        onOpenChange={(open) => {
+          if (isSubmittingPublishRepo && !open) {
+            return;
+          }
+
+          setIsPublishRepoConfirmOpen(open);
+
+          if (!open) {
+            pendingPublishPushActionRef.current = null;
+            setPublishRepoFormError(null);
+          }
+        }}
+        open={isPublishRepoConfirmOpen}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          showCloseButton={!isSubmittingPublishRepo}
+        >
+          <DialogHeader>
+            <DialogTitle>Publish repository before push</DialogTitle>
+            <DialogDescription>
+              No Git remote is configured for this project. Publish it to
+              GitHub, then continue pushing the current branch.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="publish-repository-name">Repository name</Label>
+              <Input
+                autoCapitalize="none"
+                autoCorrect="off"
+                disabled={isSubmittingPublishRepo}
+                id="publish-repository-name"
+                onChange={(event) => {
+                  setPublishRepoName(event.target.value);
+                  setPublishRepoFormError(null);
+                }}
+                placeholder="my-repository"
+                spellCheck={false}
+                value={publishRepoName}
+              />
+            </div>
+            <fieldset className="space-y-2">
+              <legend className="font-medium text-sm">Visibility</legend>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  className="justify-start"
+                  disabled={isSubmittingPublishRepo}
+                  onClick={() => {
+                    setPublishRepoVisibility("private");
+                  }}
+                  type="button"
+                  variant={
+                    publishRepoVisibility === "private" ? "default" : "outline"
+                  }
+                >
+                  Private
+                </Button>
+                <Button
+                  className="justify-start"
+                  disabled={isSubmittingPublishRepo}
+                  onClick={() => {
+                    setPublishRepoVisibility("public");
+                  }}
+                  type="button"
+                  variant={
+                    publishRepoVisibility === "public" ? "default" : "outline"
+                  }
+                >
+                  Public
+                </Button>
+              </div>
+            </fieldset>
+            {publishRepoFormError ? (
+              <p className="text-destructive text-sm">{publishRepoFormError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={isSubmittingPublishRepo}
+              onClick={() => {
+                setIsPublishRepoConfirmOpen(false);
+                pendingPublishPushActionRef.current = null;
+                setPublishRepoFormError(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isSubmittingPublishRepo}
+              onClick={() => {
+                executePublishAndPush().catch(() => undefined);
+              }}
+              type="button"
+            >
+              {isSubmittingPublishRepo ? "Publishing..." : "Publish and Push"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         onOpenChange={(open) => {
           if (isDiscardingAllChanges && !open) {

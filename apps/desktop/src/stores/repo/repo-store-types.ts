@@ -43,6 +43,11 @@ export interface RepoCommandPreferences {
   useLocalSshAgent?: boolean;
 }
 
+export interface PublishRepositoryOptions {
+  repoName: string;
+  visibility: "private" | "public";
+}
+
 export interface RepositoryCommit {
   author: string;
   authorAvatarUrl: string | null;
@@ -202,7 +207,11 @@ export interface RepoStoreState {
   openRepository: () => Promise<OpenRepositoryResult>;
   popStash: (id: string, stashRef: string) => Promise<void>;
   pullBranch: (id: string, mode: PullActionMode) => Promise<PullActionResult>;
-  pushBranch: (id: string, forceWithLease?: boolean) => Promise<void>;
+  pushBranch: (
+    id: string,
+    forceWithLease?: boolean,
+    publishOptions?: PublishRepositoryOptions
+  ) => Promise<void>;
   refreshOpenedRepositories: () => Promise<void>;
   repoBranches: Record<string, RepositoryBranch[]>;
   repoCommits: Record<string, RepositoryCommit[]>;

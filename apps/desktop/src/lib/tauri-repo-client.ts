@@ -2,6 +2,7 @@ import type {
   CreateLocalRepositoryInput,
   LatestRepositoryCommitMessage,
   PickedRepositorySelection,
+  PublishRepositoryOptions,
   PullActionMode,
   PullActionResult,
   RepoCommandPreferences,
@@ -563,7 +564,8 @@ export async function getLatestRepoCommitMessage(
 export async function pushRepoBranch(
   path: string,
   preferences?: RepoCommandPreferences,
-  forceWithLease = false
+  forceWithLease = false,
+  publishOptions?: PublishRepositoryOptions
 ) {
   const invoke = getTauriInvoke();
 
@@ -576,6 +578,8 @@ export async function pushRepoBranch(
     invoke,
     invokeArgs: {
       forceWithLease,
+      publishRepoName: publishOptions?.repoName,
+      publishVisibility: publishOptions?.visibility,
       preferences,
       repoPath: path,
     },

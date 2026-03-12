@@ -1048,6 +1048,8 @@ fn push_repository_branch(
     repo_path: String,
     preferences: Option<RepoCommandPreferences>,
     force_with_lease: Option<bool>,
+    publish_repo_name: Option<String>,
+    publish_visibility: Option<String>,
 ) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
     let command_preferences = preferences.unwrap_or_default();
@@ -1071,6 +1073,181 @@ fn push_repository_branch(
 
     if branch_name.is_empty() || branch_name == "HEAD" {
         return Err("Cannot push from detached HEAD".to_string());
+    }
+
+    let remote_output = Command::new("git")
+        .args(["-C", &repo_path, "remote"])
+        .output()
+        .map_err(|error| format!("Failed to read repository remotes: {error}"))?;
+
+    if !remote_output.status.success() {
+        return Err(git_error_message(
+            &remote_output.stderr,
+            "Failed to read repository remotes",
+        ));
+    }
+
+    let has_any_remote = String::from_utf8_lossy(&remote_output.stdout)
+        .lines()
+        .map(str::trim)
+        .any(|remote_name| !remote_name.is_empty());
+
+    if !has_any_remote {
+        let publish_name = publish_repo_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                "No remote is configured. Publish this repository before pushing.".to_string()
+            })?;
+
+        validate_repository_name(publish_name)?;
+
+        let visibility_flag = match publish_visibility
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_lowercase)
+            .as_deref()
+        {
+            Some("public") => "--public",
+            _ => "--private",
+        };
+
+        let publish_output = Command::new("gh")
+            .current_dir(&repo_path)
+            .env("GH_PROMPT_DISABLED", "1")
+            .args([
+                "repo",
+                "create",
+                publish_name,
+                "--source",
+                ".",
+                "--remote",
+                "origin",
+                visibility_flag,
+                "--push",
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run gh repo create: {error}"))?;
+
+        if !publish_output.status.success() {
+            let stderr = String::from_utf8_lossy(&publish_output.stderr)
+                .trim()
+                .to_string();
+            let stdout = String::from_utf8_lossy(&publish_output.stdout)
+                .trim()
+                .to_string();
+
+            return Err(if !stderr.is_empty() {
+                stderr
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                "Failed to publish repository with GitHub CLI".to_string()
+            });
+        }
+
+        return Ok(());
+    }
+
+    let origin_remote_output = Command::new("git")
+        .args(["-C", &repo_path, "remote", "get-url", "origin"])
+        .output()
+        .map_err(|error| format!("Failed to verify origin remote: {error}"))?;
+
+    let has_origin_remote = origin_remote_output.status.success();
+
+    let origin_remote_missing_on_server = if has_origin_remote {
+        let mut health_check_command = Command::new("git");
+        apply_git_preferences(&mut health_check_command, &command_preferences, Some(&state))?;
+
+        let health_check_output = health_check_command
+            .args(["-C", &repo_path, "ls-remote", "--exit-code", "origin", "HEAD"])
+            .output()
+            .map_err(|error| format!("Failed to check remote repository health: {error}"))?;
+
+        if health_check_output.status.success() {
+            false
+        } else {
+            let stderr = String::from_utf8_lossy(&health_check_output.stderr).to_string();
+            let stdout = String::from_utf8_lossy(&health_check_output.stdout).to_string();
+
+            is_missing_remote_repository_message(&stderr)
+                || is_missing_remote_repository_message(&stdout)
+        }
+    } else {
+        false
+    };
+
+    if origin_remote_missing_on_server {
+        let publish_name = publish_repo_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                "Remote repository for 'origin' was not found. Publish this repository to recreate it before pushing."
+                    .to_string()
+            })?;
+
+        validate_repository_name(publish_name)?;
+
+        let visibility_flag = match publish_visibility
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_lowercase)
+            .as_deref()
+        {
+            Some("public") => "--public",
+            _ => "--private",
+        };
+
+        let remove_origin_output = Command::new("git")
+            .args(["-C", &repo_path, "remote", "remove", "origin"])
+            .output()
+            .map_err(|error| format!("Failed to remove stale origin remote: {error}"))?;
+
+        if !remove_origin_output.status.success() {
+            return Err(git_error_message(
+                &remove_origin_output.stderr,
+                "Failed to remove stale origin remote",
+            ));
+        }
+
+        let publish_output = Command::new("gh")
+            .current_dir(&repo_path)
+            .env("GH_PROMPT_DISABLED", "1")
+            .args([
+                "repo",
+                "create",
+                publish_name,
+                "--source",
+                ".",
+                "--remote",
+                "origin",
+                visibility_flag,
+                "--push",
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run gh repo create: {error}"))?;
+
+        if !publish_output.status.success() {
+            let stderr = String::from_utf8_lossy(&publish_output.stderr)
+                .trim()
+                .to_string();
+            let stdout = String::from_utf8_lossy(&publish_output.stdout)
+                .trim()
+                .to_string();
+
+            return Err(if !stderr.is_empty() {
+                stderr
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                "Failed to publish repository with GitHub CLI".to_string()
+            });
+        }
+
+        return Ok(());
     }
 
     let has_upstream = Command::new("git")
@@ -1103,6 +1280,12 @@ fn push_repository_branch(
             .output()
             .map_err(|error| format!("Failed to run git push: {error}"))?
     } else {
+        if !has_origin_remote {
+            return Err(
+                "No upstream branch found and remote 'origin' is not configured".to_string(),
+            );
+        }
+
         let mut command = Command::new("git");
         apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
 
@@ -2094,6 +2277,14 @@ fn git_error_message(stderr: &[u8], fallback: &str) -> String {
     } else {
         message
     }
+}
+
+fn is_missing_remote_repository_message(message: &str) -> bool {
+    let normalized = message.to_lowercase();
+
+    normalized.contains("repository not found")
+        || normalized.contains("remote repository was not found")
+        || normalized.contains("not found") && normalized.contains("repository")
 }
 
 fn validate_repository_name(name: &str) -> Result<(), String> {
