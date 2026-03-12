@@ -611,10 +611,7 @@ export function IntegratedTerminalPanel({
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground">
-                No backend/system output yet. Run repository actions to see
-                logs.
-              </p>
+              <p className="text-muted-foreground">No system output yet.</p>
             )}
           </div>
 
@@ -637,10 +634,7 @@ export function IntegratedTerminalPanel({
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground">
-                No activity yet. Commit/push/pull/stage actions will appear
-                here.
-              </p>
+              <p className="text-muted-foreground">No user activity yet.</p>
             )}
           </div>
         </div>
