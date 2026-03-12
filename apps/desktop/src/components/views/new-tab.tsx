@@ -1,5 +1,6 @@
 import { env } from "@litgit/env/desktop";
 import { Button } from "@litgit/ui/components/button";
+
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
 import {
@@ -11,20 +12,26 @@ import {
 import { cn } from "@litgit/ui/lib/utils";
 import {
   BugIcon,
-  CaretDownIcon,
   CodeIcon,
   DesktopIcon,
   DownloadSimpleIcon,
   FolderSimpleIcon,
   GearIcon,
-  GitBranchIcon,
   GlobeIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import mayarLogo from "@/assets/mayar-logo.png";
+import { PageContainer } from "@/components/layout/page-container";
 import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
 import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
@@ -49,6 +56,59 @@ const RECENT_REPO_SEARCH_STATUS_ID = "recent-repositories-search-status";
 const RECENT_LIST_SCROLL_EDGE_THRESHOLD = 2;
 const RECENT_REPOS_COLLAPSED_LIMIT = 5;
 
+interface QuickActionButtonProps {
+  disabled?: boolean;
+  icon: ReactNode;
+  label: ReactNode;
+  onClick: () => void;
+  shortcut?: string;
+  shortcutAriaLabel?: string;
+  tooltip: string;
+}
+
+function QuickActionButton({
+  icon,
+  label,
+  shortcut,
+  shortcutAriaLabel,
+  tooltip,
+  onClick,
+  disabled,
+}: QuickActionButtonProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger className="w-full">
+        <Button
+          aria-keyshortcuts={shortcutAriaLabel}
+          className="group h-auto w-full flex-col items-start justify-start gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-4 text-left shadow-none transition-colors hover:border-primary/45 hover:bg-primary/20"
+          disabled={disabled}
+          onClick={onClick}
+          type="button"
+          variant="ghost"
+        >
+          {icon}
+          <span className="w-full">
+            <span className="block font-mono text-primary/80 text-xs uppercase tracking-[0.2em] transition-colors group-hover:text-primary">
+              Execute
+            </span>
+            <span className="mt-1 flex items-center gap-2 font-mono font-semibold text-sm tracking-tight">
+              {label}
+              {shortcut && (
+                <span className="rounded border border-current/35 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider">
+                  {shortcut}
+                </span>
+              )}
+            </span>
+          </span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={8}>
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function NewTabContent() {
   const navigate = useNavigate();
   const initializeRepository = useRepoStore(
@@ -56,6 +116,8 @@ export function NewTabContent() {
   );
   const openRepository = useRepoStore((state) => state.openRepository);
   const openedRepos = useRepoStore((state) => state.openedRepos);
+  const repoCommits = useRepoStore((state) => state.repoCommits);
+  const repoBranches = useRepoStore((state) => state.repoBranches);
   const isPickingRepo = useRepoStore((state) => state.isPickingRepo);
   const isRefreshingOpenedRepos = useRepoStore(
     (state) => state.isRefreshingOpenedRepos
@@ -68,7 +130,8 @@ export function NewTabContent() {
   const setSection = usePreferencesStore((state) => state.setSection);
 
   const tabId = activeTabId || "";
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInputValue, setSearchInputValue] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
   const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
@@ -78,15 +141,15 @@ export function NewTabContent() {
   const [showRecentTopFade, setShowRecentTopFade] = useState(false);
   const [showRecentBottomFade, setShowRecentBottomFade] = useState(false);
   const [focusedRepoIndex, setFocusedRepoIndex] = useState(-1);
-  const [isRecentExpanded, setIsRecentExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const recentListRef = useRef<HTMLDivElement | null>(null);
-  const repoButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const repoButtonRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const openShortcutLabel = getPrimaryShortcutLabel("o");
   const openShortcutAria = getPrimaryShortcutAria("o");
   const searchShortcutLabel = getPrimaryShortcutLabel("k");
   const searchShortcutAria = getPrimaryShortcutAria("k");
-  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const normalizedSearchQuery = debouncedSearchQuery.trim().toLowerCase();
 
   const recentRepos = useMemo(() => [...openedRepos].reverse(), [openedRepos]);
 
@@ -98,7 +161,7 @@ export function NewTabContent() {
 
   const isSearching = normalizedSearchQuery.length > 0;
   const hasMoreThanLimit = filteredRepos.length > RECENT_REPOS_COLLAPSED_LIMIT;
-  const shouldCollapse = hasMoreThanLimit && !isRecentExpanded && !isSearching;
+  const shouldCollapse = hasMoreThanLimit && !isSearching && !isExpanded;
 
   const visibleRepos = useMemo(
     () =>
@@ -108,7 +171,15 @@ export function NewTabContent() {
     [filteredRepos, shouldCollapse]
   );
 
-  const hiddenCount = filteredRepos.length - RECENT_REPOS_COLLAPSED_LIMIT;
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchInputValue);
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchInputValue]);
 
   const focusRecentSearchInput = useCallback(() => {
     if (typeof document === "undefined") {
@@ -344,9 +415,36 @@ export function NewTabContent() {
   const filteredReposLabel =
     filteredRepos.length === 1 ? "repository" : "repositories";
 
-  const searchStatusMessage = searchQuery
-    ? `${filteredRepos.length} ${filteredReposLabel} found for ${searchQuery}`
+  const searchStatusMessage = normalizedSearchQuery
+    ? `${filteredRepos.length} ${filteredReposLabel} found for ${normalizedSearchQuery}`
     : `${openedRepos.length} recent ${totalReposLabel} available`;
+
+  const getRepoBranchLabel = useCallback(
+    (repoId: string) => {
+      const branch = repoBranches[repoId]?.find((item) => item.isCurrent)?.name;
+      return branch ?? "—";
+    },
+    [repoBranches]
+  );
+
+  const getLastCommitLabel = useCallback(
+    (repoId: string) => {
+      const message = repoCommits[repoId]?.[0]?.message;
+      return message ?? "No commits yet";
+    },
+    [repoCommits]
+  );
+
+  const openRecentRepository = useCallback(
+    (repoId: string, repoName: string) => {
+      routeRepository(repoId, repoName, {
+        preferredTabId: tabId,
+      }).catch(() => {
+        return;
+      });
+    },
+    [routeRepository, tabId]
+  );
 
   const getOpenRepoButtonLabel = () => {
     if (isPickingRepo) {
@@ -360,119 +458,100 @@ export function NewTabContent() {
   const openRepoButtonLabel = getOpenRepoButtonLabel();
 
   return (
-    <div className="fade-in zoom-in-95 flex min-h-full w-full animate-in flex-col items-center justify-start bg-background text-foreground duration-300">
-      <div className="flex w-full max-w-xl flex-col gap-10 px-6 py-10 sm:px-8 md:py-14 lg:max-w-2xl">
-        {/* Branding — LitGit hero, clean and focused */}
-        <header className="flex flex-col items-center gap-1.5 text-center">
-          <div className="relative mb-5 flex items-center justify-center">
-            {/* Logo container */}
-            <div
-              aria-hidden="true"
-              className="relative flex size-10 rotate-45 items-center justify-center rounded-xl border border-border/50 bg-linear-to-br from-muted/80 to-muted/20 shadow-sm"
-            >
-              <GitBranchIcon
-                className="size-5 -rotate-45 text-foreground/80 drop-shadow-sm"
-                weight="bold"
-              />
-            </div>
+    <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-300">
+      <PageContainer className="relative flex w-full flex-1 flex-col gap-8">
+        <header className="flex flex-col gap-4">
+          <div className="inline-flex w-fit items-center gap-2 rounded-none border border-primary/25 bg-primary/10 px-3 py-1">
+            <span className="font-mono text-primary/85 text-xs uppercase tracking-[0.16em]">
+              Built at
+            </span>
+            <span className="font-mono text-foreground/85 text-xs uppercase tracking-[0.14em]">
+              Mayar Hackathon
+            </span>
+            <img
+              alt="Mayar brand logo"
+              className="h-3.5 w-auto opacity-75"
+              height={14}
+              loading="lazy"
+              src={mayarLogo}
+              width={60}
+            />
           </div>
-          <h1 className="bg-linear-to-br from-foreground to-muted-foreground bg-clip-text font-bold text-4xl text-transparent tracking-tight md:text-5xl">
+          <h1 className="font-extrabold font-mono text-4xl text-foreground leading-none tracking-tight">
             LitGit
           </h1>
-          <p className="max-w-xs text-muted-foreground text-sm leading-relaxed">
-            Fast, fluent, and minimal Git client
+          <p className="max-w-3xl text-muted-foreground text-sm leading-relaxed">
+            A fast, fluent, and minimal Git client designed for developers who
+            demand speed and a clutter-free workflow.
           </p>
         </header>
 
-        {/* Quick actions */}
-        <section aria-label="Quick actions">
-          <TooltipProvider delay={1000}>
-            <div className="flex flex-col gap-1.5">
-              <Tooltip>
-                <TooltipTrigger className="w-full">
-                  <Button
-                    aria-keyshortcuts={openShortcutAria}
-                    className="h-10 w-full items-center gap-3 text-left"
-                    disabled={isPickingRepo || isInitializingRepository}
-                    onClick={() => {
-                      handleOpenRepoPicker().catch(() => {
-                        return;
-                      });
-                    }}
-                  >
-                    <GitBranchIcon
-                      aria-hidden="true"
-                      className="size-4.5 shrink-0"
-                    />
-                    <span className="min-w-0 flex-1 truncate font-medium text-sm">
-                      {openRepoButtonLabel}
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      className="shrink-0 rounded border border-primary-foreground/30 px-1.5 py-0.5 text-primary-foreground/80 text-xs leading-none tracking-wide"
-                    >
-                      {openShortcutLabel}
-                    </span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={8}>
-                  Browse a local folder and open it in a tab.
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger className="w-full">
-                  <Button
-                    className="h-10 w-full items-center gap-3 text-left"
-                    onClick={() => setIsCloneDialogOpen(true)}
-                    variant="outline"
-                  >
-                    <DownloadSimpleIcon
-                      aria-hidden="true"
-                      className="size-4 shrink-0"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      Clone repository
-                    </span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={8}>
-                  Clone from a remote URL to a local folder and open it.
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger className="w-full">
-                  <Button
-                    className="h-10 w-full items-center gap-3 text-left"
-                    onClick={() => setIsStartLocalDialogOpen(true)}
-                    variant="outline"
-                  >
-                    <DesktopIcon
-                      aria-hidden="true"
-                      className="size-4 shrink-0"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      Start local repository
-                    </span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={8}>
-                  Initialize a brand-new repository in a selected folder.
-                </TooltipContent>
-              </Tooltip>
+        <section aria-label="Quick actions" className="space-y-4">
+          <h2 className="border-primary border-l-4 pl-3 font-mono font-semibold text-primary text-xs uppercase tracking-[0.22em]">
+            Quick_Actions
+          </h2>
+          <TooltipProvider delay={900}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <QuickActionButton
+                disabled={isPickingRepo || isInitializingRepository}
+                icon={
+                  <FolderSimpleIcon
+                    aria-hidden="true"
+                    className="size-5 text-primary transition-colors group-hover:text-primary"
+                  />
+                }
+                label={openRepoButtonLabel}
+                onClick={() => {
+                  handleOpenRepoPicker().catch(() => {
+                    return;
+                  });
+                }}
+                shortcut={openShortcutLabel}
+                shortcutAriaLabel={openShortcutAria}
+                tooltip="Browse a local folder and open it in a tab."
+              />
+              <QuickActionButton
+                icon={
+                  <DownloadSimpleIcon
+                    aria-hidden="true"
+                    className="size-5 text-primary transition-colors group-hover:text-primary"
+                  />
+                }
+                label="Clone Repository"
+                onClick={() => setIsCloneDialogOpen(true)}
+                tooltip="Clone from a remote URL to a local folder and open it."
+              />
+              <QuickActionButton
+                icon={
+                  <DesktopIcon
+                    aria-hidden="true"
+                    className="size-5 text-primary transition-colors group-hover:text-primary"
+                  />
+                }
+                label="Start Local Repo"
+                onClick={() => setIsStartLocalDialogOpen(true)}
+                tooltip="Initialize a brand-new repository in a selected folder."
+              />
             </div>
           </TooltipProvider>
         </section>
 
-        {/* Recent repositories */}
-        <section
-          aria-label="Recent repositories"
-          className="flex min-h-0 flex-col gap-3"
-        >
-          <h2 className="font-medium text-foreground text-sm tracking-wide">
-            Recent repositories
-          </h2>
+        <section aria-label="Recent repositories" className="space-y-4">
+          <div className="flex items-center justify-between border-primary border-l-4 pl-3">
+            <h2 className="font-mono font-semibold text-primary text-xs uppercase tracking-[0.22em]">
+              Recent_Repositories
+            </h2>
+            {hasMoreThanLimit && !isSearching ? (
+              <Button
+                className="h-6 gap-1 px-1 font-mono text-primary/70 text-xs uppercase tracking-[0.14em] hover:text-primary"
+                onClick={() => setIsExpanded((prev) => !prev)}
+                type="button"
+                variant="ghost"
+              >
+                {isExpanded ? "View_Less" : "View_All_Repositories"}
+              </Button>
+            ) : null}
+          </div>
 
           <div className="relative">
             <Label className="sr-only" htmlFor={RECENT_REPO_SEARCH_INPUT_ID}>
@@ -480,21 +559,21 @@ export function NewTabContent() {
             </Label>
             <MagnifyingGlassIcon
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary/65"
             />
             <Input
               aria-describedby={`${RECENT_REPO_SEARCH_HINT_ID} ${RECENT_REPO_SEARCH_STATUS_ID}`}
               aria-keyshortcuts={searchShortcutAria}
-              className="h-9 pr-16 pl-9 text-sm"
+              className="h-10 border-primary/25 bg-primary/5 pr-16 pl-9 font-mono text-sm focus-visible:ring-primary/45"
               id={RECENT_REPO_SEARCH_INPUT_ID}
               onChange={(event) => {
-                setSearchQuery(event.target.value);
+                setSearchInputValue(event.target.value);
                 setFocusedRepoIndex(-1);
               }}
               onKeyDown={(event) => {
-                if (event.key === "Escape" && searchQuery.length > 0) {
+                if (event.key === "Escape" && searchInputValue.length > 0) {
                   event.preventDefault();
-                  setSearchQuery("");
+                  setSearchInputValue("");
                   setFocusedRepoIndex(-1);
                 }
                 if (event.key === "ArrowDown" && visibleRepos.length > 0) {
@@ -507,20 +586,20 @@ export function NewTabContent() {
                   }
                 }
               }}
-              placeholder="Search recent repositories..."
+              placeholder="search recent repositories..."
               type="search"
-              value={searchQuery}
+              value={searchInputValue}
             />
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-border/70 bg-muted/50 px-1.5 py-0.5 font-medium text-muted-foreground text-xs leading-none tracking-wide"
+              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-primary/35 bg-primary/10 px-1.5 py-0.5 font-mono text-primary/80 text-xs uppercase tracking-wider"
             >
-              {searchShortcutLabel}
+              {searchInputValue ? "ESC" : searchShortcutLabel}
             </span>
           </div>
 
           <p
-            className="text-muted-foreground/70 text-xs leading-relaxed"
+            className="font-mono text-muted-foreground/80 text-xs leading-relaxed"
             id={RECENT_REPO_SEARCH_HINT_ID}
           >
             Search by repository name or path. Use {searchShortcutLabel} to
@@ -535,19 +614,27 @@ export function NewTabContent() {
             {searchStatusMessage}
           </output>
 
-          <div className="relative min-h-0 overflow-hidden">
+          <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-primary/5">
             {showRecentTopFade && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-linear-to-b from-background to-transparent"
+                className="pointer-events-none absolute inset-x-0 top-8 z-10 h-5 bg-linear-to-b from-background/95 to-transparent"
               />
             )}
             {showRecentBottomFade && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-linear-to-t from-background to-transparent"
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-linear-to-t from-background/95 to-transparent"
               />
             )}
+
+            <div className="grid grid-cols-[minmax(0,0.75fr)_minmax(0,0.5fr)_minmax(0,1.5fr)_minmax(0,1fr)] border-primary/20 border-b bg-primary/10 px-4 py-2 font-mono text-primary/80 text-xs uppercase tracking-[0.18em]">
+              <span>Repository_ID</span>
+              <span>Branch</span>
+              <span>Last_Commit</span>
+              <span>Location</span>
+            </div>
+
             <div
               aria-activedescendant={
                 focusedRepoIndex >= 0 && visibleRepos[focusedRepoIndex]
@@ -555,7 +642,10 @@ export function NewTabContent() {
                   : undefined
               }
               aria-label={`Recent repositories list, ${searchStatusMessage}`}
-              className="flex max-h-80 min-h-0 flex-col gap-1 overflow-y-auto pr-1 [scrollbar-width:thin]"
+              className={cn(
+                "min-h-0 [scrollbar-width:thin]",
+                !isExpanded && "max-h-80 overflow-y-auto"
+              )}
               id="recent-repositories-listbox"
               onKeyDown={handleRepoListKeyDown}
               ref={recentListRef}
@@ -565,98 +655,92 @@ export function NewTabContent() {
               {visibleRepos.length === 0 ? (
                 <div
                   aria-selected={false}
-                  className="rounded border border-border/60 border-dashed py-6 text-center text-muted-foreground text-sm"
+                  className="px-4 py-8 text-center font-mono text-muted-foreground text-sm"
                   role="option"
                   tabIndex={-1}
                 >
-                  {searchQuery
-                    ? `No repositories found matching "${searchQuery}"`
+                  {searchInputValue
+                    ? `No repositories found matching "${searchInputValue}"`
                     : "No recent repositories"}
                 </div>
               ) : (
                 visibleRepos.map((repo, index) => (
                   <div
                     aria-selected={focusedRepoIndex === index}
+                    className={cn(
+                      "grid cursor-pointer grid-cols-[minmax(0,0.75fr)_minmax(0,0.5fr)_minmax(0,1.5fr)_minmax(0,1fr)] items-center gap-3 border-primary/10 border-b px-4 py-2.5 transition-colors",
+                      focusedRepoIndex === index
+                        ? "bg-primary/12"
+                        : "hover:bg-primary/10"
+                    )}
                     id={`repo-${repo.id}`}
                     key={repo.id}
+                    onClick={() => {
+                      openRecentRepository(repo.id, repo.name);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openRecentRepository(repo.id, repo.name);
+                      }
+                    }}
+                    ref={(el) => {
+                      if (el) {
+                        repoButtonRefs.current.set(repo.id, el);
+                      } else {
+                        repoButtonRefs.current.delete(repo.id);
+                      }
+                    }}
                     role="option"
-                    tabIndex={-1}
+                    tabIndex={focusedRepoIndex === index ? 0 : -1}
                   >
-                    <Button
-                      aria-label={`Open repository ${repo.name}, located at ${repo.path}`}
-                      className={cn(
-                        "group flex h-auto w-full items-center gap-3 rounded-md border border-border/30 bg-background/15 px-3 py-2.5 text-left font-normal transition-colors hover:border-border/60 hover:bg-accent/30 focus-visible:border-ring/70 focus-visible:ring-2 focus-visible:ring-ring/40",
-                        focusedRepoIndex === index &&
-                          "border-border/60 bg-accent/30"
-                      )}
-                      onClick={() => {
-                        routeRepository(repo.id, repo.name, {
-                          preferredTabId: tabId,
-                        }).catch(() => {
-                          return;
-                        });
-                      }}
-                      ref={(el) => {
-                        if (el) {
-                          repoButtonRefs.current.set(repo.id, el);
-                        } else {
-                          repoButtonRefs.current.delete(repo.id);
-                        }
-                      }}
-                      tabIndex={focusedRepoIndex === index ? 0 : -1}
-                      type="button"
-                      variant="ghost"
-                    >
+                    <div className="group flex min-w-0 items-center gap-2 font-mono text-sm">
                       <FolderSimpleIcon
                         aria-hidden="true"
-                        className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground/80 group-focus-visible:text-foreground/80"
+                        className="size-4 shrink-0 text-primary"
                       />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-foreground text-sm leading-snug">
-                          {repo.name}
-                        </span>
-                        <span className="block truncate font-mono text-muted-foreground/80 text-xs leading-snug">
-                          {repo.path}
-                        </span>
+                      <span className="truncate font-semibold text-foreground">
+                        {repo.name}
                       </span>
-                    </Button>
+                    </div>
+                    <span className="truncate font-mono text-muted-foreground/85 text-xs">
+                      {getRepoBranchLabel(repo.id)}
+                    </span>
+                    <span className="truncate font-mono text-muted-foreground/85 text-xs">
+                      {getLastCommitLabel(repo.id)}
+                    </span>
+                    <span className="truncate font-mono text-muted-foreground/85 text-xs">
+                      {repo.path}
+                    </span>
                   </div>
                 ))
               )}
             </div>
           </div>
-
-          {/* Show all / collapse toggle */}
-          {hasMoreThanLimit && !isSearching && (
-            <Button
-              aria-expanded={isRecentExpanded}
-              className="mx-auto h-7 gap-1.5 px-3 text-muted-foreground text-xs hover:text-foreground"
-              onClick={() => setIsRecentExpanded((prev) => !prev)}
-              type="button"
-              variant="ghost"
-            >
-              <CaretDownIcon
-                aria-hidden="true"
-                className={cn(
-                  "size-3 transition-transform duration-200",
-                  isRecentExpanded && "rotate-180"
-                )}
-              />
-              {isRecentExpanded
-                ? "Show less"
-                : `Show all (${hiddenCount} more)`}
-            </Button>
-          )}
         </section>
 
-        {/* Resources & Mayar branding footer */}
-        <footer className="flex flex-col items-center gap-4 border-border/40 border-t pt-5">
+        <footer className="mt-auto flex flex-col gap-5 border-primary/15 border-t pt-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-5 font-mono text-muted-foreground/80 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-primary" />
+              <span>Repos: {openedRepos.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-primary/60" />
+              <span>Filtered: {filteredRepos.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-primary" />
+              <span>Search: {normalizedSearchQuery || "idle"}</span>
+            </div>
+          </div>
+
           <nav aria-label="External resources">
-            <ul className="flex flex-wrap items-center justify-center gap-0.5">
+            <ul className="flex flex-wrap items-center gap-1.5">
               <li>
                 <Button
                   aria-label="Visit Mayar website (opens in new window)"
-                  className="h-7 gap-1.5 px-2 text-muted-foreground text-xs hover:text-foreground"
+                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
                   onClick={() => {
                     openExternalUrl(MAYAR_URL).catch(() => {
                       return;
@@ -672,7 +756,7 @@ export function NewTabContent() {
               <li>
                 <Button
                   aria-label="View source code (opens in new window)"
-                  className="h-7 gap-1.5 px-2 text-muted-foreground text-xs hover:text-foreground"
+                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
                   onClick={() => {
                     openExternalUrl(SOURCE_CODE_URL).catch(() => {
                       return;
@@ -682,13 +766,13 @@ export function NewTabContent() {
                   variant="ghost"
                 >
                   <CodeIcon aria-hidden="true" className="size-3.5" />
-                  Source Code
+                  Source code
                 </Button>
               </li>
               <li>
                 <Button
                   aria-label="Report a bug (opens in new window)"
-                  className="h-7 gap-1.5 px-2 text-muted-foreground text-xs hover:text-foreground"
+                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
                   onClick={() => {
                     openExternalUrl(BUG_REPORT_URL).catch(() => {
                       return;
@@ -698,12 +782,12 @@ export function NewTabContent() {
                   variant="ghost"
                 >
                   <BugIcon aria-hidden="true" className="size-3.5" />
-                  Report a Bug
+                  Report a bug
                 </Button>
               </li>
               <li>
                 <Button
-                  className="h-7 gap-1.5 px-2 text-muted-foreground text-xs hover:text-foreground"
+                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
                   onClick={() => {
                     resetSettingsSearch();
                     setSection("general");
@@ -718,26 +802,8 @@ export function NewTabContent() {
               </li>
             </ul>
           </nav>
-
-          {/* Mayar pill badge — subtle, non-distracting */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-border/40 bg-muted/20 px-3 py-1">
-            <span className="text-muted-foreground/60 text-xs uppercase tracking-[0.2em]">
-              Built at
-            </span>
-            <span className="font-medium text-foreground/85 text-xs leading-none">
-              Mayar Hackathon
-            </span>
-            <img
-              alt="Mayar brand logo"
-              className="h-3.5 w-auto opacity-75"
-              height={14}
-              loading="lazy"
-              src={mayarLogo}
-              width={60}
-            />
-          </div>
         </footer>
-      </div>
+      </PageContainer>
 
       <RepositoryInitializeDialog
         isInitializing={isInitializingRepository}
