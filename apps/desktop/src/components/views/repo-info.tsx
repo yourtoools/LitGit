@@ -83,6 +83,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useSearch } from "@tanstack/react-router";
+import { intlFormat } from "date-fns";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { useTheme } from "next-themes";
 import {
@@ -931,10 +932,14 @@ export function RepoInfo() {
         ? undefined
         : localePreference;
 
-    return new Intl.DateTimeFormat(locale, {
+    const formatOptions: Intl.DateTimeFormatOptions = {
       dateStyle: dateFormatPreference === "verbose" ? "full" : "medium",
       timeStyle: dateFormatPreference === "verbose" ? "medium" : "short",
-    }).format(parsedDate);
+    };
+
+    return locale
+      ? intlFormat(parsedDate, formatOptions, { locale })
+      : intlFormat(parsedDate, formatOptions);
   };
   const getErrorMessage = (error: unknown): string => {
     if (error instanceof Error && error.message.trim().length > 0) {

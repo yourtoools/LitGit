@@ -14,6 +14,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { format } from "date-fns";
 import { useTheme } from "next-themes";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -141,16 +142,7 @@ const createTerminalTheme = (mode: "light" | "dark") => {
 };
 
 const formatLogTimestamp = (timestampMs: number): string => {
-  const date = new Date(timestampMs);
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  const hour = `${date.getHours()}`.padStart(2, "0");
-  const minute = `${date.getMinutes()}`.padStart(2, "0");
-  const second = `${date.getSeconds()}`.padStart(2, "0");
-  const milliseconds = `${date.getMilliseconds()}`.padStart(3, "0");
-
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}.${milliseconds}`;
+  return format(timestampMs, "yyyy-MM-dd HH:mm:ss.SSS");
 };
 
 const formatSystemLogLine = (entry: OperationLogEntry) => {
