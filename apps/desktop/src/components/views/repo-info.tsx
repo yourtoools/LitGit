@@ -469,6 +469,25 @@ function clampWidth(value: number, min: number, max: number): number {
   return Math.min(upperBound, Math.max(lowerBound, value));
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  const role = target.getAttribute("role");
+
+  if (role === "textbox") {
+    return true;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return tagName === "input" || tagName === "textarea";
+}
+
 function resolvePublishRepositoryNameError(name: string): string | null {
   const trimmedName = name.trim();
 
@@ -580,6 +599,21 @@ export function RepoInfo() {
   const commitChanges = useRepoStore((state) => state.commitChanges);
   const pullBranch = useRepoStore((state) => state.pullBranch);
   const pushBranch = useRepoStore((state) => state.pushBranch);
+  const undoRepoAction = useRepoStore((state) => state.undoRepoAction);
+  const redoRepoAction = useRepoStore((state) => state.redoRepoAction);
+  const repoUndoDepthById = useRepoStore((state) => state.repoUndoDepthById);
+  const repoRedoDepthById = useRepoStore((state) => state.repoRedoDepthById);
+  const repoUndoLabelById = useRepoStore((state) => state.repoUndoLabelById);
+  const repoRedoLabelById = useRepoStore((state) => state.repoRedoLabelById);
+  const repoCommitDraftPrefillById = useRepoStore(
+    (state) => state.repoCommitDraftPrefillById
+  );
+  const clearRepoCommitDraftPrefill = useRepoStore(
+    (state) => state.clearRepoCommitDraftPrefill
+  );
+  const repoHistoryRewriteHintById = useRepoStore(
+    (state) => state.repoHistoryRewriteHintById
+  );
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
     Record<string, boolean>
   >({});
@@ -616,6 +650,7 @@ export function RepoInfo() {
   >("push");
   const [isPulling, setIsPulling] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
+  const [isUndoRedoBusy, setIsUndoRedoBusy] = useState(false);
   const [isApplyingStash, setIsApplyingStash] = useState(false);
   const [isCreatingStash, setIsCreatingStash] = useState(false);
   const [isPoppingStash, setIsPoppingStash] = useState(false);
@@ -797,6 +832,21 @@ export function RepoInfo() {
     [activeRepoId, repoRemoteNames]
   );
   const hasRemoteConfigured = activeRepoRemoteNames.length > 0;
+  const canUndoAction = activeRepoId
+    ? (repoUndoDepthById[activeRepoId] ?? 0) > 0
+    : false;
+  const canRedoAction = activeRepoId
+    ? (repoRedoDepthById[activeRepoId] ?? 0) > 0
+    : false;
+  const undoActionLabel = activeRepoId
+    ? (repoUndoLabelById[activeRepoId] ?? null)
+    : null;
+  const redoActionLabel = activeRepoId
+    ? (repoRedoLabelById[activeRepoId] ?? null)
+    : null;
+  const requiresForcePushAfterHistoryRewrite = activeRepoId
+    ? (repoHistoryRewriteHintById[activeRepoId] ?? false)
+    : false;
   const unstagedTree = useMemo(
     () => buildChangeTree(unstagedItems),
     [unstagedItems]
@@ -1111,6 +1161,23 @@ export function RepoInfo() {
     setDraftCommitDescription("");
     setAmendPreviousCommit(false);
   }, [activeRepoId]);
+
+  useEffect(() => {
+    if (activeRepoId === null) {
+      return;
+    }
+
+    const prefill = repoCommitDraftPrefillById[activeRepoId] ?? null;
+
+    if (!prefill) {
+      return;
+    }
+
+    setDraftCommitSummary(prefill.summary);
+    setDraftCommitDescription(prefill.description);
+    setAmendPreviousCommit(false);
+    clearRepoCommitDraftPrefill(activeRepoId);
+  }, [activeRepoId, clearRepoCommitDraftPrefill, repoCommitDraftPrefillById]);
 
   useEffect(() => {
     if (activeRepoId === null) {
@@ -1635,6 +1702,81 @@ export function RepoInfo() {
       setIsPulling(false);
     }
   };
+  const handleUndoAction = async () => {
+    if (!(activeRepoId && canUndoAction) || isUndoRedoBusy) {
+      return;
+    }
+
+    setIsUndoRedoBusy(true);
+
+    try {
+      await undoRepoAction(activeRepoId);
+    } catch (error) {
+      toast.error("Failed to undo action", {
+        description: getErrorMessage(error),
+      });
+    } finally {
+      setIsUndoRedoBusy(false);
+    }
+  };
+  const handleRedoAction = async () => {
+    if (!(activeRepoId && canRedoAction) || isUndoRedoBusy) {
+      return;
+    }
+
+    setIsUndoRedoBusy(true);
+
+    try {
+      await redoRepoAction(activeRepoId);
+    } catch (error) {
+      toast.error("Failed to redo action", {
+        description: getErrorMessage(error),
+      });
+    } finally {
+      setIsUndoRedoBusy(false);
+    }
+  };
+  useEffect(() => {
+    const handleUndoRedoHotkeys = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const hasPrimaryModifier = event.metaKey || event.ctrlKey;
+
+      if (!hasPrimaryModifier || event.altKey) {
+        return;
+      }
+
+      const shouldUndo = key === "z" && !event.shiftKey;
+      const runtimePlatform = getRuntimePlatform();
+      const isMacRuntime =
+        runtimePlatform === "macos" || runtimePlatform === "ios";
+      const shouldRedo =
+        (key === "z" && event.shiftKey) ||
+        (!isMacRuntime && key === "y" && !event.shiftKey);
+
+      if (!(shouldUndo || shouldRedo)) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (shouldRedo) {
+        handleRedoAction().catch(() => undefined);
+        return;
+      }
+
+      handleUndoAction().catch(() => undefined);
+    };
+
+    globalThis.addEventListener("keydown", handleUndoRedoHotkeys);
+
+    return () => {
+      globalThis.removeEventListener("keydown", handleUndoRedoHotkeys);
+    };
+  });
   const handlePullWithSelectedMode = async () => {
     await handlePullAction(pullActionMode);
   };
@@ -1716,8 +1858,11 @@ export function RepoInfo() {
     const hasDivergedBranch =
       (currentLocalBranch?.aheadCount ?? 0) > 0 &&
       (currentLocalBranch?.behindCount ?? 0) > 0;
+    const shouldForcePushAfterUndoRewrite =
+      requiresForcePushAfterHistoryRewrite &&
+      (currentLocalBranch?.behindCount ?? 0) > 0;
 
-    if (hasDivergedBranch) {
+    if (hasDivergedBranch || shouldForcePushAfterUndoRewrite) {
       openForcePushConfirm("push", async () => {
         setIsPushing(true);
 
@@ -1806,8 +1951,10 @@ export function RepoInfo() {
 
     const hasDivergedBranch =
       (entry.pendingPushCount ?? 0) > 0 && (entry.pendingSyncCount ?? 0) > 0;
+    const shouldForcePushAfterUndoRewrite =
+      requiresForcePushAfterHistoryRewrite && (entry.pendingSyncCount ?? 0) > 0;
 
-    if (hasDivergedBranch) {
+    if (hasDivergedBranch || shouldForcePushAfterUndoRewrite) {
       openForcePushConfirm("push", async () => {
         setIsPushing(true);
 
@@ -3802,13 +3949,15 @@ export function RepoInfo() {
             </div>
             <div className="w-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div className="flex min-w-max items-center justify-end gap-1">
-                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Undo"
-                        disabled
+                        disabled={!canUndoAction || isUndoRedoBusy}
+                        onClick={() => {
+                          handleUndoAction().catch(() => undefined);
+                        }}
                         size="default"
                         type="button"
                         variant="ghost"
@@ -3822,16 +3971,18 @@ export function RepoInfo() {
                     className={cn(toolbarLabels && "hidden")}
                     side="bottom"
                   >
-                    Undo
+                    {undoActionLabel ? `Undo: ${undoActionLabel}` : "Undo"}
                   </TooltipContent>
                 </Tooltip>
-                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Redo"
-                        disabled
+                        disabled={!canRedoAction || isUndoRedoBusy}
+                        onClick={() => {
+                          handleRedoAction().catch(() => undefined);
+                        }}
                         size="default"
                         type="button"
                         variant="ghost"
@@ -3845,7 +3996,7 @@ export function RepoInfo() {
                     className={cn(toolbarLabels && "hidden")}
                     side="bottom"
                   >
-                    Redo
+                    {redoActionLabel ? `Redo: ${redoActionLabel}` : "Redo"}
                   </TooltipContent>
                 </Tooltip>
                 <DropdownMenu>

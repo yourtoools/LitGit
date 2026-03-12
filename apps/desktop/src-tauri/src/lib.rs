@@ -1817,6 +1817,49 @@ fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn reset_repository_to_reference(
+    repo_path: String,
+    target: String,
+    mode: Option<String>,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let target_trimmed = target.trim();
+
+    if target_trimmed.is_empty() {
+        return Err("Reset target is required".to_string());
+    }
+
+    let normalized_mode = mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("mixed");
+
+    let mode_flag = match normalized_mode {
+        "hard" => "--hard",
+        "soft" => "--soft",
+        _ => "--mixed",
+    };
+
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "reset", mode_flag, target_trimmed])
+        .output()
+        .map_err(|error| format!("Failed to run git reset: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to reset repository".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_repository_commit_files(
     repo_path: String,
     commit_hash: String,
@@ -3372,6 +3415,7 @@ pub fn run() {
             unstage_repository_file,
             discard_repository_path_changes,
             discard_all_repository_changes,
+            reset_repository_to_reference,
             get_repository_file_diff,
             get_repository_commit_files,
             get_repository_commit_file_diff,

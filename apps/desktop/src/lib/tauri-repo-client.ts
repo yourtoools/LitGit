@@ -947,6 +947,33 @@ export async function discardAllRepoChanges(path: string) {
     repoPath: path,
   });
 }
+
+export type RepoResetMode = "hard" | "mixed" | "soft";
+
+export async function resetRepoToReference(
+  path: string,
+  target: string,
+  mode: RepoResetMode = "mixed"
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Reset repository works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git reset --${mode} ${target}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      target,
+      mode,
+    },
+    invokeCommand: "reset_repository_to_reference",
+    repoPath: path,
+  });
+}
+
 export async function getRepoCommitFiles(
   path: string,
   commitHash: string

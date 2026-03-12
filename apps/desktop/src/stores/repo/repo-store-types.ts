@@ -148,7 +148,10 @@ export interface RepoStoreState {
   activeRepoId: string | null;
   addIgnoreRule: (id: string, pattern: string) => Promise<void>;
   applyStash: (id: string, stashRef: string) => Promise<void>;
+  canRedoRepoAction: (id: string) => boolean;
+  canUndoRepoAction: (id: string) => boolean;
   clearActiveRepo: () => void;
+  clearRepoCommitDraftPrefill: (id: string) => void;
   cloneRepository: (
     repositoryUrl: string,
     destinationParent: string,
@@ -193,6 +196,8 @@ export interface RepoStoreState {
   getLatestCommitMessage: (
     id: string
   ) => Promise<LatestRepositoryCommitMessage | null>;
+  getRedoRepoActionLabel: (id: string) => string | null;
+  getUndoRepoActionLabel: (id: string) => string | null;
   initializeRepository: (
     repository: PickedRepositorySelection
   ) => Promise<OpenedRepository | null>;
@@ -212,11 +217,21 @@ export interface RepoStoreState {
     forceWithLease?: boolean,
     publishOptions?: PublishRepositoryOptions
   ) => Promise<void>;
+  redoRepoAction: (id: string) => Promise<void>;
   refreshOpenedRepositories: () => Promise<void>;
   repoBranches: Record<string, RepositoryBranch[]>;
+  repoCommitDraftPrefillById: Record<
+    string,
+    LatestRepositoryCommitMessage | null
+  >;
   repoCommits: Record<string, RepositoryCommit[]>;
+  repoHistoryRewriteHintById: Record<string, boolean>;
+  repoRedoDepthById: Record<string, number>;
+  repoRedoLabelById: Record<string, string | null>;
   repoRemoteNames: Record<string, string[]>;
   repoStashes: Record<string, RepositoryStash[]>;
+  repoUndoDepthById: Record<string, number>;
+  repoUndoLabelById: Record<string, string | null>;
   repoWorkingTreeItems: Record<string, RepositoryWorkingTreeItem[]>;
   repoWorkingTreeStatuses: Record<string, RepositoryWorkingTreeStatus>;
   setActiveRepo: (
@@ -226,6 +241,7 @@ export interface RepoStoreState {
   stageAll: (id: string) => Promise<void>;
   stageFile: (id: string, filePath: string) => Promise<void>;
   switchBranch: (id: string, branchName: string) => Promise<void>;
+  undoRepoAction: (id: string) => Promise<void>;
   unstageAll: (id: string) => Promise<void>;
   unstageFile: (id: string, filePath: string) => Promise<void>;
 }

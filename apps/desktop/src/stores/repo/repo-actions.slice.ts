@@ -13,6 +13,7 @@ import {
   getRepoFileDiff,
   popRepoStash,
   pushRepoBranch,
+  resetRepoToReference,
   runRepoPull,
   stageAllRepoChanges,
   stageRepoFile,
@@ -22,12 +23,104 @@ import {
 } from "@/lib/tauri-repo-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
-import type { RepoStoreGet } from "@/stores/repo/repo-store.slice-types";
 import type {
+  RepoStoreGet,
+  RepoStoreSet,
+} from "@/stores/repo/repo-store.slice-types";
+import type {
+  LatestRepositoryCommitMessage,
   PublishRepositoryOptions,
   RepoStoreState,
 } from "@/stores/repo/repo-store-types";
 import { useOperationLogStore } from "@/stores/ui/use-operation-log-store";
+
+interface RepoUndoRedoEntry {
+  commitDraftPrefill?: LatestRepositoryCommitMessage | null;
+  label: string;
+  redo: () => Promise<void>;
+  rewritesHistory?: boolean;
+  undo: () => Promise<void>;
+}
+
+const repoUndoStackById = new Map<string, RepoUndoRedoEntry[]>();
+const repoRedoStackById = new Map<string, RepoUndoRedoEntry[]>();
+const repoHistoryExecutionLocks = new Set<string>();
+
+const getRepoUndoStack = (id: string): RepoUndoRedoEntry[] => {
+  const existing = repoUndoStackById.get(id);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created: RepoUndoRedoEntry[] = [];
+  repoUndoStackById.set(id, created);
+  return created;
+};
+
+const getRepoRedoStack = (id: string): RepoUndoRedoEntry[] => {
+  const existing = repoRedoStackById.get(id);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created: RepoUndoRedoEntry[] = [];
+  repoRedoStackById.set(id, created);
+  return created;
+};
+
+const updateRepoHistoryState = (set: RepoStoreSet, id: string) => {
+  const undoStack = getRepoUndoStack(id);
+  const redoStack = getRepoRedoStack(id);
+  const undoLabel = undoStack.at(-1)?.label ?? null;
+  const redoLabel = redoStack.at(-1)?.label ?? null;
+
+  set((state) => ({
+    repoRedoDepthById: {
+      ...state.repoRedoDepthById,
+      [id]: redoStack.length,
+    },
+    repoRedoLabelById: {
+      ...state.repoRedoLabelById,
+      [id]: redoLabel,
+    },
+    repoUndoDepthById: {
+      ...state.repoUndoDepthById,
+      [id]: undoStack.length,
+    },
+    repoUndoLabelById: {
+      ...state.repoUndoLabelById,
+      [id]: undoLabel,
+    },
+  }));
+};
+
+const recordRepoHistoryEntry = (
+  set: RepoStoreSet,
+  id: string,
+  entry: RepoUndoRedoEntry
+) => {
+  const undoStack = getRepoUndoStack(id);
+  const redoStack = getRepoRedoStack(id);
+
+  undoStack.push(entry);
+  redoStack.length = 0;
+  updateRepoHistoryState(set, id);
+};
+
+const setRepoHistoryRewriteHint = (
+  set: RepoStoreSet,
+  id: string,
+  value: boolean
+) => {
+  set((state) => ({
+    repoHistoryRewriteHintById: {
+      ...state.repoHistoryRewriteHintById,
+      [id]: value,
+    },
+  }));
+};
 
 const getRepoCommandPreferences = () => {
   const preferences = usePreferencesStore.getState();
@@ -54,11 +147,16 @@ const getRepoCommandPreferences = () => {
 type RepoActionsSliceKeys =
   | "addIgnoreRule"
   | "applyStash"
+  | "canRedoRepoAction"
+  | "canUndoRepoAction"
+  | "clearRepoCommitDraftPrefill"
   | "commitChanges"
   | "createStash"
   | "discardAllChanges"
   | "discardPathChanges"
   | "dropStash"
+  | "getRedoRepoActionLabel"
+  | "getUndoRepoActionLabel"
   | "getCommitFileDiff"
   | "getCommitFiles"
   | "getFileDiff"
@@ -66,21 +164,124 @@ type RepoActionsSliceKeys =
   | "popStash"
   | "pullBranch"
   | "pushBranch"
+  | "redoRepoAction"
   | "stageAll"
   | "stageFile"
   | "switchBranch"
+  | "undoRepoAction"
   | "unstageAll"
   | "unstageFile";
 
 export const createRepoActionsSlice = (
+  set: RepoStoreSet,
   get: RepoStoreGet
 ): Pick<RepoStoreState, RepoActionsSliceKeys> => ({
+  clearRepoCommitDraftPrefill: (id) => {
+    set((state) => ({
+      repoCommitDraftPrefillById: {
+        ...state.repoCommitDraftPrefillById,
+        [id]: null,
+      },
+    }));
+  },
+  canUndoRepoAction: (id) => {
+    return (get().repoUndoDepthById[id] ?? 0) > 0;
+  },
+  canRedoRepoAction: (id) => {
+    return (get().repoRedoDepthById[id] ?? 0) > 0;
+  },
+  getUndoRepoActionLabel: (id) => {
+    return get().repoUndoLabelById[id] ?? null;
+  },
+  getRedoRepoActionLabel: (id) => {
+    return get().repoRedoLabelById[id] ?? null;
+  },
+  undoRepoAction: async (id) => {
+    if (repoHistoryExecutionLocks.has(id)) {
+      return;
+    }
+
+    const undoStack = getRepoUndoStack(id);
+    const entry = undoStack.pop();
+
+    if (!entry) {
+      updateRepoHistoryState(set, id);
+      return;
+    }
+
+    const redoStack = getRepoRedoStack(id);
+    repoHistoryExecutionLocks.add(id);
+
+    try {
+      await entry.undo();
+      redoStack.push(entry);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      const commitDraftPrefill = entry.commitDraftPrefill;
+      if (commitDraftPrefill) {
+        set((state) => ({
+          repoCommitDraftPrefillById: {
+            ...state.repoCommitDraftPrefillById,
+            [id]: commitDraftPrefill,
+          },
+        }));
+      }
+      if (entry.rewritesHistory) {
+        setRepoHistoryRewriteHint(set, id, true);
+      }
+    } catch (error) {
+      undoStack.push(entry);
+      throw error;
+    } finally {
+      repoHistoryExecutionLocks.delete(id);
+      updateRepoHistoryState(set, id);
+    }
+  },
+  redoRepoAction: async (id) => {
+    if (repoHistoryExecutionLocks.has(id)) {
+      return;
+    }
+
+    const redoStack = getRepoRedoStack(id);
+    const entry = redoStack.pop();
+
+    if (!entry) {
+      updateRepoHistoryState(set, id);
+      return;
+    }
+
+    const undoStack = getRepoUndoStack(id);
+    repoHistoryExecutionLocks.add(id);
+
+    try {
+      await entry.redo();
+      undoStack.push(entry);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      set((state) => ({
+        repoCommitDraftPrefillById: {
+          ...state.repoCommitDraftPrefillById,
+          [id]: null,
+        },
+      }));
+      if (entry.rewritesHistory) {
+        setRepoHistoryRewriteHint(set, id, true);
+      }
+    } catch (error) {
+      redoStack.push(entry);
+      throw error;
+    } finally {
+      repoHistoryExecutionLocks.delete(id);
+      updateRepoHistoryState(set, id);
+    }
+  },
   switchBranch: async (id, branchName) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 
     if (!targetRepo) {
       throw new Error("Repository is no longer available");
     }
+
+    const previousBranchName =
+      get().repoBranches[id]?.find((branch) => branch.isCurrent)?.name ?? null;
 
     useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
       level: "info",
@@ -90,6 +291,17 @@ export const createRepoActionsSlice = (
     try {
       await switchRepoBranch(targetRepo.path, branchName);
       await get().setActiveRepo(id, { forceRefresh: true });
+      if (previousBranchName && previousBranchName !== branchName) {
+        recordRepoHistoryEntry(set, id, {
+          label: `Switch to ${branchName}`,
+          redo: async () => {
+            await switchRepoBranch(targetRepo.path, branchName);
+          },
+          undo: async () => {
+            await switchRepoBranch(targetRepo.path, previousBranchName);
+          },
+        });
+      }
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
         message: `Branch switched to ${branchName}`,
@@ -128,6 +340,7 @@ export const createRepoActionsSlice = (
         publishOptions
       );
       await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, false);
       toast.success("Push completed");
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
@@ -161,6 +374,7 @@ export const createRepoActionsSlice = (
         getRepoCommandPreferences()
       );
       await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, false);
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
         message: result.headChanged
@@ -297,6 +511,7 @@ export const createRepoActionsSlice = (
     skipHooks
   ) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+    const headBeforeCommit = get().repoCommits[id]?.[0]?.hash ?? null;
 
     if (!targetRepo) {
       return;
@@ -318,6 +533,32 @@ export const createRepoActionsSlice = (
         getRepoCommandPreferences()
       );
       await get().setActiveRepo(id, { forceRefresh: true });
+      const headAfterCommit = get().repoCommits[id]?.[0]?.hash ?? null;
+
+      if (headAfterCommit && headAfterCommit !== headBeforeCommit) {
+        const undoTarget = headBeforeCommit ?? `${headAfterCommit}^`;
+        const label = amend ? "Amend commit" : "Commit";
+
+        recordRepoHistoryEntry(set, id, {
+          commitDraftPrefill: {
+            description,
+            summary,
+          },
+          label,
+          redo: async () => {
+            await resetRepoToReference(
+              targetRepo.path,
+              headAfterCommit,
+              "mixed"
+            );
+          },
+          rewritesHistory: true,
+          undo: async () => {
+            await resetRepoToReference(targetRepo.path, undoTarget, "mixed");
+          },
+        });
+      }
+      setRepoHistoryRewriteHint(set, id, false);
       toast.success("Commit created");
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
@@ -376,6 +617,15 @@ export const createRepoActionsSlice = (
     try {
       await stageAllRepoChanges(targetRepo.path);
       await get().setActiveRepo(id, { forceRefresh: true });
+      recordRepoHistoryEntry(set, id, {
+        label: "Stage all changes",
+        redo: async () => {
+          await stageAllRepoChanges(targetRepo.path);
+        },
+        undo: async () => {
+          await unstageAllRepoChanges(targetRepo.path);
+        },
+      });
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
         message: "All changes staged",
@@ -403,6 +653,15 @@ export const createRepoActionsSlice = (
     try {
       await unstageAllRepoChanges(targetRepo.path);
       await get().setActiveRepo(id, { forceRefresh: true });
+      recordRepoHistoryEntry(set, id, {
+        label: "Unstage all changes",
+        redo: async () => {
+          await unstageAllRepoChanges(targetRepo.path);
+        },
+        undo: async () => {
+          await stageAllRepoChanges(targetRepo.path);
+        },
+      });
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
         message: "All changes unstaged",
@@ -430,6 +689,15 @@ export const createRepoActionsSlice = (
     try {
       await stageRepoFile(targetRepo.path, filePath);
       await get().setActiveRepo(id, { forceRefresh: true });
+      recordRepoHistoryEntry(set, id, {
+        label: `Stage ${filePath}`,
+        redo: async () => {
+          await stageRepoFile(targetRepo.path, filePath);
+        },
+        undo: async () => {
+          await unstageRepoFile(targetRepo.path, filePath);
+        },
+      });
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
         message: `File staged: ${filePath}`,
@@ -513,6 +781,15 @@ export const createRepoActionsSlice = (
     try {
       await unstageRepoFile(targetRepo.path, filePath);
       await get().setActiveRepo(id, { forceRefresh: true });
+      recordRepoHistoryEntry(set, id, {
+        label: `Unstage ${filePath}`,
+        redo: async () => {
+          await unstageRepoFile(targetRepo.path, filePath);
+        },
+        undo: async () => {
+          await stageRepoFile(targetRepo.path, filePath);
+        },
+      });
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
         message: `File unstaged: ${filePath}`,
