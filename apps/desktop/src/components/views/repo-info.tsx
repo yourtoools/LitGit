@@ -60,7 +60,6 @@ import {
 import { cn } from "@litgit/ui/lib/utils";
 import { DiffEditor } from "@monaco-editor/react";
 import {
-  ArrowBendRightUpIcon,
   ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
   ArrowDownIcon,
@@ -3570,7 +3569,7 @@ export function RepoInfo() {
                             {isPulling ? (
                               <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
                             ) : (
-                              <DownloadSimpleIcon className="size-4 text-muted-foreground" />
+                              <ArrowDownIcon className="size-4 text-muted-foreground" />
                             )}
                             <span className={cn(!toolbarLabels && "hidden")}>
                               Pull
@@ -3672,7 +3671,7 @@ export function RepoInfo() {
                     {isPushing ? (
                       <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
                     ) : (
-                      <UploadSimpleIcon className="size-4 text-muted-foreground" />
+                      <ArrowUpIcon className="size-4 text-muted-foreground" />
                     )}
                     <span className={cn(!toolbarLabels && "hidden")}>Push</span>
                   </TooltipTrigger>
@@ -3721,7 +3720,7 @@ export function RepoInfo() {
                       />
                     }
                   >
-                    <StackSimpleIcon className="size-4 text-muted-foreground" />
+                    <UploadSimpleIcon className="size-4 text-muted-foreground" />
                     <span className={cn(!toolbarLabels && "hidden")}>
                       Stash
                     </span>
@@ -3746,7 +3745,7 @@ export function RepoInfo() {
                       />
                     }
                   >
-                    <ArrowBendRightUpIcon className="size-4 text-muted-foreground" />
+                    <DownloadSimpleIcon className="size-4 text-muted-foreground" />
                     <span className={cn(!toolbarLabels && "hidden")}>Pop</span>
                   </TooltipTrigger>
                   <TooltipContent
