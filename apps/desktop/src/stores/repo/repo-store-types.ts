@@ -169,6 +169,7 @@ export interface RepoStoreState {
     skipHooks: boolean,
     preferences?: RepoCommandPreferences
   ) => Promise<void>;
+  createBranch: (id: string, branchName: string) => Promise<void>;
   createLocalRepository: (
     input: CreateLocalRepositoryInput
   ) => Promise<OpenedRepository | null>;

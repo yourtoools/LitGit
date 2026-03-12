@@ -613,6 +613,7 @@ export function RepoInfo() {
   const isLoadingHistory = useRepoStore((state) => state.isLoadingHistory);
   const isLoadingStatus = useRepoStore((state) => state.isLoadingStatus);
   const isLoadingWip = useRepoStore((state) => state.isLoadingWip);
+  const createBranch = useRepoStore((state) => state.createBranch);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
   const createStash = useRepoStore((state) => state.createStash);
@@ -661,6 +662,9 @@ export function RepoInfo() {
     RIGHT_SIDEBAR_DEFAULT_WIDTH
   );
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
+  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [isBranchCreateInputOpen, setIsBranchCreateInputOpen] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
   const [isStagingAll, setIsStagingAll] = useState(false);
   const [isUnstagingAll, setIsUnstagingAll] = useState(false);
   const [isUpdatingFilePath, setIsUpdatingFilePath] = useState<string | null>(
@@ -739,6 +743,7 @@ export function RepoInfo() {
   const [sidebarFilterInputValue, setSidebarFilterInputValue] = useState("");
   const [sidebarFilterQuery, setSidebarFilterQuery] = useState("");
   const sidebarFilterInputRef = useRef<HTMLInputElement | null>(null);
+  const branchCreateInputRef = useRef<HTMLInputElement | null>(null);
   const commitSummaryInputRef = useRef<HTMLInputElement | null>(null);
   const mainScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const sidebarFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -1162,6 +1167,82 @@ export function RepoInfo() {
 
     return `Git could not switch branches: ${rawMessage}`;
   };
+
+  const getCreateBranchFailureReason = (error: unknown): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("already exists") ||
+      normalized.includes("fatal: a branch named")
+    ) {
+      return "A branch with this name already exists.";
+    }
+
+    if (normalized.includes("not a valid branch name")) {
+      return "Enter a valid Git branch name.";
+    }
+
+    return `Git could not create branch: ${rawMessage}`;
+  };
+
+  const openBranchCreateInput = () => {
+    if (!activeRepoId || isCreatingBranch || isSwitchingBranch) {
+      return;
+    }
+
+    setIsBranchCreateInputOpen(true);
+    setNewBranchName("");
+  };
+
+  const closeBranchCreateInput = () => {
+    if (isCreatingBranch) {
+      return;
+    }
+
+    setIsBranchCreateInputOpen(false);
+    setNewBranchName("");
+  };
+
+  const handleCreateBranchFromToolbar = async () => {
+    if (!activeRepoId || isCreatingBranch) {
+      return;
+    }
+
+    const trimmedBranchName = newBranchName.trim();
+
+    if (trimmedBranchName.length === 0) {
+      toast.error("Branch name is required");
+      return;
+    }
+
+    setIsCreatingBranch(true);
+
+    try {
+      await createBranch(activeRepoId, trimmedBranchName);
+      setIsBranchCreateInputOpen(false);
+      setNewBranchName("");
+      toast.success("Branch created", {
+        description: `refs/heads/${trimmedBranchName}`,
+      });
+    } catch (error) {
+      toast.error("Failed to create branch", {
+        description: getCreateBranchFailureReason(error),
+      });
+    } finally {
+      setIsCreatingBranch(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isBranchCreateInputOpen) {
+      return;
+    }
+
+    globalThis.requestAnimationFrame(() => {
+      branchCreateInputRef.current?.focus();
+    });
+  }, [isBranchCreateInputOpen]);
 
   useEffect(() => {
     if (selectedCommitId === WORKING_TREE_ROW_ID && hasAnyWorkingTreeChanges) {
@@ -4221,7 +4302,10 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Branch"
-                        disabled
+                        disabled={
+                          !activeRepoId || isCreatingBranch || isSwitchingBranch
+                        }
+                        onClick={openBranchCreateInput}
                         size="default"
                         type="button"
                         variant="ghost"
@@ -4342,6 +4426,70 @@ export function RepoInfo() {
                 )}
                 ref={mainScrollContainerRef}
               >
+                {isBranchCreateInputOpen ? (
+                  <div className="grid grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 py-2">
+                    <div className="min-w-0 truncate">
+                      <span className="inline-flex items-center gap-1 rounded border border-border/70 bg-accent/20 px-2 py-0.5 text-xs">
+                        {currentBranch}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-center">
+                      <CircleIcon className="size-3 text-muted-foreground" />
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Input
+                        className="h-7 w-full max-w-64"
+                        disabled={isCreatingBranch}
+                        onChange={(event) =>
+                          setNewBranchName(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            closeBranchCreateInput();
+                            return;
+                          }
+
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            handleCreateBranchFromToolbar().catch(
+                              () => undefined
+                            );
+                          }
+                        }}
+                        placeholder="enter branch name"
+                        ref={branchCreateInputRef}
+                        value={newBranchName}
+                      />
+                      <Button
+                        className="h-7 px-2"
+                        disabled={
+                          isCreatingBranch || newBranchName.trim().length === 0
+                        }
+                        onClick={() => {
+                          handleCreateBranchFromToolbar().catch(
+                            () => undefined
+                          );
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        {isCreatingBranch ? "Creating..." : "Create"}
+                      </Button>
+                      <Button
+                        className="h-7 px-2"
+                        disabled={isCreatingBranch}
+                        onClick={closeBranchCreateInput}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 {hasAnyWorkingTreeChanges ? (
                   <button
                     className={cn(

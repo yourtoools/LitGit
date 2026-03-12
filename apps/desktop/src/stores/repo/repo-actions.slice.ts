@@ -3,6 +3,7 @@ import {
   addRepoIgnoreRule,
   applyRepoStash,
   commitRepoChanges,
+  createRepoBranch,
   createRepoStash,
   discardAllRepoChanges,
   discardRepoPathChanges,
@@ -151,6 +152,7 @@ type RepoActionsSliceKeys =
   | "canUndoRepoAction"
   | "clearRepoCommitDraftPrefill"
   | "commitChanges"
+  | "createBranch"
   | "createStash"
   | "discardAllChanges"
   | "discardPathChanges"
@@ -195,6 +197,33 @@ export const createRepoActionsSlice = (
   },
   getRedoRepoActionLabel: (id) => {
     return get().repoRedoLabelById[id] ?? null;
+  },
+  createBranch: async (id, branchName) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested branch creation: ${branchName}`,
+    });
+
+    try {
+      await createRepoBranch(targetRepo.path, branchName);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Branch created and checked out: ${branchName}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to create branch"),
+      });
+      throw error;
+    }
   },
   undoRepoAction: async (id) => {
     if (repoHistoryExecutionLocks.has(id)) {

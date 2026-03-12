@@ -528,6 +528,25 @@ export async function switchRepoBranch(path: string, branchName: string) {
   });
 }
 
+export async function createRepoBranch(path: string, branchName: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Create branch works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git switch -c ${branchName}`,
+    invoke,
+    invokeArgs: {
+      branchName,
+      repoPath: path,
+    },
+    invokeCommand: "create_repository_branch",
+    repoPath: path,
+  });
+}
+
 export async function getLatestRepoCommitMessage(
   path: string
 ): Promise<LatestRepositoryCommitMessage> {
