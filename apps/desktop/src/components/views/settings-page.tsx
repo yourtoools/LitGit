@@ -986,32 +986,6 @@ function GitSection({ query }: { query: string }) {
           ) : null}
         </div>
       </SettingsField>
-      {activeRepo ? (
-        <SettingsField
-          description="Set a specific profile just for this repository. This helps keep your work and personal commits separate."
-          label="Repository profile override"
-          query={query}
-        >
-          <div className="grid gap-3">
-            <div className="grid gap-2 rounded-xl border border-border/60 bg-muted/18 p-4">
-              <p className="font-medium text-sm">
-                Current override for{" "}
-                <span className="font-mono text-xs">
-                  {activeRepo.name ?? "this repository"}
-                </span>
-              </p>
-              <p className="mt-1 text-muted-foreground text-sm">
-                {formatIdentity(identityStatus?.local)}
-              </p>
-              <SettingsHelpText>
-                When set, this overrides your global profile for commits in this
-                repository only. Remove the override to fall back to the global
-                profile.
-              </SettingsHelpText>
-            </div>
-          </div>
-        </SettingsField>
-      ) : null}
     </div>
   );
 }
