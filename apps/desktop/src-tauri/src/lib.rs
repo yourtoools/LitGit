@@ -1000,6 +1000,35 @@ fn create_repository_branch(repo_path: String, branch_name: String) -> Result<()
 }
 
 #[tauri::command]
+fn delete_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_branch_name = branch_name.trim();
+
+    if trimmed_branch_name.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    validate_branch_name(trimmed_branch_name)?;
+
+    let output = Command::new("git")
+        .args(["-C", &repo_path, "branch", "-d", trimmed_branch_name])
+        .output()
+        .map_err(|error| format!("Failed to run git branch: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to delete branch".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -3430,6 +3459,7 @@ pub fn run() {
             get_repository_remote_names,
             get_repository_stashes,
             create_repository_branch,
+            delete_repository_branch,
             switch_repository_branch,
             pull_repository_action,
             push_repository_branch,

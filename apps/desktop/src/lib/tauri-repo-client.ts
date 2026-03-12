@@ -547,6 +547,25 @@ export async function createRepoBranch(path: string, branchName: string) {
   });
 }
 
+export async function deleteRepoBranch(path: string, branchName: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Delete branch works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git branch -d ${branchName}`,
+    invoke,
+    invokeArgs: {
+      branchName,
+      repoPath: path,
+    },
+    invokeCommand: "delete_repository_branch",
+    repoPath: path,
+  });
+}
+
 export async function getLatestRepoCommitMessage(
   path: string
 ): Promise<LatestRepositoryCommitMessage> {

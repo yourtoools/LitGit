@@ -5,6 +5,7 @@ import {
   commitRepoChanges,
   createRepoBranch,
   createRepoStash,
+  deleteRepoBranch,
   discardAllRepoChanges,
   discardRepoPathChanges,
   dropRepoStash,
@@ -154,6 +155,7 @@ type RepoActionsSliceKeys =
   | "commitChanges"
   | "createBranch"
   | "createStash"
+  | "deleteBranch"
   | "discardAllChanges"
   | "discardPathChanges"
   | "dropStash"
@@ -221,6 +223,33 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to create branch"),
+      });
+      throw error;
+    }
+  },
+  deleteBranch: async (id, branchName) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested branch deletion: ${branchName}`,
+    });
+
+    try {
+      await deleteRepoBranch(targetRepo.path, branchName);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Branch deleted: ${branchName}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to delete branch"),
       });
       throw error;
     }

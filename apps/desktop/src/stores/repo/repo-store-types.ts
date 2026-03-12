@@ -178,6 +178,7 @@ export interface RepoStoreState {
     summary: string,
     description: string
   ) => Promise<void>;
+  deleteBranch: (id: string, branchName: string) => Promise<void>;
   discardAllChanges: (id: string) => Promise<void>;
   discardPathChanges: (id: string, filePath: string) => Promise<void>;
   dropStash: (id: string, stashRef: string) => Promise<void>;

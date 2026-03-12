@@ -614,6 +614,7 @@ export function RepoInfo() {
   const isLoadingStatus = useRepoStore((state) => state.isLoadingStatus);
   const isLoadingWip = useRepoStore((state) => state.isLoadingWip);
   const createBranch = useRepoStore((state) => state.createBranch);
+  const deleteBranch = useRepoStore((state) => state.deleteBranch);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
   const createStash = useRepoStore((state) => state.createStash);
@@ -673,6 +674,12 @@ export function RepoInfo() {
   const [isCommitting, setIsCommitting] = useState(false);
   const [isDiscardingAllChanges, setIsDiscardingAllChanges] = useState(false);
   const [isDiscardAllConfirmOpen, setIsDiscardAllConfirmOpen] = useState(false);
+  const [isDeleteBranchConfirmOpen, setIsDeleteBranchConfirmOpen] =
+    useState(false);
+  const [pendingDeleteBranchName, setPendingDeleteBranchName] = useState<
+    string | null
+  >(null);
+  const [isDeletingBranch, setIsDeletingBranch] = useState(false);
   const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
   const [isPublishRepoConfirmOpen, setIsPublishRepoConfirmOpen] =
     useState(false);
@@ -1186,6 +1193,34 @@ export function RepoInfo() {
     return `Git could not create branch: ${rawMessage}`;
   };
 
+  const getDeleteBranchFailureReason = (error: unknown): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("cannot delete branch") &&
+      normalized.includes("checked out")
+    ) {
+      return "You cannot delete the currently checked out branch.";
+    }
+
+    if (
+      normalized.includes("not fully merged") ||
+      normalized.includes("is not fully merged")
+    ) {
+      return "This branch is not fully merged. Merge it first, then delete.";
+    }
+
+    if (
+      normalized.includes("not found") ||
+      normalized.includes("not a valid branch name")
+    ) {
+      return "The branch could not be found.";
+    }
+
+    return `Git could not delete branch: ${rawMessage}`;
+  };
+
   const openBranchCreateInput = () => {
     if (!activeRepoId || isCreatingBranch || isSwitchingBranch) {
       return;
@@ -1231,6 +1266,64 @@ export function RepoInfo() {
       });
     } finally {
       setIsCreatingBranch(false);
+    }
+  };
+
+  const openDeleteBranchConfirm = (entry: SidebarEntry) => {
+    if (entry.type !== "branch" || isDeletingBranch) {
+      return;
+    }
+
+    if (entry.active) {
+      toast.error("Cannot delete current branch", {
+        description: "Switch to another branch before deleting this one.",
+      });
+      return;
+    }
+
+    const targetBranch = branches.find(
+      (branch) => branch.refType === "branch" && branch.name === entry.name
+    );
+
+    if (!targetBranch) {
+      toast.error("Branch not found", {
+        description: "The selected branch no longer exists.",
+      });
+      return;
+    }
+
+    if (targetBranch.isRemote) {
+      toast.error("Cannot delete remote branch", {
+        description:
+          "This action deletes local branches only. Delete remote branches with push --delete.",
+      });
+      return;
+    }
+
+    setPendingDeleteBranchName(entry.name);
+    setIsDeleteBranchConfirmOpen(true);
+  };
+
+  const handleDeleteBranch = async () => {
+    if (!(activeRepoId && pendingDeleteBranchName) || isDeletingBranch) {
+      return;
+    }
+
+    setIsDeletingBranch(true);
+
+    try {
+      await deleteBranch(activeRepoId, pendingDeleteBranchName);
+      toast.success("Branch deleted", {
+        description: `refs/heads/${pendingDeleteBranchName}`,
+      });
+      setIsDeleteBranchConfirmOpen(false);
+      setPendingDeleteBranchName(null);
+    } catch (error) {
+      toast.error("Failed to delete branch", {
+        description: getDeleteBranchFailureReason(error),
+      });
+    } finally {
+      setIsDeletingBranch(false);
     }
   };
 
@@ -2444,8 +2537,14 @@ export function RepoInfo() {
         <DropdownMenuSeparator />
         {/* TODO: Implement this action */}
         <DropdownMenuItem disabled>Rename {entry.name}</DropdownMenuItem>
-        {/* TODO: Implement this action */}
-        <DropdownMenuItem disabled>Delete {entry.name}</DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={() => {
+            openDeleteBranchConfirm(entry);
+          }}
+        >
+          Delete {entry.name}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         {/* TODO: Implement this action */}
         <DropdownMenuItem disabled>Copy branch name</DropdownMenuItem>
@@ -2696,8 +2795,14 @@ export function RepoInfo() {
         <ContextMenuSeparator />
         {/* TODO: Implement this action */}
         <ContextMenuItem disabled>Rename {entry.name}</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Delete {entry.name}</ContextMenuItem>
+        <ContextMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={() => {
+            openDeleteBranchConfirm(entry);
+          }}
+        >
+          Delete {entry.name}
+        </ContextMenuItem>
         <ContextMenuSeparator />
         {/* TODO: Implement this action */}
         <ContextMenuItem disabled>Copy branch name</ContextMenuItem>
@@ -4296,7 +4401,6 @@ export function RepoInfo() {
                     Push
                   </TooltipContent>
                 </Tooltip>
-                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -5265,6 +5369,47 @@ export function RepoInfo() {
               variant="destructive"
             >
               {isDiscardingAllChanges ? "Discarding..." : "Discard all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (isDeletingBranch && !open) {
+            return;
+          }
+
+          setIsDeleteBranchConfirmOpen(open);
+
+          if (!open) {
+            setPendingDeleteBranchName(null);
+          }
+        }}
+        open={isDeleteBranchConfirmOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete branch {pendingDeleteBranchName ?? ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the local branch only. The remote branch (if any)
+              will stay on origin.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingBranch} size="sm">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeletingBranch || !pendingDeleteBranchName}
+              onClick={() => {
+                handleDeleteBranch().catch(() => undefined);
+              }}
+              size="sm"
+              variant="destructive"
+            >
+              {isDeletingBranch ? "Deleting..." : "Delete branch"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
