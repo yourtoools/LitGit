@@ -164,6 +164,11 @@ export interface RepoStoreState {
   createLocalRepository: (
     input: CreateLocalRepositoryInput
   ) => Promise<OpenedRepository | null>;
+  createStash: (
+    id: string,
+    summary: string,
+    description: string
+  ) => Promise<void>;
   discardAllChanges: (id: string) => Promise<void>;
   discardPathChanges: (id: string, filePath: string) => Promise<void>;
   dropStash: (id: string, stashRef: string) => Promise<void>;

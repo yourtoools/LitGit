@@ -641,6 +641,41 @@ export async function dropRepoStash(path: string, stashRef: string) {
   });
 }
 
+export async function createRepoStash(
+  path: string,
+  summary: string,
+  description: string,
+  includeUntracked = true
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Create stash works in Tauri desktop app only");
+  }
+
+  const summaryTrimmed = summary.trim();
+  const descriptionTrimmed = description.trim();
+  let stashMessage = summaryTrimmed;
+
+  if (descriptionTrimmed.length > 0) {
+    stashMessage = `${summaryTrimmed}\n\n${descriptionTrimmed}`;
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: includeUntracked
+      ? "git stash push --include-untracked"
+      : "git stash push",
+    invoke,
+    invokeArgs: {
+      includeUntracked,
+      repoPath: path,
+      stashMessage,
+    },
+    invokeCommand: "create_repository_stash",
+    repoPath: path,
+  });
+}
+
 export async function validateOpenedRepositories(paths: string[]) {
   if (paths.length === 0) {
     return [];

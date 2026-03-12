@@ -514,6 +514,7 @@ export function RepoInfo() {
   const isLoadingWip = useRepoStore((state) => state.isLoadingWip);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
+  const createStash = useRepoStore((state) => state.createStash);
   const popStash = useRepoStore((state) => state.popStash);
   const dropStash = useRepoStore((state) => state.dropStash);
   const addIgnoreRule = useRepoStore((state) => state.addIgnoreRule);
@@ -559,6 +560,7 @@ export function RepoInfo() {
   const [isPulling, setIsPulling] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [isApplyingStash, setIsApplyingStash] = useState(false);
+  const [isCreatingStash, setIsCreatingStash] = useState(false);
   const [isPoppingStash, setIsPoppingStash] = useState(false);
   const [isDroppingStash, setIsDroppingStash] = useState(false);
   const [draftCommitSummary, setDraftCommitSummary] = useState("");
@@ -691,6 +693,9 @@ export function RepoInfo() {
   const hasUnstagedChanges = unstagedItems.length > 0;
   const hasStagedChanges = stagedItems.length > 0;
   const hasAnyWorkingTreeChanges = workingTreeItems.length > 0;
+  const canCreateStash =
+    draftCommitSummary.trim().length > 0 && hasAnyWorkingTreeChanges;
+  const canPopCurrentStash = stashes.length > 0;
   const workingTreeIndicators = useMemo(() => {
     let addedCount = 0;
     let editedCount = 0;
@@ -1446,6 +1451,44 @@ export function RepoInfo() {
 
     try {
       await popStash(activeRepoId, entry.stashRef);
+    } finally {
+      setIsPoppingStash(false);
+    }
+  };
+
+  const handleCreateStash = async () => {
+    if (!activeRepoId || isCreatingStash || !canCreateStash) {
+      return;
+    }
+
+    setIsCreatingStash(true);
+
+    try {
+      await createStash(
+        activeRepoId,
+        draftCommitSummary.trim(),
+        draftCommitDescription.trim()
+      );
+      setDraftCommitSummary("");
+      setDraftCommitDescription("");
+      setAmendPreviousCommit(false);
+      setPushAfterCommit(false);
+      setSkipCommitHooks(false);
+      preAmendDraftRef.current = null;
+    } finally {
+      setIsCreatingStash(false);
+    }
+  };
+
+  const handlePopCurrentStash = async () => {
+    if (!activeRepoId || isPoppingStash || !canPopCurrentStash) {
+      return;
+    }
+
+    setIsPoppingStash(true);
+
+    try {
+      await popStash(activeRepoId, "stash@{0}");
     } finally {
       setIsPoppingStash(false);
     }
@@ -3707,20 +3750,26 @@ export function RepoInfo() {
                     Branch
                   </TooltipContent>
                 </Tooltip>
-                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Stash"
-                        disabled
+                        disabled={isCreatingStash || !canCreateStash}
+                        onClick={() => {
+                          handleCreateStash().catch(() => undefined);
+                        }}
                         size="default"
                         type="button"
                         variant="ghost"
                       />
                     }
                   >
-                    <UploadSimpleIcon className="size-4 text-muted-foreground" />
+                    {isCreatingStash ? (
+                      <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <DownloadSimpleIcon className="size-4 text-muted-foreground" />
+                    )}
                     <span className={cn(!toolbarLabels && "hidden")}>
                       Stash
                     </span>
@@ -3732,20 +3781,26 @@ export function RepoInfo() {
                     Stash
                   </TooltipContent>
                 </Tooltip>
-                {/* TODO: Implement this action */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         aria-label="Pop"
-                        disabled
+                        disabled={isPoppingStash || !canPopCurrentStash}
+                        onClick={() => {
+                          handlePopCurrentStash().catch(() => undefined);
+                        }}
                         size="default"
                         type="button"
                         variant="ghost"
                       />
                     }
                   >
-                    <DownloadSimpleIcon className="size-4 text-muted-foreground" />
+                    {isPoppingStash ? (
+                      <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <UploadSimpleIcon className="size-4 text-muted-foreground" />
+                    )}
                     <span className={cn(!toolbarLabels && "hidden")}>Pop</span>
                   </TooltipTrigger>
                   <TooltipContent

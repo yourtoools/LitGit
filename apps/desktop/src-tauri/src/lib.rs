@@ -1281,6 +1281,40 @@ fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), Str
 
     Ok(())
 }
+
+#[tauri::command]
+fn create_repository_stash(
+    repo_path: String,
+    stash_message: String,
+    include_untracked: bool,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let stash_message_trimmed = stash_message.trim();
+
+    if stash_message_trimmed.is_empty() {
+        return Err("Stash title is required".to_string());
+    }
+
+    let mut stash_command = Command::new("git");
+    stash_command.args(["-C", &repo_path, "stash", "push"]);
+
+    if include_untracked {
+        stash_command.arg("--include-untracked");
+    }
+
+    stash_command.args(["-m", stash_message_trimmed]);
+
+    let output = stash_command
+        .output()
+        .map_err(|error| format!("Failed to run git stash push: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(&output.stderr, "Failed to create stash"));
+    }
+
+    Ok(())
+}
 #[tauri::command]
 fn commit_repository_changes(
     repo_path: String,
@@ -3109,6 +3143,7 @@ pub fn run() {
             switch_repository_branch,
             pull_repository_action,
             push_repository_branch,
+            create_repository_stash,
             apply_repository_stash,
             pop_repository_stash,
             drop_repository_stash,

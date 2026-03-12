@@ -3,6 +3,7 @@ import {
   addRepoIgnoreRule,
   applyRepoStash,
   commitRepoChanges,
+  createRepoStash,
   discardAllRepoChanges,
   discardRepoPathChanges,
   dropRepoStash,
@@ -51,6 +52,7 @@ type RepoActionsSliceKeys =
   | "addIgnoreRule"
   | "applyStash"
   | "commitChanges"
+  | "createStash"
   | "discardAllChanges"
   | "discardPathChanges"
   | "dropStash"
@@ -318,6 +320,35 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to commit changes"),
+      });
+      throw error;
+    }
+  },
+  createStash: async (id, summary, description) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return;
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: "User requested create stash",
+    });
+
+    try {
+      await createRepoStash(targetRepo.path, summary, description, true);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      toast.success("Stash created");
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: "Stash created",
+      });
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Failed to create stash"));
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to create stash"),
       });
       throw error;
     }
