@@ -5,6 +5,7 @@ import {
   commitRepoChanges,
   createRepoBranch,
   createRepoStash,
+  deleteRemoteRepoBranch,
   deleteRepoBranch,
   discardAllRepoChanges,
   discardRepoPathChanges,
@@ -15,6 +16,7 @@ import {
   getRepoFileDiff,
   popRepoStash,
   pushRepoBranch,
+  renameRepoBranch,
   resetRepoToReference,
   runRepoPull,
   stageAllRepoChanges,
@@ -156,6 +158,7 @@ type RepoActionsSliceKeys =
   | "createBranch"
   | "createStash"
   | "deleteBranch"
+  | "deleteRemoteBranch"
   | "discardAllChanges"
   | "discardPathChanges"
   | "dropStash"
@@ -168,6 +171,7 @@ type RepoActionsSliceKeys =
   | "popStash"
   | "pullBranch"
   | "pushBranch"
+  | "renameBranch"
   | "redoRepoAction"
   | "stageAll"
   | "stageFile"
@@ -250,6 +254,60 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to delete branch"),
+      });
+      throw error;
+    }
+  },
+  deleteRemoteBranch: async (id, remoteName, branchName) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested remote branch deletion: ${remoteName}/${branchName}`,
+    });
+
+    try {
+      await deleteRemoteRepoBranch(targetRepo.path, remoteName, branchName);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Remote branch deleted: ${remoteName}/${branchName}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to delete remote branch"),
+      });
+      throw error;
+    }
+  },
+  renameBranch: async (id, branchName, newBranchName) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested branch rename: ${branchName} -> ${newBranchName}`,
+    });
+
+    try {
+      await renameRepoBranch(targetRepo.path, branchName, newBranchName);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Branch renamed: ${branchName} -> ${newBranchName}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to rename branch"),
       });
       throw error;
     }

@@ -566,6 +566,54 @@ export async function deleteRepoBranch(path: string, branchName: string) {
   });
 }
 
+export async function renameRepoBranch(
+  path: string,
+  branchName: string,
+  newBranchName: string
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Rename branch works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git branch -m ${branchName} ${newBranchName}`,
+    invoke,
+    invokeArgs: {
+      branchName,
+      newBranchName,
+      repoPath: path,
+    },
+    invokeCommand: "rename_repository_branch",
+    repoPath: path,
+  });
+}
+
+export async function deleteRemoteRepoBranch(
+  path: string,
+  remoteName: string,
+  branchName: string
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Delete remote branch works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git push ${remoteName} --delete ${branchName}`,
+    invoke,
+    invokeArgs: {
+      branchName,
+      remoteName,
+      repoPath: path,
+    },
+    invokeCommand: "delete_remote_repository_branch",
+    repoPath: path,
+  });
+}
+
 export async function getLatestRepoCommitMessage(
   path: string
 ): Promise<LatestRepositoryCommitMessage> {

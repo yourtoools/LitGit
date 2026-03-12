@@ -179,6 +179,11 @@ export interface RepoStoreState {
     description: string
   ) => Promise<void>;
   deleteBranch: (id: string, branchName: string) => Promise<void>;
+  deleteRemoteBranch: (
+    id: string,
+    remoteName: string,
+    branchName: string
+  ) => Promise<void>;
   discardAllChanges: (id: string) => Promise<void>;
   discardPathChanges: (id: string, filePath: string) => Promise<void>;
   dropStash: (id: string, stashRef: string) => Promise<void>;
@@ -221,6 +226,11 @@ export interface RepoStoreState {
   ) => Promise<void>;
   redoRepoAction: (id: string) => Promise<void>;
   refreshOpenedRepositories: () => Promise<void>;
+  renameBranch: (
+    id: string,
+    branchName: string,
+    newBranchName: string
+  ) => Promise<void>;
   repoBranches: Record<string, RepositoryBranch[]>;
   repoCommitDraftPrefillById: Record<
     string,

@@ -121,6 +121,7 @@ import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
 interface SidebarEntry {
   active?: boolean;
+  isRemote?: boolean;
   name: string;
   pendingPushCount?: number;
   pendingSyncCount?: number;
@@ -615,6 +616,8 @@ export function RepoInfo() {
   const isLoadingWip = useRepoStore((state) => state.isLoadingWip);
   const createBranch = useRepoStore((state) => state.createBranch);
   const deleteBranch = useRepoStore((state) => state.deleteBranch);
+  const deleteRemoteBranch = useRepoStore((state) => state.deleteRemoteBranch);
+  const renameBranch = useRepoStore((state) => state.renameBranch);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
   const createStash = useRepoStore((state) => state.createStash);
@@ -679,7 +682,17 @@ export function RepoInfo() {
   const [pendingDeleteBranchName, setPendingDeleteBranchName] = useState<
     string | null
   >(null);
+  const [pendingDeleteBranchRemoteName, setPendingDeleteBranchRemoteName] =
+    useState<string | null>(null);
+  const [isDeleteRemoteBranch, setIsDeleteRemoteBranch] = useState(false);
   const [isDeletingBranch, setIsDeletingBranch] = useState(false);
+  const [isRenameBranchDialogOpen, setIsRenameBranchDialogOpen] =
+    useState(false);
+  const [renameBranchSourceName, setRenameBranchSourceName] = useState<
+    string | null
+  >(null);
+  const [renameBranchTargetName, setRenameBranchTargetName] = useState("");
+  const [isRenamingBranch, setIsRenamingBranch] = useState(false);
   const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
   const [isPublishRepoConfirmOpen, setIsPublishRepoConfirmOpen] =
     useState(false);
@@ -998,6 +1011,7 @@ export function RepoInfo() {
 
       const branchEntry: SidebarEntry = {
         active: branch.isCurrent,
+        isRemote: branch.isRemote,
         name: branch.name,
         pendingPushCount: branch.aheadCount > 0 ? branch.aheadCount : undefined,
         pendingSyncCount:
@@ -1221,6 +1235,46 @@ export function RepoInfo() {
     return `Git could not delete branch: ${rawMessage}`;
   };
 
+  const getDeleteRemoteBranchFailureReason = (error: unknown): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("remote ref does not exist") ||
+      normalized.includes("not found")
+    ) {
+      return "The remote branch could not be found.";
+    }
+
+    if (normalized.includes("permission denied")) {
+      return "Permission denied while deleting remote branch.";
+    }
+
+    return `Git could not delete remote branch: ${rawMessage}`;
+  };
+
+  const getRenameBranchFailureReason = (error: unknown): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("already exists") ||
+      normalized.includes("fatal: a branch named")
+    ) {
+      return "A branch with that name already exists.";
+    }
+
+    if (normalized.includes("not a valid branch name")) {
+      return "Enter a valid Git branch name.";
+    }
+
+    if (normalized.includes("not found")) {
+      return "The source branch could not be found.";
+    }
+
+    return `Git could not rename branch: ${rawMessage}`;
+  };
+
   const openBranchCreateInput = () => {
     if (!activeRepoId || isCreatingBranch || isSwitchingBranch) {
       return;
@@ -1293,13 +1347,28 @@ export function RepoInfo() {
     }
 
     if (targetBranch.isRemote) {
-      toast.error("Cannot delete remote branch", {
-        description:
-          "This action deletes local branches only. Delete remote branches with push --delete.",
-      });
+      const firstSlashIndex = entry.name.indexOf("/");
+
+      if (firstSlashIndex <= 0 || firstSlashIndex >= entry.name.length - 1) {
+        toast.error("Remote branch format not supported", {
+          description:
+            "Expected format remote/branch-name. Try refreshing branch data.",
+        });
+        return;
+      }
+
+      const remoteName = entry.name.slice(0, firstSlashIndex);
+      const remoteBranchName = entry.name.slice(firstSlashIndex + 1);
+
+      setPendingDeleteBranchRemoteName(remoteName);
+      setPendingDeleteBranchName(remoteBranchName);
+      setIsDeleteRemoteBranch(true);
+      setIsDeleteBranchConfirmOpen(true);
       return;
     }
 
+    setPendingDeleteBranchRemoteName(null);
+    setIsDeleteRemoteBranch(false);
     setPendingDeleteBranchName(entry.name);
     setIsDeleteBranchConfirmOpen(true);
   };
@@ -1312,18 +1381,115 @@ export function RepoInfo() {
     setIsDeletingBranch(true);
 
     try {
-      await deleteBranch(activeRepoId, pendingDeleteBranchName);
-      toast.success("Branch deleted", {
-        description: `refs/heads/${pendingDeleteBranchName}`,
-      });
+      if (isDeleteRemoteBranch) {
+        if (!pendingDeleteBranchRemoteName) {
+          throw new Error("Remote branch context is missing");
+        }
+
+        await deleteRemoteBranch(
+          activeRepoId,
+          pendingDeleteBranchRemoteName,
+          pendingDeleteBranchName
+        );
+        toast.success("Remote branch deleted", {
+          description: `${pendingDeleteBranchRemoteName}/${pendingDeleteBranchName}`,
+        });
+      } else {
+        await deleteBranch(activeRepoId, pendingDeleteBranchName);
+        toast.success("Branch deleted", {
+          description: `refs/heads/${pendingDeleteBranchName}`,
+        });
+      }
+
       setIsDeleteBranchConfirmOpen(false);
       setPendingDeleteBranchName(null);
+      setPendingDeleteBranchRemoteName(null);
+      setIsDeleteRemoteBranch(false);
     } catch (error) {
-      toast.error("Failed to delete branch", {
-        description: getDeleteBranchFailureReason(error),
-      });
+      if (isDeleteRemoteBranch) {
+        toast.error("Failed to delete remote branch", {
+          description: getDeleteRemoteBranchFailureReason(error),
+        });
+      } else {
+        toast.error("Failed to delete branch", {
+          description: getDeleteBranchFailureReason(error),
+        });
+      }
     } finally {
       setIsDeletingBranch(false);
+    }
+  };
+
+  const openRenameBranchDialog = (entry: SidebarEntry) => {
+    if (entry.type !== "branch" || isRenamingBranch) {
+      return;
+    }
+
+    const targetBranch = branches.find(
+      (branch) => branch.refType === "branch" && branch.name === entry.name
+    );
+
+    if (!targetBranch) {
+      toast.error("Branch not found", {
+        description: "The selected branch no longer exists.",
+      });
+      return;
+    }
+
+    if (targetBranch.isRemote) {
+      toast.error("Cannot rename remote branch", {
+        description:
+          "This action renames local branches only. Rename remotes by pushing a new branch and deleting the old remote.",
+      });
+      return;
+    }
+
+    setRenameBranchSourceName(entry.name);
+    setRenameBranchTargetName(entry.name);
+    setIsRenameBranchDialogOpen(true);
+  };
+
+  const handleRenameBranch = async () => {
+    if (
+      !(activeRepoId && renameBranchSourceName) ||
+      isRenamingBranch ||
+      isSwitchingBranch
+    ) {
+      return;
+    }
+
+    const trimmedNewBranchName = renameBranchTargetName.trim();
+
+    if (trimmedNewBranchName.length === 0) {
+      toast.error("New branch name is required");
+      return;
+    }
+
+    if (trimmedNewBranchName === renameBranchSourceName) {
+      setIsRenameBranchDialogOpen(false);
+      return;
+    }
+
+    setIsRenamingBranch(true);
+
+    try {
+      await renameBranch(
+        activeRepoId,
+        renameBranchSourceName,
+        trimmedNewBranchName
+      );
+      toast.success("Branch renamed", {
+        description: `${renameBranchSourceName} -> ${trimmedNewBranchName}`,
+      });
+      setIsRenameBranchDialogOpen(false);
+      setRenameBranchSourceName(null);
+      setRenameBranchTargetName("");
+    } catch (error) {
+      toast.error("Failed to rename branch", {
+        description: getRenameBranchFailureReason(error),
+      });
+    } finally {
+      setIsRenamingBranch(false);
     }
   };
 
@@ -2535,8 +2701,15 @@ export function RepoInfo() {
           Explain Branch Changes (Preview)
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        {/* TODO: Implement this action */}
-        <DropdownMenuItem disabled>Rename {entry.name}</DropdownMenuItem>
+        {entry.isRemote ? null : (
+          <DropdownMenuItem
+            onClick={() => {
+              openRenameBranchDialog(entry);
+            }}
+          >
+            Rename {entry.name}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           className="text-destructive focus:text-destructive"
           onClick={() => {
@@ -2793,8 +2966,15 @@ export function RepoInfo() {
           Explain Branch Changes (Preview)
         </ContextMenuItem>
         <ContextMenuSeparator />
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Rename {entry.name}</ContextMenuItem>
+        {entry.isRemote ? null : (
+          <ContextMenuItem
+            onClick={() => {
+              openRenameBranchDialog(entry);
+            }}
+          >
+            Rename {entry.name}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem
           className="text-destructive focus:text-destructive"
           onClick={() => {
@@ -5235,6 +5415,84 @@ export function RepoInfo() {
       </div>
       <Dialog
         onOpenChange={(open) => {
+          if (isRenamingBranch && !open) {
+            return;
+          }
+
+          setIsRenameBranchDialogOpen(open);
+
+          if (!open) {
+            setRenameBranchSourceName(null);
+            setRenameBranchTargetName("");
+          }
+        }}
+        open={isRenameBranchDialogOpen}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          showCloseButton={!isRenamingBranch}
+        >
+          <DialogHeader>
+            <DialogTitle>Rename branch</DialogTitle>
+            <DialogDescription>
+              Rename the local branch and keep your current checkout state.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="rename-branch-name">New branch name</Label>
+            <Input
+              autoCapitalize="none"
+              autoCorrect="off"
+              disabled={isRenamingBranch}
+              id="rename-branch-name"
+              onChange={(event) =>
+                setRenameBranchTargetName(event.target.value)
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleRenameBranch().catch(() => undefined);
+                }
+              }}
+              spellCheck={false}
+              value={renameBranchTargetName}
+            />
+            {renameBranchSourceName ? (
+              <p className="text-muted-foreground text-xs">
+                Source branch:{" "}
+                <span className="font-medium">{renameBranchSourceName}</span>
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={isRenamingBranch}
+              onClick={() => {
+                setIsRenameBranchDialogOpen(false);
+                setRenameBranchSourceName(null);
+                setRenameBranchTargetName("");
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                isRenamingBranch || renameBranchTargetName.trim().length === 0
+              }
+              onClick={() => {
+                handleRenameBranch().catch(() => undefined);
+              }}
+              type="button"
+            >
+              {isRenamingBranch ? "Renaming..." : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        onOpenChange={(open) => {
           if (isSubmittingPublishRepo && !open) {
             return;
           }
@@ -5383,6 +5641,8 @@ export function RepoInfo() {
 
           if (!open) {
             setPendingDeleteBranchName(null);
+            setPendingDeleteBranchRemoteName(null);
+            setIsDeleteRemoteBranch(false);
           }
         }}
         open={isDeleteBranchConfirmOpen}
@@ -5390,11 +5650,14 @@ export function RepoInfo() {
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete branch {pendingDeleteBranchName ?? ""}?
+              {isDeleteRemoteBranch
+                ? `Delete remote branch ${pendingDeleteBranchRemoteName ?? "origin"}/${pendingDeleteBranchName ?? ""}?`
+                : `Delete branch ${pendingDeleteBranchName ?? ""}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This deletes the local branch only. The remote branch (if any)
-              will stay on origin.
+              {isDeleteRemoteBranch
+                ? "This removes the branch from the remote repository. Your local branches remain unchanged."
+                : "This deletes the local branch only. The remote branch (if any) will stay on origin."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

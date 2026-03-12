@@ -1029,6 +1029,101 @@ fn delete_repository_branch(repo_path: String, branch_name: String) -> Result<()
 }
 
 #[tauri::command]
+fn rename_repository_branch(
+    repo_path: String,
+    branch_name: String,
+    new_branch_name: String,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_branch_name = branch_name.trim();
+    let trimmed_new_branch_name = new_branch_name.trim();
+
+    if trimmed_branch_name.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    if trimmed_new_branch_name.is_empty() {
+        return Err("New branch name is required".to_string());
+    }
+
+    validate_branch_name(trimmed_branch_name)?;
+    validate_branch_name(trimmed_new_branch_name)?;
+
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path,
+            "branch",
+            "-m",
+            trimmed_branch_name,
+            trimmed_new_branch_name,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git branch: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to rename branch".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_remote_repository_branch(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    remote_name: String,
+    branch_name: String,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_remote_name = remote_name.trim();
+    let trimmed_branch_name = branch_name.trim();
+
+    if trimmed_remote_name.is_empty() {
+        return Err("Remote name is required".to_string());
+    }
+
+    if trimmed_branch_name.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    validate_branch_name(trimmed_branch_name)?;
+
+    let command_preferences = RepoCommandPreferences::default();
+    let _network_operation = begin_network_operation(&state, &repo_path)?;
+
+    let mut command = Command::new("git");
+    apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+    let output = command
+        .args([
+            "-C",
+            &repo_path,
+            "push",
+            trimmed_remote_name,
+            "--delete",
+            trimmed_branch_name,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git push --delete: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to delete remote branch",
+        ));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -1308,7 +1403,7 @@ fn push_repository_branch(
         return Ok(());
     }
 
-    let has_upstream = Command::new("git")
+    let upstream_output = Command::new("git")
         .args([
             "-C",
             &repo_path,
@@ -1318,27 +1413,39 @@ fn push_repository_branch(
             "@{u}",
         ])
         .output()
-        .map_err(|error| format!("Failed to check branch upstream: {error}"))?
-        .status
-        .success();
+        .map_err(|error| format!("Failed to check branch upstream: {error}"))?;
+
+    let upstream_ref = if upstream_output.status.success() {
+        let value = String::from_utf8_lossy(&upstream_output.stdout)
+            .trim()
+            .to_string();
+
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    } else {
+        None
+    };
+
+    let upstream_remote_and_branch = upstream_ref
+        .as_deref()
+        .and_then(|value| value.strip_prefix("refs/remotes/"))
+        .and_then(|value| value.split_once('/'));
+
+    let upstream_remote_name = upstream_remote_and_branch
+        .map(|(remote_name, _)| remote_name.to_string())
+        .unwrap_or_else(|| "origin".to_string());
+    let upstream_branch_name = upstream_remote_and_branch.map(|(_, remote_branch_name)| remote_branch_name);
+    let upstream_matches_current_branch =
+        upstream_branch_name.is_some_and(|remote_branch_name| remote_branch_name == branch_name);
+    let should_set_upstream = upstream_ref.is_none() || !upstream_matches_current_branch;
 
     let should_force_with_lease = force_with_lease == Some(true);
 
-    let push_output = if has_upstream {
-        let mut command = Command::new("git");
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
-
-        command.args(["-C", &repo_path, "push"]);
-
-        if should_force_with_lease {
-            command.arg("--force-with-lease");
-        }
-
-        command
-            .output()
-            .map_err(|error| format!("Failed to run git push: {error}"))?
-    } else {
-        if !has_origin_remote {
+    let push_output = if should_set_upstream {
+        if upstream_ref.is_none() && !has_origin_remote {
             return Err(
                 "No upstream branch found and remote 'origin' is not configured".to_string(),
             );
@@ -1354,7 +1461,20 @@ fn push_repository_branch(
         }
 
         command
-            .args(["-u", "origin", &branch_name])
+            .args(["-u", &upstream_remote_name, &branch_name])
+            .output()
+            .map_err(|error| format!("Failed to run git push: {error}"))?
+    } else {
+        let mut command = Command::new("git");
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+
+        command.args(["-C", &repo_path, "push"]);
+
+        if should_force_with_lease {
+            command.arg("--force-with-lease");
+        }
+
+        command
             .output()
             .map_err(|error| format!("Failed to run git push: {error}"))?
     };
@@ -3460,6 +3580,8 @@ pub fn run() {
             get_repository_stashes,
             create_repository_branch,
             delete_repository_branch,
+            rename_repository_branch,
+            delete_remote_repository_branch,
             switch_repository_branch,
             pull_repository_action,
             push_repository_branch,
