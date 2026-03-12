@@ -3,12 +3,7 @@ import { Button } from "@litgit/ui/components/button";
 
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@litgit/ui/components/tooltip";
+import { TooltipProvider } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
 import {
   BugIcon,
@@ -20,18 +15,13 @@ import {
   GlobeIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import mayarLogo from "@/assets/mayar-logo.png";
 import { PageContainer } from "@/components/layout/page-container";
+import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
+import { QuickActionButton } from "@/components/views/quick-actions-launcher";
 import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
 import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
@@ -43,8 +33,13 @@ import {
   isEditableTarget,
   isPrimaryShortcut,
 } from "@/lib/keyboard-shortcuts";
+import { getRepoGitIdentity } from "@/lib/tauri-repo-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
-import type { PickedRepositorySelection } from "@/stores/repo/repo-store-types";
+import type {
+  GitIdentityStatus,
+  GitIdentityWriteInput,
+  PickedRepositorySelection,
+} from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 const MAYAR_URL = env.VITE_MAYAR_URL;
@@ -55,59 +50,6 @@ const RECENT_REPO_SEARCH_HINT_ID = "recent-repositories-search-hint";
 const RECENT_REPO_SEARCH_STATUS_ID = "recent-repositories-search-status";
 const RECENT_LIST_SCROLL_EDGE_THRESHOLD = 2;
 const RECENT_REPOS_COLLAPSED_LIMIT = 5;
-
-interface QuickActionButtonProps {
-  disabled?: boolean;
-  icon: ReactNode;
-  label: ReactNode;
-  onClick: () => void;
-  shortcut?: string;
-  shortcutAriaLabel?: string;
-  tooltip: string;
-}
-
-function QuickActionButton({
-  icon,
-  label,
-  shortcut,
-  shortcutAriaLabel,
-  tooltip,
-  onClick,
-  disabled,
-}: QuickActionButtonProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger className="w-full">
-        <Button
-          aria-keyshortcuts={shortcutAriaLabel}
-          className="group h-auto w-full flex-col items-start justify-start gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-4 text-left shadow-none transition-colors hover:border-primary/45 hover:bg-primary/20"
-          disabled={disabled}
-          onClick={onClick}
-          type="button"
-          variant="ghost"
-        >
-          {icon}
-          <span className="w-full">
-            <span className="block font-mono text-primary/80 text-xs uppercase tracking-[0.2em] transition-colors group-hover:text-primary">
-              Execute
-            </span>
-            <span className="mt-1 flex items-center gap-2 font-mono font-semibold text-sm tracking-tight">
-              {label}
-              {shortcut && (
-                <span className="rounded border border-current/35 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider">
-                  {shortcut}
-                </span>
-              )}
-            </span>
-          </span>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={8}>
-        {tooltip}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
 
 export function NewTabContent() {
   const navigate = useNavigate();
@@ -130,12 +72,18 @@ export function NewTabContent() {
   const setSection = usePreferencesStore((state) => state.setSection);
 
   const tabId = activeTabId || "";
+  const search = useSearch({ strict: false });
+  const action = search.action as string | undefined;
+
   const [searchInputValue, setSearchInputValue] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
   const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
   const [isStartLocalDialogOpen, setIsStartLocalDialogOpen] = useState(false);
+  const [isGitIdentityDialogOpen, setIsGitIdentityDialogOpen] = useState(false);
+  const [gitIdentityStatus, setGitIdentityStatus] =
+    useState<GitIdentityStatus | null>(null);
   const [pendingRepoInitialization, setPendingRepoInitialization] =
     useState<PickedRepositorySelection | null>(null);
   const [showRecentTopFade, setShowRecentTopFade] = useState(false);
@@ -223,35 +171,78 @@ export function NewTabContent() {
     tabId,
   ]);
 
+  useEffect(() => {
+    if (!action) {
+      return;
+    }
+
+    if (action === "clone") {
+      setIsCloneDialogOpen(true);
+    }
+
+    if (action === "open") {
+      handleOpenRepoPicker().catch(() => undefined);
+    }
+
+    navigate({ to: "/", search: {}, replace: true }).catch(() => undefined);
+  }, [action, handleOpenRepoPicker, navigate]);
+
+  const completeRepositoryInitialization = useCallback(
+    async (gitIdentity?: GitIdentityWriteInput | null) => {
+      if (!(pendingRepoInitialization && !isInitializingRepository)) {
+        return;
+      }
+
+      setIsInitializingRepository(true);
+
+      try {
+        const openedRepository = await initializeRepository(
+          pendingRepoInitialization,
+          gitIdentity
+        );
+
+        if (!openedRepository) {
+          return;
+        }
+
+        setPendingRepoInitialization(null);
+        setIsGitIdentityDialogOpen(false);
+        await routeRepository(openedRepository.id, openedRepository.name, {
+          preferredTabId: tabId,
+        });
+      } finally {
+        setIsInitializingRepository(false);
+      }
+    },
+    [
+      initializeRepository,
+      isInitializingRepository,
+      pendingRepoInitialization,
+      routeRepository,
+      tabId,
+    ]
+  );
+
   const handleInitializeRepository = useCallback(async () => {
     if (!(pendingRepoInitialization && !isInitializingRepository)) {
       return;
     }
 
-    setIsInitializingRepository(true);
+    const identityStatus = await getRepoGitIdentity(
+      pendingRepoInitialization.path
+    );
 
-    try {
-      const openedRepository = await initializeRepository(
-        pendingRepoInitialization
-      );
-
-      if (!openedRepository) {
-        return;
-      }
-
-      setPendingRepoInitialization(null);
-      await routeRepository(openedRepository.id, openedRepository.name, {
-        preferredTabId: tabId,
-      });
-    } finally {
-      setIsInitializingRepository(false);
+    if (identityStatus.effective.isComplete) {
+      await completeRepositoryInitialization();
+      return;
     }
+
+    setGitIdentityStatus(identityStatus);
+    setIsGitIdentityDialogOpen(true);
   }, [
-    initializeRepository,
+    completeRepositoryInitialization,
     isInitializingRepository,
     pendingRepoInitialization,
-    routeRepository,
-    tabId,
   ]);
 
   const openExternalUrl = useCallback(async (url: string) => {
@@ -818,10 +809,22 @@ export function NewTabContent() {
         onOpenChange={(open) => {
           if (!(open || isInitializingRepository)) {
             setPendingRepoInitialization(null);
+            setIsGitIdentityDialogOpen(false);
           }
         }}
         open={Boolean(pendingRepoInitialization)}
         repositoryName={pendingRepoInitialization?.name ?? "repository"}
+      />
+      <GitIdentityDialog
+        description="LitGit needs your Git author name and email before it can create the first commit. This will be saved to your global Git config."
+        identityStatus={gitIdentityStatus}
+        onConfirm={async (gitIdentity) => {
+          await completeRepositoryInitialization(gitIdentity);
+        }}
+        onOpenChange={setIsGitIdentityDialogOpen}
+        open={isGitIdentityDialogOpen}
+        submitLabel="Save and create first commit"
+        title="Set your global Git identity"
       />
       <RepositoryCloneDialog
         onOpenChange={setIsCloneDialogOpen}

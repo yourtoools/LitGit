@@ -13,6 +13,7 @@ export type TerminalCursorStyle = "block" | "underline" | "bar";
 export type DateFormatPreset = "compact" | "verbose";
 export type SettingsSectionId =
   | "general"
+  | "git"
   | "ssh"
   | "ui"
   | "signing"
@@ -93,6 +94,7 @@ export interface AppPreferences {
   network: NetworkPreferences;
   settings: {
     activeSection: SettingsSectionId;
+    hasCompletedOnboarding: boolean;
     lastNonSettingsRoute: string | null;
     searchQuery: string;
   };
@@ -206,6 +208,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   },
   settings: {
     activeSection: "general",
+    hasCompletedOnboarding: false,
     lastNonSettingsRoute: null,
     searchQuery: "",
   },
@@ -238,6 +241,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
 
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, string> = {
   general: "General",
+  git: "Profile",
   ssh: "SSH",
   ui: "UI Customization",
   signing: "Commit Signing",

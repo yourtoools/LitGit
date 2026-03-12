@@ -3,13 +3,12 @@ import { z } from "zod";
 
 const searchSchema = z.object({
   tabId: z.string().optional(),
-  action: z.enum(["open", "clone"]).optional(),
 });
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/onboarding")({
   validateSearch: searchSchema,
   component: lazyRouteComponent(
-    () => import("@/components/views/new-tab"),
-    "NewTabContent"
+    () => import("@/components/views/onboarding-page"),
+    "OnboardingPage"
   ),
 });

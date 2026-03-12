@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { getGitIdentityStatus } from "@/lib/tauri-settings-client";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 
@@ -7,7 +8,10 @@ async function refreshActiveTab(
   setActiveRepo: ReturnType<typeof useRepoStore.getState>["setActiveRepo"],
   refreshOpenedRepositories: ReturnType<
     typeof useRepoStore.getState
-  >["refreshOpenedRepositories"]
+  >["refreshOpenedRepositories"],
+  setRepoGitIdentity: ReturnType<
+    typeof useRepoStore.getState
+  >["setRepoGitIdentity"]
 ) {
   await refreshOpenedRepositories();
 
@@ -18,6 +22,7 @@ async function refreshActiveTab(
   const activeTabRepoId = activeTab?.repoId ?? null;
 
   if (!activeTabRepoId) {
+    await getGitIdentityStatus(null).catch(() => undefined);
     return;
   }
 
@@ -30,6 +35,21 @@ async function refreshActiveTab(
   }
 
   await setActiveRepo(activeTabRepoId, { forceRefresh: true });
+
+  const activeRepo = useRepoStore
+    .getState()
+    .openedRepos.find((repo) => repo.id === activeTabRepoId);
+
+  if (!activeRepo) {
+    return;
+  }
+
+  try {
+    const identity = await getGitIdentityStatus(activeRepo.path);
+    setRepoGitIdentity(activeTabRepoId, identity);
+  } catch {
+    setRepoGitIdentity(activeTabRepoId, null);
+  }
 }
 
 export function useTabRepoSync() {
@@ -38,6 +58,7 @@ export function useTabRepoSync() {
   const refreshOpenedRepositories = useRepoStore(
     (state) => state.refreshOpenedRepositories
   );
+  const setRepoGitIdentity = useRepoStore((state) => state.setRepoGitIdentity);
   const setActiveRepo = useRepoStore((state) => state.setActiveRepo);
   const activeTabId = useTabStore((state) => state.activeTabId);
   const activeTabRepoId = useTabStore((state) => {
@@ -178,9 +199,11 @@ export function useTabRepoSync() {
           return;
         }
 
-        refreshActiveTab(setActiveRepo, refreshOpenedRepositories).catch(
-          () => undefined
-        );
+        refreshActiveTab(
+          setActiveRepo,
+          refreshOpenedRepositories,
+          setRepoGitIdentity
+        ).catch(() => undefined);
       });
     };
 
@@ -189,7 +212,7 @@ export function useTabRepoSync() {
     return () => {
       unlistenTauriFocus?.();
     };
-  }, [refreshOpenedRepositories, setActiveRepo]);
+  }, [refreshOpenedRepositories, setActiveRepo, setRepoGitIdentity]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {

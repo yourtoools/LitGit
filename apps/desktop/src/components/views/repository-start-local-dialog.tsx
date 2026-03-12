@@ -36,6 +36,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import {
   localGitignoreTemplateContents,
@@ -43,9 +44,16 @@ import {
   localLicenseTemplateContents,
   localLicenseTemplateOptions,
 } from "@/lib/repository-template-data";
-import { pickLocalRepositoryParentFolder } from "@/lib/tauri-repo-client";
+import {
+  getRepoGitIdentity,
+  pickLocalRepositoryParentFolder,
+} from "@/lib/tauri-repo-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
-import type { RepositoryTemplateOption } from "@/stores/repo/use-repo-store";
+import type {
+  GitIdentityStatus,
+  GitIdentityWriteInput,
+  RepositoryTemplateOption,
+} from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 const TRAILING_PATH_SEPARATOR_REGEX = /[\\/]$/;
@@ -638,6 +646,9 @@ export function RepositoryStartLocalDialog({
   const [formError, setFormError] = useState<string | null>(null);
   const [isPickingDestination, setIsPickingDestination] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isGitIdentityDialogOpen, setIsGitIdentityDialogOpen] = useState(false);
+  const [gitIdentityStatus, setGitIdentityStatus] =
+    useState<GitIdentityStatus | null>(null);
   const [successState, setSuccessState] =
     useState<StartLocalSuccessState | null>(null);
 
@@ -660,6 +671,8 @@ export function RepositoryStartLocalDialog({
       setFormError(null);
       setIsPickingDestination(false);
       setIsCreating(false);
+      setIsGitIdentityDialogOpen(false);
+      setGitIdentityStatus(null);
       setSuccessState(null);
       return;
     }
@@ -726,60 +739,75 @@ export function RepositoryStartLocalDialog({
     }
   }, [isCreating]);
 
+  const performCreate = useCallback(
+    async (gitIdentity?: GitIdentityWriteInput | null) => {
+      setIsCreating(true);
+      setFormError(null);
+
+      try {
+        const gitignoreTemplateContent = gitignoreTemplateKey
+          ? (localGitignoreTemplateContents[gitignoreTemplateKey] ?? null)
+          : null;
+        const licenseTemplateContent = licenseTemplateKey
+          ? (localLicenseTemplateContents[licenseTemplateKey] ?? null)
+          : null;
+
+        const openedRepository = await createLocalRepository({
+          defaultBranch: defaultBranch.trim(),
+          destinationParent: destinationParent.trim(),
+          gitIdentity,
+          gitignoreTemplateContent,
+          gitignoreTemplateKey,
+          licenseTemplateContent,
+          licenseTemplateKey,
+          name: name.trim(),
+        });
+
+        if (!openedRepository) {
+          return;
+        }
+
+        setSuccessState({
+          name: openedRepository.name,
+          path: openedRepository.path,
+          repoId: openedRepository.id,
+        });
+        setIsGitIdentityDialogOpen(false);
+      } catch (error) {
+        setFormError(
+          error instanceof Error
+            ? error.message
+            : "Failed to create local repository."
+        );
+      } finally {
+        setIsCreating(false);
+      }
+    },
+    [
+      createLocalRepository,
+      defaultBranch,
+      destinationParent,
+      gitignoreTemplateKey,
+      licenseTemplateKey,
+      name,
+    ]
+  );
+
   const handleCreate = useCallback(async () => {
     if (!(validateForm() && !isCreating)) {
       return;
     }
 
-    setIsCreating(true);
-    setFormError(null);
+    const identityStatus = await getRepoGitIdentity(null);
 
-    try {
-      const gitignoreTemplateContent = gitignoreTemplateKey
-        ? (localGitignoreTemplateContents[gitignoreTemplateKey] ?? null)
-        : null;
-      const licenseTemplateContent = licenseTemplateKey
-        ? (localLicenseTemplateContents[licenseTemplateKey] ?? null)
-        : null;
-
-      const openedRepository = await createLocalRepository({
-        defaultBranch: defaultBranch.trim(),
-        destinationParent: destinationParent.trim(),
-        gitignoreTemplateContent,
-        gitignoreTemplateKey,
-        licenseTemplateContent,
-        licenseTemplateKey,
-        name: name.trim(),
-      });
-
-      if (!openedRepository) {
-        return;
-      }
-
-      setSuccessState({
-        name: openedRepository.name,
-        path: openedRepository.path,
-        repoId: openedRepository.id,
-      });
-    } catch (error) {
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : "Failed to create local repository."
-      );
-    } finally {
-      setIsCreating(false);
+    if (identityStatus.effective.isComplete) {
+      await performCreate();
+      return;
     }
-  }, [
-    createLocalRepository,
-    defaultBranch,
-    destinationParent,
-    gitignoreTemplateKey,
-    isCreating,
-    licenseTemplateKey,
-    name,
-    validateForm,
-  ]);
+
+    setGitIdentityStatus(identityStatus);
+    setIsGitIdentityDialogOpen(true);
+  }, [isCreating, performCreate, validateForm]);
 
   const handleOpenNow = useCallback(async () => {
     if (!successState) {
@@ -819,68 +847,81 @@ export function RepositoryStartLocalDialog({
   }
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent
-        className="max-h-[min(92dvh,38rem)] max-w-[min(96vw,32rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
-        showCloseButton={!isBusy}
-      >
-        <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/25">
-              {headerIcon}
+    <>
+      <Dialog onOpenChange={onOpenChange} open={open}>
+        <DialogContent
+          className="max-h-[min(92dvh,38rem)] max-w-[min(96vw,32rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
+          showCloseButton={!(isBusy || isGitIdentityDialogOpen)}
+        >
+          <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/25">
+                {headerIcon}
+              </div>
+              <DialogTitle className="text-sm">{dialogTitle}</DialogTitle>
             </div>
-            <DialogTitle className="text-sm">{dialogTitle}</DialogTitle>
+            <DialogDescription className="max-w-[48ch] text-sm leading-relaxed">
+              {dialogDescription}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 overflow-y-auto">
+            {successState ? (
+              <StartLocalSuccessPanel successState={successState} />
+            ) : (
+              <StartLocalFormPanel
+                defaultBranch={defaultBranch}
+                defaultBranchInputId={defaultBranchInputId}
+                destinationInputId={destinationInputId}
+                destinationParent={destinationParent}
+                errors={errors}
+                formError={formError}
+                fullDestinationPath={fullDestinationPath}
+                gitignoreTemplateInputId={gitignoreTemplateInputId}
+                gitignoreTemplateKey={gitignoreTemplateKey}
+                gitignoreTemplatesState={gitignoreTemplatesState}
+                handlePickDestination={handlePickDestination}
+                isBusy={isBusy}
+                isCreating={isCreating}
+                licenseTemplateInputId={licenseTemplateInputId}
+                licenseTemplateKey={licenseTemplateKey}
+                licenseTemplatesState={licenseTemplatesState}
+                name={name}
+                nameInputId={nameInputId}
+                nameInputRef={nameInputRef}
+                setDefaultBranch={setDefaultBranch}
+                setDestinationParent={setDestinationParent}
+                setErrors={setErrors}
+                setFormError={setFormError}
+                setGitignoreTemplateKey={setGitignoreTemplateKey}
+                setLicenseTemplateKey={setLicenseTemplateKey}
+                setName={setName}
+                statusRegionId={statusRegionId}
+              />
+            )}
           </div>
-          <DialogDescription className="max-w-[48ch] text-sm leading-relaxed">
-            {dialogDescription}
-          </DialogDescription>
-        </DialogHeader>
 
-        <div className="min-h-0 overflow-y-auto">
-          {successState ? (
-            <StartLocalSuccessPanel successState={successState} />
-          ) : (
-            <StartLocalFormPanel
-              defaultBranch={defaultBranch}
-              defaultBranchInputId={defaultBranchInputId}
-              destinationInputId={destinationInputId}
-              destinationParent={destinationParent}
-              errors={errors}
-              formError={formError}
-              fullDestinationPath={fullDestinationPath}
-              gitignoreTemplateInputId={gitignoreTemplateInputId}
-              gitignoreTemplateKey={gitignoreTemplateKey}
-              gitignoreTemplatesState={gitignoreTemplatesState}
-              handlePickDestination={handlePickDestination}
-              isBusy={isBusy}
-              isCreating={isCreating}
-              licenseTemplateInputId={licenseTemplateInputId}
-              licenseTemplateKey={licenseTemplateKey}
-              licenseTemplatesState={licenseTemplatesState}
-              name={name}
-              nameInputId={nameInputId}
-              nameInputRef={nameInputRef}
-              setDefaultBranch={setDefaultBranch}
-              setDestinationParent={setDestinationParent}
-              setErrors={setErrors}
-              setFormError={setFormError}
-              setGitignoreTemplateKey={setGitignoreTemplateKey}
-              setLicenseTemplateKey={setLicenseTemplateKey}
-              setName={setName}
-              statusRegionId={statusRegionId}
-            />
-          )}
-        </div>
-
-        <StartLocalDialogFooter
-          handleCreate={handleCreate}
-          handleOpenNow={handleOpenNow}
-          isBusy={isBusy}
-          isCreating={isCreating}
-          onOpenChange={onOpenChange}
-          successState={successState}
-        />
-      </DialogContent>
-    </Dialog>
+          <StartLocalDialogFooter
+            handleCreate={handleCreate}
+            handleOpenNow={handleOpenNow}
+            isBusy={isBusy}
+            isCreating={isCreating}
+            onOpenChange={onOpenChange}
+            successState={successState}
+          />
+        </DialogContent>
+      </Dialog>
+      <GitIdentityDialog
+        description="LitGit needs your Git author name and email before it can create the first commit for this new repository. This will be saved to your global Git config."
+        identityStatus={gitIdentityStatus}
+        onConfirm={async (gitIdentity) => {
+          await performCreate(gitIdentity);
+        }}
+        onOpenChange={setIsGitIdentityDialogOpen}
+        open={isGitIdentityDialogOpen}
+        submitLabel="Save and create repository"
+        title="Set your global Git identity"
+      />
+    </>
   );
 }

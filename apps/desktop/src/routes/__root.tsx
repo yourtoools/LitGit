@@ -3,11 +3,12 @@ import {
   createRootRouteWithContext,
   HeadContent,
   Outlet,
+  useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RootShell } from "@/components/layout/root-shell";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@/lib/keyboard-shortcuts";
 import { RUNTIME_PLATFORM_DATA_ATTRIBUTE } from "@/lib/runtime-platform";
 import {
+  getGitIdentityStatus,
   getSettingsBackendCapabilities,
   startAutoFetchScheduler,
   stopAutoFetchScheduler,
@@ -85,6 +87,7 @@ function RootComponent() {
 }
 
 function RootPreferenceEffects() {
+  const navigate = useNavigate();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -124,6 +127,9 @@ function RootPreferenceEffects() {
   const lastNonSettingsRoute = usePreferencesStore(
     (state) => state.settings.lastNonSettingsRoute
   );
+  const hasCompletedOnboarding = usePreferencesStore(
+    (state) => state.settings.hasCompletedOnboarding
+  );
   const setLastNonSettingsRoute = usePreferencesStore(
     (state) => state.setLastNonSettingsRoute
   );
@@ -134,6 +140,9 @@ function RootPreferenceEffects() {
   );
   const { resolvedTheme, setTheme } = useTheme();
   const toggleTerminal = useTerminalPanelStore((state) => state.toggle);
+  const [isGitIdentityReady, setIsGitIdentityReady] = useState<boolean | null>(
+    null
+  );
   const schedulerPreferences = useMemo<RepoCommandPreferences>(() => {
     return {
       enableProxy,
@@ -165,6 +174,42 @@ function RootPreferenceEffects() {
     useGitCredentialManager,
     useLocalSshAgent,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getGitIdentityStatus(null)
+      .then((status) => {
+        if (!cancelled) {
+          setIsGitIdentityReady(status.effective.isComplete);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsGitIdentityReady(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isGitIdentityReady === null) {
+      return;
+    }
+
+    if (pathname === "/onboarding" || pathname === "/settings") {
+      return;
+    }
+
+    if (hasCompletedOnboarding && isGitIdentityReady) {
+      return;
+    }
+
+    navigate({ to: "/onboarding", replace: true }).catch(() => undefined);
+  }, [hasCompletedOnboarding, isGitIdentityReady, navigate, pathname]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -199,7 +244,11 @@ function RootPreferenceEffects() {
   }, [activeRepoId, pathname, toggleTerminal]);
 
   useEffect(() => {
-    if (pathname !== "/settings" && pathname !== lastNonSettingsRoute) {
+    if (
+      pathname !== "/settings" &&
+      pathname !== "/onboarding" &&
+      pathname !== lastNonSettingsRoute
+    ) {
       setLastNonSettingsRoute(pathname);
     }
   }, [lastNonSettingsRoute, pathname, setLastNonSettingsRoute]);

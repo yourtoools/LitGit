@@ -1,5 +1,9 @@
 import type { RuntimePlatform } from "@/lib/runtime-platform";
 import { getTauriInvoke } from "@/lib/tauri-repo-client";
+import type {
+  GitIdentityStatus,
+  GitIdentityWriteInput,
+} from "@/stores/repo/repo-store-types";
 
 interface RedactedCredentialEntry {
   host: string;
@@ -64,6 +68,47 @@ const parseRecord = (value: unknown, errorMessage: string) => {
   }
 
   return value as Record<string, unknown>;
+};
+
+const parseGitIdentityValue = (value: unknown) => {
+  const parsed = parseRecord(value, "Invalid Git identity payload");
+
+  if (
+    !(typeof parsed.email === "string" || parsed.email === null) ||
+    typeof parsed.isComplete !== "boolean" ||
+    !(typeof parsed.name === "string" || parsed.name === null)
+  ) {
+    throw new Error("Invalid Git identity payload");
+  }
+
+  return {
+    email: parsed.email,
+    isComplete: parsed.isComplete,
+    name: parsed.name,
+  };
+};
+
+const parseGitIdentityStatus = (value: unknown): GitIdentityStatus => {
+  const parsed = parseRecord(value, "Invalid Git identity status payload");
+
+  if (
+    !(
+      (parsed.effectiveScope === "global" ||
+        parsed.effectiveScope === "local" ||
+        parsed.effectiveScope === null) &&
+      (typeof parsed.repoPath === "string" || parsed.repoPath === null)
+    )
+  ) {
+    throw new Error("Invalid Git identity status payload");
+  }
+
+  return {
+    effective: parseGitIdentityValue(parsed.effective),
+    effectiveScope: parsed.effectiveScope,
+    global: parseGitIdentityValue(parsed.global),
+    local: parsed.local === null ? null : parseGitIdentityValue(parsed.local),
+    repoPath: parsed.repoPath,
+  };
 };
 
 export const getSettingsBackendCapabilities =
@@ -134,6 +179,40 @@ export const listStoredHttpCredentialEntries = async (): Promise<
       username: parsed.username,
     } satisfies RedactedCredentialEntry;
   });
+};
+
+export const getGitIdentityStatus = async (
+  repoPath?: string | null
+): Promise<GitIdentityStatus> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Git identity works in Tauri desktop app only");
+  }
+
+  const result = await invoke("get_git_identity", {
+    repoPath: repoPath ?? null,
+  });
+
+  return parseGitIdentityStatus(result);
+};
+
+export const saveGitIdentity = async (input: {
+  gitIdentity: GitIdentityWriteInput;
+  repoPath?: string | null;
+}): Promise<GitIdentityStatus> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Git identity works in Tauri desktop app only");
+  }
+
+  const result = await invoke("set_git_identity", {
+    gitIdentity: input.gitIdentity,
+    repoPath: input.repoPath ?? null,
+  });
+
+  return parseGitIdentityStatus(result);
 };
 
 export const clearStoredHttpCredentialEntry = async (

@@ -25,10 +25,19 @@ export const useRepoStore = create<RepoStoreState>()(
       repoRedoLabelById: {},
       repoCommitDraftPrefillById: {},
       repoHistoryRewriteHintById: {},
+      repoGitIdentities: {},
       repoRemoteNames: {},
       repoStashes: {},
       repoWorkingTreeStatuses: {},
       repoWorkingTreeItems: {},
+      setRepoGitIdentity: (id, identity) => {
+        set((state) => ({
+          repoGitIdentities: {
+            ...state.repoGitIdentities,
+            [id]: identity ?? undefined,
+          },
+        }));
+      },
       ...createRepoSessionSlice(set, get),
       ...createRepoLoaderSlice(set, get),
       ...createRepoActionsSlice(set, get),
@@ -41,6 +50,7 @@ export const useRepoStore = create<RepoStoreState>()(
         activeRepoId: state.activeRepoId,
         repoCommits: state.repoCommits,
         repoBranches: state.repoBranches,
+        repoGitIdentities: state.repoGitIdentities,
         repoRemoteNames: state.repoRemoteNames,
         repoStashes: state.repoStashes,
         repoWorkingTreeStatuses: state.repoWorkingTreeStatuses,

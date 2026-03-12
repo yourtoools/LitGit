@@ -1,5 +1,8 @@
 import type {
   CreateLocalRepositoryInput,
+  GitIdentityStatus,
+  GitIdentityValue,
+  GitIdentityWriteInput,
   LatestRepositoryCommitMessage,
   PickedRepositorySelection,
   PublishRepositoryOptions,
@@ -31,6 +34,55 @@ function parseRepositoryRemoteNames(value: unknown): string[] {
   }
 
   return parseStringArray(value, "Invalid repository remotes payload");
+}
+
+function parseGitIdentityValue(value: unknown): GitIdentityValue {
+  if (!isRecord(value)) {
+    throw new Error("Invalid Git identity payload");
+  }
+
+  const { email, isComplete, name } = value;
+
+  if (
+    !(typeof email === "string" || email === null) ||
+    typeof isComplete !== "boolean" ||
+    !(typeof name === "string" || name === null)
+  ) {
+    throw new Error("Invalid Git identity payload");
+  }
+
+  return {
+    email,
+    isComplete,
+    name,
+  } satisfies GitIdentityValue;
+}
+
+function parseGitIdentityStatus(value: unknown): GitIdentityStatus {
+  if (!isRecord(value)) {
+    throw new Error("Invalid Git identity status payload");
+  }
+
+  const { effective, effectiveScope, global, local, repoPath } = value;
+
+  if (
+    !(
+      (effectiveScope === "global" ||
+        effectiveScope === "local" ||
+        effectiveScope === null) &&
+      (typeof repoPath === "string" || repoPath === null)
+    )
+  ) {
+    throw new Error("Invalid Git identity status payload");
+  }
+
+  return {
+    effective: parseGitIdentityValue(effective),
+    effectiveScope,
+    global: parseGitIdentityValue(global),
+    local: local === null ? null : parseGitIdentityValue(local),
+    repoPath,
+  } satisfies GitIdentityStatus;
 }
 
 interface TauriV1Like {
@@ -828,7 +880,10 @@ export async function commitRepoChanges(
   });
 }
 
-export async function createRepoInitialCommit(path: string) {
+export async function createRepoInitialCommit(
+  path: string,
+  gitIdentity?: GitIdentityWriteInput | null
+) {
   const invoke = getTauriInvoke();
 
   if (!invoke) {
@@ -838,10 +893,47 @@ export async function createRepoInitialCommit(path: string) {
   await invokeRepoCommandWithSystemLog<void>({
     command: "git add -A && git commit -m Initial commit",
     invoke,
-    invokeArgs: { repoPath: path },
+    invokeArgs: {
+      repoPath: path,
+      gitIdentity: gitIdentity ?? null,
+    },
     invokeCommand: "create_repository_initial_commit",
     repoPath: path,
   });
+}
+
+export async function getRepoGitIdentity(
+  repoPath?: string | null
+): Promise<GitIdentityStatus> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Git identity works in Tauri desktop app only");
+  }
+
+  const result = await invoke("get_git_identity", {
+    repoPath: repoPath ?? null,
+  });
+
+  return parseGitIdentityStatus(result);
+}
+
+export async function setRepoGitIdentity(params: {
+  gitIdentity: GitIdentityWriteInput;
+  repoPath?: string | null;
+}): Promise<GitIdentityStatus> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Git identity works in Tauri desktop app only");
+  }
+
+  const result = await invoke("set_git_identity", {
+    gitIdentity: params.gitIdentity,
+    repoPath: params.repoPath ?? null,
+  });
+
+  return parseGitIdentityStatus(result);
 }
 
 export async function createLocalRepo(input: CreateLocalRepositoryInput) {
@@ -854,6 +946,7 @@ export async function createLocalRepo(input: CreateLocalRepositoryInput) {
   const result = await invoke("create_local_repository", {
     defaultBranch: input.defaultBranch,
     destinationParent: input.destinationParent,
+    gitIdentity: input.gitIdentity ?? null,
     gitignoreTemplateContent: input.gitignoreTemplateContent,
     gitignoreTemplateKey: input.gitignoreTemplateKey,
     licenseTemplateContent: input.licenseTemplateContent,

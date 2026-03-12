@@ -91,7 +91,7 @@ export function useTabUrlState() {
       return;
     }
 
-    if (pathname === "/settings") {
+    if (pathname === "/settings" || pathname === "/onboarding") {
       return;
     }
 

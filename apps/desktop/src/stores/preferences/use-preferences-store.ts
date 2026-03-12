@@ -37,6 +37,7 @@ interface PreferencesStoreState extends AppPreferences {
     tabSize?: number;
     wordWrap?: AppPreferences["editor"]["wordWrap"];
   }) => void;
+  setHasCompletedOnboarding: (completed: boolean) => void;
   setLastNonSettingsRoute: (route: string | null) => void;
   setLocale: (locale: string) => void;
   setNetworkProxy: (input: {
@@ -157,6 +158,14 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
             ...(input.tabSize === undefined
               ? {}
               : { tabSize: clampEditorTabSize(input.tabSize) }),
+          },
+        }));
+      },
+      setHasCompletedOnboarding: (completed) => {
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            hasCompletedOnboarding: completed,
           },
         }));
       },
@@ -371,6 +380,7 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
         network: state.network,
         settings: {
           activeSection: state.settings.activeSection,
+          hasCompletedOnboarding: state.settings.hasCompletedOnboarding,
           lastNonSettingsRoute: state.settings.lastNonSettingsRoute,
           searchQuery: state.settings.searchQuery,
         },

@@ -16,6 +16,7 @@ import type {
   RepoStoreSet,
 } from "@/stores/repo/repo-store.slice-types";
 import type {
+  GitIdentityWriteInput,
   OpenedRepository,
   PickedRepositorySelection,
   RepoStoreState,
@@ -26,6 +27,7 @@ type RepoSessionSliceKeys =
   | "cloneRepository"
   | "closeRepository"
   | "createLocalRepository"
+  | "getRepositoryGitIdentity"
   | "initializeRepository"
   | "openRepository"
   | "refreshOpenedRepositories";
@@ -56,12 +58,33 @@ async function activateOrAppendRepository(
   return nextRepo;
 }
 
+async function getRepositoryGitIdentityByPath(
+  repoPath: string
+): Promise<import("@/stores/repo/repo-store-types").GitIdentityStatus | null> {
+  const { getRepoGitIdentity } = await import("@/lib/tauri-repo-client");
+
+  try {
+    return await getRepoGitIdentity(repoPath);
+  } catch {
+    return null;
+  }
+}
+
 export const createRepoSessionSlice = (
   set: RepoStoreSet,
   get: RepoStoreGet
 ): Pick<RepoStoreState, RepoSessionSliceKeys> => ({
   clearActiveRepo: () => {
     set({ activeRepoId: null });
+  },
+  getRepositoryGitIdentity: async (id) => {
+    const repository = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!repository) {
+      return null;
+    }
+
+    return await getRepositoryGitIdentityByPath(repository.path);
   },
   cloneRepository: async (
     repositoryUrl,
@@ -182,7 +205,10 @@ export const createRepoSessionSlice = (
       toast.error(resolveErrorMessage(error, "Failed to switch repository"));
     });
   },
-  initializeRepository: async (repository) => {
+  initializeRepository: async (
+    repository,
+    gitIdentity?: GitIdentityWriteInput | null
+  ) => {
     const invoke = getTauriInvoke();
 
     if (!invoke) {
@@ -191,7 +217,7 @@ export const createRepoSessionSlice = (
     }
 
     try {
-      await createRepoInitialCommit(repository.path);
+      await createRepoInitialCommit(repository.path, gitIdentity);
       return await activateOrAppendRepository(get, set, repository);
     } catch (error) {
       toast.error(

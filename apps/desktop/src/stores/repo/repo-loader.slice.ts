@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { fetchRepoData } from "@/lib/tauri-repo-client";
+import { fetchRepoData, getRepoGitIdentity } from "@/lib/tauri-repo-client";
 import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
 import type {
   RepoStoreGet,
@@ -181,6 +181,24 @@ export const createRepoLoaderSlice = (
     const forceRefresh = options?.forceRefresh ?? false;
 
     set({ activeRepoId: id });
+
+    try {
+      const identity = await getRepoGitIdentity(targetRepo.path);
+
+      set((state) => ({
+        repoGitIdentities: {
+          ...state.repoGitIdentities,
+          [id]: identity,
+        },
+      }));
+    } catch {
+      set((state) => ({
+        repoGitIdentities: {
+          ...state.repoGitIdentities,
+          [id]: undefined,
+        },
+      }));
+    }
 
     const cacheState = getRepoCacheState(get, id, forceRefresh);
 

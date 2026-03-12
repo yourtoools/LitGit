@@ -17,11 +17,34 @@ export interface RepositoryTemplateOption {
 export interface CreateLocalRepositoryInput {
   defaultBranch: string;
   destinationParent: string;
+  gitIdentity?: GitIdentityWriteInput | null;
   gitignoreTemplateContent: string | null;
   gitignoreTemplateKey: string | null;
   licenseTemplateContent: string | null;
   licenseTemplateKey: string | null;
   name: string;
+}
+
+export interface GitIdentityValue {
+  email: string | null;
+  isComplete: boolean;
+  name: string | null;
+}
+
+export interface GitIdentityStatus {
+  effective: GitIdentityValue;
+  effectiveScope: GitIdentityScope | null;
+  global: GitIdentityValue;
+  local: GitIdentityValue | null;
+  repoPath: string | null;
+}
+
+export type GitIdentityScope = "global" | "local";
+
+export interface GitIdentityWriteInput {
+  email: string;
+  name: string;
+  scope: GitIdentityScope;
 }
 
 export interface RepoCommandPreferences {
@@ -204,9 +227,11 @@ export interface RepoStoreState {
     id: string
   ) => Promise<LatestRepositoryCommitMessage | null>;
   getRedoRepoActionLabel: (id: string) => string | null;
+  getRepositoryGitIdentity: (id: string) => Promise<GitIdentityStatus | null>;
   getUndoRepoActionLabel: (id: string) => string | null;
   initializeRepository: (
-    repository: PickedRepositorySelection
+    repository: PickedRepositorySelection,
+    gitIdentity?: GitIdentityWriteInput | null
   ) => Promise<OpenedRepository | null>;
   isLoadingBranches: boolean;
   isLoadingHistory: boolean;
@@ -237,6 +262,7 @@ export interface RepoStoreState {
     LatestRepositoryCommitMessage | null
   >;
   repoCommits: Record<string, RepositoryCommit[]>;
+  repoGitIdentities: Record<string, GitIdentityStatus | undefined>;
   repoHistoryRewriteHintById: Record<string, boolean>;
   repoRedoDepthById: Record<string, number>;
   repoRedoLabelById: Record<string, string | null>;
@@ -250,6 +276,7 @@ export interface RepoStoreState {
     id: string,
     options?: { forceRefresh?: boolean }
   ) => Promise<void>;
+  setRepoGitIdentity: (id: string, identity: GitIdentityStatus | null) => void;
   stageAll: (id: string) => Promise<void>;
   stageFile: (id: string, filePath: string) => Promise<void>;
   switchBranch: (id: string, branchName: string) => Promise<void>;

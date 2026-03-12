@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/page-shell";
 import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
 import { TabBar } from "@/components/tabs/tab-bar";
+import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabRepoSync } from "@/hooks/tabs/use-tab-repo-sync";
@@ -21,8 +22,11 @@ import {
   isOpenRepositoryChordStartShortcut,
   isPrimaryShortcut,
 } from "@/lib/keyboard-shortcuts";
+import { getRepoGitIdentity } from "@/lib/tauri-repo-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type {
+  GitIdentityStatus,
+  GitIdentityWriteInput,
   OpenedRepository,
   PickedRepositorySelection,
 } from "@/stores/repo/repo-store-types";
@@ -50,6 +54,9 @@ export default function Header() {
 
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
+  const [isGitIdentityDialogOpen, setIsGitIdentityDialogOpen] = useState(false);
+  const [gitIdentityStatus, setGitIdentityStatus] =
+    useState<GitIdentityStatus | null>(null);
   const [pendingRepoInitialization, setPendingRepoInitialization] =
     useState<PickedRepositorySelection | null>(null);
   const openRepositoryChordTimeoutRef = useRef<number | null>(null);
@@ -124,32 +131,59 @@ export default function Header() {
     });
   }, [handleOpenRepoPicker]);
 
+  const completeRepositoryInitialization = useCallback(
+    async (gitIdentity?: GitIdentityWriteInput | null) => {
+      if (!(pendingRepoInitialization && !isInitializingRepository)) {
+        return;
+      }
+
+      setIsInitializingRepository(true);
+
+      try {
+        const openedRepository = await initializeRepository(
+          pendingRepoInitialization,
+          gitIdentity
+        );
+
+        if (!openedRepository) {
+          return;
+        }
+
+        setPendingRepoInitialization(null);
+        setIsGitIdentityDialogOpen(false);
+        await routePickedRepository(openedRepository);
+      } finally {
+        setIsInitializingRepository(false);
+      }
+    },
+    [
+      initializeRepository,
+      isInitializingRepository,
+      pendingRepoInitialization,
+      routePickedRepository,
+    ]
+  );
+
   const handleInitializeRepository = useCallback(async () => {
     if (!(pendingRepoInitialization && !isInitializingRepository)) {
       return;
     }
 
-    setIsInitializingRepository(true);
+    const identityStatus = await getRepoGitIdentity(
+      pendingRepoInitialization.path
+    );
 
-    try {
-      const openedRepository = await initializeRepository(
-        pendingRepoInitialization
-      );
-
-      if (!openedRepository) {
-        return;
-      }
-
-      setPendingRepoInitialization(null);
-      await routePickedRepository(openedRepository);
-    } finally {
-      setIsInitializingRepository(false);
+    if (identityStatus.effective.isComplete) {
+      await completeRepositoryInitialization();
+      return;
     }
+
+    setGitIdentityStatus(identityStatus);
+    setIsGitIdentityDialogOpen(true);
   }, [
-    initializeRepository,
+    completeRepositoryInitialization,
     isInitializingRepository,
     pendingRepoInitialization,
-    routePickedRepository,
   ]);
 
   useEffect(() => {
@@ -277,10 +311,22 @@ export default function Header() {
         onOpenChange={(open) => {
           if (!(open || isInitializingRepository)) {
             setPendingRepoInitialization(null);
+            setIsGitIdentityDialogOpen(false);
           }
         }}
         open={Boolean(pendingRepoInitialization)}
         repositoryName={pendingRepoInitialization?.name ?? "repository"}
+      />
+      <GitIdentityDialog
+        description="LitGit needs your Git author name and email before it can create the first commit. This will be saved to your global Git config."
+        identityStatus={gitIdentityStatus}
+        onConfirm={async (gitIdentity) => {
+          await completeRepositoryInitialization(gitIdentity);
+        }}
+        onOpenChange={setIsGitIdentityDialogOpen}
+        open={isGitIdentityDialogOpen}
+        submitLabel="Save and create first commit"
+        title="Set your global Git identity"
       />
     </header>
   );

@@ -171,6 +171,32 @@ struct SystemFontFamily {
     family: String,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GitIdentityValue {
+    email: Option<String>,
+    is_complete: bool,
+    name: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GitIdentityStatusPayload {
+    effective: GitIdentityValue,
+    effective_scope: Option<String>,
+    global: GitIdentityValue,
+    local: Option<GitIdentityValue>,
+    repo_path: Option<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitIdentityWriteRequest {
+    email: String,
+    name: String,
+    scope: String,
+}
+
 #[derive(Clone)]
 struct StoredSecretValue {
     storage_mode: String,
@@ -437,6 +463,7 @@ fn create_local_repository(
     gitignore_template_content: Option<String>,
     license_template_key: Option<String>,
     license_template_content: Option<String>,
+    git_identity: Option<GitIdentityWriteRequest>,
 ) -> Result<PickedRepository, String> {
     let trimmed_name = name.trim();
     let trimmed_parent = destination_parent.trim();
@@ -471,6 +498,7 @@ fn create_local_repository(
 
     let creation_result = (|| -> Result<(), String> {
         initialize_git_repository(&repo_path, trimmed_branch)?;
+        apply_git_identity_to_repository(&repo_path, git_identity.as_ref())?;
         write_repository_files(
             &repo_path,
             trimmed_name,
@@ -618,6 +646,63 @@ async fn clone_git_repository(
 }
 
 #[tauri::command]
+fn get_git_identity(repo_path: Option<String>) -> Result<GitIdentityStatusPayload, String> {
+    let repo_path = repo_path.and_then(|value| {
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+
+    if let Some(path) = repo_path.as_deref() {
+        validate_git_repo(Path::new(path))?;
+    }
+
+    build_git_identity_status(repo_path.as_deref())
+}
+
+#[tauri::command]
+fn set_git_identity(
+    git_identity: GitIdentityWriteRequest,
+    repo_path: Option<String>,
+) -> Result<GitIdentityStatusPayload, String> {
+    let normalized_repo_path = repo_path.and_then(|value| {
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+
+    let scope = normalize_git_identity_scope(&git_identity.scope)?;
+    let repo_path_for_scope = match scope {
+        "global" => None,
+        "local" => {
+            let repo_path = normalized_repo_path
+                .as_deref()
+                .ok_or_else(|| "A repository path is required for local Git identity".to_string())?;
+            validate_git_repo(Path::new(repo_path))?;
+            Some(repo_path)
+        }
+        _ => return Err("Unsupported Git identity scope".to_string()),
+    };
+
+    write_git_identity(
+        repo_path_for_scope,
+        scope,
+        &git_identity.name,
+        &git_identity.email,
+    )?;
+
+    build_git_identity_status(normalized_repo_path.as_deref())
+}
+
+#[tauri::command]
 fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, String> {
     let valid_paths = repo_paths
         .into_iter()
@@ -631,7 +716,10 @@ fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, 
 }
 
 #[tauri::command]
-fn create_repository_initial_commit(repo_path: String) -> Result<(), String> {
+ fn create_repository_initial_commit(
+    repo_path: String,
+    git_identity: Option<GitIdentityWriteRequest>,
+) -> Result<(), String> {
     validate_repository_path(Path::new(&repo_path))?;
 
     if !Path::new(&repo_path).join(".git").exists() {
@@ -651,6 +739,8 @@ fn create_repository_initial_commit(repo_path: String) -> Result<(), String> {
     if repository_has_initial_commit(&repo_path)? {
         return Ok(());
     }
+
+    apply_git_identity_to_repository(Path::new(&repo_path), git_identity.as_ref())?;
 
     let repo_name = folder_name(Path::new(&repo_path)).unwrap_or_else(|| "repository".to_string());
     let readme_path = Path::new(&repo_path).join("README.md");
@@ -2689,6 +2779,228 @@ fn create_initial_commit(repo_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatusPayload, String> {
+    let global = read_git_identity_value(None, "global")?;
+    let local = if let Some(path) = repo_path {
+        Some(read_git_identity_value(Some(path), "local")?)
+    } else {
+        None
+    };
+
+    let (effective, effective_scope) = if let Some(path) = repo_path {
+        let local_value = local.clone().unwrap_or_else(empty_git_identity_value);
+
+        if local_value.is_complete {
+            (local_value, Some("local".to_string()))
+        } else {
+            let effective_value = read_git_identity_value(Some(path), "effective")?;
+            let scope = if effective_value.is_complete {
+                Some("global".to_string())
+            } else {
+                None
+            };
+
+            (effective_value, scope)
+        }
+    } else {
+        (global.clone(), if global.is_complete { Some("global".to_string()) } else { None })
+    };
+
+    Ok(GitIdentityStatusPayload {
+        effective,
+        effective_scope,
+        global,
+        local,
+        repo_path: repo_path.map(std::string::ToString::to_string),
+    })
+}
+
+fn empty_git_identity_value() -> GitIdentityValue {
+    GitIdentityValue {
+        email: None,
+        is_complete: false,
+        name: None,
+    }
+}
+
+fn normalize_git_identity_scope(scope: &str) -> Result<&str, String> {
+    match scope.trim() {
+        "global" => Ok("global"),
+        "local" => Ok("local"),
+        _ => Err("Git identity scope must be global or local".to_string()),
+    }
+}
+
+fn validate_git_identity_name(name: &str) -> Result<String, String> {
+    let trimmed = name.trim();
+
+    if trimmed.is_empty() {
+        return Err("Git author name is required".to_string());
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn validate_git_identity_email(email: &str) -> Result<String, String> {
+    let trimmed = email.trim();
+
+    if trimmed.is_empty() {
+        return Err("Git author email is required".to_string());
+    }
+
+    let has_single_at_symbol = trimmed.matches('@').count() == 1;
+    let has_non_empty_segments = trimmed
+        .split_once('@')
+        .map(|(local, domain)| !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.'))
+        .unwrap_or(false);
+
+    if !(has_single_at_symbol && has_non_empty_segments) {
+        return Err("Enter a valid Git author email".to_string());
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn read_git_config_value(
+    repo_path: Option<&str>,
+    scope: &str,
+    key: &str,
+) -> Result<Option<String>, String> {
+    let mut command = Command::new("git");
+
+    match scope {
+        "global" => {
+            command.args(["config", "--global", "--get", key]);
+        }
+        "local" => {
+            let repo_path = repo_path
+                .ok_or_else(|| "A repository path is required for local Git config".to_string())?;
+            command.args(["-C", repo_path, "config", "--local", "--get", key]);
+        }
+        "effective" => {
+            if let Some(repo_path) = repo_path {
+                command.args(["-C", repo_path, "config", "--get", key]);
+            } else {
+                command.args(["config", "--global", "--get", key]);
+            }
+        }
+        _ => return Err("Unsupported Git config scope".to_string()),
+    }
+
+    let output = command
+        .output()
+        .map_err(|error| format!("Failed to run git config: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+        if stderr.is_empty() {
+            return Ok(None);
+        }
+
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to read Git identity",
+        ));
+    }
+
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(value))
+}
+
+fn read_git_identity_value(
+    repo_path: Option<&str>,
+    scope: &str,
+) -> Result<GitIdentityValue, String> {
+    let name = read_git_config_value(repo_path, scope, "user.name")?;
+    let email = read_git_config_value(repo_path, scope, "user.email")?;
+    let is_complete = name.is_some() && email.is_some();
+
+    Ok(GitIdentityValue {
+        email,
+        is_complete,
+        name,
+    })
+}
+
+fn write_git_config_value(
+    repo_path: Option<&str>,
+    scope: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    let mut command = Command::new("git");
+
+    match scope {
+        "global" => {
+            command.args(["config", "--global", key, value]);
+        }
+        "local" => {
+            let repo_path = repo_path
+                .ok_or_else(|| "A repository path is required for local Git config".to_string())?;
+            command.args(["-C", repo_path, "config", "--local", key, value]);
+        }
+        _ => return Err("Unsupported Git config scope".to_string()),
+    }
+
+    let output = command
+        .output()
+        .map_err(|error| format!("Failed to run git config: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to save Git identity",
+        ));
+    }
+
+    Ok(())
+}
+
+fn write_git_identity(
+    repo_path: Option<&str>,
+    scope: &str,
+    name: &str,
+    email: &str,
+) -> Result<(), String> {
+    let validated_name = validate_git_identity_name(name)?;
+    let validated_email = validate_git_identity_email(email)?;
+
+    write_git_config_value(repo_path, scope, "user.name", &validated_name)?;
+    write_git_config_value(repo_path, scope, "user.email", &validated_email)?;
+
+    Ok(())
+}
+
+fn apply_git_identity_to_repository(
+    repo_path: &Path,
+    git_identity: Option<&GitIdentityWriteRequest>,
+) -> Result<(), String> {
+    let Some(git_identity) = git_identity else {
+        return Ok(());
+    };
+
+    let scope = normalize_git_identity_scope(&git_identity.scope)?;
+    let repo_path_string = repo_path.to_string_lossy().to_string();
+    let repo_path_for_scope = if scope == "local" {
+        Some(repo_path_string.as_str())
+    } else {
+        None
+    };
+
+    write_git_identity(
+        repo_path_for_scope,
+        scope,
+        &git_identity.name,
+        &git_identity.email,
+    )
+}
+
 fn validate_repository_path(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err("Repository path does not exist".to_string());
@@ -3570,6 +3882,8 @@ pub fn run() {
             list_signing_keys,
             list_system_font_families,
             create_local_repository,
+            get_git_identity,
+            set_git_identity,
             clone_git_repository,
             validate_opened_repositories,
             create_repository_initial_commit,
