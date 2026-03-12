@@ -1285,16 +1285,42 @@ fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), Str
 #[tauri::command]
 fn create_repository_stash(
     repo_path: String,
-    stash_message: String,
+    stash_message: Option<String>,
     include_untracked: bool,
 ) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let stash_message_trimmed = stash_message.trim();
+    let message_to_use = stash_message
+        .as_deref()
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .map(ToOwned::to_owned)
+        .map(Ok)
+        .unwrap_or_else(|| {
+            let branch_output = Command::new("git")
+                .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
+                .output()
+                .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
 
-    if stash_message_trimmed.is_empty() {
-        return Err("Stash title is required".to_string());
-    }
+            if !branch_output.status.success() {
+                return Err(git_error_message(
+                    &branch_output.stderr,
+                    "Failed to resolve current branch",
+                ));
+            }
+
+            let branch_name = String::from_utf8_lossy(&branch_output.stdout)
+                .trim()
+                .to_string();
+
+            let safe_branch_name = if branch_name.is_empty() {
+                "HEAD"
+            } else {
+                branch_name.as_str()
+            };
+
+            Ok(format!("WIP on {safe_branch_name}"))
+        })?;
 
     let mut stash_command = Command::new("git");
     stash_command.args(["-C", &repo_path, "stash", "push"]);
@@ -1303,7 +1329,7 @@ fn create_repository_stash(
         stash_command.arg("--include-untracked");
     }
 
-    stash_command.args(["-m", stash_message_trimmed]);
+    stash_command.args(["-m", &message_to_use]);
 
     let output = stash_command
         .output()

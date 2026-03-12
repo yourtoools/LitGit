@@ -693,8 +693,7 @@ export function RepoInfo() {
   const hasUnstagedChanges = unstagedItems.length > 0;
   const hasStagedChanges = stagedItems.length > 0;
   const hasAnyWorkingTreeChanges = workingTreeItems.length > 0;
-  const canCreateStash =
-    draftCommitSummary.trim().length > 0 && hasAnyWorkingTreeChanges;
+  const canCreateStash = hasAnyWorkingTreeChanges;
   const canPopCurrentStash = stashes.length > 0;
   const workingTreeIndicators = useMemo(() => {
     let addedCount = 0;

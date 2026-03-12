@@ -655,10 +655,14 @@ export async function createRepoStash(
 
   const summaryTrimmed = summary.trim();
   const descriptionTrimmed = description.trim();
-  let stashMessage = summaryTrimmed;
+  let stashMessage: string | null = null;
 
-  if (descriptionTrimmed.length > 0) {
+  if (summaryTrimmed.length > 0 && descriptionTrimmed.length > 0) {
     stashMessage = `${summaryTrimmed}\n\n${descriptionTrimmed}`;
+  } else if (summaryTrimmed.length > 0) {
+    stashMessage = summaryTrimmed;
+  } else if (descriptionTrimmed.length > 0) {
+    stashMessage = descriptionTrimmed;
   }
 
   await invokeRepoCommandWithSystemLog<void>({
