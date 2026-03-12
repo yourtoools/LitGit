@@ -41,7 +41,7 @@ import {
   UserCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getLocaleOption,
@@ -2565,6 +2565,7 @@ function AiSection({ query }: { query: string }) {
 }
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(
     getInitialSidebarWidth
   );
@@ -2638,8 +2639,8 @@ export function SettingsPage() {
         ? lastNonSettingsRoute
         : "/";
 
-    window.location.assign(nextPath);
-  }, [currentPathname, lastNonSettingsRoute]);
+    navigate({ to: nextPath as never }).catch(() => undefined);
+  }, [currentPathname, lastNonSettingsRoute, navigate]);
 
   const getAvailableSettingsWidth = useCallback(() => {
     return sidebarContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
