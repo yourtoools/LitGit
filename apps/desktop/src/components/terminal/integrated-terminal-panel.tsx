@@ -1,4 +1,10 @@
 import { Button } from "@litgit/ui/components/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@litgit/ui/components/context-menu";
 import { Tabs, TabsList, TabsTrigger } from "@litgit/ui/components/tabs";
 import { cn } from "@litgit/ui/lib/utils";
 import { XIcon } from "@phosphor-icons/react";
@@ -65,6 +71,33 @@ const formatActivityLogLine = (entry: OperationLogEntry) => {
   return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] ${entry.message}`;
 };
 
+const getSelectedTextInContainer = (container: HTMLElement | null): string => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const selection = window.getSelection();
+
+  if (!(selection && container && selection.rangeCount > 0)) {
+    return "";
+  }
+
+  const { anchorNode, focusNode } = selection;
+
+  if (
+    !(
+      anchorNode &&
+      focusNode &&
+      container.contains(anchorNode) &&
+      container.contains(focusNode)
+    )
+  ) {
+    return "";
+  }
+
+  return selection.toString().trim();
+};
+
 export function IntegratedTerminalPanel({
   contextKey,
   cwd,
@@ -76,6 +109,7 @@ export function IntegratedTerminalPanel({
   const [activeTab, setActiveTab] = useState<PanelTabValue>("terminal");
   const [hasRequestedTerminal, setHasRequestedTerminal] =
     useState<boolean>(false);
+  const [selectedLogText, setSelectedLogText] = useState<string>("");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const clearSystemLogs = useOperationLogStore(
     (state) => state.clearSystemLogs
@@ -109,6 +143,38 @@ export function IntegratedTerminalPanel({
     resolvedSystemLogs.length - renderedSystemLogs.length;
   const hiddenActivityLogCount =
     resolvedActivityLogs.length - renderedActivityLogs.length;
+  const renderedSystemLogText = renderedSystemLogs
+    .map((entry) => formatSystemLogLine(entry))
+    .join("\n");
+  const renderedActivityLogText = renderedActivityLogs
+    .map((entry) => formatActivityLogLine(entry))
+    .join("\n");
+
+  const copyText = async (value: string): Promise<void> => {
+    if (value.length === 0) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(value).catch(() => undefined);
+  };
+
+  useEffect(() => {
+    const updateSelectedText = () => {
+      if (!(activeTab === "output" || activeTab === "activity")) {
+        setSelectedLogText("");
+        return;
+      }
+
+      setSelectedLogText(getSelectedTextInContainer(panelRef.current));
+    };
+
+    document.addEventListener("selectionchange", updateSelectedText);
+    updateSelectedText();
+
+    return () => {
+      document.removeEventListener("selectionchange", updateSelectedText);
+    };
+  }, [activeTab]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -201,6 +267,18 @@ export function IntegratedTerminalPanel({
             </TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-1">
+            {activeTab === "output" || activeTab === "activity" ? (
+              <Button
+                className="h-7 px-2 text-[0.65rem]"
+                disabled={selectedLogText.length === 0}
+                onClick={() => copyText(selectedLogText)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Copy
+              </Button>
+            ) : null}
             {activeTab === "output" ? (
               <Button
                 className="h-7 px-2 text-[0.65rem]"
@@ -272,21 +350,39 @@ export function IntegratedTerminalPanel({
               activeTab === "output" ? "block" : "hidden"
             )}
           >
-            {renderedSystemLogs.length > 0 ? (
-              <div className="space-y-1 text-foreground/85">
-                {hiddenSystemLogCount > 0 ? (
-                  <p className="text-muted-foreground">
-                    Showing latest {renderedSystemLogs.length} logs (
-                    {hiddenSystemLogCount} older logs hidden)
-                  </p>
-                ) : null}
-                {renderedSystemLogs.map((entry) => (
-                  <p key={entry.id}>{formatSystemLogLine(entry)}</p>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground">No system output yet.</p>
-            )}
+            <ContextMenu>
+              <ContextMenuTrigger className="h-full w-full select-text">
+                {renderedSystemLogs.length > 0 ? (
+                  <div className="space-y-1 text-foreground/85">
+                    {hiddenSystemLogCount > 0 ? (
+                      <p className="text-muted-foreground">
+                        Showing latest {renderedSystemLogs.length} logs (
+                        {hiddenSystemLogCount} older logs hidden)
+                      </p>
+                    ) : null}
+                    {renderedSystemLogs.map((entry) => (
+                      <p key={entry.id}>{formatSystemLogLine(entry)}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No system output yet.</p>
+                )}
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  disabled={selectedLogText.length === 0}
+                  onClick={() => copyText(selectedLogText)}
+                >
+                  Copy
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={renderedSystemLogText.length === 0}
+                  onClick={() => copyText(renderedSystemLogText)}
+                >
+                  Copy All
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </div>
 
           <div
@@ -295,21 +391,39 @@ export function IntegratedTerminalPanel({
               activeTab === "activity" ? "block" : "hidden"
             )}
           >
-            {renderedActivityLogs.length > 0 ? (
-              <div className="space-y-1 text-foreground/85">
-                {hiddenActivityLogCount > 0 ? (
-                  <p className="text-muted-foreground">
-                    Showing latest {renderedActivityLogs.length} logs (
-                    {hiddenActivityLogCount} older logs hidden)
-                  </p>
-                ) : null}
-                {renderedActivityLogs.map((entry) => (
-                  <p key={entry.id}>{formatActivityLogLine(entry)}</p>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground">No user activity yet.</p>
-            )}
+            <ContextMenu>
+              <ContextMenuTrigger className="h-full w-full select-text">
+                {renderedActivityLogs.length > 0 ? (
+                  <div className="space-y-1 text-foreground/85">
+                    {hiddenActivityLogCount > 0 ? (
+                      <p className="text-muted-foreground">
+                        Showing latest {renderedActivityLogs.length} logs (
+                        {hiddenActivityLogCount} older logs hidden)
+                      </p>
+                    ) : null}
+                    {renderedActivityLogs.map((entry) => (
+                      <p key={entry.id}>{formatActivityLogLine(entry)}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No user activity yet.</p>
+                )}
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  disabled={selectedLogText.length === 0}
+                  onClick={() => copyText(selectedLogText)}
+                >
+                  Copy
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={renderedActivityLogText.length === 0}
+                  onClick={() => copyText(renderedActivityLogText)}
+                >
+                  Copy All
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </div>
         </div>
       </Tabs>
