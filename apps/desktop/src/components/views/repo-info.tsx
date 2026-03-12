@@ -125,6 +125,7 @@ interface SidebarEntry {
   pendingPushCount?: number;
   pendingSyncCount?: number;
   searchName: string;
+  stashMessage?: string;
   stashRef?: string;
   type: "branch" | "stash" | "tag";
 }
@@ -353,6 +354,7 @@ function buildCommitFileTree(
 }
 
 const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
+const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const WORKING_TREE_ROW_ID = "__working_tree__";
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
 
@@ -449,6 +451,39 @@ function formatStashLabel(stash: RepositoryStash): string {
   }
 
   return rawMessage;
+}
+
+function parseStashDraft(message: string): {
+  description: string;
+  summary: string;
+} {
+  const trimmedMessage = message.trim();
+
+  if (trimmedMessage.length === 0) {
+    return {
+      description: "",
+      summary: "",
+    };
+  }
+
+  const parsedMessage = STASH_WITH_BRANCH_PATTERN.exec(trimmedMessage);
+  const content = parsedMessage?.[2]?.trim() ?? trimmedMessage;
+
+  if (content.length === 0) {
+    return {
+      description: "",
+      summary: "",
+    };
+  }
+
+  const [summaryLine = "", ...descriptionParts] = content
+    .split(STASH_MESSAGE_SECTION_BREAK_PATTERN)
+    .map((part) => part.trim());
+
+  return {
+    description: descriptionParts.join("\n\n").trim(),
+    summary: summaryLine.trim(),
+  };
 }
 
 function resolveMonacoLanguage(filePath: string): string {
@@ -671,7 +706,6 @@ export function RepoInfo() {
   const [expandedTreeNodePaths, setExpandedTreeNodePaths] = useState<
     Record<string, boolean>
   >({});
-  const [workingTreeWipInput, setWorkingTreeWipInput] = useState("");
   const [isLoadingDiffPath, setIsLoadingDiffPath] = useState<string | null>(
     null
   );
@@ -705,6 +739,7 @@ export function RepoInfo() {
   const [sidebarFilterInputValue, setSidebarFilterInputValue] = useState("");
   const [sidebarFilterQuery, setSidebarFilterQuery] = useState("");
   const sidebarFilterInputRef = useRef<HTMLInputElement | null>(null);
+  const commitSummaryInputRef = useRef<HTMLInputElement | null>(null);
   const mainScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const sidebarFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -931,6 +966,7 @@ export function RepoInfo() {
       return {
         name: label,
         searchName: label.toLowerCase(),
+        stashMessage: stash.message,
         stashRef: stash.ref,
         type: "stash",
       };
@@ -1178,13 +1214,6 @@ export function RepoInfo() {
     setAmendPreviousCommit(false);
     clearRepoCommitDraftPrefill(activeRepoId);
   }, [activeRepoId, clearRepoCommitDraftPrefill, repoCommitDraftPrefillById]);
-
-  useEffect(() => {
-    if (activeRepoId === null) {
-      setWorkingTreeWipInput("");
-      return;
-    }
-  }, [activeRepoId]);
 
   useEffect(() => {
     if (activeRepoId === null) {
@@ -1569,9 +1598,30 @@ export function RepoInfo() {
     }
 
     setIsApplyingStash(true);
+    const stashDraft = parseStashDraft(entry.stashMessage ?? "");
+
+    const focusCommitSummaryInput = () => {
+      globalThis.requestAnimationFrame(() => {
+        globalThis.requestAnimationFrame(() => {
+          const summaryInput = commitSummaryInputRef.current;
+
+          if (!summaryInput) {
+            return;
+          }
+
+          summaryInput.focus();
+          summaryInput.select();
+        });
+      });
+    };
 
     try {
       await applyStash(activeRepoId, entry.stashRef);
+      setDraftCommitSummary(stashDraft.summary);
+      setDraftCommitDescription(stashDraft.description);
+      setSelectedCommitId(WORKING_TREE_ROW_ID);
+      setIsRightSidebarOpen(true);
+      focusCommitSummaryInput();
     } finally {
       setIsApplyingStash(false);
     }
@@ -1588,9 +1638,30 @@ export function RepoInfo() {
     }
 
     setIsPoppingStash(true);
+    const stashDraft = parseStashDraft(entry.stashMessage ?? "");
+
+    const focusCommitSummaryInput = () => {
+      globalThis.requestAnimationFrame(() => {
+        globalThis.requestAnimationFrame(() => {
+          const summaryInput = commitSummaryInputRef.current;
+
+          if (!summaryInput) {
+            return;
+          }
+
+          summaryInput.focus();
+          summaryInput.select();
+        });
+      });
+    };
 
     try {
       await popStash(activeRepoId, entry.stashRef);
+      setDraftCommitSummary(stashDraft.summary);
+      setDraftCommitDescription(stashDraft.description);
+      setSelectedCommitId(WORKING_TREE_ROW_ID);
+      setIsRightSidebarOpen(true);
+      focusCommitSummaryInput();
     } finally {
       setIsPoppingStash(false);
     }
@@ -1626,9 +1697,32 @@ export function RepoInfo() {
     }
 
     setIsPoppingStash(true);
+    const currentStash =
+      stashes.find((stash) => stash.ref === "stash@{0}") ?? stashes[0] ?? null;
+    const stashDraft = parseStashDraft(currentStash?.message ?? "");
+
+    const focusCommitSummaryInput = () => {
+      globalThis.requestAnimationFrame(() => {
+        globalThis.requestAnimationFrame(() => {
+          const summaryInput = commitSummaryInputRef.current;
+
+          if (!summaryInput) {
+            return;
+          }
+
+          summaryInput.focus();
+          summaryInput.select();
+        });
+      });
+    };
 
     try {
       await popStash(activeRepoId, "stash@{0}");
+      setDraftCommitSummary(stashDraft.summary);
+      setDraftCommitDescription(stashDraft.description);
+      setSelectedCommitId(WORKING_TREE_ROW_ID);
+      setIsRightSidebarOpen(true);
+      focusCommitSummaryInput();
     } finally {
       setIsPoppingStash(false);
     }
@@ -3505,14 +3599,6 @@ export function RepoInfo() {
     setIsRightSidebarOpen(true);
   };
 
-  const handleWorkingTreeInputClick = (event: React.MouseEvent) => {
-    event.stopPropagation();
-  };
-
-  const handleWorkingTreeInputKeyDown = (event: React.KeyboardEvent) => {
-    event.stopPropagation();
-  };
-
   const openForcePushConfirm = (
     mode: "commit" | "push",
     action: () => Promise<void>
@@ -4281,22 +4367,9 @@ export function RepoInfo() {
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <Input
                           className="h-7 w-full max-w-52"
-                          onChange={(event) => {
-                            setWorkingTreeWipInput(event.target.value);
-                          }}
-                          onClick={handleWorkingTreeInputClick}
-                          onFocus={() => {
-                            if (selectedCommitId !== WORKING_TREE_ROW_ID) {
-                              setSelectedCommitId(WORKING_TREE_ROW_ID);
-                            }
-
-                            if (!isRightSidebarOpen) {
-                              setIsRightSidebarOpen(true);
-                            }
-                          }}
-                          onKeyDown={handleWorkingTreeInputKeyDown}
+                          disabled
                           placeholder="// WIP"
-                          value={workingTreeWipInput}
+                          value={draftCommitSummary}
                         />
                         <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-300">
                           <span aria-hidden>~</span>
@@ -4779,6 +4852,7 @@ export function RepoInfo() {
                           setDraftCommitSummary(event.target.value)
                         }
                         placeholder="Describe your changes"
+                        ref={commitSummaryInputRef}
                         value={draftCommitSummary}
                       />
                     </div>
