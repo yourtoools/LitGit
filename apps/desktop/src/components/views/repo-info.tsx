@@ -50,6 +50,13 @@ import { Input } from "@litgit/ui/components/input";
 import { InputGroup, InputGroupAddon } from "@litgit/ui/components/input-group";
 import { Label } from "@litgit/ui/components/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@litgit/ui/components/select";
+import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -618,6 +625,7 @@ export function RepoInfo() {
   const deleteBranch = useRepoStore((state) => state.deleteBranch);
   const deleteRemoteBranch = useRepoStore((state) => state.deleteRemoteBranch);
   const renameBranch = useRepoStore((state) => state.renameBranch);
+  const setBranchUpstream = useRepoStore((state) => state.setBranchUpstream);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
   const createStash = useRepoStore((state) => state.createStash);
@@ -693,6 +701,17 @@ export function RepoInfo() {
   >(null);
   const [renameBranchTargetName, setRenameBranchTargetName] = useState("");
   const [isRenamingBranch, setIsRenamingBranch] = useState(false);
+  const [isSetUpstreamDialogOpen, setIsSetUpstreamDialogOpen] = useState(false);
+  const [setUpstreamLocalBranchName, setSetUpstreamLocalBranchName] = useState<
+    string | null
+  >(null);
+  const [setUpstreamRemoteName, setSetUpstreamRemoteName] = useState("");
+  const [setUpstreamRemoteBranchName, setSetUpstreamRemoteBranchName] =
+    useState("");
+  const [setUpstreamFormError, setSetUpstreamFormError] = useState<
+    string | null
+  >(null);
+  const [isSettingUpstream, setIsSettingUpstream] = useState(false);
   const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
   const [isPublishRepoConfirmOpen, setIsPublishRepoConfirmOpen] =
     useState(false);
@@ -1275,6 +1294,35 @@ export function RepoInfo() {
     return `Git could not rename branch: ${rawMessage}`;
   };
 
+  const getSetUpstreamFailureReason = (error: unknown): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (normalized.includes("no such remote")) {
+      return "The selected remote does not exist. Refresh remotes and try again.";
+    }
+
+    if (
+      normalized.includes("not a valid branch name") ||
+      normalized.includes("invalid refspec")
+    ) {
+      return "Enter a valid remote branch name.";
+    }
+
+    if (
+      normalized.includes("couldn't find remote ref") ||
+      normalized.includes("remote ref does not exist")
+    ) {
+      return "The remote branch could not be found or created.";
+    }
+
+    if (normalized.includes("permission denied")) {
+      return "Permission denied while updating branch upstream.";
+    }
+
+    return `Git could not set upstream: ${rawMessage}`;
+  };
+
   const openBranchCreateInput = () => {
     if (!activeRepoId || isCreatingBranch || isSwitchingBranch) {
       return;
@@ -1490,6 +1538,84 @@ export function RepoInfo() {
       });
     } finally {
       setIsRenamingBranch(false);
+    }
+  };
+
+  const openSetUpstreamDialog = (entry: SidebarEntry) => {
+    if (entry.type !== "branch" || entry.isRemote || isSettingUpstream) {
+      return;
+    }
+
+    const targetBranch = branches.find(
+      (branch) =>
+        branch.refType === "branch" &&
+        !branch.isRemote &&
+        branch.name === entry.name
+    );
+
+    if (!targetBranch) {
+      toast.error("Branch not found", {
+        description: "The selected local branch no longer exists.",
+      });
+      return;
+    }
+
+    if (activeRepoRemoteNames.length === 0) {
+      toast.error("No remote configured", {
+        description: "Add a remote first, then set upstream tracking.",
+      });
+      return;
+    }
+
+    const defaultRemoteName = activeRepoRemoteNames.includes("origin")
+      ? "origin"
+      : (activeRepoRemoteNames[0] ?? "origin");
+
+    setSetUpstreamLocalBranchName(entry.name);
+    setSetUpstreamRemoteName(defaultRemoteName);
+    setSetUpstreamRemoteBranchName(entry.name);
+    setSetUpstreamFormError(null);
+    setIsSetUpstreamDialogOpen(true);
+  };
+
+  const handleSetUpstream = async () => {
+    if (!(activeRepoId && setUpstreamLocalBranchName) || isSettingUpstream) {
+      return;
+    }
+
+    const trimmedRemoteName = setUpstreamRemoteName.trim();
+    const trimmedRemoteBranchName = setUpstreamRemoteBranchName.trim();
+
+    if (
+      trimmedRemoteName.length === 0 ||
+      trimmedRemoteBranchName.length === 0
+    ) {
+      setSetUpstreamFormError("Remote and branch are required.");
+      return;
+    }
+
+    setIsSettingUpstream(true);
+    setSetUpstreamFormError(null);
+
+    try {
+      await setBranchUpstream(
+        activeRepoId,
+        setUpstreamLocalBranchName,
+        trimmedRemoteName,
+        trimmedRemoteBranchName
+      );
+      toast.success("Upstream set", {
+        description: `${setUpstreamLocalBranchName} -> ${trimmedRemoteName}/${trimmedRemoteBranchName}`,
+      });
+      setIsSetUpstreamDialogOpen(false);
+      setSetUpstreamLocalBranchName(null);
+      setSetUpstreamRemoteName("");
+      setSetUpstreamRemoteBranchName("");
+      setSetUpstreamFormError(null);
+    } catch (error) {
+      setSetUpstreamFormError(getSetUpstreamFailureReason(error));
+    } finally {
+      setIsSettingUpstream(false);
     }
   };
 
@@ -2639,8 +2765,14 @@ export function RepoInfo() {
         >
           Push
         </DropdownMenuItem>
-        {/* TODO: Implement this action */}
-        <DropdownMenuItem disabled>Set Upstream</DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={entry.isRemote || isSettingUpstream || isSwitchingBranch}
+          onClick={() => {
+            openSetUpstreamDialog(entry);
+          }}
+        >
+          Set Upstream
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         {/* TODO: Implement this action */}
         <DropdownMenuItem disabled>
@@ -2906,8 +3038,14 @@ export function RepoInfo() {
         >
           Push
         </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
+        <ContextMenuItem
+          disabled={entry.isRemote || isSettingUpstream || isSwitchingBranch}
+          onClick={() => {
+            openSetUpstreamDialog(entry);
+          }}
+        >
+          Set Upstream
+        </ContextMenuItem>
         <ContextMenuSeparator />
         {/* TODO: Implement this action */}
         <ContextMenuItem disabled>
@@ -5487,6 +5625,113 @@ export function RepoInfo() {
               type="button"
             >
               {isRenamingBranch ? "Renaming..." : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        onOpenChange={(open) => {
+          if (isSettingUpstream && !open) {
+            return;
+          }
+
+          setIsSetUpstreamDialogOpen(open);
+
+          if (!open) {
+            setSetUpstreamLocalBranchName(null);
+            setSetUpstreamRemoteName("");
+            setSetUpstreamRemoteBranchName("");
+            setSetUpstreamFormError(null);
+          }
+        }}
+        open={isSetUpstreamDialogOpen}
+      >
+        <DialogContent
+          className="sm:max-w-lg"
+          showCloseButton={!isSettingUpstream}
+        >
+          <DialogHeader>
+            <DialogTitle>Set upstream branch</DialogTitle>
+            <DialogDescription>
+              What remote/branch should "{setUpstreamLocalBranchName ?? ""}"
+              push to and pull from?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="set-upstream-target-branch">Remote / branch</Label>
+            <div className="flex items-center gap-2">
+              <Select
+                disabled={isSettingUpstream}
+                onValueChange={(value) => {
+                  setSetUpstreamRemoteName(value ?? "");
+                  setSetUpstreamFormError(null);
+                }}
+                value={setUpstreamRemoteName}
+              >
+                <SelectTrigger className="h-9 w-44">
+                  <SelectValue placeholder="Select remote" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeRepoRemoteNames.map((remoteName) => (
+                    <SelectItem key={remoteName} value={remoteName}>
+                      {remoteName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-muted-foreground text-sm">/</span>
+              <Input
+                autoCapitalize="none"
+                autoCorrect="off"
+                className="h-9"
+                disabled={isSettingUpstream}
+                id="set-upstream-target-branch"
+                onChange={(event) => {
+                  setSetUpstreamRemoteBranchName(event.target.value);
+                  setSetUpstreamFormError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleSetUpstream().catch(() => undefined);
+                  }
+                }}
+                placeholder="remote branch"
+                spellCheck={false}
+                value={setUpstreamRemoteBranchName}
+              />
+            </div>
+            {setUpstreamFormError ? (
+              <p className="text-destructive text-sm">{setUpstreamFormError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={isSettingUpstream}
+              onClick={() => {
+                setIsSetUpstreamDialogOpen(false);
+                setSetUpstreamLocalBranchName(null);
+                setSetUpstreamRemoteName("");
+                setSetUpstreamRemoteBranchName("");
+                setSetUpstreamFormError(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                isSettingUpstream ||
+                setUpstreamRemoteName.trim().length === 0 ||
+                setUpstreamRemoteBranchName.trim().length === 0
+              }
+              onClick={() => {
+                handleSetUpstream().catch(() => undefined);
+              }}
+              type="button"
+            >
+              {isSettingUpstream ? "Setting..." : "Submit"}
             </Button>
           </DialogFooter>
         </DialogContent>

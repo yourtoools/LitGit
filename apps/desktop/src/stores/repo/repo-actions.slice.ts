@@ -19,6 +19,7 @@ import {
   renameRepoBranch,
   resetRepoToReference,
   runRepoPull,
+  setRepoBranchUpstream,
   stageAllRepoChanges,
   stageRepoFile,
   switchRepoBranch,
@@ -172,6 +173,7 @@ type RepoActionsSliceKeys =
   | "pullBranch"
   | "pushBranch"
   | "renameBranch"
+  | "setBranchUpstream"
   | "redoRepoAction"
   | "stageAll"
   | "stageFile"
@@ -308,6 +310,44 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to rename branch"),
+      });
+      throw error;
+    }
+  },
+  setBranchUpstream: async (
+    id,
+    localBranchName,
+    remoteName,
+    remoteBranchName
+  ) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested set upstream: ${localBranchName} -> ${remoteName}/${remoteBranchName}`,
+    });
+
+    try {
+      await setRepoBranchUpstream(
+        targetRepo.path,
+        localBranchName,
+        remoteName,
+        remoteBranchName,
+        getRepoCommandPreferences()
+      );
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Upstream set: ${localBranchName} -> ${remoteName}/${remoteBranchName}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to set branch upstream"),
       });
       throw error;
     }

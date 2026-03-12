@@ -276,6 +276,12 @@ export interface RepoStoreState {
     id: string,
     options?: { forceRefresh?: boolean }
   ) => Promise<void>;
+  setBranchUpstream: (
+    id: string,
+    localBranchName: string,
+    remoteName: string,
+    remoteBranchName: string
+  ) => Promise<void>;
   setRepoGitIdentity: (id: string, identity: GitIdentityStatus | null) => void;
   stageAll: (id: string) => Promise<void>;
   stageFile: (id: string, filePath: string) => Promise<void>;

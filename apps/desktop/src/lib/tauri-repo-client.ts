@@ -666,6 +666,34 @@ export async function deleteRemoteRepoBranch(
   });
 }
 
+export async function setRepoBranchUpstream(
+  path: string,
+  localBranchName: string,
+  remoteName: string,
+  remoteBranchName: string,
+  preferences?: RepoCommandPreferences
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Set upstream works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git branch --set-upstream-to=${remoteName}/${remoteBranchName} ${localBranchName}`,
+    invoke,
+    invokeArgs: {
+      localBranchName,
+      preferences,
+      remoteBranchName,
+      remoteName,
+      repoPath: path,
+    },
+    invokeCommand: "set_repository_branch_upstream",
+    repoPath: path,
+  });
+}
+
 export async function getLatestRepoCommitMessage(
   path: string
 ): Promise<LatestRepositoryCommitMessage> {

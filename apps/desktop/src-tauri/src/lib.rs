@@ -1214,6 +1214,90 @@ fn delete_remote_repository_branch(
 }
 
 #[tauri::command]
+fn set_repository_branch_upstream(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    local_branch_name: String,
+    remote_name: String,
+    remote_branch_name: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_local_branch_name = local_branch_name.trim();
+    let trimmed_remote_name = remote_name.trim();
+    let trimmed_remote_branch_name = remote_branch_name.trim();
+
+    if trimmed_local_branch_name.is_empty() {
+        return Err("Local branch name is required".to_string());
+    }
+
+    if trimmed_remote_name.is_empty() {
+        return Err("Remote name is required".to_string());
+    }
+
+    if trimmed_remote_branch_name.is_empty() {
+        return Err("Remote branch name is required".to_string());
+    }
+
+    validate_branch_name(trimmed_local_branch_name)?;
+    validate_branch_name(trimmed_remote_branch_name)?;
+
+    let remote_ref = format!("refs/remotes/{trimmed_remote_name}/{trimmed_remote_branch_name}");
+    let has_remote_branch = Command::new("git")
+        .args(["-C", &repo_path, "show-ref", "--verify", "--quiet", &remote_ref])
+        .status()
+        .map_err(|error| format!("Failed to inspect remote branch: {error}"))?
+        .success();
+
+    let command_preferences = preferences.unwrap_or_default();
+    let _network_operation = begin_network_operation(&state, &repo_path)?;
+
+    let output = if has_remote_branch {
+        let mut command = Command::new("git");
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+
+        let upstream = format!("{trimmed_remote_name}/{trimmed_remote_branch_name}");
+        command
+            .args([
+                "-C",
+                &repo_path,
+                "branch",
+                "--set-upstream-to",
+                &upstream,
+                trimmed_local_branch_name,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git branch --set-upstream-to: {error}"))?
+    } else {
+        let mut command = Command::new("git");
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+
+        let destination = format!("{trimmed_local_branch_name}:{trimmed_remote_branch_name}");
+        command
+            .args([
+                "-C",
+                &repo_path,
+                "push",
+                "-u",
+                trimmed_remote_name,
+                &destination,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git push -u: {error}"))?
+    };
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to set branch upstream",
+        ));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -3896,6 +3980,7 @@ pub fn run() {
             delete_repository_branch,
             rename_repository_branch,
             delete_remote_repository_branch,
+            set_repository_branch_upstream,
             switch_repository_branch,
             pull_repository_action,
             push_repository_branch,
