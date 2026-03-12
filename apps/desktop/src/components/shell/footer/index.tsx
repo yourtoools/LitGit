@@ -128,26 +128,24 @@ export default function Footer() {
   return (
     <PageShell
       as="footer"
-      className="relative z-50 flex shrink-0 select-none items-center justify-between border-border/50 border-t bg-background py-1.5 font-medium text-muted-foreground text-xs"
+      className="relative z-50 flex shrink-0 select-none items-center justify-between border-primary/20 border-t bg-primary/10 py-1.5 font-medium text-muted-foreground text-xs"
     >
       <div className="flex items-center gap-3" />
 
       <TooltipProvider delay={1000} timeout={0}>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-4">
-            <KeyboardShortcutsDialog />
-            <FooterZoomControl
-              onSelectZoom={setZoom}
-              zoom={zoom}
-              zoomOptions={ZOOM_OPTIONS}
-            />
-          </div>
+        <div className="flex items-center gap-4">
+          <KeyboardShortcutsDialog />
+          <FooterZoomControl
+            onSelectZoom={setZoom}
+            zoom={zoom}
+            zoomOptions={ZOOM_OPTIONS}
+          />
 
           <div className="flex items-center">
             <Tooltip>
               <TooltipTrigger
                 aria-label="App version"
-                className="flex h-4.5 cursor-pointer items-center border border-border/50 bg-muted/50 px-1.5 py-0.5 text-foreground text-xs leading-none transition-colors hover:text-foreground/80"
+                className="group inline-flex h-5 cursor-pointer items-center gap-1.5 border border-primary/35 bg-primary/20 px-2.5 font-semibold text-foreground/95 text-xs leading-none transition-all hover:border-primary/55 hover:bg-primary/30 hover:text-foreground"
                 onClick={() => {
                   openReleaseNotes().catch((error: unknown) => {
                     if (import.meta.env.DEV) {
@@ -160,9 +158,12 @@ export default function Footer() {
                   });
                 }}
               >
-                Version {appVersion}
+                <span className="text-muted-foreground/90 uppercase tracking-[0.06em]">
+                  Version
+                </span>
+                <span className="text-foreground">v{appVersion}</span>
               </TooltipTrigger>
-              <TooltipContent side="top">View Release Note</TooltipContent>
+              <TooltipContent side="top">View Release Notes</TooltipContent>
             </Tooltip>
           </div>
         </div>
