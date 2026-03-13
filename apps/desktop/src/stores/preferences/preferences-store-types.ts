@@ -204,7 +204,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     proxyUsername: "",
     proxyType: "http",
     sslVerification: true,
-    useGitCredentialManager: false,
+    useGitCredentialManager: true,
   },
   settings: {
     activeSection: "general",
