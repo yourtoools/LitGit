@@ -76,6 +76,9 @@ import {
 } from "@/lib/tauri-settings-client";
 import {
   AUTO_FETCH_INTERVAL_LIMITS,
+  clampEditorFontSize,
+  clampEditorTabSize,
+  clampTerminalFontSize,
   DEFAULT_EDITOR_FONT_FAMILY,
   DEFAULT_PREFERENCES,
   DEFAULT_TERMINAL_FONT_FAMILY,
@@ -1656,6 +1659,9 @@ function TerminalSection({ query }: { query: string }) {
   const [terminalFontStatus, setTerminalFontStatus] =
     useState<SystemFontReadResult["status"]>("available");
   const [terminalFontQuery, setTerminalFontQuery] = useState("");
+  const [terminalFontSizeInput, setTerminalFontSizeInput] = useState(() =>
+    String(fontSize)
+  );
   const terminalFonts = useMemo(
     () =>
       Array.from(
@@ -1686,6 +1692,10 @@ function TerminalSection({ query }: { query: string }) {
       setFontFamily(DEFAULT_TERMINAL_FONT_FAMILY);
     }
   }, [fontFamily, setFontFamily, terminalFonts]);
+
+  useEffect(() => {
+    setTerminalFontSizeInput(String(fontSize));
+  }, [fontSize]);
 
   useEffect(() => {
     readSystemFontFamilies()
@@ -1751,10 +1761,53 @@ function TerminalSection({ query }: { query: string }) {
         query={query}
       >
         <Input
+          max={32}
           min={8}
-          onChange={(event) => setFontSize(Number(event.target.value) || 12)}
+          onBlur={() => {
+            if (terminalFontSizeInput.trim().length === 0) {
+              setTerminalFontSizeInput(String(fontSize));
+              return;
+            }
+
+            const parsedValue = Number(terminalFontSizeInput);
+
+            if (!Number.isFinite(parsedValue)) {
+              setTerminalFontSizeInput(String(fontSize));
+              return;
+            }
+
+            const clampedValue = clampTerminalFontSize(parsedValue);
+            setFontSize(clampedValue);
+            setTerminalFontSizeInput(String(clampedValue));
+          }}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            setTerminalFontSizeInput(nextValue);
+
+            if (nextValue.trim().length === 0) {
+              return;
+            }
+
+            const parsedValue = Number(nextValue);
+
+            if (!Number.isFinite(parsedValue)) {
+              return;
+            }
+
+            if (parsedValue < 8 || parsedValue > 32) {
+              return;
+            }
+
+            setFontSize(parsedValue);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
+          step={1}
           type="number"
-          value={fontSize}
+          value={terminalFontSizeInput}
         />
       </SettingsField>
       <SettingsField
@@ -2597,6 +2650,12 @@ function EditorSection({ query }: { query: string }) {
   const [editorFontStatus, setEditorFontStatus] =
     useState<SystemFontReadResult["status"]>("available");
   const [editorFontQuery, setEditorFontQuery] = useState("");
+  const [editorFontSizeInput, setEditorFontSizeInput] = useState(() =>
+    String(editor.fontSize)
+  );
+  const [editorTabSizeInput, setEditorTabSizeInput] = useState(() =>
+    String(editor.tabSize)
+  );
   const [editorPreviewMode, setEditorPreviewMode] = useState<
     "diff" | "regular"
   >("regular");
@@ -2630,6 +2689,14 @@ function EditorSection({ query }: { query: string }) {
       setEditorPreferences({ fontFamily: DEFAULT_EDITOR_FONT_FAMILY });
     }
   }, [editor.fontFamily, editorFonts, setEditorPreferences]);
+
+  useEffect(() => {
+    setEditorFontSizeInput(String(editor.fontSize));
+  }, [editor.fontSize]);
+
+  useEffect(() => {
+    setEditorTabSizeInput(String(editor.tabSize));
+  }, [editor.tabSize]);
 
   useEffect(() => {
     readSystemFontFamilies()
@@ -2924,14 +2991,53 @@ function EditorSection({ query }: { query: string }) {
           query={query}
         >
           <Input
+            max={32}
             min={10}
-            onChange={(event) => {
-              setEditorPreferences({
-                fontSize: Number(event.target.value) || 13,
-              });
+            onBlur={() => {
+              if (editorFontSizeInput.trim().length === 0) {
+                setEditorFontSizeInput(String(editor.fontSize));
+                return;
+              }
+
+              const parsedValue = Number(editorFontSizeInput);
+
+              if (!Number.isFinite(parsedValue)) {
+                setEditorFontSizeInput(String(editor.fontSize));
+                return;
+              }
+
+              const clampedValue = clampEditorFontSize(parsedValue);
+              setEditorPreferences({ fontSize: clampedValue });
+              setEditorFontSizeInput(String(clampedValue));
             }}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setEditorFontSizeInput(nextValue);
+
+              if (nextValue.trim().length === 0) {
+                return;
+              }
+
+              const parsedValue = Number(nextValue);
+
+              if (!Number.isFinite(parsedValue)) {
+                return;
+              }
+
+              if (parsedValue < 10 || parsedValue > 32) {
+                return;
+              }
+
+              setEditorPreferences({ fontSize: parsedValue });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            step={1}
             type="number"
-            value={editor.fontSize}
+            value={editorFontSizeInput}
           />
         </SettingsField>
         <SettingsField
@@ -2940,14 +3046,53 @@ function EditorSection({ query }: { query: string }) {
           query={query}
         >
           <Input
+            max={8}
             min={1}
-            onChange={(event) => {
-              setEditorPreferences({
-                tabSize: Number(event.target.value) || 2,
-              });
+            onBlur={() => {
+              if (editorTabSizeInput.trim().length === 0) {
+                setEditorTabSizeInput(String(editor.tabSize));
+                return;
+              }
+
+              const parsedValue = Number(editorTabSizeInput);
+
+              if (!Number.isFinite(parsedValue)) {
+                setEditorTabSizeInput(String(editor.tabSize));
+                return;
+              }
+
+              const clampedValue = clampEditorTabSize(parsedValue);
+              setEditorPreferences({ tabSize: clampedValue });
+              setEditorTabSizeInput(String(clampedValue));
             }}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setEditorTabSizeInput(nextValue);
+
+              if (nextValue.trim().length === 0) {
+                return;
+              }
+
+              const parsedValue = Number(nextValue);
+
+              if (!Number.isFinite(parsedValue)) {
+                return;
+              }
+
+              if (parsedValue < 1 || parsedValue > 8) {
+                return;
+              }
+
+              setEditorPreferences({ tabSize: parsedValue });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            step={1}
             type="number"
-            value={editor.tabSize}
+            value={editorTabSizeInput}
           />
         </SettingsField>
         <SettingsField
