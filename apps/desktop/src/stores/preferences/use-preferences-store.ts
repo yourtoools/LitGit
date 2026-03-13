@@ -11,7 +11,9 @@ import {
   clampTerminalLineHeight,
   type DateFormatPreset,
   DEFAULT_PREFERENCES,
+  DEFAULT_REPO_FILE_BROWSER_STATE,
   PREFERENCES_STORAGE_KEY,
+  type RepoFileBrowserState,
   type SettingsSectionId,
   type TerminalCursorStyle,
   type ThemePreference,
@@ -55,6 +57,12 @@ interface PreferencesStoreState extends AppPreferences {
     storageMode: "secure" | "session" | null;
   }) => void;
   setRememberTabs: (rememberTabs: boolean) => void;
+  setRepoFileBrowserState: (
+    repoId: string,
+    input:
+      | Partial<RepoFileBrowserState>
+      | ((current: RepoFileBrowserState) => Partial<RepoFileBrowserState>)
+  ) => void;
   setSearchQuery: (searchQuery: string) => void;
   setSection: (section: SettingsSectionId) => void;
   setSigningPreferences: (input: {
@@ -204,6 +212,28 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
             proxyAuthSecretStored: status.hasStoredValue,
           },
         }));
+      },
+      setRepoFileBrowserState: (repoId, input) => {
+        set((state) => {
+          const currentRepoState =
+            state.ui.repoFileBrowserByRepoId[repoId] ??
+            DEFAULT_REPO_FILE_BROWSER_STATE;
+          const nextInput =
+            typeof input === "function" ? input(currentRepoState) : input;
+
+          return {
+            ui: {
+              ...state.ui,
+              repoFileBrowserByRepoId: {
+                ...state.ui.repoFileBrowserByRepoId,
+                [repoId]: {
+                  ...currentRepoState,
+                  ...nextInput,
+                },
+              },
+            },
+          };
+        });
       },
       setRememberTabs: (rememberTabs) => {
         if (!rememberTabs) {
@@ -368,6 +398,10 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
           ui: {
             ...currentState.ui,
             ...persisted.ui,
+            repoFileBrowserByRepoId: {
+              ...currentState.ui.repoFileBrowserByRepoId,
+              ...persisted.ui?.repoFileBrowserByRepoId,
+            },
           },
         };
       },

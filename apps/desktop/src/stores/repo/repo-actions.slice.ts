@@ -14,6 +14,7 @@ import {
   getRepoCommitFileDiff,
   getRepoCommitFiles,
   getRepoFileDiff,
+  getRepositoryFiles,
   popRepoStash,
   pushRepoBranch,
   renameRepoBranch,
@@ -167,6 +168,7 @@ type RepoActionsSliceKeys =
   | "getUndoRepoActionLabel"
   | "getCommitFileDiff"
   | "getCommitFiles"
+  | "getRepositoryFiles"
   | "getFileDiff"
   | "getLatestCommitMessage"
   | "popStash"
@@ -969,6 +971,37 @@ export const createRepoActionsSlice = (
       return await getRepoCommitFiles(targetRepo.path, commitHash);
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to load commit files"));
+      return [];
+    }
+  },
+  getRepositoryFiles: async (id) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return [];
+    }
+
+    const cachedFiles = get().repoFilesById[id];
+
+    if (cachedFiles) {
+      return cachedFiles;
+    }
+
+    try {
+      const files = await getRepositoryFiles(targetRepo.path);
+
+      set((state) => ({
+        repoFilesById: {
+          ...state.repoFilesById,
+          [id]: files,
+        },
+      }));
+
+      return files;
+    } catch (error) {
+      toast.error(
+        resolveErrorMessage(error, "Failed to load repository files")
+      );
       return [];
     }
   },

@@ -120,6 +120,10 @@ export interface RepositoryWorkingTreeItem {
   unstagedStatus: string;
 }
 
+export interface RepositoryFileEntry {
+  path: string;
+}
+
 export interface RepositoryFileDiff {
   newText: string;
   oldText: string;
@@ -227,6 +231,7 @@ export interface RepoStoreState {
     id: string
   ) => Promise<LatestRepositoryCommitMessage | null>;
   getRedoRepoActionLabel: (id: string) => string | null;
+  getRepositoryFiles: (id: string) => Promise<RepositoryFileEntry[]>;
   getRepositoryGitIdentity: (id: string) => Promise<GitIdentityStatus | null>;
   getUndoRepoActionLabel: (id: string) => string | null;
   initializeRepository: (
@@ -262,6 +267,7 @@ export interface RepoStoreState {
     LatestRepositoryCommitMessage | null
   >;
   repoCommits: Record<string, RepositoryCommit[]>;
+  repoFilesById: Record<string, RepositoryFileEntry[]>;
   repoGitIdentities: Record<string, GitIdentityStatus | undefined>;
   repoHistoryRewriteHintById: Record<string, boolean>;
   repoRedoDepthById: Record<string, number>;
@@ -298,6 +304,8 @@ export interface RepoDataFetchResult {
   historyPayload: { commits: RepositoryCommit[]; id: string } | null;
   remoteNamesError: unknown;
   remoteNamesPayload: { id: string; remoteNames: string[] } | null;
+  repoFilesError: unknown;
+  repoFilesPayload: { files: RepositoryFileEntry[]; id: string } | null;
   stashesError: unknown;
   stashesPayload: { id: string; stashes: RepositoryStash[] } | null;
   statusError: unknown;

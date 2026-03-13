@@ -113,6 +113,10 @@ import {
 import { toast } from "sonner";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import { getRuntimePlatform } from "@/lib/runtime-platform";
+import {
+  DEFAULT_REPO_FILE_BROWSER_STATE,
+  type RepoFileBrowserSortOrder,
+} from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type {
   PublishRepositoryOptions,
@@ -121,6 +125,7 @@ import type {
   RepositoryCommitFile,
   RepositoryCommitFileDiff,
   RepositoryFileDiff,
+  RepositoryFileEntry,
   RepositoryStash,
   RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
@@ -166,6 +171,7 @@ interface CommitFileTreeNode {
 }
 
 type ChangesViewMode = "path" | "tree";
+type ChangeTreeSection = "all" | "staged" | "unstaged";
 type SidebarResizeTarget = "left" | "right";
 
 interface SidebarResizeState {
@@ -273,7 +279,27 @@ function createEmptyTreeNode(name: string, fullPath: string): ChangeTreeNode {
   };
 }
 
-function buildChangeTree(items: RepositoryWorkingTreeItem[]): ChangeTreeNode[] {
+function buildRepositoryFileTree(
+  files: RepositoryFileEntry[],
+  workingTreeItemByPath: Map<string, RepositoryWorkingTreeItem>,
+  sortOrder: RepoFileBrowserSortOrder
+): ChangeTreeNode[] {
+  const items = files.map((file) => ({
+    ...(workingTreeItemByPath.get(file.path) ?? {
+      isUntracked: false,
+      path: file.path,
+      stagedStatus: " ",
+      unstagedStatus: " ",
+    }),
+  })) satisfies RepositoryWorkingTreeItem[];
+
+  return buildChangeTree(items, sortOrder);
+}
+
+function buildChangeTree(
+  items: RepositoryWorkingTreeItem[],
+  sortOrder: RepoFileBrowserSortOrder = "asc"
+): ChangeTreeNode[] {
   const root = createEmptyTreeNode("", "");
 
   for (const item of items) {
@@ -319,7 +345,9 @@ function buildChangeTree(items: RepositoryWorkingTreeItem[]): ChangeTreeNode[] {
           return leftIsFolder ? -1 : 1;
         }
 
-        return left.name.localeCompare(right.name);
+        const comparison = left.name.localeCompare(right.name);
+
+        return sortOrder === "asc" ? comparison : comparison * -1;
       });
 
   return toSortedArray(root);
@@ -338,7 +366,8 @@ function createEmptyCommitTreeNode(
 }
 
 function buildCommitFileTree(
-  files: RepositoryCommitFile[]
+  files: RepositoryCommitFile[],
+  sortOrder: RepoFileBrowserSortOrder = "asc"
 ): CommitFileTreeNode[] {
   const root = createEmptyCommitTreeNode("", "");
 
@@ -385,7 +414,9 @@ function buildCommitFileTree(
           return leftIsFolder ? -1 : 1;
         }
 
-        return left.name.localeCompare(right.name);
+        const comparison = left.name.localeCompare(right.name);
+
+        return sortOrder === "asc" ? comparison : comparison * -1;
       });
 
   return toSortedArray(root);
@@ -647,6 +678,7 @@ export function RepoInfo() {
   const repoWorkingTreeItems = useRepoStore(
     (state) => state.repoWorkingTreeItems
   );
+  const repoFilesById = useRepoStore((state) => state.repoFilesById);
   const isLoadingBranches = useRepoStore((state) => state.isLoadingBranches);
   const isLoadingHistory = useRepoStore((state) => state.isLoadingHistory);
   const isLoadingStatus = useRepoStore((state) => state.isLoadingStatus);
@@ -667,6 +699,7 @@ export function RepoInfo() {
   const stageFile = useRepoStore((state) => state.stageFile);
   const unstageFile = useRepoStore((state) => state.unstageFile);
   const getFileDiff = useRepoStore((state) => state.getFileDiff);
+  const getRepositoryFiles = useRepoStore((state) => state.getRepositoryFiles);
   const getLatestCommitMessage = useRepoStore(
     (state) => state.getLatestCommitMessage
   );
@@ -770,24 +803,24 @@ export function RepoInfo() {
   const [skipCommitHooks, setSkipCommitHooks] = useState(false);
   const [isCommitOptionsCollapsed, setIsCommitOptionsCollapsed] =
     useState(false);
-  const [changesViewMode, setChangesViewMode] =
+  const [commitDetailsViewMode, setCommitDetailsViewMode] =
     useState<ChangesViewMode>("tree");
-  const [isUnstagedSectionCollapsed, setIsUnstagedSectionCollapsed] =
-    useState(false);
-  const [isStagedSectionCollapsed, setIsStagedSectionCollapsed] =
-    useState(false);
-  const [expandedTreeNodePaths, setExpandedTreeNodePaths] = useState<
-    Record<string, boolean>
-  >({});
+  const [showAllCommitFiles, setShowAllCommitFiles] = useState(false);
+  const [commitFileFilterInputValue, setCommitFileFilterInputValue] =
+    useState("");
+  const [
+    debouncedCommitFileFilterInputValue,
+    setDebouncedCommitFileFilterInputValue,
+  ] = useState("");
+  const [commitFileSortOrder, setCommitFileSortOrder] =
+    useState<RepoFileBrowserSortOrder>("asc");
+  const [expandedCommitTreeNodePaths, setExpandedCommitTreeNodePaths] =
+    useState<Record<string, boolean>>({});
   const [isLoadingDiffPath, setIsLoadingDiffPath] = useState<string | null>(
     null
   );
   const [openedDiff, setOpenedDiff] = useState<RepositoryFileDiff | null>(null);
   const [openedDiffPath, setOpenedDiffPath] = useState<string | null>(null);
-  const [commitDetailsViewMode, setCommitDetailsViewMode] =
-    useState<ChangesViewMode>("tree");
-  const [expandedCommitTreeNodePaths, setExpandedCommitTreeNodePaths] =
-    useState<Record<string, boolean>>({});
   const [commitFilesByHash, setCommitFilesByHash] = useState<
     Record<string, RepositoryCommitFile[]>
   >({});
@@ -846,6 +879,15 @@ export function RepoInfo() {
     (state) => state.ui.dateFormat
   );
   const localePreference = usePreferencesStore((state) => state.ui.locale);
+  const repoFileBrowserPreferences = usePreferencesStore((state) =>
+    activeRepoId
+      ? (state.ui.repoFileBrowserByRepoId[activeRepoId] ??
+        DEFAULT_REPO_FILE_BROWSER_STATE)
+      : DEFAULT_REPO_FILE_BROWSER_STATE
+  );
+  const setRepoFileBrowserState = usePreferencesStore(
+    (state) => state.setRepoFileBrowserState
+  );
   const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const editorPreferences = usePreferencesStore((state) => state.editor);
   const openedDiffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
@@ -881,10 +923,86 @@ export function RepoInfo() {
     () => (activeRepoId ? (repoStashes[activeRepoId] ?? []) : []),
     [activeRepoId, repoStashes]
   );
+  const persistRepoFileBrowserState = (
+    input:
+      | Partial<typeof repoFileBrowserPreferences>
+      | ((
+          current: typeof repoFileBrowserPreferences
+        ) => Partial<typeof repoFileBrowserPreferences>)
+  ) => {
+    if (!activeRepoId) {
+      return;
+    }
+
+    setRepoFileBrowserState(activeRepoId, input);
+  };
+  const setChangesViewMode = (viewMode: ChangesViewMode) => {
+    persistRepoFileBrowserState({ viewMode });
+  };
+  const setIsUnstagedSectionCollapsed = (
+    value: boolean | ((current: boolean) => boolean)
+  ) => {
+    persistRepoFileBrowserState((current) => ({
+      isUnstagedSectionCollapsed:
+        typeof value === "function"
+          ? value(current.isUnstagedSectionCollapsed)
+          : value,
+    }));
+  };
+  const setIsStagedSectionCollapsed = (
+    value: boolean | ((current: boolean) => boolean)
+  ) => {
+    persistRepoFileBrowserState((current) => ({
+      isStagedSectionCollapsed:
+        typeof value === "function"
+          ? value(current.isStagedSectionCollapsed)
+          : value,
+    }));
+  };
+  const setExpandedTreeNodePaths = (
+    value:
+      | Record<string, boolean>
+      | ((current: Record<string, boolean>) => Record<string, boolean>)
+  ) => {
+    persistRepoFileBrowserState((current) => ({
+      expandedTreeNodePaths:
+        typeof value === "function"
+          ? value(current.expandedTreeNodePaths)
+          : value,
+    }));
+  };
+  const setRepositoryFileFilterInputValue = (value: string) => {
+    persistRepoFileBrowserState({ filterInputValue: value });
+  };
+  const toggleFileTreeSortOrder = () => {
+    persistRepoFileBrowserState((current) => ({
+      sortOrder: current.sortOrder === "asc" ? "desc" : "asc",
+    }));
+  };
+
   const workingTreeItems = useMemo<RepositoryWorkingTreeItem[]>(
     () => (activeRepoId ? (repoWorkingTreeItems[activeRepoId] ?? []) : []),
     [activeRepoId, repoWorkingTreeItems]
   );
+  const allRepositoryFiles = useMemo<RepositoryFileEntry[]>(
+    () => (activeRepoId ? (repoFilesById[activeRepoId] ?? []) : []),
+    [activeRepoId, repoFilesById]
+  );
+  const changesViewMode = repoFileBrowserPreferences.viewMode;
+  const isUnstagedSectionCollapsed =
+    repoFileBrowserPreferences.isUnstagedSectionCollapsed;
+  const isStagedSectionCollapsed =
+    repoFileBrowserPreferences.isStagedSectionCollapsed;
+  const expandedTreeNodePaths =
+    repoFileBrowserPreferences.expandedTreeNodePaths;
+  const showAllFiles = repoFileBrowserPreferences.showAllFiles;
+  const fileTreeSortOrder = repoFileBrowserPreferences.sortOrder;
+  const repositoryFileFilterInputValue =
+    repoFileBrowserPreferences.filterInputValue;
+  const [
+    debouncedRepositoryFileFilterInputValue,
+    setDebouncedRepositoryFileFilterInputValue,
+  ] = useState(repositoryFileFilterInputValue);
   const unstagedItems = useMemo(
     () =>
       workingTreeItems.filter(
@@ -965,10 +1083,38 @@ export function RepoInfo() {
     ? (repoHistoryRewriteHintById[activeRepoId] ?? false)
     : false;
   const unstagedTree = useMemo(
-    () => buildChangeTree(unstagedItems),
-    [unstagedItems]
+    () => buildChangeTree(unstagedItems, fileTreeSortOrder),
+    [fileTreeSortOrder, unstagedItems]
   );
-  const stagedTree = useMemo(() => buildChangeTree(stagedItems), [stagedItems]);
+  const stagedTree = useMemo(
+    () => buildChangeTree(stagedItems, fileTreeSortOrder),
+    [fileTreeSortOrder, stagedItems]
+  );
+  const normalizedRepositoryFileFilter = debouncedRepositoryFileFilterInputValue
+    .trim()
+    .toLowerCase();
+  const workingTreeItemByPath = useMemo(
+    () => new Map(workingTreeItems.map((item) => [item.path, item])),
+    [workingTreeItems]
+  );
+  const filteredRepositoryFiles = useMemo(
+    () =>
+      normalizedRepositoryFileFilter.length === 0
+        ? allRepositoryFiles
+        : allRepositoryFiles.filter((file) =>
+            file.path.toLowerCase().includes(normalizedRepositoryFileFilter)
+          ),
+    [allRepositoryFiles, normalizedRepositoryFileFilter]
+  );
+  const allFilesTree = useMemo(
+    () =>
+      buildRepositoryFileTree(
+        filteredRepositoryFiles,
+        workingTreeItemByPath,
+        fileTreeSortOrder
+      ),
+    [fileTreeSortOrder, filteredRepositoryFiles, workingTreeItemByPath]
+  );
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
   const currentLocalBranch = useMemo(
@@ -991,9 +1137,64 @@ export function RepoInfo() {
         : ([] as RepositoryCommitFile[]),
     [commitFilesByHash, selectedCommit]
   );
-  const selectedCommitTree = useMemo(
-    () => buildCommitFileTree(selectedCommitFiles),
+  const selectedCommitFileByPath = useMemo(
+    () => new Map(selectedCommitFiles.map((file) => [file.path, file])),
     [selectedCommitFiles]
+  );
+  const commitViewFiles = useMemo<RepositoryCommitFile[]>(() => {
+    if (!showAllCommitFiles) {
+      return selectedCommitFiles;
+    }
+
+    return allRepositoryFiles.map((file) => {
+      const matchingCommitFile = selectedCommitFileByPath.get(file.path);
+
+      if (matchingCommitFile) {
+        return matchingCommitFile;
+      }
+
+      return {
+        additions: 0,
+        deletions: 0,
+        path: file.path,
+        previousPath: null,
+        status: " ",
+      };
+    });
+  }, [
+    allRepositoryFiles,
+    selectedCommitFileByPath,
+    selectedCommitFiles,
+    showAllCommitFiles,
+  ]);
+  const normalizedCommitFileFilter = debouncedCommitFileFilterInputValue
+    .trim()
+    .toLowerCase();
+  const filteredCommitFiles = useMemo(() => {
+    if (!showAllCommitFiles) {
+      return commitViewFiles;
+    }
+
+    return normalizedCommitFileFilter.length === 0
+      ? commitViewFiles
+      : commitViewFiles.filter((file) =>
+          file.path.toLowerCase().includes(normalizedCommitFileFilter)
+        );
+  }, [commitViewFiles, normalizedCommitFileFilter, showAllCommitFiles]);
+  const sortedCommitPathRows = useMemo(() => {
+    const nextFiles = [...filteredCommitFiles];
+
+    nextFiles.sort((left, right) => {
+      const comparison = left.path.localeCompare(right.path);
+
+      return commitFileSortOrder === "asc" ? comparison : comparison * -1;
+    });
+
+    return nextFiles;
+  }, [commitFileSortOrder, filteredCommitFiles]);
+  const selectedCommitTree = useMemo(
+    () => buildCommitFileTree(filteredCommitFiles, commitFileSortOrder),
+    [commitFileSortOrder, filteredCommitFiles]
   );
   const selectedCommitFileSummary = useMemo(() => {
     let addedCount = 0;
@@ -1742,6 +1943,52 @@ export function RepoInfo() {
     setOpenedDiff(null);
     setOpenedDiffPath(null);
   }, [activeRepoId]);
+
+  useEffect(() => {
+    if (!(activeRepoId && showAllFiles) || allRepositoryFiles.length > 0) {
+      return;
+    }
+
+    getRepositoryFiles(activeRepoId).catch(() => undefined);
+  }, [
+    activeRepoId,
+    allRepositoryFiles.length,
+    getRepositoryFiles,
+    showAllFiles,
+  ]);
+
+  useEffect(() => {
+    if (!selectedCommit) {
+      return;
+    }
+
+    setShowAllCommitFiles(false);
+    setCommitFileFilterInputValue("");
+    setCommitFileSortOrder("asc");
+    setExpandedCommitTreeNodePaths({});
+  }, [selectedCommit]);
+
+  useEffect(() => {
+    const timeoutHandle = globalThis.setTimeout(() => {
+      setDebouncedCommitFileFilterInputValue(commitFileFilterInputValue);
+    }, 500);
+
+    return () => {
+      globalThis.clearTimeout(timeoutHandle);
+    };
+  }, [commitFileFilterInputValue]);
+
+  useEffect(() => {
+    const timeoutHandle = globalThis.setTimeout(() => {
+      setDebouncedRepositoryFileFilterInputValue(
+        repositoryFileFilterInputValue
+      );
+    }, 500);
+
+    return () => {
+      globalThis.clearTimeout(timeoutHandle);
+    };
+  }, [repositoryFileFilterInputValue]);
 
   useEffect(() => {
     if (!activeRepoId || isWorkingTreeSelection || !selectedCommit) {
@@ -3935,19 +4182,40 @@ export function RepoInfo() {
       </ContextMenuContent>
     );
   };
+  const getTreeNodeStateKey = (section: ChangeTreeSection, nodePath: string) =>
+    `${section}:${nodePath}`;
 
-  const getTreeNodeStateKey = (
-    section: "staged" | "unstaged",
-    nodePath: string
-  ) => `${section}:${nodePath}`;
-
-  const toggleTreeNode = (section: "staged" | "unstaged", nodePath: string) => {
+  const toggleTreeNode = (section: ChangeTreeSection, nodePath: string) => {
     const key = getTreeNodeStateKey(section, nodePath);
 
     setExpandedTreeNodePaths((current) => ({
       ...current,
       [key]: !current[key],
     }));
+  };
+  const collectExpandableTreeKeys = (
+    nodes: ChangeTreeNode[],
+    section: ChangeTreeSection
+  ): Record<string, boolean> => {
+    const nextState: Record<string, boolean> = {};
+
+    const visitNode = (node: ChangeTreeNode) => {
+      if (node.children.size === 0) {
+        return;
+      }
+
+      nextState[getTreeNodeStateKey(section, node.fullPath)] = true;
+
+      for (const childNode of node.children.values()) {
+        visitNode(childNode);
+      }
+    };
+
+    for (const node of nodes) {
+      visitNode(node);
+    }
+
+    return nextState;
   };
 
   const getStatusCodes = (
@@ -4273,6 +4541,46 @@ export function RepoInfo() {
       [key]: !current[key],
     }));
   };
+  const collectExpandableCommitTreeKeys = (
+    nodes: CommitFileTreeNode[],
+    commitHash: string
+  ): Record<string, boolean> => {
+    const nextState: Record<string, boolean> = {};
+    const stack = [...nodes];
+
+    while (stack.length > 0) {
+      const currentNode = stack.pop();
+
+      if (!currentNode || currentNode.children.size === 0) {
+        continue;
+      }
+
+      nextState[getCommitTreeNodeStateKey(commitHash, currentNode.fullPath)] =
+        true;
+
+      stack.push(...Array.from(currentNode.children.values()));
+    }
+
+    return nextState;
+  };
+  const collapseCommitTree = (commitHash: string) => {
+    setExpandedCommitTreeNodePaths((current) => {
+      const nextEntries = Object.entries(current).filter(
+        ([key]) => !key.startsWith(`${commitHash}:`)
+      );
+
+      return Object.fromEntries(nextEntries);
+    });
+  };
+  const expandCommitTree = (
+    commitHash: string,
+    nodes: CommitFileTreeNode[]
+  ) => {
+    setExpandedCommitTreeNodePaths((current) => ({
+      ...current,
+      ...collectExpandableCommitTreeKeys(nodes, commitHash),
+    }));
+  };
 
   const renderCommitStatusBadge = (status: string): ReactNode => {
     const descriptor = getStatusDescriptor(status.charAt(0));
@@ -4311,18 +4619,32 @@ export function RepoInfo() {
       if (node.file) {
         const file = node.file;
         const loadingKey = `${commitHash}:${file.path}`;
+        const canOpenDiff = file.status.trim().length > 0;
+        let diffRowStateClassName = "";
+
+        if (
+          openedCommitDiff?.commitHash === commitHash &&
+          openedCommitDiff.path === file.path
+        ) {
+          diffRowStateClassName = "bg-accent/30";
+        } else if (canOpenDiff) {
+          diffRowStateClassName = "hover:bg-accent/20";
+        }
 
         return (
           <button
             className={cn(
               "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors",
-              openedCommitDiff?.commitHash === commitHash &&
-                openedCommitDiff.path === file.path
-                ? "bg-accent/30"
-                : "hover:bg-accent/20"
+              !canOpenDiff && "cursor-default opacity-80",
+              diffRowStateClassName
             )}
+            disabled={!canOpenDiff}
             key={`${commitHash}-${file.path}`}
             onClick={() => {
+              if (!canOpenDiff) {
+                return;
+              }
+
               handleOpenCommitFileDiff(commitHash, file.path).catch(
                 () => undefined
               );
@@ -4401,18 +4723,32 @@ export function RepoInfo() {
   ): ReactNode => {
     return files.map((file) => {
       const loadingKey = `${commitHash}:${file.path}`;
+      const canOpenDiff = file.status.trim().length > 0;
+      let diffRowStateClassName = "";
+
+      if (
+        openedCommitDiff?.commitHash === commitHash &&
+        openedCommitDiff.path === file.path
+      ) {
+        diffRowStateClassName = "bg-accent/30";
+      } else if (canOpenDiff) {
+        diffRowStateClassName = "hover:bg-accent/20";
+      }
 
       return (
         <button
           className={cn(
             "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors",
-            openedCommitDiff?.commitHash === commitHash &&
-              openedCommitDiff.path === file.path
-              ? "bg-accent/30"
-              : "hover:bg-accent/20"
+            !canOpenDiff && "cursor-default opacity-80",
+            diffRowStateClassName
           )}
+          disabled={!canOpenDiff}
           key={`${commitHash}-${file.path}`}
           onClick={() => {
+            if (!canOpenDiff) {
+              return;
+            }
+
             handleOpenCommitFileDiff(commitHash, file.path).catch(
               () => undefined
             );
@@ -4629,17 +4965,20 @@ export function RepoInfo() {
   };
   const renderChangeTreeNodes = (
     nodes: ChangeTreeNode[],
-    section: "staged" | "unstaged",
+    section: ChangeTreeSection,
     depth = 0
   ): ReactNode => {
     return nodes.map((node) => {
       const hasChildren = node.children.size > 0;
       const nodeStateKey = getTreeNodeStateKey(section, node.fullPath);
       const isExpanded = expandedTreeNodePaths[nodeStateKey] ?? depth < 1;
-      const collapsedStatusCounts =
-        hasChildren && !isExpanded
-          ? collectTreeStatusCounts(node, section)
-          : null;
+      const collapsedStatusCounts = (() => {
+        if (!(section !== "all" && hasChildren && !isExpanded)) {
+          return null;
+        }
+
+        return collectTreeStatusCounts(node, section);
+      })();
 
       if (node.item) {
         const actionMode = section === "unstaged" ? "stage" : "unstage";
@@ -4647,6 +4986,7 @@ export function RepoInfo() {
         const isBusy = isUpdatingFilePath === node.item.path;
         const isLoadingDiff = isLoadingDiffPath === node.item.path;
         const isDiffOpened = openedDiffPath === node.item.path;
+        const canToggleStage = section !== "all";
 
         return (
           <ContextMenu key={`${section}-${node.fullPath}`}>
@@ -4669,38 +5009,44 @@ export function RepoInfo() {
                   type="button"
                 />
                 <div className="pointer-events-none inline-flex min-w-3 items-center justify-center">
-                  {renderStatusBadges(node.item, section)}
+                  {section === "all"
+                    ? renderStatusBadges(node.item, "unstaged")
+                    : renderStatusBadges(node.item, section)}
                 </div>
                 <div className="pointer-events-none min-w-0 flex-1">
                   <p className="truncate">{node.name}</p>
                 </div>
-                <Button
-                  className={cn(
-                    "relative z-10 h-6 px-2 text-[0.65rem] transition-opacity",
-                    isBusy
-                      ? "opacity-100"
-                      : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-                  )}
-                  disabled={isBusy}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleFileStageToggle(
-                      node.item?.path ?? "",
-                      actionMode
-                    ).catch(() => undefined);
-                  }}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  {isBusy ? "..." : actionLabel}
-                </Button>
+                {canToggleStage ? (
+                  <Button
+                    className={cn(
+                      "relative z-10 h-6 px-2 text-[0.65rem] transition-opacity",
+                      isBusy
+                        ? "opacity-100"
+                        : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                    )}
+                    disabled={isBusy}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleFileStageToggle(
+                        node.item?.path ?? "",
+                        actionMode
+                      ).catch(() => undefined);
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    {isBusy ? "..." : actionLabel}
+                  </Button>
+                ) : null}
                 {isLoadingDiff ? (
                   <SpinnerGapIcon className="relative z-10 size-3 animate-spin text-muted-foreground" />
                 ) : null}
               </div>
             </ContextMenuTrigger>
-            {renderChangeContextMenuContent(node.item?.path ?? "", section)}
+            {section === "all"
+              ? null
+              : renderChangeContextMenuContent(node.item?.path ?? "", section)}
           </ContextMenu>
         );
       }
@@ -4765,10 +5111,12 @@ export function RepoInfo() {
                 ) : null}
               </button>
             </ContextMenuTrigger>
-            {renderChangeContextMenuContent(node.fullPath, section, {
-              folderName: node.name,
-              isFolder: true,
-            })}
+            {section === "all"
+              ? null
+              : renderChangeContextMenuContent(node.fullPath, section, {
+                  folderName: node.name,
+                  isFolder: true,
+                })}
           </ContextMenu>
           {hasChildren && isExpanded ? (
             <div>
@@ -4867,6 +5215,25 @@ export function RepoInfo() {
     }
 
     return renderFlatChangeRows(items, section);
+  };
+  const renderAllFilesSectionContent = () => {
+    if (allRepositoryFiles.length === 0) {
+      return (
+        <p className="px-2 py-1.5 text-muted-foreground text-xs">
+          No tracked or untracked files found.
+        </p>
+      );
+    }
+
+    if (filteredRepositoryFiles.length === 0) {
+      return (
+        <p className="px-2 py-1.5 text-muted-foreground text-xs">
+          No files match this filter.
+        </p>
+      );
+    }
+
+    return renderChangeTreeNodes(allFilesTree, "all");
   };
 
   const handleWorkingTreeRowClick = () => {
@@ -5982,31 +6349,70 @@ export function RepoInfo() {
                           - {selectedCommitFileSummary.removedCount} deleted
                         </span>
                       </div>
-                      <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
-                        <button
-                          className={cn(
-                            "rounded px-3 py-1 font-medium text-xs transition-colors",
-                            commitDetailsViewMode === "path"
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={() => setCommitDetailsViewMode("path")}
-                          type="button"
-                        >
-                          Path
-                        </button>
-                        <button
-                          className={cn(
-                            "rounded px-3 py-1 font-medium text-xs transition-colors",
-                            commitDetailsViewMode === "tree"
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={() => setCommitDetailsViewMode("tree")}
-                          type="button"
-                        >
-                          Tree
-                        </button>
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
+                            className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                            onClick={() => {
+                              setCommitFileSortOrder((current) =>
+                                current === "asc" ? "desc" : "asc"
+                              );
+                            }}
+                            size="icon-sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <ArrowUpIcon
+                              className={cn(
+                                "size-3.5 transition-transform",
+                                commitFileSortOrder === "desc" && "rotate-180"
+                              )}
+                            />
+                          </Button>
+                          <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
+                            <button
+                              className={cn(
+                                "rounded px-3 py-1 font-medium text-xs transition-colors",
+                                commitDetailsViewMode === "path"
+                                  ? "bg-accent text-accent-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              )}
+                              onClick={() => setCommitDetailsViewMode("path")}
+                              type="button"
+                            >
+                              Path
+                            </button>
+                            <button
+                              className={cn(
+                                "rounded px-3 py-1 font-medium text-xs transition-colors",
+                                commitDetailsViewMode === "tree"
+                                  ? "bg-accent text-accent-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              )}
+                              onClick={() => setCommitDetailsViewMode("tree")}
+                              type="button"
+                            >
+                              Tree
+                            </button>
+                          </div>
+                        </div>
+                        <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+                          <Checkbox
+                            checked={showAllCommitFiles}
+                            className="shrink-0"
+                            onCheckedChange={(checked) => {
+                              const shouldShowAll = checked === true;
+
+                              setShowAllCommitFiles(shouldShowAll);
+
+                              if (!shouldShowAll) {
+                                setCommitFileFilterInputValue("");
+                              }
+                            }}
+                          />
+                          View all files
+                        </label>
                       </div>
                     </div>
 
@@ -6029,16 +6435,92 @@ export function RepoInfo() {
                         }
 
                         return (
-                          <div className="h-full overflow-y-auto px-2 py-2">
-                            {commitDetailsViewMode === "tree"
-                              ? renderCommitTreeNodes(
-                                  selectedCommitTree,
-                                  selectedCommit.hash
-                                )
-                              : renderCommitPathRows(
-                                  selectedCommitFiles,
-                                  selectedCommit.hash
-                                )}
+                          <div className="h-full overflow-hidden px-2 py-2">
+                            <div className="flex h-full min-h-0 flex-col rounded-md border border-border/70 bg-background/50">
+                              {showAllCommitFiles ? (
+                                <div className="border-border/70 border-b px-2 py-2">
+                                  <Input
+                                    className="h-8"
+                                    onChange={(event) => {
+                                      setCommitFileFilterInputValue(
+                                        event.target.value
+                                      );
+                                    }}
+                                    placeholder="Filter files..."
+                                    value={commitFileFilterInputValue}
+                                  />
+                                </div>
+                              ) : null}
+                              {commitDetailsViewMode === "tree" &&
+                              filteredCommitFiles.length > 0 ? (
+                                <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                                  {(() => {
+                                    const expandableNodeKeys = Object.keys(
+                                      collectExpandableCommitTreeKeys(
+                                        selectedCommitTree,
+                                        selectedCommit.hash
+                                      )
+                                    );
+                                    const isCommitTreeFullyExpanded =
+                                      expandableNodeKeys.length > 0 &&
+                                      expandableNodeKeys.every(
+                                        (key) =>
+                                          expandedCommitTreeNodePaths[key] ===
+                                          true
+                                      );
+
+                                    return (
+                                      <Button
+                                        className="h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                        onClick={() => {
+                                          if (isCommitTreeFullyExpanded) {
+                                            collapseCommitTree(
+                                              selectedCommit.hash
+                                            );
+                                            return;
+                                          }
+
+                                          expandCommitTree(
+                                            selectedCommit.hash,
+                                            selectedCommitTree
+                                          );
+                                        }}
+                                        size="sm"
+                                        type="button"
+                                        variant="ghost"
+                                      >
+                                        {isCommitTreeFullyExpanded
+                                          ? "Collapse All"
+                                          : "Expand All"}
+                                      </Button>
+                                    );
+                                  })()}
+                                </div>
+                              ) : null}
+                              <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                                {(() => {
+                                  if (filteredCommitFiles.length === 0) {
+                                    return (
+                                      <p className="px-2 py-1.5 text-muted-foreground text-xs">
+                                        No files match this filter.
+                                      </p>
+                                    );
+                                  }
+
+                                  if (commitDetailsViewMode === "tree") {
+                                    return renderCommitTreeNodes(
+                                      selectedCommitTree,
+                                      selectedCommit.hash
+                                    );
+                                  }
+
+                                  return renderCommitPathRows(
+                                    sortedCommitPathRows,
+                                    selectedCommit.hash
+                                  );
+                                })()}
+                              </div>
+                            </div>
                           </div>
                         );
                       })()}
@@ -6064,7 +6546,9 @@ export function RepoInfo() {
                       </Button>
                       <p className="truncate text-sm">
                         <span className="font-medium">
-                          {workingTreeItems.length} file changes
+                          {showAllFiles
+                            ? `${allRepositoryFiles.length} repository files`
+                            : `${workingTreeItems.length} file changes`}
                         </span>{" "}
                         on{" "}
                         <span className="rounded bg-accent px-2 py-0.5 font-medium text-accent-foreground">
@@ -6073,135 +6557,248 @@ export function RepoInfo() {
                       </p>
                     </div>
 
-                    <div className="flex items-center">
-                      <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
-                        <button
-                          className={cn(
-                            "rounded px-3 py-1 font-medium text-xs transition-colors",
-                            changesViewMode === "path"
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={() => setChangesViewMode("path")}
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          aria-label={`Sort by filename ${fileTreeSortOrder === "asc" ? "descending" : "ascending"}`}
+                          className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                          onClick={toggleFileTreeSortOrder}
+                          size="icon-sm"
                           type="button"
+                          variant="ghost"
                         >
-                          Path
-                        </button>
-                        <button
-                          className={cn(
-                            "rounded px-3 py-1 font-medium text-xs transition-colors",
-                            changesViewMode === "tree"
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={() => setChangesViewMode("tree")}
-                          type="button"
-                        >
-                          Tree
-                        </button>
+                          <ArrowUpIcon
+                            className={cn(
+                              "size-3.5 transition-transform",
+                              fileTreeSortOrder === "desc" && "rotate-180"
+                            )}
+                          />
+                        </Button>
+                        <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
+                          <button
+                            className={cn(
+                              "rounded px-3 py-1 font-medium text-xs transition-colors",
+                              changesViewMode === "path"
+                                ? "bg-accent text-accent-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                              showAllFiles && "pointer-events-none opacity-50"
+                            )}
+                            disabled={showAllFiles}
+                            onClick={() => setChangesViewMode("path")}
+                            type="button"
+                          >
+                            Path
+                          </button>
+                          <button
+                            className={cn(
+                              "rounded px-3 py-1 font-medium text-xs transition-colors",
+                              changesViewMode === "tree"
+                                ? "bg-accent text-accent-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            )}
+                            onClick={() => setChangesViewMode("tree")}
+                            type="button"
+                          >
+                            Tree
+                          </button>
+                        </div>
                       </div>
+                      <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+                        <Checkbox
+                          checked={showAllFiles}
+                          className="shrink-0"
+                          onCheckedChange={(checked) => {
+                            const shouldShowAll = checked === true;
+                            persistRepoFileBrowserState({
+                              showAllFiles: shouldShowAll,
+                            });
+                            if (!shouldShowAll) {
+                              setRepositoryFileFilterInputValue("");
+                            }
+                          }}
+                        />
+                        View all files
+                      </label>
                     </div>
                   </header>
 
                   <div className="min-h-0 flex-1 overflow-hidden px-3 py-3">
                     <div className="flex h-full min-h-0 flex-col rounded-md border border-border/70 bg-background/50">
-                      <section
-                        className={cn(
-                          "flex min-h-0 flex-col",
-                          isUnstagedSectionCollapsed ? "shrink-0" : "flex-1"
-                        )}
-                      >
-                        <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
-                          <button
-                            className="inline-flex items-center gap-1 text-left font-medium text-sm"
-                            onClick={() =>
-                              setIsUnstagedSectionCollapsed(
-                                (current) => !current
-                              )
-                            }
-                            type="button"
-                          >
-                            {isUnstagedSectionCollapsed ? (
-                              <CaretRightIcon className="size-3" />
-                            ) : (
-                              <CaretDownIcon className="size-3" />
-                            )}
-                            Unstaged Files ({unstagedItems.length})
-                          </button>
-                          <Button
-                            className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
-                            disabled={!hasUnstagedChanges || isStagingAll}
-                            onClick={() => {
-                              handleStageAll().catch(() => undefined);
-                            }}
-                            size="sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            {isStagingAll ? "Staging..." : "Stage All Changes"}
-                          </Button>
-                        </div>
-
-                        {isUnstagedSectionCollapsed ? null : (
-                          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                            {renderChangesSectionContent(
-                              unstagedItems,
-                              unstagedTree,
-                              "unstaged"
-                            )}
+                      {showAllFiles ? (
+                        <section className="flex min-h-0 flex-1 flex-col">
+                          <div className="border-border/70 border-b px-2 py-2">
+                            <Input
+                              className="h-8"
+                              onChange={(event) => {
+                                setRepositoryFileFilterInputValue(
+                                  event.target.value
+                                );
+                              }}
+                              placeholder="Filter files..."
+                              value={repositoryFileFilterInputValue}
+                            />
                           </div>
-                        )}
-                      </section>
+                          {filteredRepositoryFiles.length > 0 ? (
+                            <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                              {(() => {
+                                const expandableNodeState =
+                                  collectExpandableTreeKeys(
+                                    allFilesTree,
+                                    "all"
+                                  );
+                                const expandableNodeKeys =
+                                  Object.keys(expandableNodeState);
+                                const isAllFilesTreeFullyExpanded =
+                                  expandableNodeKeys.length > 0 &&
+                                  expandableNodeKeys.every(
+                                    (key) => expandedTreeNodePaths[key] === true
+                                  );
 
-                      <section
-                        className={cn(
-                          "flex min-h-0 flex-col border-border/70 border-t",
-                          isStagedSectionCollapsed
-                            ? "mt-auto shrink-0"
-                            : "flex-1"
-                        )}
-                      >
-                        <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
-                          <button
-                            className="inline-flex items-center gap-1 text-left font-medium text-sm"
-                            onClick={() =>
-                              setIsStagedSectionCollapsed((current) => !current)
-                            }
-                            type="button"
-                          >
-                            {isStagedSectionCollapsed ? (
-                              <CaretRightIcon className="size-3" />
-                            ) : (
-                              <CaretDownIcon className="size-3" />
-                            )}
-                            Staged Files ({stagedItems.length})
-                          </button>
-                          <Button
-                            className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
-                            disabled={!hasStagedChanges || isUnstagingAll}
-                            onClick={() => {
-                              handleUnstageAll().catch(() => undefined);
-                            }}
-                            size="sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            {isUnstagingAll
-                              ? "Unstaging..."
-                              : "Unstage All Changes"}
-                          </Button>
-                        </div>
+                                return (
+                                  <Button
+                                    className="h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                    onClick={() => {
+                                      if (isAllFilesTreeFullyExpanded) {
+                                        setExpandedTreeNodePaths((current) => {
+                                          const nextEntries = Object.entries(
+                                            current
+                                          ).filter(
+                                            ([key]) => !key.startsWith("all:")
+                                          );
 
-                        {isStagedSectionCollapsed ? null : (
-                          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                            {renderChangesSectionContent(
-                              stagedItems,
-                              stagedTree,
-                              "staged"
-                            )}
+                                          return Object.fromEntries(
+                                            nextEntries
+                                          );
+                                        });
+                                        return;
+                                      }
+
+                                      setExpandedTreeNodePaths((current) => ({
+                                        ...current,
+                                        ...expandableNodeState,
+                                      }));
+                                    }}
+                                    size="sm"
+                                    type="button"
+                                    variant="ghost"
+                                  >
+                                    {isAllFilesTreeFullyExpanded
+                                      ? "Collapse All"
+                                      : "Expand All"}
+                                  </Button>
+                                );
+                              })()}
+                            </div>
+                          ) : null}
+                          <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                            {renderAllFilesSectionContent()}
                           </div>
-                        )}
-                      </section>
+                        </section>
+                      ) : (
+                        <>
+                          <section
+                            className={cn(
+                              "flex min-h-0 flex-col",
+                              isUnstagedSectionCollapsed ? "shrink-0" : "flex-1"
+                            )}
+                          >
+                            <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                              <button
+                                className="inline-flex items-center gap-1 text-left font-medium text-sm"
+                                onClick={() =>
+                                  setIsUnstagedSectionCollapsed(
+                                    (current) => !current
+                                  )
+                                }
+                                type="button"
+                              >
+                                {isUnstagedSectionCollapsed ? (
+                                  <CaretRightIcon className="size-3" />
+                                ) : (
+                                  <CaretDownIcon className="size-3" />
+                                )}
+                                Unstaged Files ({unstagedItems.length})
+                              </button>
+                              <Button
+                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                disabled={!hasUnstagedChanges || isStagingAll}
+                                onClick={() => {
+                                  handleStageAll().catch(() => undefined);
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                {isStagingAll
+                                  ? "Staging..."
+                                  : "Stage All Changes"}
+                              </Button>
+                            </div>
+
+                            {isUnstagedSectionCollapsed ? null : (
+                              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                                {renderChangesSectionContent(
+                                  unstagedItems,
+                                  unstagedTree,
+                                  "unstaged"
+                                )}
+                              </div>
+                            )}
+                          </section>
+
+                          <section
+                            className={cn(
+                              "flex min-h-0 flex-col border-border/70 border-t",
+                              isStagedSectionCollapsed
+                                ? "mt-auto shrink-0"
+                                : "flex-1"
+                            )}
+                          >
+                            <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                              <button
+                                className="inline-flex items-center gap-1 text-left font-medium text-sm"
+                                onClick={() =>
+                                  setIsStagedSectionCollapsed(
+                                    (current) => !current
+                                  )
+                                }
+                                type="button"
+                              >
+                                {isStagedSectionCollapsed ? (
+                                  <CaretRightIcon className="size-3" />
+                                ) : (
+                                  <CaretDownIcon className="size-3" />
+                                )}
+                                Staged Files ({stagedItems.length})
+                              </button>
+                              <Button
+                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                disabled={!hasStagedChanges || isUnstagingAll}
+                                onClick={() => {
+                                  handleUnstageAll().catch(() => undefined);
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                {isUnstagingAll
+                                  ? "Unstaging..."
+                                  : "Unstage All Changes"}
+                              </Button>
+                            </div>
+
+                            {isStagedSectionCollapsed ? null : (
+                              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                                {renderChangesSectionContent(
+                                  stagedItems,
+                                  stagedTree,
+                                  "staged"
+                                )}
+                              </div>
+                            )}
+                          </section>
+                        </>
+                      )}
                     </div>
                   </div>
 

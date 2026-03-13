@@ -31,10 +31,33 @@ export interface GeneralPreferences {
 export interface UiPreferences {
   dateFormat: DateFormatPreset;
   locale: string;
+  repoFileBrowserByRepoId: Record<string, RepoFileBrowserState>;
   theme: ThemePreference;
   toasterPosition: ToasterPosition;
   toolbarLabels: boolean;
 }
+
+export type RepoFileBrowserSortOrder = "asc" | "desc";
+
+export interface RepoFileBrowserState {
+  expandedTreeNodePaths: Record<string, boolean>;
+  filterInputValue: string;
+  isStagedSectionCollapsed: boolean;
+  isUnstagedSectionCollapsed: boolean;
+  showAllFiles: boolean;
+  sortOrder: RepoFileBrowserSortOrder;
+  viewMode: "path" | "tree";
+}
+
+export const DEFAULT_REPO_FILE_BROWSER_STATE: RepoFileBrowserState = {
+  expandedTreeNodePaths: {},
+  filterInputValue: "",
+  isStagedSectionCollapsed: false,
+  isUnstagedSectionCollapsed: false,
+  showAllFiles: false,
+  sortOrder: "asc",
+  viewMode: "tree",
+};
 
 export interface TerminalPreferences {
   cursorStyle: TerminalCursorStyle;
@@ -233,6 +256,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   ui: {
     dateFormat: "compact",
     locale: "system",
+    repoFileBrowserByRepoId: {},
     theme: "system",
     toasterPosition: "top-right",
     toolbarLabels: false,

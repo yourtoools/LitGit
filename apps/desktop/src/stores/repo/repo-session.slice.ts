@@ -152,6 +152,7 @@ export const createRepoSessionSlice = (
       openedRepos,
       repoCommits,
       repoBranches,
+      repoFilesById,
       repoRemoteNames,
       repoStashes,
       repoWorkingTreeStatuses,
@@ -168,6 +169,7 @@ export const createRepoSessionSlice = (
 
     const nextRepoCommits = clearRepoDataById(repoCommits, id);
     const nextRepoBranches = clearRepoDataById(repoBranches, id);
+    const nextRepoFilesById = clearRepoDataById(repoFilesById, id);
     const nextRepoRemoteNames = clearRepoDataById(repoRemoteNames, id);
     const nextRepoStashes = clearRepoDataById(repoStashes, id);
     const nextRepoWorkingTreeStatuses = clearRepoDataById(
@@ -183,6 +185,7 @@ export const createRepoSessionSlice = (
       openedRepos: nextOpenedRepos,
       repoCommits: nextRepoCommits,
       repoBranches: nextRepoBranches,
+      repoFilesById: nextRepoFilesById,
       repoRemoteNames: nextRepoRemoteNames,
       repoStashes: nextRepoStashes,
       repoWorkingTreeStatuses: nextRepoWorkingTreeStatuses,
@@ -315,6 +318,7 @@ export const createRepoSessionSlice = (
       set((state) => {
         let nextRepoCommits = state.repoCommits;
         let nextRepoBranches = state.repoBranches;
+        let nextRepoFilesById = state.repoFilesById;
         let nextRepoStashes = state.repoStashes;
         let nextRepoWorkingTreeStatuses = state.repoWorkingTreeStatuses;
         let nextRepoWorkingTreeItems = state.repoWorkingTreeItems;
@@ -322,6 +326,7 @@ export const createRepoSessionSlice = (
         for (const staleRepoId of staleRepoIds) {
           nextRepoCommits = clearRepoDataById(nextRepoCommits, staleRepoId);
           nextRepoBranches = clearRepoDataById(nextRepoBranches, staleRepoId);
+          nextRepoFilesById = clearRepoDataById(nextRepoFilesById, staleRepoId);
           nextRepoStashes = clearRepoDataById(nextRepoStashes, staleRepoId);
           nextRepoWorkingTreeStatuses = clearRepoDataById(
             nextRepoWorkingTreeStatuses,
@@ -339,6 +344,7 @@ export const createRepoSessionSlice = (
           ),
           repoCommits: nextRepoCommits,
           repoBranches: nextRepoBranches,
+          repoFilesById: nextRepoFilesById,
           repoStashes: nextRepoStashes,
           repoWorkingTreeStatuses: nextRepoWorkingTreeStatuses,
           repoWorkingTreeItems: nextRepoWorkingTreeItems,

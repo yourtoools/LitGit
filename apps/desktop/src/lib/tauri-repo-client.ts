@@ -15,6 +15,7 @@ import type {
   RepositoryCommitFile,
   RepositoryCommitFileDiff,
   RepositoryFileDiff,
+  RepositoryFileEntry,
   RepositoryStash,
   RepositoryWorkingTreeItem,
   RepositoryWorkingTreeStatus,
@@ -393,6 +394,24 @@ function parseRepositoryCommitFiles(value: unknown): RepositoryCommitFile[] {
   }
 
   return value.map(parseRepositoryCommitFile);
+}
+
+function parseRepositoryFileEntry(value: unknown): RepositoryFileEntry {
+  if (!isRecord(value) || typeof value.path !== "string") {
+    throw new Error("Invalid repository files payload");
+  }
+
+  return {
+    path: value.path,
+  } satisfies RepositoryFileEntry;
+}
+
+function parseRepositoryFileEntries(value: unknown): RepositoryFileEntry[] {
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid repository files payload");
+  }
+
+  return value.map(parseRepositoryFileEntry);
 }
 
 export function getTauriInvoke() {
@@ -1295,6 +1314,24 @@ export async function getRepoFileDiff(path: string, filePath: string) {
   } satisfies RepositoryFileDiff;
 }
 
+export async function getRepositoryFiles(path: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Repository files work in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git ls-files --cached --others --exclude-standard",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_files",
+    repoPath: path,
+  });
+
+  return parseRepositoryFileEntries(result);
+}
+
 export async function fetchRepoData(
   id: string,
   path: string,
@@ -1352,6 +1389,8 @@ export async function fetchRepoData(
     branchesPayload,
     historyError,
     historyPayload,
+    repoFilesError: null,
+    repoFilesPayload: null,
     remoteNamesError,
     remoteNamesPayload,
     stashesError,
