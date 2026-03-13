@@ -479,7 +479,7 @@ export function NewTabContent() {
 
         <section aria-label="Quick actions" className="space-y-4">
           <h2 className="border-primary border-l-4 pl-3 font-mono font-semibold text-primary text-xs uppercase tracking-[0.22em]">
-            Quick_Actions
+            Quick Actions
           </h2>
           <TooltipProvider delay={900}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -530,7 +530,7 @@ export function NewTabContent() {
         <section aria-label="Recent repositories" className="space-y-4">
           <div className="flex items-center justify-between border-primary border-l-4 pl-3">
             <h2 className="font-mono font-semibold text-primary text-xs uppercase tracking-[0.22em]">
-              Recent_Repositories
+              Recent Repositories
             </h2>
             {hasMoreThanLimit && !isSearching ? (
               <Button
@@ -539,7 +539,7 @@ export function NewTabContent() {
                 type="button"
                 variant="ghost"
               >
-                {isExpanded ? "View_Less" : "View_All_Repositories"}
+                {isExpanded ? "View Less" : "View All Repositories"}
               </Button>
             ) : null}
           </div>
@@ -620,9 +620,9 @@ export function NewTabContent() {
             )}
 
             <div className="grid grid-cols-[minmax(0,0.75fr)_minmax(0,0.5fr)_minmax(0,1.5fr)_minmax(0,1fr)] border-primary/20 border-b bg-primary/10 px-4 py-2 font-mono text-primary/80 text-xs uppercase tracking-[0.18em]">
-              <span>Repository_ID</span>
+              <span>Repository</span>
               <span>Branch</span>
-              <span>Last_Commit</span>
+              <span>Last Commit</span>
               <span>Location</span>
             </div>
 
