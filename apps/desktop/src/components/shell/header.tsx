@@ -265,7 +265,7 @@ export default function Header() {
             aria-label="Notifications"
             className="shrink-0"
             disabled
-            size="default"
+            size={toolbarLabels ? "default" : "icon"}
             variant="ghost"
           >
             <BellIcon />
@@ -282,7 +282,7 @@ export default function Header() {
                     setSection("general");
                     navigate({ to: "/settings" }).catch(() => undefined);
                   }}
-                  size="default"
+                  size={toolbarLabels ? "default" : "icon"}
                   variant="ghost"
                 >
                   <GearIcon className="text-current" />
