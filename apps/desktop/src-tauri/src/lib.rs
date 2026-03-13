@@ -2218,19 +2218,56 @@ fn get_repository_commit_files(
 ) -> Result<Vec<RepositoryCommitFile>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
-        .args([
-            "-C",
-            &repo_path,
-            "show",
-            "--pretty=format:",
-            "--name-status",
-            "--find-renames",
-            "--find-copies",
-            &commit_hash,
-        ])
+    let parents_output = Command::new("git")
+        .args(["-C", &repo_path, "rev-list", "--parents", "-n", "1", &commit_hash])
         .output()
-        .map_err(|error| format!("Failed to run git show for commit files: {error}"))?;
+        .map_err(|error| format!("Failed to inspect commit parents: {error}"))?;
+
+    if !parents_output.status.success() {
+        return Err(git_error_message(
+            &parents_output.stderr,
+            "Failed to inspect commit parents",
+        ));
+    }
+
+    let parents_stdout = String::from_utf8_lossy(&parents_output.stdout);
+    let parent_tokens: Vec<&str> = parents_stdout.split_whitespace().collect();
+    let first_parent = parent_tokens.get(1).map(|parent| (*parent).to_string());
+    let is_merge_commit = parent_tokens.len() > 2;
+
+    let output = if is_merge_commit {
+        let parent_hash = first_parent
+            .clone()
+            .ok_or_else(|| "Failed to resolve first parent for merge commit".to_string())?;
+
+        Command::new("git")
+            .args([
+                "-C",
+                &repo_path,
+                "diff",
+                "--name-status",
+                "--find-renames",
+                "--find-copies",
+                &parent_hash,
+                &commit_hash,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git diff for merge commit files: {error}"))?
+    } else {
+        Command::new("git")
+            .args([
+                "-C",
+                &repo_path,
+                "show",
+                "--pretty=format:",
+                "--name-status",
+                "--find-renames",
+                "--find-copies",
+                &commit_hash,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git show for commit files: {error}"))?
+    };
 
     if !output.status.success() {
         return Err(git_error_message(
@@ -2268,19 +2305,39 @@ fn get_repository_commit_files(
             (parts[1].to_string(), None)
         };
 
-        let numstat_output = Command::new("git")
-            .args([
-                "-C",
-                &repo_path,
-                "show",
-                "--pretty=format:",
-                "--numstat",
-                &commit_hash,
-                "--",
-                &path,
-            ])
-            .output()
-            .map_err(|error| format!("Failed to run git show --numstat: {error}"))?;
+        let numstat_output = if is_merge_commit {
+            let parent_hash = first_parent
+                .as_deref()
+                .ok_or_else(|| "Failed to resolve first parent for merge commit".to_string())?;
+
+            Command::new("git")
+                .args([
+                    "-C",
+                    &repo_path,
+                    "diff",
+                    "--numstat",
+                    parent_hash,
+                    &commit_hash,
+                    "--",
+                    &path,
+                ])
+                .output()
+                .map_err(|error| format!("Failed to run git diff --numstat: {error}"))?
+        } else {
+            Command::new("git")
+                .args([
+                    "-C",
+                    &repo_path,
+                    "show",
+                    "--pretty=format:",
+                    "--numstat",
+                    &commit_hash,
+                    "--",
+                    &path,
+                ])
+                .output()
+                .map_err(|error| format!("Failed to run git show --numstat: {error}"))?
+        };
 
         let mut additions: usize = 0;
         let mut deletions: usize = 0;
