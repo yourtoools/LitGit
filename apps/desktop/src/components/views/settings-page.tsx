@@ -44,6 +44,7 @@ import {
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { TerminalViewport } from "@/components/terminal/terminal-viewport";
 import {
   getLocaleOption,
   LOCALE_OPTIONS,
@@ -1413,6 +1414,29 @@ function TerminalSection({ query }: { query: string }) {
         searchPlaceholder="Search terminal fonts"
         selectedFont={fontFamily}
       />
+      <SettingsField
+        description="Live in-app terminal instance using your selected terminal typography settings."
+        label="In-App Terminal preview"
+        query={query}
+      >
+        <div className="overflow-hidden rounded-lg border border-border/70 bg-card/60">
+          <div className="flex items-center justify-between border-border/70 border-b bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
+            <span>Terminal Preview</span>
+            <span>Default shell directory</span>
+          </div>
+          <div className="p-2">
+            <div className="h-44 overflow-hidden rounded-md border border-border/60 bg-background">
+              <TerminalViewport
+                autoFocus={false}
+                contextKey="settings-terminal-preview:default"
+                cwd=""
+                isActive
+                persistSessionOnUnmount={false}
+              />
+            </div>
+          </div>
+        </div>
+      </SettingsField>
       <SettingsField
         description="Applied immediately to the mounted xterm instance."
         label="Font size"

@@ -18,6 +18,7 @@ import "xterm/css/xterm.css";
 
 import { TerminalPlaceholder } from "@/components/terminal/terminal-placeholder";
 import {
+  closeTerminalSession,
   createTerminalSession,
   listenTerminalOutput,
   resizeTerminalSession,
@@ -32,9 +33,11 @@ import { usePreferencesStore } from "@/stores/preferences/use-preferences-store"
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 interface TerminalViewportProps {
+  autoFocus?: boolean;
   contextKey: string;
   cwd: string;
   isActive: boolean;
+  persistSessionOnUnmount?: boolean;
 }
 
 interface TerminalSessionCacheEntry {
@@ -121,9 +124,11 @@ const createTerminalTheme = (mode: "light" | "dark") => {
 };
 
 export function TerminalViewport({
+  autoFocus = true,
   contextKey,
   cwd,
   isActive,
+  persistSessionOnUnmount = true,
 }: TerminalViewportProps) {
   const cursorStyle = usePreferencesStore(
     (state) => state.terminal.cursorStyle
@@ -328,7 +333,7 @@ export function TerminalViewport({
   }, [repoSuggestionContext]);
 
   useEffect(() => {
-    if (!(mountRef.current && cwd.trim().length > 0)) {
+    if (!mountRef.current) {
       return;
     }
 
@@ -608,7 +613,7 @@ export function TerminalViewport({
       setIsReady(true);
       updateSuggestionPosition();
 
-      if (isActive) {
+      if (isActive && autoFocus) {
         terminal.focus();
       }
 
@@ -642,6 +647,7 @@ export function TerminalViewport({
       }
 
       cleanupDone = true;
+      const currentEntry = sessionCacheByContext.get(contextKey);
       setIsReady(false);
       resizeObserver.disconnect();
       inputSubscription?.dispose();
@@ -651,13 +657,20 @@ export function TerminalViewport({
       terminalRef.current = null;
       fitAddonRef.current = null;
       serializeAddonRef.current = null;
+
+      if (!(persistSessionOnUnmount && currentEntry) && currentEntry) {
+        closeTerminalSession(currentEntry.sessionId).catch(() => undefined);
+        sessionCacheByContext.delete(contextKey);
+      }
     };
   }, [
+    persistSessionOnUnmount,
     contextKey,
     cursorStyle,
     cwd,
     fontFamily,
     fontSize,
+    autoFocus,
     isActive,
     lineHeight,
     resolvedTheme,
@@ -669,13 +682,13 @@ export function TerminalViewport({
   }, [updateSuggestionPosition]);
 
   useEffect(() => {
-    if (!(isActive && isReady)) {
+    if (!(isActive && isReady && autoFocus)) {
       return;
     }
 
     fitAddonRef.current?.fit();
     terminalRef.current?.focus();
-  }, [isActive, isReady]);
+  }, [autoFocus, isActive, isReady]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -732,10 +745,6 @@ export function TerminalViewport({
     await navigator.clipboard.writeText(serialized).catch(() => undefined);
     terminalRef.current?.focus();
   };
-
-  if (cwd.trim().length === 0) {
-    return null;
-  }
 
   return (
     <div className="relative h-full">
