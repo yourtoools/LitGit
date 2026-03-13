@@ -3154,6 +3154,550 @@ export function RepoInfo() {
       </ContextMenuContent>
     );
   };
+
+  const normalizeCommitRefLabel = (rawReference: string): string | null => {
+    const trimmedReference = rawReference.trim();
+
+    if (trimmedReference.length === 0) {
+      return null;
+    }
+
+    const headSeparatorIndex = trimmedReference.indexOf("->");
+
+    if (headSeparatorIndex >= 0) {
+      const targetReference = trimmedReference
+        .slice(headSeparatorIndex + 2)
+        .trim();
+
+      return targetReference.length > 0 ? targetReference : null;
+    }
+
+    if (trimmedReference.startsWith("tag: ")) {
+      const tagName = trimmedReference.slice("tag: ".length).trim();
+      return tagName.length > 0 ? tagName : null;
+    }
+
+    if (trimmedReference === "HEAD") {
+      return null;
+    }
+
+    return trimmedReference;
+  };
+
+  const createSidebarEntryFromRefName = (
+    referenceName: string
+  ): SidebarEntry => {
+    const matchingBranch = branches.find(
+      (branch) => branch.name === referenceName
+    );
+
+    if (matchingBranch) {
+      return {
+        active: matchingBranch.isCurrent,
+        isRemote: matchingBranch.isRemote,
+        name: matchingBranch.name,
+        searchName: matchingBranch.name.toLowerCase(),
+        type: matchingBranch.refType === "tag" ? "tag" : "branch",
+      };
+    }
+
+    return {
+      active: referenceName === currentBranch,
+      isRemote: referenceName.includes("/"),
+      name: referenceName,
+      searchName: referenceName.toLowerCase(),
+      type: "branch",
+    };
+  };
+
+  const getCommitRefEntries = (commit: RepositoryCommit): SidebarEntry[] => {
+    const uniqueEntries = new Map<string, SidebarEntry>();
+
+    for (const rawReference of commit.refs) {
+      const normalizedReference = normalizeCommitRefLabel(rawReference);
+
+      if (!normalizedReference) {
+        continue;
+      }
+
+      const entry = createSidebarEntryFromRefName(normalizedReference);
+      const key = `${entry.type}:${entry.name}`;
+
+      if (!uniqueEntries.has(key)) {
+        uniqueEntries.set(key, entry);
+      }
+    }
+
+    return Array.from(uniqueEntries.values());
+  };
+
+  const renderCommitResetSubmenu = (disabled: boolean) => (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger disabled={disabled}>
+        Reset {currentBranch} to this commit
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent>
+        <ContextMenuItem disabled>Soft - keep all changes</ContextMenuItem>
+        <ContextMenuItem disabled>
+          Mixed - keep working copy but reset index
+        </ContextMenuItem>
+        <ContextMenuItem disabled>Hard - discard all changes</ContextMenuItem>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+
+  const _renderRefBranchSubmenuContent = (entry: SidebarEntry) => (
+    <>
+      <ContextMenuItem disabled>
+        Pull (fast-forward if possible)
+      </ContextMenuItem>
+      <ContextMenuItem disabled>Push</ContextMenuItem>
+      <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuSub>
+        <ContextMenuSubTrigger disabled>Checkout</ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          <ContextMenuItem disabled>{entry.name}</ContextMenuItem>
+          {entry.isRemote ? null : (
+            <ContextMenuItem disabled>origin/{entry.name}</ContextMenuItem>
+          )}
+          <ContextMenuItem disabled>this commit</ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger disabled>
+          Create worktree from
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          <ContextMenuItem disabled>{entry.name}</ContextMenuItem>
+          {entry.isRemote ? null : (
+            <ContextMenuItem disabled>origin/{entry.name}</ContextMenuItem>
+          )}
+          <ContextMenuItem disabled>this commit</ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Create branch here</ContextMenuItem>
+      <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
+      {renderCommitResetSubmenu(true)}
+      <ContextMenuItem disabled>Revert commit</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>
+        Push {currentBranch} and start a pull request to origin/{entry.name}
+      </ContextMenuItem>
+      <ContextMenuItem disabled>
+        Explain Branch Changes (Preview)
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Delete {entry.name}</ContextMenuItem>
+      {entry.isRemote ? null : (
+        <ContextMenuItem disabled>Delete origin/{entry.name}</ContextMenuItem>
+      )}
+      {entry.isRemote ? null : (
+        <ContextMenuItem disabled>
+          Delete {entry.name} and origin/{entry.name}
+        </ContextMenuItem>
+      )}
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Copy branch name</ContextMenuItem>
+      <ContextMenuItem disabled>Copy commit sha</ContextMenuItem>
+      <ContextMenuItem disabled>
+        Copy link to branch: origin/{entry.name}
+      </ContextMenuItem>
+      <ContextMenuItem disabled>
+        Copy link to this commit on remote: origin
+      </ContextMenuItem>
+      <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
+      <ContextMenuItem disabled>Share commit as Cloud Patch</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Pin to Left</ContextMenuItem>
+      <ContextMenuItem disabled>Solo</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Create tag here</ContextMenuItem>
+      <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
+    </>
+  );
+
+  const _renderRefTagSubmenuContent = (entry: SidebarEntry) => (
+    <>
+      <ContextMenuItem disabled>Checkout this commit</ContextMenuItem>
+      <ContextMenuItem disabled>
+        Create worktree from this commit
+      </ContextMenuItem>
+      <ContextMenuItem disabled>Create branch here</ContextMenuItem>
+      {renderCommitResetSubmenu(true)}
+      <ContextMenuItem disabled>Revert commit</ContextMenuItem>
+      <ContextMenuItem disabled>Edit commit message</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Drop commit</ContextMenuItem>
+      <ContextMenuItem disabled>Move commit down</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Copy tag name</ContextMenuItem>
+      <ContextMenuItem disabled>Copy commit sha</ContextMenuItem>
+      <ContextMenuItem disabled>
+        Copy link to this commit on remote: origin
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Create tag here</ContextMenuItem>
+      <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled>Annotate {entry.name}</ContextMenuItem>
+    </>
+  );
+
+  const renderCommitRowContextMenuContent = (commit: RepositoryCommit) => {
+    const commitRefEntries = getCommitRefEntries(commit);
+    const isMergeCommit = commit.parentHashes.length > 1;
+    const isOldestCommit = commits.at(-1)?.hash === commit.hash;
+    const childCommitCount = commits.reduce(
+      (count, entry) =>
+        entry.parentHashes.includes(commit.hash) ? count + 1 : count,
+      0
+    );
+    const mergeTargetEntry =
+      commitRefEntries.find(
+        (entry) =>
+          entry.type === "branch" &&
+          !entry.isRemote &&
+          entry.name !== currentBranch
+      ) ??
+      commitRefEntries.find(
+        (entry) =>
+          entry.type === "branch" &&
+          entry.isRemote &&
+          entry.name !== currentBranch
+      ) ??
+      commitRefEntries.find((entry) => entry.name !== currentBranch) ??
+      null;
+    const mergeTargetLabel = mergeTargetEntry?.name ?? "this commit";
+    let mergeTargetRemoteLabel = "origin/main";
+    const regularTargetEntry =
+      commitRefEntries.find(
+        (entry) =>
+          entry.type === "branch" &&
+          !entry.isRemote &&
+          entry.name !== currentBranch
+      ) ??
+      commitRefEntries.find(
+        (entry) => entry.type === "branch" && entry.name !== currentBranch
+      ) ??
+      mergeTargetEntry;
+    const regularTargetLabel = regularTargetEntry?.name ?? currentBranch;
+    let regularTargetRemoteLabel = `origin/${currentBranch}`;
+
+    if (mergeTargetEntry) {
+      mergeTargetRemoteLabel = mergeTargetEntry.isRemote
+        ? mergeTargetEntry.name
+        : `origin/${mergeTargetEntry.name}`;
+    }
+
+    if (regularTargetEntry) {
+      regularTargetRemoteLabel = regularTargetEntry.isRemote
+        ? regularTargetEntry.name
+        : `origin/${regularTargetEntry.name}`;
+    }
+
+    if (isOldestCommit) {
+      return (
+        <ContextMenuContent
+          className="w-80"
+          onClick={preventLeftClickInMenus}
+          onMouseDown={preventLeftClickInMenus}
+        >
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Checkout this commit</ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Create worktree from this commit
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
+          {renderCommitResetSubmenu(false)}
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Recompose {childCommitCount} children of {commit.shortHash} with AI
+            (Preview)
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Interactive Rebase {childCommitCount} children of {commit.shortHash}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Copy commit sha</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Copy link to this commit on remote: origin
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Share commit as Cloud Patch
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create tag here</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
+        </ContextMenuContent>
+      );
+    }
+
+    if (!isMergeCommit) {
+      return (
+        <ContextMenuContent
+          className="w-80"
+          onClick={preventLeftClickInMenus}
+          onMouseDown={preventLeftClickInMenus}
+        >
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Pull (fast-forward if possible)
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Push</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            {/* TODO: Implement this action */}
+            <ContextMenuSubTrigger>Checkout</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>{regularTargetLabel}</ContextMenuItem>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>
+                {regularTargetRemoteLabel}
+              </ContextMenuItem>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>this commit</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            {/* TODO: Implement this action */}
+            <ContextMenuSubTrigger>Create worktree from</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>{regularTargetLabel}</ContextMenuItem>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>
+                {regularTargetRemoteLabel}
+              </ContextMenuItem>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>this commit</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
+          {renderCommitResetSubmenu(false)}
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Edit commit message</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Recompose commit with AI (Preview)
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Drop commit</ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Start a pull request to origin from {regularTargetRemoteLabel}
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Explain Branch Changes (Preview)
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Apply patch</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Rename {regularTargetLabel}
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Delete {regularTargetLabel}
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Delete {regularTargetRemoteLabel}
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Delete {regularTargetLabel} and {regularTargetRemoteLabel}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Copy branch name</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Copy commit sha</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Copy link to branch: {regularTargetRemoteLabel}
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Copy link to this commit on remote: origin
+          </ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>
+            Share commit as Cloud Patch
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            {/* TODO: Implement this action */}
+            <ContextMenuSubTrigger>Pin to Left</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>This commit</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSub>
+            {/* TODO: Implement this action */}
+            <ContextMenuSubTrigger>Solo</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {/* TODO: Implement this action */}
+              <ContextMenuItem disabled>This commit</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create tag here</ContextMenuItem>
+          {/* TODO: Implement this action */}
+          <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
+        </ContextMenuContent>
+      );
+    }
+
+    return (
+      <ContextMenuContent
+        className="w-80"
+        onClick={preventLeftClickInMenus}
+        onMouseDown={preventLeftClickInMenus}
+      >
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Pull (fast-forward if possible)
+        </ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Push</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Fast-forward {currentBranch} to {mergeTargetLabel}
+        </ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Merge {mergeTargetLabel} into {currentBranch}
+        </ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Rebase {currentBranch} onto {mergeTargetLabel}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuSub>
+          {/* TODO: Implement this action */}
+          <ContextMenuSubTrigger>Checkout</ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>{mergeTargetLabel}</ContextMenuItem>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>{mergeTargetRemoteLabel}</ContextMenuItem>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>this commit</ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuSub>
+          {/* TODO: Implement this action */}
+          <ContextMenuSubTrigger>Create worktree from</ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>{mergeTargetLabel}</ContextMenuItem>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>{mergeTargetRemoteLabel}</ContextMenuItem>
+            {/* TODO: Implement this action */}
+            <ContextMenuItem disabled>this commit</ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuSeparator />
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create branch here</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
+        {renderCommitResetSubmenu(false)}
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Revert commit</ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Push {currentBranch} and start a pull request to{" "}
+          {mergeTargetRemoteLabel}
+        </ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Explain Branch Changes (Preview)
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Rename {mergeTargetLabel}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Delete {mergeTargetLabel}</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Delete {mergeTargetRemoteLabel}
+        </ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Delete {mergeTargetLabel} and {mergeTargetRemoteLabel}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Copy branch name</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Copy commit sha</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Copy link to branch: {mergeTargetRemoteLabel}
+        </ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>
+          Copy link to this commit on remote: origin
+        </ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Share commit as Cloud Patch</ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Pin to Left</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Solo</ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create tag here</ContextMenuItem>
+        {/* TODO: Implement this action */}
+        <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
   const getTreeNodeStateKey = (
     section: "staged" | "unstaged",
     nodePath: string
@@ -4103,6 +4647,18 @@ export function RepoInfo() {
     setIsRightSidebarOpen(true);
   };
 
+  const handleCommitRowClick = (commitHash: string) => {
+    const isSameCommit = selectedCommitId === commitHash;
+
+    if (isSameCommit && isRightSidebarOpen) {
+      setIsRightSidebarOpen(false);
+      return;
+    }
+
+    setSelectedCommitId(commitHash);
+    setIsRightSidebarOpen(true);
+  };
+
   const openForcePushConfirm = (
     mode: "commit" | "push",
     action: () => Promise<void>
@@ -4959,63 +5515,59 @@ export function RepoInfo() {
                 ) : null}
 
                 {commits.map((item, index) => (
-                  <button
-                    className={cn(
-                      "group grid h-12 w-full grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 text-left transition-colors",
-                      selectedCommitId === item.hash
-                        ? "bg-accent/30"
-                        : "hover:bg-accent/20"
-                    )}
-                    key={item.hash}
-                    onClick={() => {
-                      const isSameCommit = selectedCommitId === item.hash;
-
-                      if (isSameCommit && isRightSidebarOpen) {
-                        setIsRightSidebarOpen(false);
-                        return;
-                      }
-
-                      setSelectedCommitId(item.hash);
-                      setIsRightSidebarOpen(true);
-                    }}
-                    type="button"
-                  >
-                    <div className="min-w-0 truncate">
-                      {item.refs.length > 0 ? (
-                        <div className="flex min-w-0 items-center gap-1">
-                          {item.refs.slice(0, 2).map((ref) => (
-                            <span
-                              className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
-                              key={ref}
-                            >
-                              {ref}
+                  <ContextMenu key={item.hash}>
+                    <ContextMenuTrigger>
+                      <button
+                        className={cn(
+                          "group grid h-12 w-full grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 text-left transition-colors",
+                          selectedCommitId === item.hash
+                            ? "bg-accent/30"
+                            : "hover:bg-accent/20"
+                        )}
+                        onClick={() => {
+                          handleCommitRowClick(item.hash);
+                        }}
+                        type="button"
+                      >
+                        <div className="min-w-0 truncate">
+                          {item.refs.length > 0 ? (
+                            <div className="flex min-w-0 items-center gap-1">
+                              {item.refs.slice(0, 2).map((ref) => (
+                                <span
+                                  className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
+                                  key={ref}
+                                >
+                                  {ref}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground/70 text-xs">
+                              <span className="sr-only">No refs</span>
                             </span>
-                          ))}
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-muted-foreground/70 text-xs">
-                          <span className="sr-only">No refs</span>
-                        </span>
-                      )}
-                    </div>
-                    <div className="relative flex h-full items-center justify-center">
-                      <span className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-border/60 border-l" />
-                      {index === 0 ? (
-                        <span className="absolute top-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
-                      ) : null}
-                      {index === commits.length - 1 ? (
-                        <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
-                      ) : null}
-                    </div>
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="min-w-0 flex-1 truncate pr-2 text-sm">
-                        {item.message}
-                      </p>
-                      <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
-                        {item.author}
-                      </span>
-                    </div>
-                  </button>
+                        <div className="relative flex h-full items-center justify-center">
+                          <span className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-border/60 border-l" />
+                          {index === 0 ? (
+                            <span className="absolute top-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
+                          ) : null}
+                          {index === commits.length - 1 ? (
+                            <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
+                          ) : null}
+                        </div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                            {item.message}
+                          </p>
+                          <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
+                            {item.author}
+                          </span>
+                        </div>
+                      </button>
+                    </ContextMenuTrigger>
+                    {renderCommitRowContextMenuContent(item)}
+                  </ContextMenu>
                 ))}
                 {commits.length === 0 && !isLoadingHistory ? (
                   <div className="px-3 py-4 text-muted-foreground text-sm">
