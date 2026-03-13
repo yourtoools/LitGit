@@ -30,6 +30,10 @@ import {
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
 import {
+  DiffEditor as MonacoPreviewDiffEditor,
+  Editor as MonacoPreviewEditor,
+} from "@monaco-editor/react";
+import {
   CaretLeftIcon,
   CpuIcon,
   GitBranchIcon,
@@ -42,6 +46,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { TerminalViewport } from "@/components/terminal/terminal-viewport";
@@ -176,8 +181,145 @@ const DATE_FORMAT_OPTIONS = {
   verbose: "Verbose",
 } as const;
 
+const EDITOR_PREVIEW_MODE_OPTIONS = {
+  diff: "Diff editor",
+  regular: "Regular editor",
+} as const;
+
 const PREVIEW_SAMPLE_DATE = new Date("2026-03-10T17:42:00Z");
 const NOTIFICATION_PREVIEW_TOAST_ID = "settings-notification-preview";
+const EDITOR_PREVIEW_LINES = [
+  "type Joke = {",
+  "\tid: number;",
+  "\tsetup: string;",
+  "\tpunchline: string;",
+  "\ttags: string[];",
+  "};",
+  "",
+  "const jokes: Joke[] = [",
+  "\t{",
+  "\t\tid: 1,",
+  '\t\tsetup: "Why do TypeScript developers never get lost?",',
+  '\t\tpunchline: "Because they always follow strict directions.",',
+  '\t\ttags: ["typescript", "strict", "dev"],',
+  "\t},",
+  "\t{",
+  "\t\tid: 2,",
+  '\t\tsetup: "Why did the JavaScript function break up with var?",',
+  '\t\tpunchline: "It needed someone more committed, so it chose const.",',
+  '\t\ttags: ["javascript", "const", "scope"],',
+  "\t},",
+  "\t{",
+  "\t\tid: 3,",
+  '\t\tsetup: "How many frontend engineers does it take to change a light bulb?",',
+  '\t\tpunchline: "None. They just make it a dark mode toggle.",',
+  '\t\ttags: ["frontend", "ui", "dark-mode"],',
+  "\t},",
+  "];",
+  "",
+  "const formatJoke = ({ setup, punchline }: Joke): string => {",
+  '\treturn setup + " " + punchline;',
+  "};",
+  "",
+  "export const getRandomJoke = (seed: number): string => {",
+  "\tconst joke = jokes[Math.abs(seed) % jokes.length];",
+  "\treturn formatJoke(joke);",
+  "};",
+  "",
+  'const veryLongDebugLine = "preview.wrap.check = This intentionally long line ensures word-wrap settings are easy to evaluate while still keeping meaningful TypeScript content and readable code humor in one place for visual testing across multiple viewport widths.";',
+  "",
+  "console.info(getRandomJoke(Date.now()), veryLongDebugLine);",
+  "",
+  "// Toggle syntax highlighting, line numbers, and wrap to inspect readability.",
+  "// This preview is intentionally read-only and optimized for settings feedback.",
+  "",
+  "export {};",
+  "",
+  "/*",
+  "  Long sample paragraph for wrapping behavior:",
+  "  The build passed, the tests passed, the deploy passed, and then someone changed one semicolon and now the app is haunted by a race condition that only appears at 4:59 PM on Fridays when the CI cache is warm and the coffee machine is empty.",
+  "*/",
+  "",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+  "// Keep scrolling to verify full-height preview behavior in the sidebar.",
+] as const;
+
+const EDITOR_PREVIEW_DIFF_LINES = [
+  'type Delivery = "deadpan" | "dramatic";',
+  "",
+  "type Joke = {",
+  "\tid: number;",
+  "\tsetup: string;",
+  "\tpunchline: string;",
+  "\ttags: readonly string[];",
+  "\tdelivery?: Delivery;",
+  "};",
+  "",
+  "const jokes: Joke[] = [",
+  "\t{",
+  "\t\tid: 1,",
+  '\t\tsetup: "Why do TypeScript developers never get lost?",',
+  '\t\tpunchline: "Because they always follow strict directions.",',
+  '\t\ttags: ["typescript", "strict", "dev"],',
+  '\t\tdelivery: "deadpan",',
+  "\t},",
+  "\t{",
+  "\t\tid: 2,",
+  '\t\tsetup: "Why did the JavaScript function break up with var?",',
+  '\t\tpunchline: "It wanted less drama and more block scope.",',
+  '\t\ttags: ["javascript", "const", "scope"],',
+  "\t},",
+  "\t{",
+  "\t\tid: 3,",
+  '\t\tsetup: "How many frontend engineers does it take to change a light bulb?",',
+  '\t\tpunchline: "None. They just make it a dark mode toggle.",',
+  '\t\ttags: ["frontend", "ui", "dark-mode"],',
+  "\t},",
+  "\t{",
+  "\t\tid: 4,",
+  '\t\tsetup: "Why did the linter apply for management?",',
+  '\t\tpunchline: "It loved enforcing standards across teams.",',
+  '\t\ttags: ["tooling", "lint", "quality"],',
+  '\t\tdelivery: "dramatic",',
+  "\t},",
+  "];",
+  "",
+  "const formatJoke = ({ delivery, setup, punchline }: Joke): string => {",
+  '\tconst prefix = delivery === "dramatic" ? "[drama] " : "";',
+  '\treturn prefix + setup + " " + punchline;',
+  "};",
+  "",
+  "export const getRandomJoke = (seed: number): string => {",
+  "\tconst randomOffset = Math.abs(seed * 13) % jokes.length;",
+  "\tconst joke = jokes[randomOffset];",
+  '\treturn "[" + joke.tags.join(",") + "] " + formatJoke(joke);',
+  "};",
+  "",
+  'const releaseNote = "Updated top/middle/bottom sections to make diff preview richer.";',
+  'const veryLongDebugLine = "preview.wrap.check = This intentionally long line ensures word-wrap settings are easy to evaluate while still keeping meaningful TypeScript content and readable code humor in one place for visual testing across multiple viewport widths.";',
+  "",
+  "console.info(getRandomJoke(Date.now()), releaseNote, veryLongDebugLine);",
+  "",
+  "// Diff mode sample now includes changes from top, middle, and bottom.",
+] as const;
 
 const CURSOR_STYLE_OPTIONS = {
   bar: "Bar",
@@ -239,8 +381,14 @@ const LEFT_SIDEBAR_MIN_WIDTH = 220;
 const LEFT_SIDEBAR_MAX_WIDTH = 400;
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
 const MIN_CONTENT_WIDTH = 560;
+const EDITOR_PREVIEW_SIDEBAR_MIN_WIDTH = 320;
+const EDITOR_PREVIEW_SIDEBAR_MAX_WIDTH = 640;
+const EDITOR_PREVIEW_SIDEBAR_DEFAULT_WIDTH = 420;
+const EDITOR_CONTENT_MIN_WIDTH = 560;
 const RESIZE_HANDLE_WIDTH = 6;
 const SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY = "litgit:settings-sidebar-width";
+const SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY =
+  "litgit:settings-editor-preview-width";
 
 const LINE_NUMBER_OPTIONS = {
   off: "Hidden",
@@ -303,6 +451,47 @@ const getInitialSidebarWidth = () => {
     ? parsedStoredWidth
     : LEFT_SIDEBAR_DEFAULT_WIDTH;
   const { maxWidth, minWidth } = getSidebarResizeBounds(
+    getSettingsLayoutWidth()
+  );
+
+  if (maxWidth <= 0) {
+    return 0;
+  }
+
+  return clampWidth(preferredWidth, minWidth, maxWidth);
+};
+
+const getEditorPreviewResizeBounds = (availableWidth: number) => {
+  const maxWidth = Math.max(
+    0,
+    Math.min(
+      EDITOR_PREVIEW_SIDEBAR_MAX_WIDTH,
+      availableWidth - EDITOR_CONTENT_MIN_WIDTH - RESIZE_HANDLE_WIDTH
+    )
+  );
+  const minWidth = Math.min(EDITOR_PREVIEW_SIDEBAR_MIN_WIDTH, maxWidth);
+
+  return {
+    maxWidth,
+    minWidth,
+  };
+};
+
+const getInitialEditorPreviewSidebarWidth = () => {
+  if (typeof window === "undefined") {
+    return EDITOR_PREVIEW_SIDEBAR_DEFAULT_WIDTH;
+  }
+
+  const storedWidth = window.localStorage.getItem(
+    SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY
+  );
+  const parsedStoredWidth = storedWidth
+    ? Number.parseInt(storedWidth, 10)
+    : Number.NaN;
+  const preferredWidth = Number.isFinite(parsedStoredWidth)
+    ? parsedStoredWidth
+    : EDITOR_PREVIEW_SIDEBAR_DEFAULT_WIDTH;
+  const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
     getSettingsLayoutWidth()
   );
 
@@ -543,6 +732,126 @@ function DefaultSelectValue({
   placeholder?: string;
 }) {
   return <SelectValue placeholder={placeholder} />;
+}
+
+const resolveEditorPreviewEol = (preference: "system" | "lf" | "crlf") => {
+  if (preference === "lf") {
+    return "\n";
+  }
+
+  if (preference === "crlf") {
+    return "\r\n";
+  }
+
+  if (typeof navigator !== "undefined") {
+    return navigator.userAgent.toLowerCase().includes("windows")
+      ? "\r\n"
+      : "\n";
+  }
+
+  return "\n";
+};
+
+function EditorPreview({
+  eol,
+  fontFamily,
+  fontSize,
+  lineNumbers,
+  mode,
+  onModeChange,
+  syntaxHighlighting,
+  tabSize,
+  wordWrap,
+}: {
+  eol: "system" | "lf" | "crlf";
+  fontFamily: string;
+  fontSize: number;
+  lineNumbers: "on" | "off";
+  mode: "diff" | "regular";
+  onModeChange: (value: "diff" | "regular") => void;
+  syntaxHighlighting: boolean;
+  tabSize: number;
+  wordWrap: "on" | "off";
+}) {
+  const { resolvedTheme } = useTheme();
+  const previewRegularValue = useMemo(() => {
+    const eolToken = resolveEditorPreviewEol(eol);
+    return EDITOR_PREVIEW_LINES.join(eolToken);
+  }, [eol]);
+  const previewDiffValue = useMemo(() => {
+    const eolToken = resolveEditorPreviewEol(eol);
+    return EDITOR_PREVIEW_DIFF_LINES.join(eolToken);
+  }, [eol]);
+  const sharedEditorOptions = {
+    automaticLayout: true,
+    contextmenu: false,
+    domReadOnly: true,
+    folding: false,
+    fontFamily,
+    fontSize,
+    glyphMargin: false,
+    guides: {
+      indentation: false,
+    },
+    lineNumbers,
+    minimap: { enabled: false },
+    occurrencesHighlight: "off" as const,
+    overviewRulerBorder: false,
+    overviewRulerLanes: 0,
+    readOnly: true,
+    renderLineHighlight: "none" as const,
+    renderValidationDecorations: "off" as const,
+    scrollBeyondLastLine: false,
+    selectionHighlight: false,
+    smoothScrolling: true,
+    tabSize,
+    wordWrap,
+  };
+
+  return (
+    <div className="flex h-full min-h-[22rem] flex-col overflow-hidden rounded-lg border border-border/70 bg-card/60">
+      <div className="flex items-center justify-between border-border/70 border-b bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
+        <span>Editor Preview</span>
+        <SectionActionRow>
+          <Select
+            items={EDITOR_PREVIEW_MODE_OPTIONS}
+            onValueChange={(value) => {
+              if (value === "diff" || value === "regular") {
+                onModeChange(value);
+              }
+            }}
+            value={mode}
+          >
+            <SelectTrigger className="h-7 w-36 bg-background text-xs">
+              <DefaultSelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="regular">Regular editor</SelectItem>
+              <SelectItem value="diff">Diff editor</SelectItem>
+            </SelectContent>
+          </Select>
+        </SectionActionRow>
+      </div>
+      <div className="min-h-0 flex-1">
+        {mode === "diff" ? (
+          <MonacoPreviewDiffEditor
+            language={syntaxHighlighting ? "typescript" : "plaintext"}
+            modified={previewDiffValue}
+            options={sharedEditorOptions}
+            original={previewRegularValue}
+            theme={resolvedTheme === "light" ? "light" : "vs-dark"}
+          />
+        ) : (
+          <MonacoPreviewEditor
+            language={syntaxHighlighting ? "typescript" : "plaintext"}
+            options={sharedEditorOptions}
+            theme={resolvedTheme === "light" ? "light" : "vs-dark"}
+            value={previewRegularValue}
+          />
+        )}
+      </div>
+    </div>
+  );
 }
 
 function FontPickerField({
@@ -2271,12 +2580,26 @@ function EditorSection({ query }: { query: string }) {
   const setEditorPreferences = usePreferencesStore(
     (state) => state.setEditorPreferences
   );
+  const [previewSidebarWidth, setPreviewSidebarWidth] = useState(
+    getInitialEditorPreviewSidebarWidth
+  );
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
+  const previewResizeStateRef = useRef<SidebarResizeState | null>(null);
+  const previewResizeAnimationFrameRef = useRef<number | null>(null);
+  const pendingPreviewSidebarWidthRef = useRef<number | null>(null);
+  const previewBodyStyleSnapshotRef = useRef<{
+    cursor: string;
+    userSelect: string;
+  } | null>(null);
   const [systemEditorFonts, setSystemEditorFonts] = useState<
     readonly FontPickerOption[]
   >([]);
   const [editorFontStatus, setEditorFontStatus] =
     useState<SystemFontReadResult["status"]>("available");
   const [editorFontQuery, setEditorFontQuery] = useState("");
+  const [editorPreviewMode, setEditorPreviewMode] = useState<
+    "diff" | "regular"
+  >("regular");
   const editorFonts = useMemo(
     () =>
       Array.from(
@@ -2317,151 +2640,426 @@ function EditorSection({ query }: { query: string }) {
       .catch(() => undefined);
   }, []);
 
-  return (
-    <div className="grid gap-4">
-      <FontPickerField
-        description="Search installed editor fonts and bundled fallbacks, then optionally filter to monospace only."
-        emptyMessage={
-          editorFontStatus === "unavailable"
-            ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
-            : "No matching editor fonts found."
+  const getAvailableEditorWidth = useCallback(() => {
+    return previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
+  }, []);
+
+  const schedulePreviewSidebarWidthUpdate = useCallback((nextWidth: number) => {
+    pendingPreviewSidebarWidthRef.current = nextWidth;
+
+    if (previewResizeAnimationFrameRef.current !== null) {
+      return;
+    }
+
+    previewResizeAnimationFrameRef.current = window.requestAnimationFrame(
+      () => {
+        const width = pendingPreviewSidebarWidthRef.current;
+
+        previewResizeAnimationFrameRef.current = null;
+        pendingPreviewSidebarWidthRef.current = null;
+
+        if (typeof width === "number") {
+          setPreviewSidebarWidth(width);
         }
-        helperText={
-          editorFontStatus === "unavailable"
-            ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
-            : "Installed system fonts are shown first, with bundled fallbacks available when needed."
+      }
+    );
+  }, []);
+
+  const resetPreviewResizeState = useCallback(() => {
+    previewResizeStateRef.current = null;
+
+    if (previewResizeAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(previewResizeAnimationFrameRef.current);
+      previewResizeAnimationFrameRef.current = null;
+    }
+
+    pendingPreviewSidebarWidthRef.current = null;
+
+    if (previewBodyStyleSnapshotRef.current) {
+      document.body.style.userSelect =
+        previewBodyStyleSnapshotRef.current.userSelect;
+      document.body.style.cursor = previewBodyStyleSnapshotRef.current.cursor;
+      previewBodyStyleSnapshotRef.current = null;
+    }
+  }, []);
+
+  const startPreviewResize = (event: React.PointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+      getAvailableEditorWidth()
+    );
+
+    if (maxWidth <= 0) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    previewBodyStyleSnapshotRef.current = {
+      cursor: document.body.style.cursor,
+      userSelect: document.body.style.userSelect,
+    };
+
+    previewResizeStateRef.current = {
+      pointerId: event.pointerId,
+      startWidth: previewSidebarWidth,
+      startX: event.clientX,
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    schedulePreviewSidebarWidthUpdate(
+      clampWidth(previewSidebarWidth, minWidth, maxWidth)
+    );
+  };
+
+  const adjustPreviewSidebarWidth = (delta: number) => {
+    const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+      getAvailableEditorWidth()
+    );
+
+    if (maxWidth <= 0) {
+      setPreviewSidebarWidth(0);
+      return;
+    }
+
+    setPreviewSidebarWidth((currentWidth) =>
+      clampWidth(currentWidth + delta, minWidth, maxWidth)
+    );
+  };
+
+  const handlePreviewResizeHandleKeyDown = (
+    event: React.KeyboardEvent<HTMLElement>
+  ) => {
+    const resizeStep = event.shiftKey ? 40 : 16;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      adjustPreviewSidebarWidth(resizeStep);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      adjustPreviewSidebarWidth(-resizeStep);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      const { minWidth } = getEditorPreviewResizeBounds(
+        getAvailableEditorWidth()
+      );
+      setPreviewSidebarWidth(minWidth);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      const { maxWidth } = getEditorPreviewResizeBounds(
+        getAvailableEditorWidth()
+      );
+      setPreviewSidebarWidth(maxWidth);
+    }
+  };
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = previewResizeStateRef.current;
+
+      if (!resizeState || event.pointerId !== resizeState.pointerId) {
+        return;
+      }
+
+      const delta = event.clientX - resizeState.startX;
+      const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+        getAvailableEditorWidth()
+      );
+
+      if (maxWidth <= 0) {
+        schedulePreviewSidebarWidthUpdate(0);
+        return;
+      }
+
+      schedulePreviewSidebarWidthUpdate(
+        clampWidth(resizeState.startWidth - delta, minWidth, maxWidth)
+      );
+    };
+
+    const handlePointerUp = () => {
+      if (!previewResizeStateRef.current) {
+        return;
+      }
+
+      resetPreviewResizeState();
+    };
+
+    const handleWindowBlur = () => {
+      if (!previewResizeStateRef.current) {
+        return;
+      }
+
+      resetPreviewResizeState();
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("blur", handleWindowBlur);
+      resetPreviewResizeState();
+    };
+  }, [
+    getAvailableEditorWidth,
+    resetPreviewResizeState,
+    schedulePreviewSidebarWidthUpdate,
+  ]);
+
+  useEffect(() => {
+    const clampPreviewWidthToViewport = () => {
+      const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+        getAvailableEditorWidth()
+      );
+
+      setPreviewSidebarWidth((currentWidth) => {
+        if (maxWidth <= 0) {
+          return 0;
         }
-        label="Editor font"
-        monospaceOnly={editor.fontVisibility === "monospace-only"}
-        onMonospaceOnlyChange={(checked) => {
-          setEditorPreferences({
-            fontVisibility: checked ? "monospace-only" : "all-fonts",
-          });
-        }}
-        onSearchChange={setEditorFontQuery}
-        onValueChange={(value) => setEditorPreferences({ fontFamily: value })}
-        options={visibleEditorFonts}
-        query={query}
-        searchPlaceholder="Search editor fonts"
-        selectedFont={editor.fontFamily}
-      />
+
+        return clampWidth(currentWidth, minWidth, maxWidth);
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      clampPreviewWidthToViewport();
+    });
+
+    if (previewContainerRef.current) {
+      resizeObserver.observe(previewContainerRef.current);
+    }
+
+    clampPreviewWidthToViewport();
+    window.addEventListener("resize", clampPreviewWidthToViewport);
+
+    return () => {
+      window.removeEventListener("resize", clampPreviewWidthToViewport);
+      resizeObserver.disconnect();
+    };
+  }, [getAvailableEditorWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY,
+      String(Math.round(previewSidebarWidth))
+    );
+  }, [previewSidebarWidth]);
+
+  const renderEditorPreview = () => {
+    return (
       <SettingsField
-        description="Changes Monaco font size immediately for open diff views."
-        label="Font size"
+        description="Read-only Monaco preview that reflects current editor settings immediately."
+        label="Monaco preview"
         query={query}
       >
-        <Input
-          min={10}
-          onChange={(event) => {
+        <div className="h-[22rem] xl:h-[calc(100vh-6rem)]">
+          <EditorPreview
+            eol={editor.eol}
+            fontFamily={editor.fontFamily}
+            fontSize={editor.fontSize}
+            lineNumbers={editor.lineNumbers}
+            mode={editorPreviewMode}
+            onModeChange={setEditorPreviewMode}
+            syntaxHighlighting={editor.syntaxHighlighting}
+            tabSize={editor.tabSize}
+            wordWrap={editor.wordWrap}
+          />
+        </div>
+      </SettingsField>
+    );
+  };
+
+  return (
+    <div
+      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
+      ref={previewContainerRef}
+    >
+      <div className="grid gap-4">
+        <FontPickerField
+          description="Search installed editor fonts and bundled fallbacks, then optionally filter to monospace only."
+          emptyMessage={
+            editorFontStatus === "unavailable"
+              ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
+              : "No matching editor fonts found."
+          }
+          helperText={
+            editorFontStatus === "unavailable"
+              ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
+              : "Installed system fonts are shown first, with bundled fallbacks available when needed."
+          }
+          label="Editor font"
+          monospaceOnly={editor.fontVisibility === "monospace-only"}
+          onMonospaceOnlyChange={(checked) => {
             setEditorPreferences({
-              fontSize: Number(event.target.value) || 13,
+              fontVisibility: checked ? "monospace-only" : "all-fonts",
             });
           }}
-          type="number"
-          value={editor.fontSize}
+          onSearchChange={setEditorFontQuery}
+          onValueChange={(value) => setEditorPreferences({ fontFamily: value })}
+          options={visibleEditorFonts}
+          query={query}
+          searchPlaceholder="Search editor fonts"
+          selectedFont={editor.fontFamily}
         />
-      </SettingsField>
-      <SettingsField
-        description="Controls the visible indentation width in the Monaco diff editor."
-        label="Tab size"
-        query={query}
-      >
-        <Input
-          min={1}
-          onChange={(event) => {
-            setEditorPreferences({ tabSize: Number(event.target.value) || 2 });
-          }}
-          type="number"
-          value={editor.tabSize}
-        />
-      </SettingsField>
-      <SettingsField
-        description="Show or hide Monaco line numbers in diff views."
-        label="Line numbers"
-        query={query}
-      >
-        <Select
-          items={LINE_NUMBER_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setEditorPreferences({ lineNumbers: value as "on" | "off" });
-            }
-          }}
-          value={editor.lineNumbers}
+        <SettingsField
+          description="Changes Monaco font size immediately for open diff views."
+          label="Font size"
+          query={query}
         >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="on">Visible</SelectItem>
-            <SelectItem value="off">Hidden</SelectItem>
-          </SelectContent>
-        </Select>
-      </SettingsField>
-      <SettingsField
-        description="Wrap long lines in the existing read-only diff editor."
-        label="Word wrap"
-        query={query}
-      >
-        <label className="inline-flex items-center gap-3">
-          <Switch
-            checked={editor.wordWrap === "on"}
-            onCheckedChange={(checked) => {
-              setEditorPreferences({ wordWrap: checked ? "on" : "off" });
-            }}
-          />
-          <span className="text-sm">
-            {editor.wordWrap === "on"
-              ? "Word wrap enabled"
-              : "Word wrap disabled"}
-          </span>
-        </label>
-      </SettingsField>
-      <SettingsField
-        description="Disable language detection and syntax coloring when you want a plain-text diff view."
-        label="Syntax highlighting"
-        query={query}
-      >
-        <label className="inline-flex items-center gap-3">
-          <Switch
-            checked={editor.syntaxHighlighting}
-            onCheckedChange={(checked) => {
-              setEditorPreferences({ syntaxHighlighting: Boolean(checked) });
-            }}
-          />
-          <span className="text-sm">
-            {editor.syntaxHighlighting
-              ? "Use syntax-aware language colors"
-              : "Always render diffs as plain text"}
-          </span>
-        </label>
-      </SettingsField>
-      <SettingsField
-        description="Choose which line-ending mode Monaco should use when rendering diffs."
-        label="Line ending mode"
-        query={query}
-      >
-        <Select
-          items={EOL_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
+          <Input
+            min={10}
+            onChange={(event) => {
               setEditorPreferences({
-                eol: value as "system" | "lf" | "crlf",
+                fontSize: Number(event.target.value) || 13,
               });
-            }
-          }}
-          value={editor.eol}
+            }}
+            type="number"
+            value={editor.fontSize}
+          />
+        </SettingsField>
+        <SettingsField
+          description="Controls the visible indentation width in the Monaco diff editor."
+          label="Tab size"
+          query={query}
         >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="system">System default</SelectItem>
-            <SelectItem value="lf">LF</SelectItem>
-            <SelectItem value="crlf">CRLF</SelectItem>
-          </SelectContent>
-        </Select>
-      </SettingsField>
+          <Input
+            min={1}
+            onChange={(event) => {
+              setEditorPreferences({
+                tabSize: Number(event.target.value) || 2,
+              });
+            }}
+            type="number"
+            value={editor.tabSize}
+          />
+        </SettingsField>
+        <SettingsField
+          description="Show or hide Monaco line numbers in diff views."
+          label="Line numbers"
+          query={query}
+        >
+          <Select
+            items={LINE_NUMBER_OPTIONS}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                setEditorPreferences({ lineNumbers: value as "on" | "off" });
+              }
+            }}
+            value={editor.lineNumbers}
+          >
+            <SelectTrigger>
+              <DefaultSelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="on">Visible</SelectItem>
+              <SelectItem value="off">Hidden</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingsField>
+        <SettingsField
+          description="Wrap long lines in the existing read-only diff editor."
+          label="Word wrap"
+          query={query}
+        >
+          <label className="inline-flex items-center gap-3">
+            <Switch
+              checked={editor.wordWrap === "on"}
+              onCheckedChange={(checked) => {
+                setEditorPreferences({ wordWrap: checked ? "on" : "off" });
+              }}
+            />
+            <span className="text-sm">
+              {editor.wordWrap === "on"
+                ? "Word wrap enabled"
+                : "Word wrap disabled"}
+            </span>
+          </label>
+        </SettingsField>
+        <SettingsField
+          description="Disable language detection and syntax coloring when you want a plain-text diff view."
+          label="Syntax highlighting"
+          query={query}
+        >
+          <label className="inline-flex items-center gap-3">
+            <Switch
+              checked={editor.syntaxHighlighting}
+              onCheckedChange={(checked) => {
+                setEditorPreferences({ syntaxHighlighting: Boolean(checked) });
+              }}
+            />
+            <span className="text-sm">
+              {editor.syntaxHighlighting
+                ? "Use syntax-aware language colors"
+                : "Always render diffs as plain text"}
+            </span>
+          </label>
+        </SettingsField>
+        <SettingsField
+          description="Choose which line-ending mode Monaco should use when rendering diffs."
+          label="Line ending mode"
+          query={query}
+        >
+          <Select
+            items={EOL_OPTIONS}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                setEditorPreferences({
+                  eol: value as "system" | "lf" | "crlf",
+                });
+              }
+            }}
+            value={editor.eol}
+          >
+            <SelectTrigger>
+              <DefaultSelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">System default</SelectItem>
+              <SelectItem value="lf">LF</SelectItem>
+              <SelectItem value="crlf">CRLF</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingsField>
+      </div>
+      <div className="hidden xl:flex xl:items-stretch xl:self-stretch">
+        <button
+          aria-controls="editor-preview-sidebar"
+          aria-label="Resize editor preview sidebar"
+          className="h-full w-1.5 shrink-0 cursor-col-resize bg-transparent outline-none transition-colors hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/50"
+          onKeyDown={handlePreviewResizeHandleKeyDown}
+          onPointerDown={startPreviewResize}
+          type="button"
+        />
+        <div
+          className="min-w-0"
+          id="editor-preview-sidebar"
+          style={{
+            width: previewSidebarWidth > 0 ? `${previewSidebarWidth}px` : "0px",
+          }}
+        >
+          <div className="xl:sticky xl:top-4 xl:h-fit">
+            {renderEditorPreview()}
+          </div>
+        </div>
+      </div>
+      <div className="xl:hidden">{renderEditorPreview()}</div>
     </div>
   );
 }
