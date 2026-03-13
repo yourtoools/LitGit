@@ -5601,7 +5601,7 @@ export function RepoInfo() {
                       <Button
                         aria-label="Terminal"
                         onClick={toggleTerminalPanel}
-                        size={toolbarLabels ? "default" : "icon"}
+                        size="default"
                         type="button"
                         variant="ghost"
                       />

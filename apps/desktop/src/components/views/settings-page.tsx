@@ -43,6 +43,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   getLocaleOption,
   LOCALE_OPTIONS,
@@ -173,6 +174,9 @@ const DATE_FORMAT_OPTIONS = {
   compact: "Compact",
   verbose: "Verbose",
 } as const;
+
+const PREVIEW_SAMPLE_DATE = new Date("2026-03-10T17:42:00Z");
+const NOTIFICATION_PREVIEW_TOAST_ID = "settings-notification-preview";
 
 const CURSOR_STYLE_OPTIONS = {
   bar: "Bar",
@@ -1106,6 +1110,22 @@ function UiSection({ query }: { query: string }) {
   const dateFormat = usePreferencesStore((state) => state.ui.dateFormat);
   const setDateFormat = usePreferencesStore((state) => state.setDateFormat);
   const selectedLocaleOption = getLocaleOption(locale) ?? LOCALE_OPTIONS[0];
+  const effectiveLocale =
+    selectedLocaleOption.code === SYSTEM_LOCALE_CODE ||
+    selectedLocaleOption.code.trim().length === 0
+      ? undefined
+      : selectedLocaleOption.code;
+  const formatDatePreview = (formatPreset: "compact" | "verbose"): string => {
+    const formatOptions: Intl.DateTimeFormatOptions = {
+      dateStyle: formatPreset === "verbose" ? "full" : "medium",
+      timeStyle: formatPreset === "verbose" ? "medium" : "short",
+    };
+
+    return new Intl.DateTimeFormat(effectiveLocale, formatOptions).format(
+      PREVIEW_SAMPLE_DATE
+    );
+  };
+  const selectedDatePreview = formatDatePreview(dateFormat);
 
   return (
     <div className="grid gap-4">
@@ -1138,35 +1158,51 @@ function UiSection({ query }: { query: string }) {
         label="Notification location"
         query={query}
       >
-        <Select
-          items={TOASTER_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setToasterPosition(
-                value as
-                  | "top-right"
-                  | "top-center"
-                  | "top-left"
-                  | "bottom-right"
-                  | "bottom-center"
-                  | "bottom-left"
-              );
-            }
-          }}
-          value={toasterPosition}
-        >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="top-right">Top right</SelectItem>
-            <SelectItem value="top-center">Top center</SelectItem>
-            <SelectItem value="top-left">Top left</SelectItem>
-            <SelectItem value="bottom-right">Bottom right</SelectItem>
-            <SelectItem value="bottom-center">Bottom center</SelectItem>
-            <SelectItem value="bottom-left">Bottom left</SelectItem>
-          </SelectContent>
-        </Select>
+        <SectionActionRow>
+          <Select
+            items={TOASTER_OPTIONS}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                setToasterPosition(
+                  value as
+                    | "top-right"
+                    | "top-center"
+                    | "top-left"
+                    | "bottom-right"
+                    | "bottom-center"
+                    | "bottom-left"
+                );
+              }
+            }}
+            value={toasterPosition}
+          >
+            <SelectTrigger className="w-fit">
+              <DefaultSelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="top-right">Top right</SelectItem>
+              <SelectItem value="top-center">Top center</SelectItem>
+              <SelectItem value="top-left">Top left</SelectItem>
+              <SelectItem value="bottom-right">Bottom right</SelectItem>
+              <SelectItem value="bottom-center">Bottom center</SelectItem>
+              <SelectItem value="bottom-left">Bottom left</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={() => {
+              toast("Notification position preview", {
+                description:
+                  "This toast appears at the currently selected location.",
+                id: NOTIFICATION_PREVIEW_TOAST_ID,
+              });
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Test notification
+          </Button>
+        </SectionActionRow>
       </SettingsField>
       <SettingsField
         description="Choose the locale used for date rendering with a curated searchable list. System locale follows your OS settings."
@@ -1217,6 +1253,7 @@ function UiSection({ query }: { query: string }) {
               ? "Repository timestamps follow your system locale until you pick a specific locale."
               : `Repository timestamps now use ${selectedLocaleOption.displayName}.`}
           </SettingsHelpText>
+          <SettingsHelpText>Preview: {selectedDatePreview}</SettingsHelpText>
         </div>
       </SettingsField>
       <SettingsField
@@ -1224,36 +1261,58 @@ function UiSection({ query }: { query: string }) {
         label="Date format"
         query={query}
       >
-        <Select
-          items={DATE_FORMAT_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setDateFormat(value as "compact" | "verbose");
-            }
-          }}
-          value={dateFormat}
-        >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="compact">Compact</SelectItem>
-            <SelectItem value="verbose">Verbose</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="grid gap-2">
+          <Select
+            items={DATE_FORMAT_OPTIONS}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                setDateFormat(value as "compact" | "verbose");
+              }
+            }}
+            value={dateFormat}
+          >
+            <SelectTrigger>
+              <DefaultSelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="compact">Compact</SelectItem>
+              <SelectItem value="verbose">Verbose</SelectItem>
+            </SelectContent>
+          </Select>
+          <SettingsHelpText>Preview: {selectedDatePreview}</SettingsHelpText>
+        </div>
       </SettingsField>
       <SettingsField
         description="Show or hide text labels alongside shell toolbar actions."
         label="Show toolbar labels"
         query={query}
       >
-        <label className="inline-flex items-center gap-3">
-          <Checkbox
-            checked={toolbarLabels}
-            onCheckedChange={(checked) => setToolbarLabels(Boolean(checked))}
-          />
-          <span className="text-sm">Display action labels in the header</span>
-        </label>
+        <div className="grid gap-2">
+          <label className="inline-flex items-center gap-3">
+            <Checkbox
+              checked={toolbarLabels}
+              onCheckedChange={(checked) => setToolbarLabels(Boolean(checked))}
+            />
+            <span className="text-sm">Display action labels in the header</span>
+          </label>
+          <div className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 p-2">
+            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/70 bg-background px-2 py-1 text-xs">
+              <GitBranchIcon className="size-3.5" />
+              {toolbarLabels ? <span>Branches</span> : null}
+            </span>
+            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/70 bg-background px-2 py-1 text-xs">
+              <TerminalWindowIcon className="size-3.5" />
+              {toolbarLabels ? <span>Terminal</span> : null}
+            </span>
+            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/70 bg-background px-2 py-1 text-xs">
+              <ShieldCheckIcon className="size-3.5" />
+              {toolbarLabels ? <span>Security</span> : null}
+            </span>
+          </div>
+          <SettingsHelpText>
+            Preview updates instantly based on your toolbar label preference.
+          </SettingsHelpText>
+        </div>
       </SettingsField>
     </div>
   );
@@ -2874,9 +2933,9 @@ export function SettingsPage() {
                 render={
                   <Button
                     aria-label="Exit preferences"
-                    className="shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                    className="shrink-0 whitespace-nowrap text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
                     onClick={handleExitPreferences}
-                    size={toolbarLabels ? "sm" : "icon-sm"}
+                    size="sm"
                     type="button"
                     variant="ghost"
                   />

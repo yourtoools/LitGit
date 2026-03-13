@@ -263,8 +263,9 @@ export default function Header() {
           <HeaderTabsSearch />
           <Button
             aria-label="Notifications"
+            className="shrink-0"
             disabled
-            size={toolbarLabels ? "default" : "icon"}
+            size="default"
             variant="ghost"
           >
             <BellIcon />
@@ -275,13 +276,13 @@ export default function Header() {
               render={
                 <Button
                   aria-label="Workspace settings"
-                  className="text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                  className="shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
                   onClick={() => {
                     resetSettingsSearch();
                     setSection("general");
                     navigate({ to: "/settings" }).catch(() => undefined);
                   }}
-                  size={toolbarLabels ? "default" : "icon"}
+                  size="default"
                   variant="ghost"
                 >
                   <GearIcon className="text-current" />
