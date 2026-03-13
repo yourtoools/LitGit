@@ -88,6 +88,8 @@ import {
   GitBranchIcon,
   GithubLogoIcon,
   PencilSimpleIcon,
+  SortAscendingIcon,
+  SortDescendingIcon,
   SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
@@ -6351,25 +6353,37 @@ export function RepoInfo() {
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
-                          <Button
-                            aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
-                            className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                            onClick={() => {
-                              setCommitFileSortOrder((current) =>
-                                current === "asc" ? "desc" : "asc"
-                              );
-                            }}
-                            size="icon-sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            <ArrowUpIcon
-                              className={cn(
-                                "size-3.5 transition-transform",
-                                commitFileSortOrder === "desc" && "rotate-180"
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
+                                  className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                  onClick={() => {
+                                    setCommitFileSortOrder((current) =>
+                                      current === "asc" ? "desc" : "asc"
+                                    );
+                                  }}
+                                  size="icon-sm"
+                                  type="button"
+                                  variant="ghost"
+                                />
+                              }
+                            >
+                              {commitFileSortOrder === "asc" ? (
+                                <SortDescendingIcon className="size-3.5" />
+                              ) : (
+                                <SortAscendingIcon className="size-3.5" />
                               )}
-                            />
-                          </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              Sort filenames in{" "}
+                              {commitFileSortOrder === "asc"
+                                ? "descending"
+                                : "ascending"}{" "}
+                              order
+                            </TooltipContent>
+                          </Tooltip>
                           <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
                             <button
                               className={cn(
@@ -6559,21 +6573,32 @@ export function RepoInfo() {
 
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div className="flex items-center gap-2">
-                        <Button
-                          aria-label={`Sort by filename ${fileTreeSortOrder === "asc" ? "descending" : "ascending"}`}
-                          className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                          onClick={toggleFileTreeSortOrder}
-                          size="icon-sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <ArrowUpIcon
-                            className={cn(
-                              "size-3.5 transition-transform",
-                              fileTreeSortOrder === "desc" && "rotate-180"
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                aria-label={`Sort by filename ${fileTreeSortOrder === "asc" ? "descending" : "ascending"}`}
+                                className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                onClick={toggleFileTreeSortOrder}
+                                size="icon-sm"
+                                type="button"
+                                variant="ghost"
+                              />
+                            }
+                          >
+                            {fileTreeSortOrder === "asc" ? (
+                              <SortDescendingIcon className="size-3.5" />
+                            ) : (
+                              <SortAscendingIcon className="size-3.5" />
                             )}
-                          />
-                        </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            Sort as{" "}
+                            {fileTreeSortOrder === "asc"
+                              ? "descending"
+                              : "ascending"}
+                          </TooltipContent>
+                        </Tooltip>
                         <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
                           <button
                             className={cn(
