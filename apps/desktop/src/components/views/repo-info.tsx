@@ -802,7 +802,7 @@ export function RepoInfo() {
   const [pushAfterCommit, setPushAfterCommit] = useState(false);
   const [skipCommitHooks, setSkipCommitHooks] = useState(false);
   const [isCommitOptionsCollapsed, setIsCommitOptionsCollapsed] =
-    useState(false);
+    useState(true);
   const [commitDetailsViewMode, setCommitDetailsViewMode] =
     useState<ChangesViewMode>("tree");
   const [showAllCommitFiles, setShowAllCommitFiles] = useState(false);
