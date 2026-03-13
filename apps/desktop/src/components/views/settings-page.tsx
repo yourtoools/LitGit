@@ -1197,7 +1197,6 @@ function UiSection({ query }: { query: string }) {
                 id: NOTIFICATION_PREVIEW_TOAST_ID,
               });
             }}
-            size="sm"
             type="button"
             variant="outline"
           >
