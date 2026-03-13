@@ -803,7 +803,7 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
             "--decorate=short",
             "--date=iso-strict",
             "--max-count=150",
-            "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%B%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
         ])
         .output()
         .map_err(|error| format!("Failed to run git log: {error}"))?;

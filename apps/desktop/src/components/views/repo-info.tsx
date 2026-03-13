@@ -181,6 +181,11 @@ type ChangesViewMode = "path" | "tree";
 type ChangeTreeSection = "all" | "staged" | "unstaged";
 type SidebarResizeTarget = "left" | "right";
 
+interface CommitDetailsResizeState {
+  startHeight: number;
+  startY: number;
+}
+
 interface SidebarResizeState {
   startWidth: number;
   startX: number;
@@ -193,8 +198,12 @@ const LEFT_SIDEBAR_DEFAULT_WIDTH = 256;
 const RIGHT_SIDEBAR_MIN_WIDTH = 280;
 const RIGHT_SIDEBAR_MAX_WIDTH = 720;
 const RIGHT_SIDEBAR_DEFAULT_WIDTH = 320;
+const COMMIT_DETAILS_PANEL_MIN_HEIGHT = 96;
+const COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT = 96;
+const COMMIT_DETAILS_PANEL_MAX_HEIGHT = 160;
 const HORIZONTAL_RESIZE_HANDLE_WIDTH = 6;
 const MIN_TIMELINE_CONTENT_WIDTH = 560;
+const COMMIT_MESSAGE_LIST_MARKER_PATTERN = /^[-*•]\s*/;
 
 const GIT_STATUS_STYLE_BY_CODE: Record<
   string,
@@ -813,6 +822,9 @@ export function RepoInfo() {
   const [commitDetailsViewMode, setCommitDetailsViewMode] =
     useState<ChangesViewMode>("tree");
   const [showAllCommitFiles, setShowAllCommitFiles] = useState(false);
+  const [commitDetailsPanelHeight, setCommitDetailsPanelHeight] = useState(
+    COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT
+  );
   const [commitFileFilterInputValue, setCommitFileFilterInputValue] =
     useState("");
   const [
@@ -862,6 +874,7 @@ export function RepoInfo() {
   const sidebarFilterInputRef = useRef<HTMLInputElement | null>(null);
   const branchCreateInputRef = useRef<HTMLInputElement | null>(null);
   const commitSummaryInputRef = useRef<HTMLInputElement | null>(null);
+  const commitDetailsLayoutRef = useRef<HTMLDivElement | null>(null);
   const mainScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const sidebarFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -875,8 +888,14 @@ export function RepoInfo() {
     isLoadingBranches || isLoadingHistory || isLoadingStatus || isLoadingWip;
   const wasRepoRefreshLoadingRef = useRef(isRepoRefreshLoading);
   const sidebarResizeStateRef = useRef<SidebarResizeState | null>(null);
+  const commitDetailsResizeStateRef = useRef<CommitDetailsResizeState | null>(
+    null
+  );
   const leftSidebarWidthRef = useRef(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const rightSidebarWidthRef = useRef(RIGHT_SIDEBAR_DEFAULT_WIDTH);
+  const commitDetailsPanelHeightRef = useRef(
+    COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT
+  );
   const isRightSidebarOpenRef = useRef(true);
   const [, startSidebarFilterTransition] = useTransition();
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
@@ -915,6 +934,7 @@ export function RepoInfo() {
 
   leftSidebarWidthRef.current = leftSidebarWidth;
   rightSidebarWidthRef.current = rightSidebarWidth;
+  commitDetailsPanelHeightRef.current = commitDetailsPanelHeight;
   isRightSidebarOpenRef.current = isRightSidebarOpen;
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
@@ -1147,6 +1167,26 @@ export function RepoInfo() {
     () => commits.find((item) => item.hash === selectedCommitId) ?? null,
     [commits, selectedCommitId]
   );
+  const selectedCommitMessageSections = useMemo(() => {
+    if (!selectedCommit) {
+      return {
+        detailLines: [] as string[],
+        summary: "",
+      };
+    }
+
+    const messageLines = selectedCommit.message
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    return {
+      detailLines: messageLines
+        .slice(1)
+        .map((line) => line.replace(COMMIT_MESSAGE_LIST_MARKER_PATTERN, "")),
+      summary: messageLines[0] ?? selectedCommit.message.trim(),
+    };
+  }, [selectedCommit]);
   const selectedCommitFiles = useMemo<RepositoryCommitFile[]>(
     () =>
       selectedCommit
@@ -2234,6 +2274,43 @@ export function RepoInfo() {
     };
   }, []);
 
+  useEffect(() => {
+    const handlePointerMove = (event: MouseEvent) => {
+      const resizeState = commitDetailsResizeStateRef.current;
+
+      if (!resizeState) {
+        return;
+      }
+
+      setCommitDetailsPanelHeight(
+        clampWidth(
+          resizeState.startHeight + (event.clientY - resizeState.startY),
+          COMMIT_DETAILS_PANEL_MIN_HEIGHT,
+          COMMIT_DETAILS_PANEL_MAX_HEIGHT
+        )
+      );
+    };
+
+    const resetCommitDetailsResizeState = () => {
+      if (!commitDetailsResizeStateRef.current) {
+        return;
+      }
+
+      commitDetailsResizeStateRef.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+
+    globalThis.addEventListener("mousemove", handlePointerMove);
+    globalThis.addEventListener("mouseup", resetCommitDetailsResizeState);
+
+    return () => {
+      globalThis.removeEventListener("mousemove", handlePointerMove);
+      globalThis.removeEventListener("mouseup", resetCommitDetailsResizeState);
+      resetCommitDetailsResizeState();
+    };
+  }, []);
+
   const scheduleSidebarFilterUpdate = (nextValue: string) => {
     if (sidebarFilterDebounceRef.current !== null) {
       globalThis.clearTimeout(sidebarFilterDebounceRef.current);
@@ -2272,6 +2349,21 @@ export function RepoInfo() {
       document.body.style.userSelect = "none";
       document.body.style.cursor = "col-resize";
     };
+
+  const startCommitDetailsResize = (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    commitDetailsResizeStateRef.current = {
+      startHeight: commitDetailsPanelHeightRef.current,
+      startY: event.clientY,
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+  };
 
   const preventLeftClickInMenus = (event: React.MouseEvent) => {
     if (event.button === 0) {
@@ -6338,10 +6430,36 @@ export function RepoInfo() {
 
                   <div className="flex min-h-0 flex-1 flex-col">
                     <div className="space-y-3 border-border/70 border-b px-3 py-3 text-sm">
-                      <div className="rounded border border-border/70 bg-background/70 p-3">
-                        <p className="font-medium leading-snug">
-                          {selectedCommit.message}
-                        </p>
+                      <div className="rounded border border-border/70 bg-background/70">
+                        <div
+                          className="overflow-y-auto px-3 pt-3"
+                          ref={commitDetailsLayoutRef}
+                          style={{ height: `${commitDetailsPanelHeight}px` }}
+                        >
+                          <div className="space-y-2">
+                            <p className="font-medium leading-snug">
+                              {selectedCommitMessageSections.summary}
+                            </p>
+                            {selectedCommitMessageSections.detailLines.length >
+                            0 ? (
+                              <ul className="space-y-1.5 pb-1 text-muted-foreground text-sm">
+                                {selectedCommitMessageSections.detailLines.map(
+                                  (line) => (
+                                    <li className="leading-snug" key={line}>
+                                      - {line}
+                                    </li>
+                                  )
+                                )}
+                              </ul>
+                            ) : null}
+                          </div>
+                        </div>
+                        <button
+                          aria-label="Resize commit message"
+                          className="h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                          onMouseDown={startCommitDetailsResize}
+                          type="button"
+                        />
                       </div>
                       <div className="rounded border border-border/70 bg-background/50 p-2.5">
                         <div className="flex items-start gap-2.5">
