@@ -946,6 +946,16 @@ export function RepoInfo() {
   const setChangesViewMode = (viewMode: ChangesViewMode) => {
     persistRepoFileBrowserState({ viewMode });
   };
+  const setShowAllCommitFilesState = (shouldShowAll: boolean) => {
+    setShowAllCommitFiles(shouldShowAll);
+
+    if (shouldShowAll) {
+      setCommitDetailsViewMode("tree");
+      return;
+    }
+
+    setCommitFileFilterInputValue("");
+  };
   const setIsUnstagedSectionCollapsed = (
     value: boolean | ((current: boolean) => boolean)
   ) => {
@@ -1952,7 +1962,12 @@ export function RepoInfo() {
   }, [activeRepoId]);
 
   useEffect(() => {
-    if (!(activeRepoId && showAllFiles) || allRepositoryFiles.length > 0) {
+    const shouldLoadRepositoryFiles = showAllFiles || showAllCommitFiles;
+
+    if (
+      !(activeRepoId && shouldLoadRepositoryFiles) ||
+      allRepositoryFiles.length > 0
+    ) {
       return;
     }
 
@@ -1961,6 +1976,7 @@ export function RepoInfo() {
     activeRepoId,
     allRepositoryFiles.length,
     getRepositoryFiles,
+    showAllCommitFiles,
     showAllFiles,
   ]);
 
@@ -6413,18 +6429,20 @@ export function RepoInfo() {
                             </TooltipContent>
                           </Tooltip>
                           <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
-                            <button
-                              className={cn(
-                                "rounded px-3 py-1 font-medium text-xs transition-colors",
-                                commitDetailsViewMode === "path"
-                                  ? "bg-accent text-accent-foreground"
-                                  : "text-muted-foreground hover:text-foreground"
-                              )}
-                              onClick={() => setCommitDetailsViewMode("path")}
-                              type="button"
-                            >
-                              Path
-                            </button>
+                            {showAllCommitFiles ? null : (
+                              <button
+                                className={cn(
+                                  "rounded px-3 py-1 font-medium text-xs transition-colors",
+                                  commitDetailsViewMode === "path"
+                                    ? "bg-accent text-accent-foreground"
+                                    : "text-muted-foreground hover:text-foreground"
+                                )}
+                                onClick={() => setCommitDetailsViewMode("path")}
+                                type="button"
+                              >
+                                Path
+                              </button>
+                            )}
                             <button
                               className={cn(
                                 "rounded px-3 py-1 font-medium text-xs transition-colors",
@@ -6444,13 +6462,7 @@ export function RepoInfo() {
                             checked={showAllCommitFiles}
                             className="shrink-0"
                             onCheckedChange={(checked) => {
-                              const shouldShowAll = checked === true;
-
-                              setShowAllCommitFiles(shouldShowAll);
-
-                              if (!shouldShowAll) {
-                                setCommitFileFilterInputValue("");
-                              }
+                              setShowAllCommitFilesState(checked === true);
                             }}
                           />
                           View all files
@@ -6656,22 +6668,6 @@ export function RepoInfo() {
                           </button>
                         </div>
                       </div>
-                      <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
-                        <Checkbox
-                          checked={showAllFiles}
-                          className="shrink-0"
-                          onCheckedChange={(checked) => {
-                            const shouldShowAll = checked === true;
-                            persistRepoFileBrowserState({
-                              showAllFiles: shouldShowAll,
-                            });
-                            if (!shouldShowAll) {
-                              setRepositoryFileFilterInputValue("");
-                            }
-                          }}
-                        />
-                        View all files
-                      </label>
                     </div>
                   </header>
 
