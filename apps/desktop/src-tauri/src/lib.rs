@@ -81,6 +81,12 @@ struct RepositoryWorkingTreeItem {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct RepositoryFileEntry {
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RepositoryFileDiff {
     path: String,
     old_text: String,
@@ -578,7 +584,7 @@ async fn clone_git_repository(
         },
     );
 
-    let mut clone_command = Command::new("git");
+    let mut clone_command = git_command();
     apply_git_preferences(&mut clone_command, &command_preferences, Some(&state))?;
     clone_command.args([
         "clone",
@@ -723,7 +729,7 @@ fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, 
     validate_repository_path(Path::new(&repo_path))?;
 
     if !Path::new(&repo_path).join(".git").exists() {
-        let init_output = Command::new("git")
+        let init_output = git_command()
             .args(["-C", &repo_path, "init"])
             .output()
             .map_err(|error| format!("Failed to run git init: {error}"))?;
@@ -750,7 +756,7 @@ fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, 
             .map_err(|error| format!("Failed to create README.md: {error}"))?;
     }
 
-    let add_output = Command::new("git")
+    let add_output = git_command()
         .args(["-C", &repo_path, "add", "--", "README.md"])
         .output()
         .map_err(|error| format!("Failed to run git add: {error}"))?;
@@ -762,7 +768,7 @@ fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, 
         ));
     }
 
-    let commit_output = Command::new("git")
+    let commit_output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -788,7 +794,7 @@ fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, 
 fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -880,7 +886,7 @@ fn get_latest_repository_commit_message(
 ) -> Result<LatestRepositoryCommitMessage, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -918,7 +924,7 @@ fn get_latest_repository_commit_message(
 fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
     .args([
       "-C",
       &repo_path,
@@ -969,7 +975,7 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
             continue;
         }
 
-        let commit_count_output = Command::new("git")
+        let commit_count_output = git_command()
             .args(["-C", &repo_path, "rev-list", "--count", &full_hash])
             .output()
             .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
@@ -986,7 +992,7 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
         let (ahead_count, behind_count) = if upstream_ref.is_empty() {
             (0, 0)
         } else {
-            let sync_count_output = Command::new("git")
+            let sync_count_output = git_command()
                 .args([
                     "-C",
                     &repo_path,
@@ -1037,7 +1043,7 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
 fn get_repository_remote_names(repo_path: String) -> Result<Vec<String>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "remote"])
         .output()
         .map_err(|error| format!("Failed to run git remote: {error}"))?;
@@ -1072,7 +1078,7 @@ fn create_repository_branch(repo_path: String, branch_name: String) -> Result<()
 
     validate_branch_name(trimmed_branch_name)?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "switch", "-c", trimmed_branch_name])
         .output()
         .map_err(|error| format!("Failed to run git switch: {error}"))?;
@@ -1101,7 +1107,7 @@ fn delete_repository_branch(repo_path: String, branch_name: String) -> Result<()
 
     validate_branch_name(trimmed_branch_name)?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "branch", "-d", trimmed_branch_name])
         .output()
         .map_err(|error| format!("Failed to run git branch: {error}"))?;
@@ -1140,7 +1146,7 @@ fn rename_repository_branch(
     validate_branch_name(trimmed_branch_name)?;
     validate_branch_name(trimmed_new_branch_name)?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -1189,7 +1195,7 @@ fn delete_remote_repository_branch(
     let command_preferences = RepoCommandPreferences::default();
     let _network_operation = begin_network_operation(&state, &repo_path)?;
 
-    let mut command = Command::new("git");
+    let mut command = git_command();
     apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
     let output = command
         .args([
@@ -1244,7 +1250,7 @@ fn set_repository_branch_upstream(
     validate_branch_name(trimmed_remote_branch_name)?;
 
     let remote_ref = format!("refs/remotes/{trimmed_remote_name}/{trimmed_remote_branch_name}");
-    let has_remote_branch = Command::new("git")
+    let has_remote_branch = git_command()
         .args(["-C", &repo_path, "show-ref", "--verify", "--quiet", &remote_ref])
         .status()
         .map_err(|error| format!("Failed to inspect remote branch: {error}"))?
@@ -1254,7 +1260,7 @@ fn set_repository_branch_upstream(
     let _network_operation = begin_network_operation(&state, &repo_path)?;
 
     let output = if has_remote_branch {
-        let mut command = Command::new("git");
+        let mut command = git_command();
         apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
 
         let upstream = format!("{trimmed_remote_name}/{trimmed_remote_branch_name}");
@@ -1270,7 +1276,7 @@ fn set_repository_branch_upstream(
             .output()
             .map_err(|error| format!("Failed to run git branch --set-upstream-to: {error}"))?
     } else {
-        let mut command = Command::new("git");
+        let mut command = git_command();
         apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
 
         let destination = format!("{trimmed_local_branch_name}:{trimmed_remote_branch_name}");
@@ -1301,7 +1307,7 @@ fn set_repository_branch_upstream(
 fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let is_remote_ref = Command::new("git")
+    let is_remote_ref = git_command()
         .args([
             "-C",
             &repo_path,
@@ -1318,7 +1324,7 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
         let local_name = branch_name
             .split_once('/')
             .map_or(branch_name.as_str(), |(_, local)| local);
-        let local_branch_exists = Command::new("git")
+        let local_branch_exists = git_command()
             .args([
                 "-C",
                 &repo_path,
@@ -1332,12 +1338,12 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
             .success();
 
         if local_branch_exists {
-            Command::new("git")
+            git_command()
                 .args(["-C", &repo_path, "switch", local_name])
                 .output()
                 .map_err(|error| format!("Failed to run git switch: {error}"))?
         } else {
-            Command::new("git")
+            git_command()
                 .args([
                     "-C",
                     &repo_path,
@@ -1351,7 +1357,7 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
                 .map_err(|error| format!("Failed to run git switch: {error}"))?
         }
     } else {
-        Command::new("git")
+        git_command()
             .args(["-C", &repo_path, "switch", &branch_name])
             .output()
             .map_err(|error| format!("Failed to run git switch: {error}"))?
@@ -1382,7 +1388,7 @@ fn push_repository_branch(
     let command_preferences = preferences.unwrap_or_default();
     let _network_operation = begin_network_operation(&state, &repo_path)?;
 
-    let branch_output = Command::new("git")
+    let branch_output = git_command()
         .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
@@ -1402,7 +1408,7 @@ fn push_repository_branch(
         return Err("Cannot push from detached HEAD".to_string());
     }
 
-    let remote_output = Command::new("git")
+    let remote_output = git_command()
         .args(["-C", &repo_path, "remote"])
         .output()
         .map_err(|error| format!("Failed to read repository remotes: {error}"))?;
@@ -1477,7 +1483,7 @@ fn push_repository_branch(
         return Ok(());
     }
 
-    let origin_remote_output = Command::new("git")
+    let origin_remote_output = git_command()
         .args(["-C", &repo_path, "remote", "get-url", "origin"])
         .output()
         .map_err(|error| format!("Failed to verify origin remote: {error}"))?;
@@ -1485,7 +1491,7 @@ fn push_repository_branch(
     let has_origin_remote = origin_remote_output.status.success();
 
     let origin_remote_missing_on_server = if has_origin_remote {
-        let mut health_check_command = Command::new("git");
+        let mut health_check_command = git_command();
         apply_git_preferences(&mut health_check_command, &command_preferences, Some(&state))?;
 
         let health_check_output = health_check_command
@@ -1528,7 +1534,7 @@ fn push_repository_branch(
             _ => "--private",
         };
 
-        let remove_origin_output = Command::new("git")
+        let remove_origin_output = git_command()
             .args(["-C", &repo_path, "remote", "remove", "origin"])
             .output()
             .map_err(|error| format!("Failed to remove stale origin remote: {error}"))?;
@@ -1577,7 +1583,7 @@ fn push_repository_branch(
         return Ok(());
     }
 
-    let upstream_output = Command::new("git")
+    let upstream_output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -1625,7 +1631,7 @@ fn push_repository_branch(
             );
         }
 
-        let mut command = Command::new("git");
+        let mut command = git_command();
         apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
 
         command.args(["-C", &repo_path, "push"]);
@@ -1639,7 +1645,7 @@ fn push_repository_branch(
             .output()
             .map_err(|error| format!("Failed to run git push: {error}"))?
     } else {
-        let mut command = Command::new("git");
+        let mut command = git_command();
         apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
 
         command.args(["-C", &repo_path, "push"]);
@@ -1676,7 +1682,7 @@ fn pull_repository_action(
 
     let head_before = resolve_head_hash(&repo_path)?;
 
-    let mut pull_command = Command::new("git");
+    let mut pull_command = git_command();
     pull_command.args(["-C", &repo_path]);
     apply_git_preferences(&mut pull_command, &command_preferences, Some(&state))?;
 
@@ -1720,7 +1726,7 @@ fn pull_repository_action(
 fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -1773,7 +1779,7 @@ fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, Str
 fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "stash", "apply", &stash_ref])
         .output()
         .map_err(|error| format!("Failed to run git stash apply: {error}"))?;
@@ -1789,7 +1795,7 @@ fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), St
 fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "stash", "pop", &stash_ref])
         .output()
         .map_err(|error| format!("Failed to run git stash pop: {error}"))?;
@@ -1805,7 +1811,7 @@ fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), Stri
 fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "stash", "drop", &stash_ref])
         .output()
         .map_err(|error| format!("Failed to run git stash drop: {error}"))?;
@@ -1832,7 +1838,7 @@ fn create_repository_stash(
         .map(ToOwned::to_owned)
         .map(Ok)
         .unwrap_or_else(|| {
-            let branch_output = Command::new("git")
+            let branch_output = git_command()
                 .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
                 .output()
                 .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
@@ -1857,7 +1863,7 @@ fn create_repository_stash(
             Ok(format!("WIP on {safe_branch_name}"))
         })?;
 
-    let mut stash_command = Command::new("git");
+    let mut stash_command = git_command();
     stash_command.args(["-C", &repo_path, "stash", "push"]);
 
     if include_untracked {
@@ -1896,7 +1902,7 @@ fn commit_repository_changes(
     }
 
     if include_all {
-        let add_output = Command::new("git")
+        let add_output = git_command()
             .args(["-C", &repo_path, "add", "-A"])
             .output()
             .map_err(|error| format!("Failed to run git add: {error}"))?;
@@ -1914,7 +1920,7 @@ fn commit_repository_changes(
     }
 
     let description_trimmed = description.trim();
-    let mut commit_command = Command::new("git");
+    let mut commit_command = git_command();
 
     commit_command.args(["-C", &repo_path]);
     apply_git_preferences(&mut commit_command, &command_preferences, None)?;
@@ -1973,7 +1979,7 @@ fn commit_repository_changes(
 fn stage_all_repository_changes(repo_path: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "add", "-A"])
         .output()
         .map_err(|error| format!("Failed to run git add: {error}"))?;
@@ -1994,7 +2000,7 @@ fn stage_all_repository_changes(repo_path: String) -> Result<(), String> {
 fn unstage_all_repository_changes(repo_path: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "reset", "HEAD", "--", "."])
         .output()
         .map_err(|error| format!("Failed to run git reset: {error}"))?;
@@ -2015,7 +2021,7 @@ fn unstage_all_repository_changes(repo_path: String) -> Result<(), String> {
 fn stage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "add", "-A", "--", &file_path])
         .output()
         .map_err(|error| format!("Failed to run git add: {error}"))?;
@@ -2036,7 +2042,7 @@ fn stage_repository_file(repo_path: String, file_path: String) -> Result<(), Str
 fn unstage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "reset", "HEAD", "--", &file_path])
         .output()
         .map_err(|error| format!("Failed to run git reset: {error}"))?;
@@ -2088,7 +2094,7 @@ fn add_repository_ignore_rule(repo_path: String, pattern: String) -> Result<(), 
 fn discard_repository_path_changes(repo_path: String, file_path: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let restore_output = Command::new("git")
+    let restore_output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -2106,7 +2112,7 @@ fn discard_repository_path_changes(repo_path: String, file_path: String) -> Resu
         return Ok(());
     }
 
-    let clean_output = Command::new("git")
+    let clean_output = git_command()
         .args(["-C", &repo_path, "clean", "-fd", "--", &file_path])
         .output()
         .map_err(|error| format!("Failed to run git clean: {error}"))?;
@@ -2135,7 +2141,7 @@ fn discard_repository_path_changes(repo_path: String, file_path: String) -> Resu
 fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let reset_output = Command::new("git")
+    let reset_output = git_command()
         .args(["-C", &repo_path, "reset", "--hard", "HEAD"])
         .output()
         .map_err(|error| format!("Failed to run git reset --hard: {error}"))?;
@@ -2150,7 +2156,7 @@ fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
         return Err("Failed to discard tracked changes".to_string());
     }
 
-    let clean_output = Command::new("git")
+    let clean_output = git_command()
         .args(["-C", &repo_path, "clean", "-fd"])
         .output()
         .map_err(|error| format!("Failed to run git clean: {error}"))?;
@@ -2194,7 +2200,7 @@ fn reset_repository_to_reference(
         _ => "--mixed",
     };
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", &repo_path, "reset", mode_flag, target_trimmed])
         .output()
         .map_err(|error| format!("Failed to run git reset: {error}"))?;
@@ -2218,7 +2224,7 @@ fn get_repository_commit_files(
 ) -> Result<Vec<RepositoryCommitFile>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let parents_output = Command::new("git")
+    let parents_output = git_command()
         .args(["-C", &repo_path, "rev-list", "--parents", "-n", "1", &commit_hash])
         .output()
         .map_err(|error| format!("Failed to inspect commit parents: {error}"))?;
@@ -2240,7 +2246,7 @@ fn get_repository_commit_files(
             .clone()
             .ok_or_else(|| "Failed to resolve first parent for merge commit".to_string())?;
 
-        Command::new("git")
+        git_command()
             .args([
                 "-C",
                 &repo_path,
@@ -2254,7 +2260,7 @@ fn get_repository_commit_files(
             .output()
             .map_err(|error| format!("Failed to run git diff for merge commit files: {error}"))?
     } else {
-        Command::new("git")
+        git_command()
             .args([
                 "-C",
                 &repo_path,
@@ -2310,7 +2316,7 @@ fn get_repository_commit_files(
                 .as_deref()
                 .ok_or_else(|| "Failed to resolve first parent for merge commit".to_string())?;
 
-            Command::new("git")
+            git_command()
                 .args([
                     "-C",
                     &repo_path,
@@ -2324,7 +2330,7 @@ fn get_repository_commit_files(
                 .output()
                 .map_err(|error| format!("Failed to run git diff --numstat: {error}"))?
         } else {
-            Command::new("git")
+            git_command()
                 .args([
                     "-C",
                     &repo_path,
@@ -2381,7 +2387,7 @@ fn get_repository_commit_file_diff(
 ) -> Result<RepositoryCommitFileDiff, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let old_output = Command::new("git")
+    let old_output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -2397,7 +2403,7 @@ fn get_repository_commit_file_diff(
         String::new()
     };
 
-    let new_output = Command::new("git")
+    let new_output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -2428,7 +2434,7 @@ fn get_repository_file_diff(
 ) -> Result<RepositoryFileDiff, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let old_output = Command::new("git")
+    let old_output = git_command()
         .args(["-C", &repo_path, "show", &format!("HEAD:{file_path}")])
         .output()
         .map_err(|error| format!("Failed to run git show: {error}"))?;
@@ -2455,7 +2461,7 @@ fn get_repository_working_tree_status(
 ) -> Result<RepositoryWorkingTreeStatus, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -2518,7 +2524,7 @@ fn get_repository_working_tree_items(
 ) -> Result<Vec<RepositoryWorkingTreeItem>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let output = Command::new("git")
+    let output = git_command()
         .args([
             "-C",
             &repo_path,
@@ -2571,8 +2577,50 @@ fn get_repository_working_tree_items(
     Ok(items)
 }
 
+#[tauri::command]
+fn get_repository_files(repo_path: String) -> Result<Vec<RepositoryFileEntry>, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = git_command()
+        .args([
+            "-C",
+            &repo_path,
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git ls-files: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to list repository files",
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut seen_paths = HashSet::new();
+    let mut entries = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() || !seen_paths.insert(trimmed.to_string()) {
+            continue;
+        }
+
+        entries.push(RepositoryFileEntry {
+            path: trimmed.to_string(),
+        });
+    }
+
+    Ok(entries)
+}
+
 fn repository_has_initial_commit(repo_path: &str) -> Result<bool, String> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", repo_path, "rev-parse", "--verify", "HEAD"])
         .output()
         .map_err(|error| format!("Failed to check repository history: {error}"))?;
@@ -2642,7 +2690,7 @@ fn parse_progress_counts(line: &str, prefix: &str) -> Option<(u8, usize, usize)>
 }
 
 fn resolve_head_hash(repo_path: &str) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", repo_path, "rev-parse", "HEAD"])
         .output()
         .map_err(|error| format!("Failed to resolve HEAD: {error}"))?;
@@ -2721,14 +2769,38 @@ fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
     GitHubIdentity::default()
 }
 
+// Git subprocesses are non-interactive by default so the desktop app fails
+// fast instead of hanging on hidden stdin prompts.
+fn git_command() -> Command {
+    let mut command = Command::new("git");
+    command.stdin(Stdio::null());
+    command
+}
+
 fn git_error_message(stderr: &[u8], fallback: &str) -> String {
     let message = String::from_utf8_lossy(stderr).trim().to_string();
 
     if message.is_empty() {
-        fallback.to_string()
-    } else {
-        message
+        return fallback.to_string();
     }
+
+    if is_git_authentication_message(&message) {
+        return "Authentication required or credentials were rejected for this HTTPS remote. Configure a Git credential helper or use SSH, then try again.".to_string();
+    }
+
+    message
+}
+
+fn is_git_authentication_message(message: &str) -> bool {
+    let normalized = message.to_lowercase();
+
+    normalized.contains("terminal prompts disabled")
+        || normalized.contains("could not read username")
+        || normalized.contains("could not read password")
+        || normalized.contains("unable to read askpass response")
+        || normalized.contains("authentication failed")
+        || normalized.contains("the requested url returned error: 401")
+        || normalized.contains("the requested url returned error: 403")
 }
 
 fn is_missing_remote_repository_message(message: &str) -> bool {
@@ -2756,7 +2828,7 @@ fn validate_repository_name(name: &str) -> Result<(), String> {
 }
 
 fn validate_branch_name(name: &str) -> Result<(), String> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["check-ref-format", "--branch", name])
         .output()
         .map_err(|error| format!("Failed to validate default branch name: {error}"))?;
@@ -2823,7 +2895,7 @@ fn remove_partial_clone_destination(path: &Path) {
 }
 
 fn initialize_git_repository(repo_path: &Path, default_branch: &str) -> Result<(), String> {
-    let init_output = Command::new("git")
+    let init_output = git_command()
         .args(["-C", repo_path.to_string_lossy().as_ref(), "init"])
         .output()
         .map_err(|error| format!("Failed to run git init: {error}"))?;
@@ -2836,7 +2908,7 @@ fn initialize_git_repository(repo_path: &Path, default_branch: &str) -> Result<(
     }
 
     let default_head = format!("refs/heads/{default_branch}");
-    let head_output = Command::new("git")
+    let head_output = git_command()
         .args([
             "-C",
             repo_path.to_string_lossy().as_ref(),
@@ -2893,7 +2965,7 @@ fn write_repository_files(
 fn create_initial_commit(repo_path: &Path) -> Result<(), String> {
     let repo_path_string = repo_path.to_string_lossy().to_string();
 
-    let add_output = Command::new("git")
+    let add_output = git_command()
         .args(["-C", &repo_path_string, "add", "-A"])
         .output()
         .map_err(|error| format!("Failed to run git add: {error}"))?;
@@ -2905,7 +2977,7 @@ fn create_initial_commit(repo_path: &Path) -> Result<(), String> {
         ));
     }
 
-    let commit_output = Command::new("git")
+    let commit_output = git_command()
         .args(["-C", &repo_path_string, "commit", "-m", "Initial commit"])
         .output()
         .map_err(|error| format!("Failed to run git commit: {error}"))?;
@@ -3007,7 +3079,7 @@ fn read_git_config_value(
     scope: &str,
     key: &str,
 ) -> Result<Option<String>, String> {
-    let mut command = Command::new("git");
+    let mut command = git_command();
 
     match scope {
         "global" => {
@@ -3075,7 +3147,7 @@ fn write_git_config_value(
     key: &str,
     value: &str,
 ) -> Result<(), String> {
-    let mut command = Command::new("git");
+    let mut command = git_command();
 
     match scope {
         "global" => {
@@ -3295,8 +3367,10 @@ fn apply_git_preferences(
         command.env("GIT_SSL_NO_VERIFY", "true");
     }
 
+    command.env("GIT_TERMINAL_PROMPT", "0");
+
     if preferences.use_git_credential_manager == Some(true) {
-        command.env("GIT_TERMINAL_PROMPT", "1");
+        command.env("GCM_INTERACTIVE", "never");
     }
 
     if let Some(ssh_command) = configure_git_ssh_command(preferences) {
@@ -3346,6 +3420,63 @@ fn apply_git_preferences(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{git_error_message, is_git_authentication_message};
+
+    #[test]
+    fn detects_terminal_prompts_disabled_as_auth_error() {
+        assert!(is_git_authentication_message(
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+        ));
+    }
+
+    #[test]
+    fn detects_read_username_as_auth_error() {
+        assert!(is_git_authentication_message(
+            "fatal: could not read Username for 'https://github.com': No such device or address"
+        ));
+    }
+
+    #[test]
+    fn detects_http_401_as_auth_error() {
+        assert!(is_git_authentication_message(
+            "remote: Invalid username or token. fatal: Authentication failed: The requested URL returned error: 401"
+        ));
+    }
+
+    #[test]
+    fn does_not_misclassify_repository_not_found_as_auth_error() {
+        assert!(!is_git_authentication_message(
+            "remote: Repository not found. fatal: repository 'https://github.com/owner/repo.git/' not found"
+        ));
+    }
+
+    #[test]
+    fn returns_fallback_for_empty_git_error() {
+        assert_eq!(git_error_message(b"", "Fallback error"), "Fallback error");
+    }
+
+    #[test]
+    fn returns_actionable_message_for_auth_error() {
+        assert_eq!(
+            git_error_message(
+                b"fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+                "Fallback error"
+            ),
+            "Authentication required or credentials were rejected for this HTTPS remote. Configure a Git credential helper or use SSH, then try again."
+        );
+    }
+
+    #[test]
+    fn preserves_non_auth_git_errors() {
+        assert_eq!(
+            git_error_message(b"fatal: not a git repository", "Fallback error"),
+            "fatal: not a git repository"
+        );
+    }
 }
 
 #[tauri::command]
@@ -3808,7 +3939,7 @@ fn run_network_git_command(
     args: &[&str],
     preferences: &RepoCommandPreferences,
 ) -> Result<std::process::Output, String> {
-    let mut command = Command::new("git");
+    let mut command = git_command();
     apply_git_preferences(&mut command, preferences, None)?;
     command.args(["-C", repo_path]);
     command.args(args);
@@ -4059,6 +4190,7 @@ pub fn run() {
             get_repository_commit_file_diff,
             get_repository_working_tree_status,
             get_repository_working_tree_items,
+            get_repository_files,
             get_settings_backend_capabilities,
             save_ai_provider_secret,
             get_ai_provider_secret_status,
