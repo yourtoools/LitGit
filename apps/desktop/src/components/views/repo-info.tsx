@@ -102,6 +102,7 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import { useTheme } from "next-themes";
 import {
   type ReactNode,
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -772,6 +773,9 @@ export function RepoInfo() {
   const [pullActionMode, setPullActionMode] =
     useState<PullActionMode>("pull-ff-possible");
   const [openEntryMenuKey, setOpenEntryMenuKey] = useState<string | null>(null);
+  const [openCommitMenuHash, setOpenCommitMenuHash] = useState<string | null>(
+    null
+  );
   const pullActionLabelByMode: Record<PullActionMode, string> = {
     "fetch-all": "Fetch All",
     "pull-ff-only": "Pull (fast-forward only)",
@@ -1001,6 +1005,17 @@ export function RepoInfo() {
       null,
     [branchComboboxOptions, currentBranch]
   );
+  const childCommitCountByHash = useMemo<Record<string, number>>(() => {
+    const countsByHash: Record<string, number> = {};
+
+    for (const entry of commits) {
+      for (const parentHash of entry.parentHashes) {
+        countsByHash[parentHash] = (countsByHash[parentHash] ?? 0) + 1;
+      }
+    }
+
+    return countsByHash;
+  }, [commits]);
   const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
     const localEntries: SidebarEntry[] = [];
     const remoteEntries: SidebarEntry[] = [];
@@ -1960,6 +1975,40 @@ export function RepoInfo() {
       event.stopPropagation();
     }
   };
+
+  const handleEntryMenuOpenChange = useCallback(
+    (entryMenuKey: string, open: boolean) => {
+      setOpenEntryMenuKey((current) => {
+        if (open) {
+          return entryMenuKey;
+        }
+
+        if (current === entryMenuKey) {
+          return null;
+        }
+
+        return current;
+      });
+    },
+    []
+  );
+
+  const handleCommitMenuOpenChange = useCallback(
+    (commitHash: string, open: boolean) => {
+      setOpenCommitMenuHash((current) => {
+        if (open) {
+          return commitHash;
+        }
+
+        if (current === commitHash) {
+          return null;
+        }
+
+        return current;
+      });
+    },
+    []
+  );
 
   const renderEntryIcon = (entry: SidebarEntry) => {
     if (entry.type === "stash") {
@@ -3349,11 +3398,7 @@ export function RepoInfo() {
     const commitRefEntries = getCommitRefEntries(commit);
     const isMergeCommit = commit.parentHashes.length > 1;
     const isOldestCommit = commits.at(-1)?.hash === commit.hash;
-    const childCommitCount = commits.reduce(
-      (count, entry) =>
-        entry.parentHashes.includes(commit.hash) ? count + 1 : count,
-      0
-    );
+    const childCommitCount = childCommitCountByHash[commit.hash] ?? 0;
     const mergeTargetEntry =
       commitRefEntries.find(
         (entry) =>
@@ -4927,18 +4972,10 @@ export function RepoInfo() {
                         >
                           <ContextMenu
                             onOpenChange={(open) => {
-                              const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
-                              setOpenEntryMenuKey((current) => {
-                                if (open) {
-                                  return entryMenuKey;
-                                }
-
-                                if (current === entryMenuKey) {
-                                  return null;
-                                }
-
-                                return current;
-                              });
+                              handleEntryMenuOpenChange(
+                                `${group.key}-${entry.stashRef ?? entry.name}`,
+                                open
+                              );
                             }}
                           >
                             <ContextMenuTrigger>
@@ -4996,18 +5033,10 @@ export function RepoInfo() {
                                 ) : null}
                                 <DropdownMenu
                                   onOpenChange={(open) => {
-                                    const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
-                                    setOpenEntryMenuKey((current) => {
-                                      if (open) {
-                                        return entryMenuKey;
-                                      }
-
-                                      if (current === entryMenuKey) {
-                                        return null;
-                                      }
-
-                                      return current;
-                                    });
+                                    handleEntryMenuOpenChange(
+                                      `${group.key}-${entry.stashRef ?? entry.name}`,
+                                      open
+                                    );
                                   }}
                                 >
                                   <DropdownMenuTrigger
@@ -5031,11 +5060,17 @@ export function RepoInfo() {
                                   >
                                     <DotsThreeVerticalIcon className="size-3.5" />
                                   </DropdownMenuTrigger>
-                                  {renderEntryDropdownMenuContent(entry)}
+                                  {openEntryMenuKey ===
+                                  `${group.key}-${entry.stashRef ?? entry.name}`
+                                    ? renderEntryDropdownMenuContent(entry)
+                                    : null}
                                 </DropdownMenu>
                               </SidebarMenuButton>
                             </ContextMenuTrigger>
-                            {renderEntryContextMenuContent(entry)}
+                            {openEntryMenuKey ===
+                            `${group.key}-${entry.stashRef ?? entry.name}`
+                              ? renderEntryContextMenuContent(entry)
+                              : null}
                           </ContextMenu>
                         </SidebarMenuItem>
                       ))}
@@ -5515,14 +5550,19 @@ export function RepoInfo() {
                 ) : null}
 
                 {commits.map((item, index) => (
-                  <ContextMenu key={item.hash}>
+                  <ContextMenu
+                    key={item.hash}
+                    onOpenChange={(open) => {
+                      handleCommitMenuOpenChange(item.hash, open);
+                    }}
+                  >
                     <ContextMenuTrigger>
                       <button
                         className={cn(
-                          "group grid h-12 w-full grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 text-left transition-colors",
-                          selectedCommitId === item.hash
-                            ? "bg-accent/30"
-                            : "hover:bg-accent/20"
+                          "group grid h-12 w-full grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 text-left transition-colors hover:bg-accent/20",
+                          (selectedCommitId === item.hash ||
+                            openCommitMenuHash === item.hash) &&
+                            "bg-accent/30"
                         )}
                         onClick={() => {
                           handleCommitRowClick(item.hash);
@@ -5566,7 +5606,9 @@ export function RepoInfo() {
                         </div>
                       </button>
                     </ContextMenuTrigger>
-                    {renderCommitRowContextMenuContent(item)}
+                    {openCommitMenuHash === item.hash
+                      ? renderCommitRowContextMenuContent(item)
+                      : null}
                   </ContextMenu>
                 ))}
                 {commits.length === 0 && !isLoadingHistory ? (
