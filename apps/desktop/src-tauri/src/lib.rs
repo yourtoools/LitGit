@@ -1,5 +1,6 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
+use md5::Md5;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -817,6 +818,7 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut commit_identity_cache = HashMap::new();
 
     let commits = stdout
         .split('\x1e')
@@ -840,10 +842,13 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
             } else {
                 Some(author_email_raw)
             };
-            let github_identity = author_email
-                .as_deref()
-                .map(resolve_github_identity_from_email)
-                .unwrap_or_default();
+            let github_identity = match author_email.as_deref() {
+                Some(email) => commit_identity_cache
+                    .entry(email.to_string())
+                    .or_insert_with(|| resolve_commit_identity(email))
+                    .clone(),
+                None => GitHubIdentity::default(),
+            };
             let date = parts.next()?.to_string();
             let refs_raw = parts.next().unwrap_or("").to_string();
 
@@ -2719,10 +2724,41 @@ fn is_valid_github_username(username: &str) -> bool {
 }
 
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct GitHubIdentity {
     avatar_url: Option<String>,
     username: Option<String>,
+}
+
+fn gravatar_url_from_email(email: &str) -> Option<String> {
+    let normalized = email.trim().to_lowercase();
+
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let hash = Md5::digest(normalized.as_bytes());
+    let hex = hash
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    Some(format!(
+        "https://www.gravatar.com/avatar/{hex}?d=404&s=128"
+    ))
+}
+
+fn resolve_commit_identity(email: &str) -> GitHubIdentity {
+    let github_identity = resolve_github_identity_from_email(email);
+
+    if github_identity.avatar_url.is_some() {
+        return github_identity;
+    }
+
+    GitHubIdentity {
+        avatar_url: gravatar_url_from_email(email),
+        username: None,
+    }
 }
 
 fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {

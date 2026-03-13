@@ -8,6 +8,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@litgit/ui/components/alert-dialog";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@litgit/ui/components/avatar";
 import { Button } from "@litgit/ui/components/button";
 import { Checkbox } from "@litgit/ui/components/checkbox";
 import {
@@ -6323,33 +6328,56 @@ export function RepoInfo() {
                         </p>
                       </div>
                       <div className="rounded border border-border/70 bg-background/50 p-2.5">
-                        <div className="min-w-0 flex-1 space-y-0.5 text-xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate font-medium text-foreground text-sm">
-                              {selectedCommit.author}
-                            </span>
-                            <span className="truncate text-muted-foreground">
-                              parent:{" "}
-                              {selectedCommit.parentHashes.at(0)?.slice(0, 7) ??
-                                "none"}
-                            </span>
+                        <div className="flex items-start gap-2.5">
+                          <Avatar className="size-8 shrink-0 rounded">
+                            <AvatarImage
+                              alt={selectedCommit.author}
+                              src={selectedCommit.authorAvatarUrl ?? undefined}
+                            />
+                            <AvatarFallback className="text-xs">
+                              {selectedCommit.author
+                                .split(" ")
+                                .map((part) => part[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1 space-y-0.5 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate font-medium text-foreground text-sm">
+                                {selectedCommit.author}
+                              </span>
+                              <span className="shrink-0 truncate text-muted-foreground">
+                                parent:{" "}
+                                {selectedCommit.parentHashes
+                                  .at(0)
+                                  ?.slice(0, 7) ?? "none"}
+                              </span>
+                            </div>
+                            <p className="text-muted-foreground">
+                              authored {formatCommitDate(selectedCommit.date)}
+                            </p>
                           </div>
-                          <p className="text-muted-foreground">
-                            authored {formatCommitDate(selectedCommit.date)}
-                          </p>
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs">
-                        <span className="inline-flex items-center gap-1 text-muted-foreground">
-                          <PencilSimpleIcon className="size-3" />
-                          {selectedCommitFileSummary.modifiedCount} modified
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-emerald-300">
-                          + {selectedCommitFileSummary.addedCount} added
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-rose-300">
-                          - {selectedCommitFileSummary.removedCount} deleted
-                        </span>
+                        {selectedCommitFileSummary.modifiedCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <PencilSimpleIcon className="size-3" />
+                            {selectedCommitFileSummary.modifiedCount} modified
+                          </span>
+                        ) : null}
+                        {selectedCommitFileSummary.addedCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-300">
+                            + {selectedCommitFileSummary.addedCount} added
+                          </span>
+                        ) : null}
+                        {selectedCommitFileSummary.removedCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-rose-300">
+                            - {selectedCommitFileSummary.removedCount} deleted
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
