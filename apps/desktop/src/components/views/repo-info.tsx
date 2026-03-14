@@ -6359,7 +6359,7 @@ export function RepoInfo() {
                             placeholder="// WIP"
                             value={draftCommitSummary}
                           />
-                          {workingTreeIndicators.editedCount && (
+                          {workingTreeIndicators.editedCount > 0 && (
                             <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-700 dark:text-amber-300">
                               <PencilSimpleIcon
                                 aria-hidden
@@ -6368,7 +6368,7 @@ export function RepoInfo() {
                               {workingTreeIndicators.editedCount}
                             </span>
                           )}
-                          {workingTreeIndicators.addedCount && (
+                          {workingTreeIndicators.addedCount > 0 && (
                             <span className="inline-flex items-center gap-1 text-[0.78rem] text-emerald-700 dark:text-emerald-300">
                               <PlusIcon aria-hidden className="size-2.5" />
                               {workingTreeIndicators.addedCount}
