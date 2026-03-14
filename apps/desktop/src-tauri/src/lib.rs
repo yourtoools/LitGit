@@ -1,17 +1,18 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::Manager;
 use tauri::State;
 use tauri::{AppHandle, Emitter};
 use ureq::Proxy;
@@ -246,6 +247,10 @@ impl Drop for NetworkOperationGuard<'_> {
 const AI_SECRET_SERVICE: &str = "litgit.ai.provider";
 const PROXY_SECRET_SERVICE: &str = "litgit.proxy.auth";
 const GITHUB_AVATAR_SERVICE: &str = "litgit.github.avatar";
+const GITHUB_IDENTITY_CACHE_MAX_ENTRIES: usize = 1024;
+const GITHUB_IDENTITY_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+const GITHUB_IDENTITY_CACHE_FILE_NAME: &str = "github_identity_cache.json";
+const GITHUB_IDENTITY_CACHE_VERSION: u8 = 1;
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -706,9 +711,9 @@ fn set_git_identity(
     let repo_path_for_scope = match scope {
         "global" => None,
         "local" => {
-            let repo_path = normalized_repo_path
-                .as_deref()
-                .ok_or_else(|| "A repository path is required for local Git identity".to_string())?;
+            let repo_path = normalized_repo_path.as_deref().ok_or_else(|| {
+                "A repository path is required for local Git identity".to_string()
+            })?;
             validate_git_repo(Path::new(repo_path))?;
             Some(repo_path)
         }
@@ -739,7 +744,7 @@ fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, 
 }
 
 #[tauri::command]
- fn create_repository_initial_commit(
+fn create_repository_initial_commit(
     repo_path: String,
     git_identity: Option<GitIdentityWriteRequest>,
 ) -> Result<(), String> {
@@ -924,13 +929,7 @@ fn get_latest_repository_commit_message(
     validate_git_repo(Path::new(&repo_path))?;
 
     let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "log",
-            "-1",
-            "--pretty=format:%s%x1f%b",
-        ])
+        .args(["-C", &repo_path, "log", "-1", "--pretty=format:%s%x1f%b"])
         .output()
         .map_err(|error| format!("Failed to run git log: {error}"))?;
 
@@ -1288,7 +1287,14 @@ fn set_repository_branch_upstream(
 
     let remote_ref = format!("refs/remotes/{trimmed_remote_name}/{trimmed_remote_branch_name}");
     let has_remote_branch = git_command()
-        .args(["-C", &repo_path, "show-ref", "--verify", "--quiet", &remote_ref])
+        .args([
+            "-C",
+            &repo_path,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &remote_ref,
+        ])
         .status()
         .map_err(|error| format!("Failed to inspect remote branch: {error}"))?
         .success();
@@ -1529,10 +1535,21 @@ fn push_repository_branch(
 
     let origin_remote_missing_on_server = if has_origin_remote {
         let mut health_check_command = git_command();
-        apply_git_preferences(&mut health_check_command, &command_preferences, Some(&state))?;
+        apply_git_preferences(
+            &mut health_check_command,
+            &command_preferences,
+            Some(&state),
+        )?;
 
         let health_check_output = health_check_command
-            .args(["-C", &repo_path, "ls-remote", "--exit-code", "origin", "HEAD"])
+            .args([
+                "-C",
+                &repo_path,
+                "ls-remote",
+                "--exit-code",
+                "origin",
+                "HEAD",
+            ])
             .output()
             .map_err(|error| format!("Failed to check remote repository health: {error}"))?;
 
@@ -1654,7 +1671,8 @@ fn push_repository_branch(
     let upstream_remote_name = upstream_remote_and_branch
         .map(|(remote_name, _)| remote_name.to_string())
         .unwrap_or_else(|| "origin".to_string());
-    let upstream_branch_name = upstream_remote_and_branch.map(|(_, remote_branch_name)| remote_branch_name);
+    let upstream_branch_name =
+        upstream_remote_and_branch.map(|(_, remote_branch_name)| remote_branch_name);
     let upstream_matches_current_branch =
         upstream_branch_name.is_some_and(|remote_branch_name| remote_branch_name == branch_name);
     let should_set_upstream = upstream_ref.is_none() || !upstream_matches_current_branch;
@@ -2184,7 +2202,9 @@ fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
         .map_err(|error| format!("Failed to run git reset --hard: {error}"))?;
 
     if !reset_output.status.success() {
-        let stderr = String::from_utf8_lossy(&reset_output.stderr).trim().to_string();
+        let stderr = String::from_utf8_lossy(&reset_output.stderr)
+            .trim()
+            .to_string();
 
         if !stderr.is_empty() {
             return Err(stderr);
@@ -2199,7 +2219,9 @@ fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
         .map_err(|error| format!("Failed to run git clean: {error}"))?;
 
     if !clean_output.status.success() {
-        let stderr = String::from_utf8_lossy(&clean_output.stderr).trim().to_string();
+        let stderr = String::from_utf8_lossy(&clean_output.stderr)
+            .trim()
+            .to_string();
 
         if !stderr.is_empty() {
             return Err(stderr);
@@ -2262,7 +2284,15 @@ fn get_repository_commit_files(
     validate_git_repo(Path::new(&repo_path))?;
 
     let parents_output = git_command()
-        .args(["-C", &repo_path, "rev-list", "--parents", "-n", "1", &commit_hash])
+        .args([
+            "-C",
+            &repo_path,
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            &commit_hash,
+        ])
         .output()
         .map_err(|error| format!("Failed to inspect commit parents: {error}"))?;
 
@@ -2755,11 +2785,294 @@ fn is_valid_github_username(username: &str) -> bool {
         .all(|character| character.is_ascii_alphanumeric() || character == '-')
 }
 
-
 #[derive(Clone, Default)]
 struct GitHubIdentity {
     avatar_url: Option<String>,
     username: Option<String>,
+}
+
+#[derive(Clone)]
+struct CachedGitHubIdentityEntry {
+    identity: GitHubIdentity,
+    stored_at_unix_seconds: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedGitHubIdentityEntry {
+    avatar_url: Option<String>,
+    cached_at_unix_seconds: u64,
+    key: String,
+    username: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedGitHubIdentityCache {
+    entries: Vec<PersistedGitHubIdentityEntry>,
+    version: u8,
+}
+
+fn now_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn is_github_identity_cache_entry_fresh(
+    stored_at_unix_seconds: u64,
+    now_unix_seconds_value: u64,
+) -> bool {
+    let age = now_unix_seconds_value.saturating_sub(stored_at_unix_seconds);
+    Duration::from_secs(age) <= GITHUB_IDENTITY_CACHE_TTL
+}
+
+fn github_identity_cache_key(email: &str, author: &str) -> Option<String> {
+    let normalized_email = email.trim().to_lowercase();
+    if !normalized_email.is_empty() {
+        return Some(format!("email:{normalized_email}"));
+    }
+
+    let normalized_author = author.trim().to_lowercase();
+    if !normalized_author.is_empty() {
+        return Some(format!("author:{normalized_author}"));
+    }
+
+    None
+}
+
+fn get_cached_github_identity(state: &SettingsState, key: &str) -> Option<GitHubIdentity> {
+    let mut cache = state.github_identity_cache.lock().ok()?;
+    let cached_entry = cache.get(key).cloned()?;
+    let now_unix_seconds_value = now_unix_seconds();
+
+    if is_github_identity_cache_entry_fresh(
+        cached_entry.stored_at_unix_seconds,
+        now_unix_seconds_value,
+    ) {
+        return Some(cached_entry.identity);
+    }
+
+    cache.remove(key);
+    None
+}
+
+fn github_identity_cache_file_path(state: &SettingsState) -> Option<PathBuf> {
+    let cache_file_path = state.github_identity_cache_file_path.lock().ok()?;
+    cache_file_path.clone()
+}
+
+fn write_text_file_atomically(path: &Path, contents: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!("Failed to create GitHub identity cache directory: {error}")
+        })?;
+    }
+
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("cache");
+    let temp_file_name = format!(
+        "{file_name}.tmp-{}-{}",
+        std::process::id(),
+        now_unix_seconds()
+    );
+    let temp_file_path = path.with_file_name(temp_file_name);
+
+    fs::write(&temp_file_path, contents)
+        .map_err(|error| format!("Failed to write temporary cache file: {error}"))?;
+
+    match fs::rename(&temp_file_path, path) {
+        Ok(()) => Ok(()),
+        Err(rename_error) => {
+            let _ = fs::remove_file(path);
+            fs::rename(&temp_file_path, path).map_err(|fallback_error| {
+                let _ = fs::remove_file(&temp_file_path);
+                format!(
+                    "Failed to replace cache file (rename error: {rename_error}; fallback error: {fallback_error})"
+                )
+            })
+        }
+    }
+}
+
+fn save_github_identity_cache_to_disk(state: &SettingsState) {
+    let Some(cache_file_path) = github_identity_cache_file_path(state) else {
+        return;
+    };
+
+    let now_unix_seconds_value = now_unix_seconds();
+    let mut entries = if let Ok(cache) = state.github_identity_cache.lock() {
+        cache
+            .iter()
+            .filter_map(|(key, cached_entry)| {
+                if !is_github_identity_cache_entry_fresh(
+                    cached_entry.stored_at_unix_seconds,
+                    now_unix_seconds_value,
+                ) {
+                    return None;
+                }
+
+                Some(PersistedGitHubIdentityEntry {
+                    avatar_url: cached_entry.identity.avatar_url.clone(),
+                    cached_at_unix_seconds: cached_entry.stored_at_unix_seconds,
+                    key: key.clone(),
+                    username: cached_entry.identity.username.clone(),
+                })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        log::warn!("Failed to lock GitHub identity cache for disk persistence");
+        return;
+    };
+
+    entries.sort_by(|left, right| {
+        right
+            .cached_at_unix_seconds
+            .cmp(&left.cached_at_unix_seconds)
+    });
+
+    if entries.len() > GITHUB_IDENTITY_CACHE_MAX_ENTRIES {
+        entries.truncate(GITHUB_IDENTITY_CACHE_MAX_ENTRIES);
+    }
+
+    let payload = PersistedGitHubIdentityCache {
+        entries,
+        version: GITHUB_IDENTITY_CACHE_VERSION,
+    };
+
+    let Ok(serialized) = serde_json::to_string(&payload) else {
+        log::warn!("Failed to serialize GitHub identity cache payload");
+        return;
+    };
+
+    if let Err(error) = write_text_file_atomically(&cache_file_path, &serialized) {
+        log::warn!("Failed to persist GitHub identity cache: {error}");
+    }
+}
+
+fn initialize_github_identity_cache(app: &AppHandle, state: &SettingsState) {
+    let Ok(app_data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+
+    let cache_file_path = app_data_dir.join(GITHUB_IDENTITY_CACHE_FILE_NAME);
+
+    if let Ok(mut cache_file_path_state) = state.github_identity_cache_file_path.lock() {
+        *cache_file_path_state = Some(cache_file_path.clone());
+    }
+
+    let contents = match fs::read_to_string(&cache_file_path) {
+        Ok(value) => value,
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("Failed to read GitHub identity cache file: {error}");
+            }
+            return;
+        }
+    };
+
+    let persisted_cache = match serde_json::from_str::<PersistedGitHubIdentityCache>(&contents) {
+        Ok(value) => value,
+        Err(error) => {
+            log::warn!("Failed to parse GitHub identity cache file: {error}");
+            return;
+        }
+    };
+
+    if persisted_cache.version != GITHUB_IDENTITY_CACHE_VERSION {
+        return;
+    }
+
+    let now_unix_seconds_value = now_unix_seconds();
+    let mut restored_cache = HashMap::new();
+
+    for entry in persisted_cache.entries {
+        if restored_cache.len() >= GITHUB_IDENTITY_CACHE_MAX_ENTRIES {
+            break;
+        }
+
+        let trimmed_key = entry.key.trim();
+        if trimmed_key.is_empty() {
+            continue;
+        }
+
+        if !is_github_identity_cache_entry_fresh(
+            entry.cached_at_unix_seconds,
+            now_unix_seconds_value,
+        ) {
+            continue;
+        }
+
+        let identity = GitHubIdentity {
+            avatar_url: entry.avatar_url,
+            username: entry.username,
+        };
+
+        restored_cache.insert(
+            trimmed_key.to_string(),
+            CachedGitHubIdentityEntry {
+                identity,
+                stored_at_unix_seconds: entry.cached_at_unix_seconds,
+            },
+        );
+    }
+
+    if let Ok(mut cache) = state.github_identity_cache.lock() {
+        *cache = restored_cache;
+    } else {
+        log::warn!("Failed to lock GitHub identity cache while initializing");
+        return;
+    }
+
+    save_github_identity_cache_to_disk(state);
+}
+
+fn cache_github_identity(state: &SettingsState, key: &str, identity: &GitHubIdentity) {
+    let Ok(mut cache) = state.github_identity_cache.lock() else {
+        log::warn!("Failed to lock GitHub identity cache for update");
+        return;
+    };
+
+    let now_unix_seconds_value = now_unix_seconds();
+    cache.retain(|_, entry| {
+        is_github_identity_cache_entry_fresh(entry.stored_at_unix_seconds, now_unix_seconds_value)
+    });
+
+    if cache.len() >= GITHUB_IDENTITY_CACHE_MAX_ENTRIES {
+        if let Some(oldest_key) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.stored_at_unix_seconds)
+            .map(|(existing_key, _)| existing_key.clone())
+        {
+            cache.remove(&oldest_key);
+        }
+    }
+
+    cache.insert(
+        key.to_string(),
+        CachedGitHubIdentityEntry {
+            identity: identity.clone(),
+            stored_at_unix_seconds: now_unix_seconds_value,
+        },
+    );
+
+    drop(cache);
+    save_github_identity_cache_to_disk(state);
+}
+
+fn clear_github_identity_cache(state: &SettingsState) {
+    let mut changed = false;
+    if let Ok(mut cache) = state.github_identity_cache.lock() {
+        changed = !cache.is_empty();
+        cache.clear();
+    }
+
+    if changed || github_identity_cache_file_path(state).is_some() {
+        save_github_identity_cache_to_disk(state);
+    }
 }
 
 fn get_github_token(state: &SettingsState) -> Option<String> {
@@ -2830,29 +3143,56 @@ fn fetch_github_user_by_name(name: &str, token: &str) -> Option<GitHubIdentity> 
 }
 
 fn resolve_commit_identity(state: &SettingsState, email: &str, author: &str) -> GitHubIdentity {
+    let cache_key = github_identity_cache_key(email, author);
+
+    if let Some(key) = cache_key.as_deref() {
+        if let Some(cached_identity) = get_cached_github_identity(state, key) {
+            return cached_identity;
+        }
+    }
+
     let github_identity = resolve_github_identity_from_email(email);
 
     if github_identity.avatar_url.is_some() {
+        if let Some(key) = cache_key.as_deref() {
+            cache_github_identity(state, key, &github_identity);
+        }
         return github_identity;
     }
 
     let token = match get_github_token(state) {
         Some(t) => t,
-        None => return GitHubIdentity::default(),
+        None => {
+            let empty_identity = GitHubIdentity::default();
+            if let Some(key) = cache_key.as_deref() {
+                cache_github_identity(state, key, &empty_identity);
+            }
+            return empty_identity;
+        }
     };
 
     if !email.is_empty() {
         if let Some(identity) = fetch_github_user_by_email(email, &token) {
+            if let Some(key) = cache_key.as_deref() {
+                cache_github_identity(state, key, &identity);
+            }
             return identity;
         }
     }
 
     if !author.is_empty() {
-        return fetch_github_user_by_name(author, &token)
-            .unwrap_or_else(GitHubIdentity::default);
+        let identity = fetch_github_user_by_name(author, &token).unwrap_or_default();
+        if let Some(key) = cache_key.as_deref() {
+            cache_github_identity(state, key, &identity);
+        }
+        return identity;
     }
 
-    GitHubIdentity::default()
+    let empty_identity = GitHubIdentity::default();
+    if let Some(key) = cache_key.as_deref() {
+        cache_github_identity(state, key, &empty_identity);
+    }
+    empty_identity
 }
 
 fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
@@ -2876,7 +3216,9 @@ fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
         };
 
         let avatar_url = if left.chars().all(|character| character.is_ascii_digit()) {
-            Some(format!("https://avatars.githubusercontent.com/u/{left}?v=4"))
+            Some(format!(
+                "https://avatars.githubusercontent.com/u/{left}?v=4"
+            ))
         } else {
             username
                 .as_ref()
@@ -3146,7 +3488,14 @@ fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatu
             (effective_value, scope)
         }
     } else {
-        (global.clone(), if global.is_complete { Some("global".to_string()) } else { None })
+        (
+            global.clone(),
+            if global.is_complete {
+                Some("global".to_string())
+            } else {
+                None
+            },
+        )
     };
 
     Ok(GitIdentityStatusPayload {
@@ -3194,7 +3543,12 @@ fn validate_git_identity_email(email: &str) -> Result<String, String> {
     let has_single_at_symbol = trimmed.matches('@').count() == 1;
     let has_non_empty_segments = trimmed
         .split_once('@')
-        .map(|(local, domain)| !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.'))
+        .map(|(local, domain)| {
+            !local.is_empty()
+                && domain.contains('.')
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
+        })
         .unwrap_or(false);
 
     if !(has_single_at_symbol && has_non_empty_segments) {
@@ -3460,10 +3814,10 @@ fn configure_git_ssh_command(preferences: &RepoCommandPreferences) -> Option<Str
         return None;
     }
 
-  let private_key_path = preferences
-    .ssh_private_key_path
-    .as_ref()
-    .filter(|value| !value.trim().is_empty())?;
+    let private_key_path = preferences
+        .ssh_private_key_path
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())?;
     let public_key_path = preferences
         .ssh_public_key_path
         .as_ref()
@@ -3509,7 +3863,11 @@ fn apply_git_preferences(
     }
 
     if preferences.enable_proxy == Some(true) {
-        if let Some(host) = preferences.proxy_host.as_ref().filter(|value| !value.trim().is_empty()) {
+        if let Some(host) = preferences
+            .proxy_host
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
             let scheme = preferences
                 .proxy_type
                 .clone()
@@ -3522,13 +3880,11 @@ fn apply_git_preferences(
                     .as_ref()
                     .filter(|value| !value.trim().is_empty())
                 {
-                    if let Some(secret) =
-                        resolve_proxy_secret(
-                            settings_state,
-                            username.trim(),
-                            preferences.proxy_auth_password.as_deref(),
-                        )?
-                    {
+                    if let Some(secret) = resolve_proxy_secret(
+                        settings_state,
+                        username.trim(),
+                        preferences.proxy_auth_password.as_deref(),
+                    )? {
                         command.env("LITGIT_PROXY_USERNAME", username.trim());
                         command.env("LITGIT_PROXY_PASSWORD", secret);
                     }
@@ -3611,8 +3967,8 @@ mod tests {
 
 #[tauri::command]
 fn get_settings_backend_capabilities() -> Result<SettingsBackendCapabilities, String> {
-    let secure_storage_available = keyring::Entry::new(AI_SECRET_SERVICE, "capability-check")
-        .is_ok();
+    let secure_storage_available =
+        keyring::Entry::new(AI_SECRET_SERVICE, "capability-check").is_ok();
     let runtime_platform = if cfg!(target_os = "windows") {
         "windows"
     } else if cfg!(target_os = "macos") {
@@ -3735,6 +4091,7 @@ fn save_github_token(
     }
 
     if save_keyring_entry(GITHUB_AVATAR_SERVICE, "token", trimmed_token).is_ok() {
+        clear_github_identity_cache(state.inner());
         return Ok(SecretStatusPayload {
             has_stored_value: true,
             storage_mode: "secure".to_string(),
@@ -3751,6 +4108,8 @@ fn save_github_token(
         StoredSecretValue::session(trimmed_token),
     );
 
+    clear_github_identity_cache(state.inner());
+
     Ok(SecretStatusPayload {
         has_stored_value: true,
         storage_mode: "session".to_string(),
@@ -3758,9 +4117,7 @@ fn save_github_token(
 }
 
 #[tauri::command]
-fn get_github_token_status(
-    state: State<'_, SettingsState>,
-) -> Result<SecretStatusPayload, String> {
+fn get_github_token_status(state: State<'_, SettingsState>) -> Result<SecretStatusPayload, String> {
     if load_keyring_entry(GITHUB_AVATAR_SERVICE, "token")?.is_some() {
         return Ok(SecretStatusPayload {
             has_stored_value: true,
@@ -3792,6 +4149,7 @@ fn clear_github_token(state: State<'_, SettingsState>) -> Result<(), String> {
         .lock()
         .map_err(|_| "Failed to access settings state".to_string())?;
     secrets.remove("github_token");
+    clear_github_identity_cache(state.inner());
 
     Ok(())
 }
@@ -3896,7 +4254,8 @@ fn clear_proxy_auth_secret(
         .http_credentials
         .lock()
         .map_err(|_| "Failed to access settings state".to_string())?;
-    credentials.retain(|_, entry| !(entry.protocol == "proxy" && entry.username == trimmed_username));
+    credentials
+        .retain(|_, entry| !(entry.protocol == "proxy" && entry.username == trimmed_username));
     Ok(())
 }
 
@@ -3977,12 +4336,15 @@ fn test_proxy_connection(
     }
 
     let proxy_url = if let (Some(username), Some(password)) = (username, password) {
-        format!("{}://{}:{}@{}:{}", proxy_type, username, password, trimmed_host, port)
+        format!(
+            "{}://{}:{}@{}:{}",
+            proxy_type, username, password, trimmed_host, port
+        )
     } else {
         format!("{}://{}:{}", proxy_type, trimmed_host, port)
     };
-    let proxy = Proxy::new(&proxy_url)
-        .map_err(|error| format!("Failed to configure proxy: {error}"))?;
+    let proxy =
+        Proxy::new(&proxy_url).map_err(|error| format!("Failed to configure proxy: {error}"))?;
     let agent = ureq::AgentBuilder::new()
         .proxy(proxy)
         .timeout(std::time::Duration::from_secs(10))
@@ -4117,6 +4479,8 @@ struct TerminalState {
 struct SettingsState {
     ai_secrets: Mutex<HashMap<String, StoredSecretValue>>,
     http_credentials: Mutex<HashMap<String, StoredHttpCredential>>,
+    github_identity_cache: Mutex<HashMap<String, CachedGitHubIdentityEntry>>,
+    github_identity_cache_file_path: Mutex<Option<PathBuf>>,
     system_font_families: Mutex<Option<Vec<SystemFontFamily>>>,
     active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
     auto_fetch_scheduler: Mutex<Option<AutoFetchSchedulerHandle>>,
@@ -4127,6 +4491,8 @@ impl Default for SettingsState {
         Self {
             ai_secrets: Mutex::default(),
             http_credentials: Mutex::default(),
+            github_identity_cache: Mutex::default(),
+            github_identity_cache_file_path: Mutex::default(),
             system_font_families: Mutex::default(),
             active_network_repo_paths: Arc::new(Mutex::new(HashSet::new())),
             auto_fetch_scheduler: Mutex::default(),
@@ -4348,6 +4714,9 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            let settings_state = app.state::<SettingsState>();
+            initialize_github_identity_cache(app.handle(), settings_state.inner());
 
             Ok(())
         })
