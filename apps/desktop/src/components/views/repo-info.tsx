@@ -6416,9 +6416,6 @@ export function RepoInfo() {
                                     </span>
                                   ) : null}
                                 </p>
-                                <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
-                                  {item.author}
-                                </span>
                               </div>
                             </div>
                           </button>
