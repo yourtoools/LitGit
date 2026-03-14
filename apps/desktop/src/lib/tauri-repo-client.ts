@@ -119,6 +119,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isNullableString(value: unknown): value is string | null {
+  return typeof value === "string" || value === null;
+}
+
+function isDiffViewerKind(
+  value: unknown
+): value is "image" | "text" | "unsupported" {
+  return value === "image" || value === "text" || value === "unsupported";
+}
+
 function parseStringArray(value: unknown, errorMessage: string): string[] {
   if (
     !(
@@ -1275,13 +1285,21 @@ export async function getRepoCommitFileDiff(
     path: diffPath,
     oldText,
     newText,
+    viewerKind,
+    oldImageDataUrl,
+    newImageDataUrl,
+    unsupportedExtension,
   } = result;
 
   if (
     typeof parsedCommitHash !== "string" ||
     typeof diffPath !== "string" ||
     typeof oldText !== "string" ||
-    typeof newText !== "string"
+    typeof newText !== "string" ||
+    !isDiffViewerKind(viewerKind) ||
+    !isNullableString(oldImageDataUrl) ||
+    !isNullableString(newImageDataUrl) ||
+    !isNullableString(unsupportedExtension)
   ) {
     throw new Error("Invalid repository commit file diff payload");
   }
@@ -1291,6 +1309,10 @@ export async function getRepoCommitFileDiff(
     path: diffPath,
     oldText,
     newText,
+    viewerKind,
+    oldImageDataUrl,
+    newImageDataUrl,
+    unsupportedExtension,
   } satisfies RepositoryCommitFileDiff;
 }
 
@@ -1316,12 +1338,24 @@ export async function getRepoFileDiff(path: string, filePath: string) {
     throw new Error("Invalid repository file diff payload");
   }
 
-  const { path: diffPath, oldText, newText } = result;
+  const {
+    path: diffPath,
+    oldText,
+    newText,
+    viewerKind,
+    oldImageDataUrl,
+    newImageDataUrl,
+    unsupportedExtension,
+  } = result;
 
   if (
     typeof diffPath !== "string" ||
     typeof oldText !== "string" ||
-    typeof newText !== "string"
+    typeof newText !== "string" ||
+    !isDiffViewerKind(viewerKind) ||
+    !isNullableString(oldImageDataUrl) ||
+    !isNullableString(newImageDataUrl) ||
+    !isNullableString(unsupportedExtension)
   ) {
     throw new Error("Invalid repository file diff payload");
   }
@@ -1330,6 +1364,10 @@ export async function getRepoFileDiff(path: string, filePath: string) {
     path: diffPath,
     oldText,
     newText,
+    viewerKind,
+    oldImageDataUrl,
+    newImageDataUrl,
+    unsupportedExtension,
   } satisfies RepositoryFileDiff;
 }
 

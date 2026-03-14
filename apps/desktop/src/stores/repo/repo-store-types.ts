@@ -127,9 +127,13 @@ export interface RepositoryFileEntry {
 }
 
 export interface RepositoryFileDiff {
+  newImageDataUrl: string | null;
   newText: string;
+  oldImageDataUrl: string | null;
   oldText: string;
   path: string;
+  unsupportedExtension: string | null;
+  viewerKind: "image" | "text" | "unsupported";
 }
 
 export interface RepositoryCommitFile {
@@ -142,9 +146,13 @@ export interface RepositoryCommitFile {
 
 export interface RepositoryCommitFileDiff {
   commitHash: string;
+  newImageDataUrl: string | null;
   newText: string;
+  oldImageDataUrl: string | null;
   oldText: string;
   path: string;
+  unsupportedExtension: string | null;
+  viewerKind: "image" | "text" | "unsupported";
 }
 
 export type OpenRepositoryResult =

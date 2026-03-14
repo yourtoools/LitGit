@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine as _;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -95,6 +97,10 @@ struct RepositoryFileDiff {
     path: String,
     old_text: String,
     new_text: String,
+    viewer_kind: String,
+    old_image_data_url: Option<String>,
+    new_image_data_url: Option<String>,
+    unsupported_extension: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -114,6 +120,126 @@ struct RepositoryCommitFileDiff {
     path: String,
     old_text: String,
     new_text: String,
+    viewer_kind: String,
+    old_image_data_url: Option<String>,
+    new_image_data_url: Option<String>,
+    unsupported_extension: Option<String>,
+}
+
+struct DiffPreviewPayload {
+    viewer_kind: String,
+    old_text: String,
+    new_text: String,
+    old_image_data_url: Option<String>,
+    new_image_data_url: Option<String>,
+    unsupported_extension: Option<String>,
+}
+
+const MAX_IMAGE_PREVIEW_BYTES: usize = 15 * 1024 * 1024;
+
+fn resolve_file_extension(file_path: &str) -> Option<String> {
+    Path::new(file_path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+}
+
+fn resolve_image_mime_type(extension: &str) -> Option<&'static str> {
+    match extension {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "bmp" => Some("image/bmp"),
+        "ico" => Some("image/x-icon"),
+        "avif" => Some("image/avif"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
+    }
+}
+
+fn encode_image_data_url(content: &[u8], mime_type: &str) -> Option<String> {
+    if content.is_empty() || content.len() > MAX_IMAGE_PREVIEW_BYTES {
+        return None;
+    }
+
+    let encoded = BASE64_STANDARD.encode(content);
+    Some(format!("data:{mime_type};base64,{encoded}"))
+}
+
+fn is_probably_text_content(content: Option<&[u8]>) -> bool {
+    let Some(content) = content else {
+        return true;
+    };
+
+    if content.is_empty() {
+        return true;
+    }
+
+    !content.contains(&0) && std::str::from_utf8(content).is_ok()
+}
+
+fn text_content_to_string(content: Option<&[u8]>) -> String {
+    content
+        .map(|bytes| String::from_utf8_lossy(bytes).to_string())
+        .unwrap_or_default()
+}
+
+fn build_diff_preview_payload(
+    file_path: &str,
+    old_content: Option<&[u8]>,
+    new_content: Option<&[u8]>,
+) -> DiffPreviewPayload {
+    let extension = resolve_file_extension(file_path);
+
+    if let Some(extension) = extension.clone() {
+        if let Some(mime_type) = resolve_image_mime_type(&extension) {
+            let old_image_data_url =
+                old_content.and_then(|content| encode_image_data_url(content, mime_type));
+            let new_image_data_url =
+                new_content.and_then(|content| encode_image_data_url(content, mime_type));
+
+            if old_image_data_url.is_some() || new_image_data_url.is_some() {
+                return DiffPreviewPayload {
+                    viewer_kind: "image".to_string(),
+                    old_text: String::new(),
+                    new_text: String::new(),
+                    old_image_data_url,
+                    new_image_data_url,
+                    unsupported_extension: None,
+                };
+            }
+
+            return DiffPreviewPayload {
+                viewer_kind: "unsupported".to_string(),
+                old_text: String::new(),
+                new_text: String::new(),
+                old_image_data_url: None,
+                new_image_data_url: None,
+                unsupported_extension: Some(extension),
+            };
+        }
+    }
+
+    if is_probably_text_content(old_content) && is_probably_text_content(new_content) {
+        return DiffPreviewPayload {
+            viewer_kind: "text".to_string(),
+            old_text: text_content_to_string(old_content),
+            new_text: text_content_to_string(new_content),
+            old_image_data_url: None,
+            new_image_data_url: None,
+            unsupported_extension: None,
+        };
+    }
+
+    DiffPreviewPayload {
+        viewer_kind: "unsupported".to_string(),
+        old_text: String::new(),
+        new_text: String::new(),
+        old_image_data_url: None,
+        new_image_data_url: None,
+        unsupported_extension: extension,
+    }
 }
 
 #[derive(Serialize)]
@@ -2541,11 +2667,7 @@ fn get_repository_commit_file_diff(
         .output()
         .map_err(|error| format!("Failed to run git show for previous commit file: {error}"))?;
 
-    let old_text = if old_output.status.success() {
-        String::from_utf8_lossy(&old_output.stdout).to_string()
-    } else {
-        String::new()
-    };
+    let old_content = old_output.status.success().then_some(old_output.stdout);
 
     let new_output = git_command()
         .args([
@@ -2557,17 +2679,19 @@ fn get_repository_commit_file_diff(
         .output()
         .map_err(|error| format!("Failed to run git show for commit file: {error}"))?;
 
-    let new_text = if new_output.status.success() {
-        String::from_utf8_lossy(&new_output.stdout).to_string()
-    } else {
-        String::new()
-    };
+    let new_content = new_output.status.success().then_some(new_output.stdout);
+    let preview_payload =
+        build_diff_preview_payload(&file_path, old_content.as_deref(), new_content.as_deref());
 
     Ok(RepositoryCommitFileDiff {
         commit_hash,
         path: file_path,
-        old_text,
-        new_text,
+        old_text: preview_payload.old_text,
+        new_text: preview_payload.new_text,
+        viewer_kind: preview_payload.viewer_kind,
+        old_image_data_url: preview_payload.old_image_data_url,
+        new_image_data_url: preview_payload.new_image_data_url,
+        unsupported_extension: preview_payload.unsupported_extension,
     })
 }
 
@@ -2583,19 +2707,21 @@ fn get_repository_file_diff(
         .output()
         .map_err(|error| format!("Failed to run git show: {error}"))?;
 
-    let old_text = if old_output.status.success() {
-        String::from_utf8_lossy(&old_output.stdout).to_string()
-    } else {
-        String::new()
-    };
+    let old_content = old_output.status.success().then_some(old_output.stdout);
 
     let full_path = Path::new(&repo_path).join(&file_path);
-    let new_text = std::fs::read_to_string(&full_path).unwrap_or_default();
+    let new_content = std::fs::read(&full_path).ok();
+    let preview_payload =
+        build_diff_preview_payload(&file_path, old_content.as_deref(), new_content.as_deref());
 
     Ok(RepositoryFileDiff {
         path: file_path,
-        old_text,
-        new_text,
+        old_text: preview_payload.old_text,
+        new_text: preview_payload.new_text,
+        viewer_kind: preview_payload.viewer_kind,
+        old_image_data_url: preview_payload.old_image_data_url,
+        new_image_data_url: preview_payload.new_image_data_url,
+        unsupported_extension: preview_payload.unsupported_extension,
     })
 }
 

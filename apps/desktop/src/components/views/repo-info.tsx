@@ -306,6 +306,38 @@ function normalizeCommitRefLabel(rawReference: string): string | null {
 const TREE_STATUS_SUMMARY_ORDER = ["M", "A", "D", "R", "C", "U", "T", "?"];
 const GITHUB_NOREPLY_EMAIL_SUFFIX = "@users.noreply.github.com";
 const ASCII_DIGITS_PATTERN = /^\d+$/;
+const IMAGE_PREVIEWABLE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "ico",
+  "avif",
+  "svg",
+]);
+const UNSUPPORTED_FILE_ASCII_ART = String.raw`       _____________
+      /           /|
+     /  FILE     / |
+    / UNSUPPORTED/  |
+   /___________ /   |
+   |   .----.  |    |
+   |  / __ \ \ |    |
+   | | |  | | ||    |
+   | | |__| | ||    |
+   |  \____/ / |   /
+   |_________/  |  /
+   |____________| /`;
+const PREVIEW_UNAVAILABLE_ASCII_ART = `       _____________
+      /  PREVIEW  /|
+     /UNAVAILABLE/ |
+    /____________/  |
+    |    >15MB   |  |
+    |            |  |
+    |    [ ! ]   |  |
+    |            | /
+    |____________|/`;
 
 function isValidGitHubUsername(username: string): boolean {
   const length = username.length;
@@ -715,6 +747,66 @@ function resolveMonacoLanguage(filePath: string): string {
   return MONACO_LANGUAGE_BY_EXTENSION[extension] ?? "plaintext";
 }
 
+function resolveFileExtension(filePath: string): string | null {
+  const normalizedPath = filePath.toLowerCase();
+  const extension = FILE_EXTENSION_PATTERN.exec(normalizedPath)?.[1] ?? "";
+
+  return extension.length > 0 ? extension : null;
+}
+
+function formatUnsupportedExtensionLabel(
+  filePath: string,
+  unsupportedExtension: string | null
+): string {
+  const resolvedExtension =
+    unsupportedExtension?.trim().toLowerCase() ??
+    resolveFileExtension(filePath);
+
+  if (!resolvedExtension) {
+    return "This file type is not previewable in File View.";
+  }
+
+  return `.${resolvedExtension} is not supported in File View.`;
+}
+
+function resolveWorkingTreePreviewStatusCode(
+  item: RepositoryWorkingTreeItem | null
+): string | null {
+  if (item === null) {
+    return null;
+  }
+
+  if (
+    item.isUntracked ||
+    item.stagedStatus === "?" ||
+    item.unstagedStatus === "?" ||
+    item.stagedStatus === "A" ||
+    item.unstagedStatus === "A"
+  ) {
+    return "A";
+  }
+
+  if (item.stagedStatus === "D" || item.unstagedStatus === "D") {
+    return "D";
+  }
+
+  if (item.unstagedStatus !== " ") {
+    return item.unstagedStatus;
+  }
+
+  if (item.stagedStatus !== " " && item.stagedStatus !== "?") {
+    return item.stagedStatus;
+  }
+
+  return null;
+}
+
+function resolveCommitPreviewStatusCode(status: string): string | null {
+  const code = status.trim().charAt(0);
+
+  return code.length > 0 ? code : null;
+}
+
 function clampWidth(value: number, min: number, max: number): number {
   const lowerBound = Math.min(min, max);
   const upperBound = Math.max(min, max);
@@ -979,6 +1071,9 @@ export function RepoInfo() {
   );
   const [openedDiff, setOpenedDiff] = useState<RepositoryFileDiff | null>(null);
   const [openedDiffPath, setOpenedDiffPath] = useState<string | null>(null);
+  const [openedDiffStatusCode, setOpenedDiffStatusCode] = useState<
+    string | null
+  >(null);
   const [commitFilesByHash, setCommitFilesByHash] = useState<
     Record<string, RepositoryCommitFile[]>
   >({});
@@ -987,6 +1082,9 @@ export function RepoInfo() {
   >(null);
   const [openedCommitDiff, setOpenedCommitDiff] =
     useState<RepositoryCommitFileDiff | null>(null);
+  const [openedCommitDiffStatusCode, setOpenedCommitDiffStatusCode] = useState<
+    string | null
+  >(null);
   const [isLoadingCommitDiffPath, setIsLoadingCommitDiffPath] = useState<
     string | null
   >(null);
@@ -2224,6 +2322,9 @@ export function RepoInfo() {
       setIsLoadingDiffPath(null);
       setOpenedDiff(null);
       setOpenedDiffPath(null);
+      setOpenedDiffStatusCode(null);
+      setOpenedCommitDiff(null);
+      setOpenedCommitDiffStatusCode(null);
       commitDiffCacheRef.current.clear();
       return;
     }
@@ -2231,6 +2332,9 @@ export function RepoInfo() {
     setIsLoadingDiffPath(null);
     setOpenedDiff(null);
     setOpenedDiffPath(null);
+    setOpenedDiffStatusCode(null);
+    setOpenedCommitDiff(null);
+    setOpenedCommitDiffStatusCode(null);
     commitDiffCacheRef.current.clear();
   }, [activeRepoId]);
 
@@ -2267,6 +2371,7 @@ export function RepoInfo() {
   useEffect(() => {
     if (!activeRepoId || isWorkingTreeSelection || !selectedCommit) {
       setOpenedCommitDiff(null);
+      setOpenedCommitDiffStatusCode(null);
       setIsLoadingCommitFilesHash(null);
       return;
     }
@@ -4758,14 +4863,17 @@ export function RepoInfo() {
   const closeOpenedDiff = () => {
     setOpenedDiff(null);
     setOpenedDiffPath(null);
+    setOpenedDiffStatusCode(null);
   };
 
-  const handleOpenFileDiff = async (filePath: string) => {
+  const handleOpenFileDiff = async (item: RepositoryWorkingTreeItem) => {
     if (!activeRepoId || isLoadingDiffPath !== null) {
       return;
     }
 
+    const filePath = item.path;
     setOpenedCommitDiff(null);
+    setOpenedCommitDiffStatusCode(null);
 
     const isTogglingCurrentDiff =
       openedDiffPath === filePath && openedDiff !== null;
@@ -4786,6 +4894,7 @@ export function RepoInfo() {
 
       setOpenedDiff(diff);
       setOpenedDiffPath(filePath);
+      setOpenedDiffStatusCode(resolveWorkingTreePreviewStatusCode(item));
     } finally {
       setIsLoadingDiffPath(null);
     }
@@ -4819,6 +4928,58 @@ export function RepoInfo() {
 
     return openedDiffActionMode === "stage" ? "Stage" : "Unstage";
   }, [openedDiffActionMode]);
+  const activeDiff = openedDiff ?? openedCommitDiff;
+  const activeDiffPath = activeDiff?.path ?? "";
+  const activeDiffStatusCode = openedDiff
+    ? openedDiffStatusCode
+    : openedCommitDiffStatusCode;
+  const activeDiffViewerKind = activeDiff?.viewerKind ?? "text";
+  const activeDiffOldImageDataUrl = activeDiff?.oldImageDataUrl ?? null;
+  const activeDiffNewImageDataUrl = activeDiff?.newImageDataUrl ?? null;
+  const shouldForceSingleImageView =
+    activeDiffStatusCode === "A" || activeDiffStatusCode === "D";
+  const hasBothImageSides =
+    activeDiffOldImageDataUrl !== null && activeDiffNewImageDataUrl !== null;
+  const hasImageContentChanged =
+    hasBothImageSides &&
+    activeDiffOldImageDataUrl !== activeDiffNewImageDataUrl;
+  const useImageSplitView =
+    activeDiffViewerKind === "image" &&
+    hasBothImageSides &&
+    !shouldForceSingleImageView &&
+    hasImageContentChanged;
+  const centeredImageDataUrl =
+    activeDiffStatusCode === "D"
+      ? (activeDiffOldImageDataUrl ?? activeDiffNewImageDataUrl)
+      : (activeDiffNewImageDataUrl ?? activeDiffOldImageDataUrl);
+  const unsupportedExtension =
+    activeDiff?.unsupportedExtension?.trim().toLowerCase() ??
+    resolveFileExtension(activeDiffPath);
+  const isUnsupportedImagePreview =
+    activeDiffViewerKind === "unsupported" &&
+    unsupportedExtension !== null &&
+    IMAGE_PREVIEWABLE_EXTENSIONS.has(unsupportedExtension);
+  const unsupportedTitle = isUnsupportedImagePreview
+    ? "Preview unavailable"
+    : "Unsupported file extension";
+  const unsupportedAsciiArt = isUnsupportedImagePreview
+    ? PREVIEW_UNAVAILABLE_ASCII_ART
+    : UNSUPPORTED_FILE_ASCII_ART;
+  const unsupportedDiffLabel = activeDiff
+    ? formatUnsupportedExtensionLabel(
+        activeDiff.path,
+        activeDiff.unsupportedExtension
+      )
+    : "This file type is not previewable in File View.";
+  const unsupportedDescription = isUnsupportedImagePreview
+    ? "Image preview could not be generated. File may be larger than 15 MB."
+    : unsupportedDiffLabel;
+
+  useEffect(() => {
+    if (activeDiffViewerKind !== "text") {
+      openedDiffEditorRef.current = null;
+    }
+  }, [activeDiffViewerKind]);
 
   const handleOpenedDiffShortcutAction = async () => {
     if (openedDiffPath === null || openedDiffActionMode === null) {
@@ -4830,11 +4991,13 @@ export function RepoInfo() {
 
   const closeOpenedCommitDiff = () => {
     setOpenedCommitDiff(null);
+    setOpenedCommitDiffStatusCode(null);
   };
 
   const handleOpenCommitFileDiff = async (
     commitHash: string,
-    filePath: string
+    filePath: string,
+    status: string
   ) => {
     if (!activeRepoId || isLoadingCommitDiffPath !== null) {
       return;
@@ -4842,6 +5005,7 @@ export function RepoInfo() {
 
     setOpenedDiff(null);
     setOpenedDiffPath(null);
+    setOpenedDiffStatusCode(null);
 
     const isTogglingCurrentDiff =
       openedCommitDiff !== null &&
@@ -4858,6 +5022,7 @@ export function RepoInfo() {
 
     if (cachedDiff) {
       setOpenedCommitDiff(cachedDiff);
+      setOpenedCommitDiffStatusCode(resolveCommitPreviewStatusCode(status));
       return;
     }
 
@@ -4881,6 +5046,7 @@ export function RepoInfo() {
       }
 
       setOpenedCommitDiff(diff);
+      setOpenedCommitDiffStatusCode(resolveCommitPreviewStatusCode(status));
     } finally {
       setIsLoadingCommitDiffPath(null);
     }
@@ -5001,9 +5167,11 @@ export function RepoInfo() {
                 return;
               }
 
-              handleOpenCommitFileDiff(commitHash, file.path).catch(
-                () => undefined
-              );
+              handleOpenCommitFileDiff(
+                commitHash,
+                file.path,
+                file.status
+              ).catch(() => undefined);
             }}
             style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
             type="button"
@@ -5109,7 +5277,7 @@ export function RepoInfo() {
               return;
             }
 
-            handleOpenCommitFileDiff(commitHash, file.path).catch(
+            handleOpenCommitFileDiff(commitHash, file.path, file.status).catch(
               () => undefined
             );
           }}
@@ -5151,10 +5319,12 @@ export function RepoInfo() {
       if (openedDiff !== null) {
         setOpenedDiff(null);
         setOpenedDiffPath(null);
+        setOpenedDiffStatusCode(null);
       }
 
       if (openedCommitDiff !== null) {
         setOpenedCommitDiff(null);
+        setOpenedCommitDiffStatusCode(null);
       }
     };
 
@@ -5345,11 +5515,12 @@ export function RepoInfo() {
       })();
 
       if (node.item) {
+        const item = node.item;
         const actionMode = section === "unstaged" ? "stage" : "unstage";
         const actionLabel = section === "unstaged" ? "Stage" : "Unstage";
-        const isBusy = isUpdatingFilePath === node.item.path;
-        const isLoadingDiff = isLoadingDiffPath === node.item.path;
-        const isDiffOpened = openedDiffPath === node.item.path;
+        const isBusy = isUpdatingFilePath === item.path;
+        const isLoadingDiff = isLoadingDiffPath === item.path;
+        const isDiffOpened = openedDiffPath === item.path;
         const canToggleStage = section !== "all";
 
         return (
@@ -5363,19 +5534,17 @@ export function RepoInfo() {
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
               >
                 <button
-                  aria-label={`Open diff for ${node.item.path}`}
+                  aria-label={`Open diff for ${item.path}`}
                   className="absolute inset-0 z-0 rounded"
                   onClick={() => {
-                    handleOpenFileDiff(node.item?.path ?? "").catch(
-                      () => undefined
-                    );
+                    handleOpenFileDiff(item).catch(() => undefined);
                   }}
                   type="button"
                 />
                 <div className="pointer-events-none inline-flex min-w-3 items-center justify-center">
                   {section === "all"
-                    ? renderStatusBadges(node.item, "unstaged")
-                    : renderStatusBadges(node.item, section)}
+                    ? renderStatusBadges(item, "unstaged")
+                    : renderStatusBadges(item, section)}
                 </div>
                 <div className="pointer-events-none min-w-0 flex-1">
                   <p className="truncate">{node.name}</p>
@@ -5391,10 +5560,9 @@ export function RepoInfo() {
                     disabled={isBusy}
                     onClick={(event) => {
                       event.stopPropagation();
-                      handleFileStageToggle(
-                        node.item?.path ?? "",
-                        actionMode
-                      ).catch(() => undefined);
+                      handleFileStageToggle(item.path, actionMode).catch(
+                        () => undefined
+                      );
                     }}
                     size="sm"
                     type="button"
@@ -5410,7 +5578,7 @@ export function RepoInfo() {
             </ContextMenuTrigger>
             {section === "all"
               ? null
-              : renderChangeContextMenuContent(node.item?.path ?? "", section)}
+              : renderChangeContextMenuContent(item.path, section)}
           </ContextMenu>
         );
       }
@@ -5520,7 +5688,7 @@ export function RepoInfo() {
                 aria-label={`Open diff for ${item.path}`}
                 className="absolute inset-0 z-0 rounded"
                 onClick={() => {
-                  handleOpenFileDiff(item.path).catch(() => undefined);
+                  handleOpenFileDiff(item).catch(() => undefined);
                 }}
                 type="button"
               />
@@ -6696,10 +6864,10 @@ export function RepoInfo() {
                 cwd={activeRepo?.path ?? ""}
               />
               {openedDiff || openedCommitDiff ? (
-                <div className="absolute inset-0 z-20 flex flex-col bg-background/95">
+                <div className="absolute inset-0 z-20 flex flex-col bg-background">
                   <div className="flex items-center gap-2 border-border/70 border-b px-3 py-2">
                     <p className="min-w-0 flex-1 truncate font-medium text-sm">
-                      {openedDiff?.path ?? openedCommitDiff?.path}
+                      {activeDiffPath}
                     </p>
                     {openedDiff ? (
                       <Button
@@ -6735,52 +6903,135 @@ export function RepoInfo() {
                     </Button>
                   </div>
                   <div className="min-h-0 flex-1">
-                    <DiffEditor
-                      height="100%"
-                      keepCurrentModifiedModel={false}
-                      keepCurrentOriginalModel={false}
-                      language={
-                        editorPreferences.syntaxHighlighting
-                          ? resolveMonacoLanguage(
-                              openedDiff?.path ?? openedCommitDiff?.path ?? ""
-                            )
-                          : "plaintext"
-                      }
-                      modified={
-                        openedDiff?.newText ?? openedCommitDiff?.newText ?? ""
-                      }
-                      onMount={(editor) => {
-                        openedDiffEditorRef.current = editor;
-                        applyDiffEditorPreferences(
-                          editor,
-                          editorPreferences.lineNumbers,
-                          editorPreferences.tabSize,
-                          editorPreferences.eol
-                        );
-                      }}
-                      options={{
-                        automaticLayout: true,
-                        experimentalWhitespaceRendering: "svg",
-                        fontFamily: editorPreferences.fontFamily,
-                        fontSize: editorPreferences.fontSize,
-                        lineNumbers: editorPreferences.lineNumbers,
-                        minimap: { enabled: false },
-                        readOnly: true,
-                        renderSideBySide: true,
-                        scrollBeyondLastLine: false,
-                        // handled in onMount/updateOptions because the wrapper
-                        // typing omits this diff-editor option
-                        wordSeparators: editorPreferences.syntaxHighlighting
-                          ? undefined
-                          : "",
-                        wordWrap: editorPreferences.wordWrap,
-                      }}
-                      original={
-                        openedDiff?.oldText ?? openedCommitDiff?.oldText ?? ""
-                      }
-                      originalModelPath={undefined}
-                      theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
-                    />
+                    {activeDiffViewerKind === "text" ? (
+                      <DiffEditor
+                        height="100%"
+                        keepCurrentModifiedModel={false}
+                        keepCurrentOriginalModel={false}
+                        language={
+                          editorPreferences.syntaxHighlighting
+                            ? resolveMonacoLanguage(activeDiffPath)
+                            : "plaintext"
+                        }
+                        modified={activeDiff?.newText ?? ""}
+                        onMount={(editor) => {
+                          openedDiffEditorRef.current = editor;
+                          applyDiffEditorPreferences(
+                            editor,
+                            editorPreferences.lineNumbers,
+                            editorPreferences.tabSize,
+                            editorPreferences.eol
+                          );
+                        }}
+                        options={{
+                          automaticLayout: true,
+                          experimentalWhitespaceRendering: "svg",
+                          fontFamily: editorPreferences.fontFamily,
+                          fontSize: editorPreferences.fontSize,
+                          lineNumbers: editorPreferences.lineNumbers,
+                          minimap: { enabled: false },
+                          readOnly: true,
+                          renderSideBySide: true,
+                          scrollBeyondLastLine: false,
+                          // handled in onMount/updateOptions because the wrapper
+                          // typing omits this diff-editor option
+                          wordSeparators: editorPreferences.syntaxHighlighting
+                            ? undefined
+                            : "",
+                          wordWrap: editorPreferences.wordWrap,
+                        }}
+                        original={activeDiff?.oldText ?? ""}
+                        originalModelPath={undefined}
+                        theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
+                      />
+                    ) : null}
+                    {activeDiffViewerKind === "image" ? (
+                      <div className="h-full overflow-auto p-3">
+                        {useImageSplitView ? (
+                          <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                              <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
+                                Original
+                              </p>
+                              <div className="flex min-h-55 flex-1 items-center justify-center p-3">
+                                {activeDiffOldImageDataUrl ? (
+                                  <img
+                                    alt={`Original version of ${activeDiffPath}`}
+                                    className="max-h-full max-w-full rounded-md object-contain"
+                                    height={800}
+                                    src={activeDiffOldImageDataUrl}
+                                    width={1200}
+                                  />
+                                ) : (
+                                  <p className="text-center text-muted-foreground text-xs">
+                                    No image in the previous revision.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                              <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
+                                Modified
+                              </p>
+                              <div className="flex min-h-55 flex-1 items-center justify-center p-3">
+                                {activeDiffNewImageDataUrl ? (
+                                  <img
+                                    alt={`Modified version of ${activeDiffPath}`}
+                                    className="max-h-full max-w-full rounded-md object-contain"
+                                    height={800}
+                                    src={activeDiffNewImageDataUrl}
+                                    width={1200}
+                                  />
+                                ) : (
+                                  <p className="text-center text-muted-foreground text-xs">
+                                    No image in the current revision.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex min-h-full items-center justify-center rounded-md border border-border/70 bg-background p-3">
+                            {centeredImageDataUrl ? (
+                              <img
+                                alt={activeDiffPath}
+                                className="max-h-full max-w-full rounded-md object-contain"
+                                height={800}
+                                src={centeredImageDataUrl}
+                                width={1200}
+                              />
+                            ) : (
+                              <p className="text-center text-muted-foreground text-xs">
+                                No preview available for this image revision.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                    {activeDiffViewerKind === "unsupported" ? (
+                      <div className="flex h-full items-center justify-center px-6">
+                        <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+                          <pre
+                            aria-hidden="true"
+                            className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
+                          >
+                            {unsupportedAsciiArt}
+                          </pre>
+                          <p className="font-medium text-sm">
+                            {unsupportedTitle}
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {unsupportedDescription}
+                          </p>
+                          {unsupportedExtension ? (
+                            <p className="text-muted-foreground/80 text-xs">
+                              Detected extension: .{unsupportedExtension}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
