@@ -30,11 +30,7 @@ import {
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
 import {
-  DiffEditor as MonacoPreviewDiffEditor,
-  Editor as MonacoPreviewEditor,
-} from "@monaco-editor/react";
-import {
-  CaretLeftIcon,
+  ArrowLeftIcon,
   CpuIcon,
   GitBranchIcon,
   GlobeIcon,
@@ -46,10 +42,8 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { TerminalViewport } from "@/components/terminal/terminal-viewport";
 import {
   getLocaleOption,
   LOCALE_OPTIONS,
@@ -164,11 +158,195 @@ const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   },
 ];
 
-const THEME_OPTIONS = {
-  dark: "Dark",
-  light: "Light",
-  system: "System",
-} as const;
+type ThemePreference = "system" | "light" | "dark";
+
+interface ThemeOption {
+  description: string;
+  label: string;
+  value: ThemePreference;
+}
+
+const THEME_SELECT_OPTIONS: ThemeOption[] = [
+  {
+    value: "light",
+    label: "Light",
+    description: "Bright interface for daytime use",
+  },
+  {
+    value: "dark",
+    label: "Dark",
+    description: "Easy on the eyes in low light",
+  },
+  {
+    value: "system",
+    label: "System",
+    description: "Follows your OS appearance",
+  },
+];
+
+function ThemePreviewArt({ value }: { value: ThemePreference }) {
+  if (value === "light") {
+    return <LightThemePreview />;
+  }
+
+  if (value === "dark") {
+    return <DarkThemePreview />;
+  }
+
+  return <SystemThemePreview />;
+}
+
+function ThemePreviewCard({
+  option,
+  isSelected,
+  onSelect,
+}: {
+  option: ThemeOption;
+  isSelected: boolean;
+  onSelect: (value: ThemePreference) => void;
+}) {
+  const optionId = `theme-option-${option.value}`;
+
+  return (
+    <label className="block" htmlFor={optionId}>
+      <input
+        checked={isSelected}
+        className="sr-only"
+        id={optionId}
+        name="theme-selection"
+        onChange={() => onSelect(option.value)}
+        type="radio"
+        value={option.value}
+      />
+      <span
+        aria-hidden="true"
+        className={cn(
+          "group relative flex min-w-0 cursor-pointer flex-col gap-2 rounded-xl border p-3 text-left transition-all duration-150 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
+          isSelected
+            ? "border-primary/60 bg-primary/5 shadow-primary/10 shadow-sm"
+            : "border-border/60 bg-background/70 hover:border-border hover:bg-muted/30"
+        )}
+      >
+        <div className="relative overflow-hidden rounded-lg border border-border/50">
+          <ThemePreviewArt value={option.value} />
+        </div>
+        <div className="flex items-center gap-2 pt-1">
+          <span
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center rounded-full border transition-colors",
+              isSelected
+                ? "border-primary bg-primary"
+                : "border-muted-foreground/40"
+            )}
+          >
+            {isSelected ? (
+              <span className="size-1.5 rounded-full bg-primary-foreground" />
+            ) : null}
+          </span>
+          <span className="min-w-0">
+            <span className="block font-medium text-xs">{option.label}</span>
+            <span className="block text-muted-foreground text-xs leading-tight">
+              {option.description}
+            </span>
+          </span>
+        </div>
+      </span>
+    </label>
+  );
+}
+
+function LightThemePreview() {
+  return (
+    <div className="flex h-16 flex-col bg-[oklch(0.98_0_0)]">
+      <div className="flex items-center gap-1 border-[oklch(0.922_0_0)] border-b px-1.5 py-1">
+        <div className="size-1.5 rounded-sm bg-[oklch(0.556_0_0)]" />
+        <div className="size-1.5 rounded-sm bg-[oklch(0.556_0_0)]" />
+        <div className="size-1.5 rounded-sm bg-[oklch(0.556_0_0)]" />
+        <div className="ml-auto size-1.5 rounded-full bg-[oklch(0.708_0_0)]" />
+      </div>
+      <div className="flex flex-1 gap-1 p-1">
+        <div className="w-5 rounded-sm bg-[oklch(0.97_0_0)]" />
+        <div className="flex flex-1 flex-col gap-0.5">
+          <div className="h-2 rounded-sm bg-[oklch(0.922_0_0)]" />
+          <div className="h-1.5 w-3/4 rounded-sm bg-[oklch(0.922_0_0)]" />
+          <div className="h-1.5 w-1/2 rounded-sm bg-[oklch(0.922_0_0)]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DarkThemePreview() {
+  return (
+    <div className="flex h-16 flex-col bg-[oklch(0.145_0_0)]">
+      <div className="flex items-center gap-1 border-[oklch(1_0_0/10%)] border-b px-1.5 py-1">
+        <div className="size-1.5 rounded-sm bg-[oklch(0.708_0_0)]" />
+        <div className="size-1.5 rounded-sm bg-[oklch(0.708_0_0)]" />
+        <div className="size-1.5 rounded-sm bg-[oklch(0.708_0_0)]" />
+        <div className="ml-auto size-1.5 rounded-full bg-[oklch(0.556_0_0)]" />
+      </div>
+      <div className="flex flex-1 gap-1 p-1">
+        <div className="w-5 rounded-sm bg-[oklch(0.269_0_0)]" />
+        <div className="flex flex-1 flex-col gap-0.5">
+          <div className="h-2 rounded-sm bg-[oklch(0.269_0_0)]" />
+          <div className="h-1.5 w-3/4 rounded-sm bg-[oklch(0.269_0_0)]" />
+          <div className="h-1.5 w-1/2 rounded-sm bg-[oklch(0.269_0_0)]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SystemThemePreview() {
+  return (
+    <div className="flex h-16">
+      <div className="flex w-1/2 flex-col bg-[oklch(0.98_0_0)]">
+        <div className="flex items-center gap-0.5 border-[oklch(0.922_0_0)] border-b px-1 py-0.5">
+          <div className="size-1 rounded-sm bg-[oklch(0.556_0_0)]" />
+          <div className="size-1 rounded-sm bg-[oklch(0.556_0_0)]" />
+        </div>
+        <div className="flex flex-1 flex-col gap-0.5 p-1">
+          <div className="h-1.5 rounded-sm bg-[oklch(0.922_0_0)]" />
+          <div className="h-1 w-3/4 rounded-sm bg-[oklch(0.922_0_0)]" />
+        </div>
+      </div>
+      <div className="flex w-1/2 flex-col bg-[oklch(0.145_0_0)]">
+        <div className="flex items-center gap-0.5 border-[oklch(1_0_0/10%)] border-b px-1 py-0.5">
+          <div className="size-1 rounded-sm bg-[oklch(0.708_0_0)]" />
+          <div className="size-1 rounded-sm bg-[oklch(0.708_0_0)]" />
+        </div>
+        <div className="flex flex-1 flex-col gap-0.5 p-1">
+          <div className="h-1.5 rounded-sm bg-[oklch(0.269_0_0)]" />
+          <div className="h-1 w-3/4 rounded-sm bg-[oklch(0.269_0_0)]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThemeSelector({
+  value,
+  onValueChange,
+}: {
+  value: ThemePreference;
+  onValueChange: (value: ThemePreference) => void;
+}) {
+  return (
+    <fieldset
+      aria-label="Theme selection"
+      className="grid grid-cols-1 gap-2 border-0 p-0 sm:grid-cols-3 sm:gap-3"
+    >
+      {THEME_SELECT_OPTIONS.map((option) => (
+        <ThemePreviewCard
+          isSelected={value === option.value}
+          key={option.value}
+          onSelect={onValueChange}
+          option={option}
+        />
+      ))}
+    </fieldset>
+  );
+}
 
 const TOASTER_OPTIONS = {
   "bottom-center": "Bottom center",
@@ -375,7 +553,7 @@ interface SystemFontReadResult {
 }
 
 interface SidebarResizeState {
-  pointerId: number;
+  pointerId?: number;
   startWidth: number;
   startX: number;
 }
@@ -392,6 +570,8 @@ const RESIZE_HANDLE_WIDTH = 6;
 const SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY = "litgit:settings-sidebar-width";
 const SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY =
   "litgit:settings-editor-preview-width";
+const SETTINGS_TERMINAL_PREVIEW_WIDTH_STORAGE_KEY =
+  "litgit:settings-terminal-preview-width";
 
 const LINE_NUMBER_OPTIONS = {
   off: "Hidden",
@@ -487,6 +667,31 @@ const getInitialEditorPreviewSidebarWidth = () => {
 
   const storedWidth = window.localStorage.getItem(
     SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY
+  );
+  const parsedStoredWidth = storedWidth
+    ? Number.parseInt(storedWidth, 10)
+    : Number.NaN;
+  const preferredWidth = Number.isFinite(parsedStoredWidth)
+    ? parsedStoredWidth
+    : EDITOR_PREVIEW_SIDEBAR_DEFAULT_WIDTH;
+  const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+    getSettingsLayoutWidth()
+  );
+
+  if (maxWidth <= 0) {
+    return 0;
+  }
+
+  return clampWidth(preferredWidth, minWidth, maxWidth);
+};
+
+const getInitialTerminalPreviewSidebarWidth = () => {
+  if (typeof window === "undefined") {
+    return EDITOR_PREVIEW_SIDEBAR_DEFAULT_WIDTH;
+  }
+
+  const storedWidth = window.localStorage.getItem(
+    SETTINGS_TERMINAL_PREVIEW_WIDTH_STORAGE_KEY
   );
   const parsedStoredWidth = storedWidth
     ? Number.parseInt(storedWidth, 10)
@@ -651,11 +856,11 @@ function SettingsField({
   return (
     <div
       className={cn(
-        "grid gap-2 rounded-xl border border-border/60 bg-background/70 p-4 transition-colors",
+        "grid gap-2 rounded-xl border border-border/60 bg-background/70 p-4 transition-colors md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
         isHighlighted && "border-primary/40 bg-primary/5"
       )}
     >
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <div className="flex items-center justify-between gap-3">
           <div className="font-medium text-sm">{label}</div>
           {isHighlighted && onJump ? (
@@ -668,7 +873,7 @@ function SettingsField({
           {description}
         </p>
       </div>
-      {children}
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
@@ -687,19 +892,22 @@ function PlannedField({
   return (
     <div
       className={cn(
-        "grid gap-1 rounded-xl border border-border/70 border-dashed bg-muted/20 p-4",
+        "grid gap-1 rounded-xl border border-border/70 border-dashed bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
         isHighlighted && "border-primary/50 bg-primary/5"
       )}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="font-medium text-sm">{label}</div>
-        <span className="rounded-full border border-border/70 px-2 py-0.5 text-[0.65rem] text-muted-foreground uppercase tracking-[0.14em]">
-          Planned
-        </span>
+      <div className="min-w-0 space-y-1">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-medium text-sm">{label}</div>
+          <span className="rounded-full border border-border/70 px-2 py-0.5 text-[0.65rem] text-muted-foreground uppercase tracking-[0.14em]">
+            Planned
+          </span>
+        </div>
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          {description}
+        </p>
       </div>
-      <p className="text-muted-foreground text-xs leading-relaxed">
-        {description}
-      </p>
+      <div className="hidden md:block" />
     </div>
   );
 }
@@ -737,23 +945,233 @@ function DefaultSelectValue({
   return <SelectValue placeholder={placeholder} />;
 }
 
-const resolveEditorPreviewEol = (preference: "system" | "lf" | "crlf") => {
-  if (preference === "lf") {
-    return "\n";
+const EDITOR_PREVIEW_DIFF_THEME_CLASSES = {
+  added: "text-emerald-300",
+  keyword: "text-sky-300",
+  muted: "text-muted-foreground/70",
+  plain: "text-foreground/90",
+  string: "text-amber-200",
+  type: "text-cyan-300",
+} as const;
+
+const TERMINAL_PREVIEW_LINES = [
+  { prefix: "~", text: "git status", tone: "prompt" },
+  { prefix: "", text: "On branch main", tone: "muted" },
+  { prefix: "", text: "Changes ready to commit: 2 files", tone: "muted" },
+  { prefix: "~", text: 'git commit -m "Hello world"', tone: "prompt" },
+  { prefix: "", text: "[main 8f3d1b2] Hello world", tone: "success" },
+  { prefix: "", text: " 2 files changed, 18 insertions(+)", tone: "muted" },
+] as const;
+
+const TERMINAL_CURSOR_STYLE_CLASS_NAMES = {
+  bar: "h-4 w-0.5 rounded-full",
+  block: "h-4 w-2 rounded-[1px]",
+  underline: "h-0.5 w-3 rounded-full",
+} as const;
+
+const getPreviewFontFamily = (fontFamily: string) => {
+  const trimmedFontFamily = fontFamily.trim();
+
+  if (trimmedFontFamily.length === 0) {
+    return "ui-monospace, SFMono-Regular, monospace";
   }
 
-  if (preference === "crlf") {
-    return "\r\n";
+  if (trimmedFontFamily.includes(",")) {
+    return `${trimmedFontFamily}, ui-monospace, SFMono-Regular, monospace`;
   }
 
-  if (typeof navigator !== "undefined") {
-    return navigator.userAgent.toLowerCase().includes("windows")
-      ? "\r\n"
-      : "\n";
-  }
-
-  return "\n";
+  return trimmedFontFamily.includes(" ")
+    ? `"${trimmedFontFamily}", ui-monospace, SFMono-Regular, monospace`
+    : `${trimmedFontFamily}, ui-monospace, SFMono-Regular, monospace`;
 };
+
+const getEditorPreviewEolLabel = (eol: "system" | "lf" | "crlf") => {
+  if (eol === "lf") {
+    return "LF";
+  }
+
+  if (eol === "crlf") {
+    return "CRLF";
+  }
+
+  return "System";
+};
+
+const renderEditorPreviewText = (content: string, tabSize: number) => {
+  return content.replaceAll("\t", " ".repeat(tabSize));
+};
+
+const getEditorPreviewTone = ({
+  content,
+  mode,
+  syntaxHighlighting,
+}: {
+  content: string;
+  mode: "diff" | "regular";
+  syntaxHighlighting: boolean;
+}) => {
+  if (!syntaxHighlighting) {
+    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.plain;
+  }
+
+  if (mode === "diff" && content.includes("delivery")) {
+    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.added;
+  }
+
+  if (content.includes("type")) {
+    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.type;
+  }
+
+  if (
+    content.includes("const") ||
+    content.includes("export") ||
+    content.startsWith("//")
+  ) {
+    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.keyword;
+  }
+
+  if (content.includes('"')) {
+    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.string;
+  }
+
+  return EDITOR_PREVIEW_DIFF_THEME_CLASSES.plain;
+};
+
+const getEditorPreviewDiffState = (content: string) => {
+  if (content.includes("delivery") || content.includes("New line added")) {
+    return "added";
+  }
+
+  if (
+    content.includes(
+      'punchline: "Because they always follow strict directions."'
+    ) ||
+    content.includes('tags: ["typescript", "strict", "dev"]')
+  ) {
+    return "removed";
+  }
+
+  return "unchanged";
+};
+
+const getEditorPreviewDiffMarker = (content: string) => {
+  const diffState = getEditorPreviewDiffState(content);
+
+  if (diffState === "added") {
+    return "+";
+  }
+
+  if (diffState === "removed") {
+    return "-";
+  }
+
+  return "·";
+};
+
+function EditorStaticPreview({
+  eol,
+  fontSize,
+  mode,
+  lineNumbers,
+  syntaxHighlighting,
+  tabSize,
+  wordWrap,
+}: {
+  eol: "system" | "lf" | "crlf";
+  fontSize: number;
+  lineNumbers: "on" | "off";
+  mode: "diff" | "regular";
+  syntaxHighlighting: boolean;
+  tabSize: number;
+  wordWrap: "on" | "off";
+}) {
+  const lines = (
+    mode === "diff" ? EDITOR_PREVIEW_DIFF_LINES : EDITOR_PREVIEW_LINES
+  ).map((content, index) => ({
+    content,
+    id: `${mode}-${index + 1}-${content}`,
+    lineNumber: index + 1,
+  }));
+
+  const lineClassName = cn(
+    "max-w-full",
+    wordWrap === "on"
+      ? "whitespace-pre-wrap break-words"
+      : "truncate whitespace-pre"
+  );
+
+  return (
+    <div className="h-full overflow-hidden rounded-md border border-border/60 bg-[#171717]">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden p-3">
+        <div className="flex items-center justify-between gap-3 border-border/60 border-b pb-2 text-[11px] text-muted-foreground/80 uppercase tracking-[0.12em]">
+          <span>{mode === "diff" ? "Diff preview" : "Regular preview"}</span>
+          <div className="flex items-center gap-3">
+            <span>EOL {getEditorPreviewEolLabel(eol)}</span>
+            <span>Tab {tabSize}</span>
+            <span>{syntaxHighlighting ? "Syntax on" : "Syntax off"}</span>
+          </div>
+        </div>
+        <div
+          className="grid h-full min-h-0 flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-4 overflow-hidden pt-3"
+          style={{ lineHeight: `${Math.max(fontSize * 1.6, 22)}px` }}
+        >
+          {lineNumbers === "on" ? (
+            <div className="select-none pt-0.5 text-muted-foreground/55">
+              {lines.map((line) => (
+                <div className="text-right" key={`line-number-${line.id}`}>
+                  {line.lineNumber}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="min-w-0 overflow-hidden">
+            {lines.map((line) => (
+              <div
+                className={cn(
+                  lineClassName,
+                  mode === "diff" &&
+                    getEditorPreviewDiffState(line.content) === "added" &&
+                    "rounded-sm bg-emerald-500/12 pl-2 ring-1 ring-emerald-400/25",
+                  mode === "diff" &&
+                    getEditorPreviewDiffState(line.content) === "removed" &&
+                    "rounded-sm bg-rose-500/10 pl-2 opacity-90 ring-1 ring-rose-400/20"
+                )}
+                key={line.id}
+              >
+                {mode === "diff" ? (
+                  <span
+                    className={cn(
+                      "mr-2 inline-block w-3 text-center",
+                      getEditorPreviewDiffState(line.content) === "added" &&
+                        "text-emerald-300",
+                      getEditorPreviewDiffState(line.content) === "removed" &&
+                        "text-rose-300",
+                      getEditorPreviewDiffState(line.content) === "unchanged" &&
+                        "text-muted-foreground/50"
+                    )}
+                  >
+                    {getEditorPreviewDiffMarker(line.content)}
+                  </span>
+                ) : null}
+                <span
+                  className={cn(
+                    getEditorPreviewTone({
+                      content: line.content,
+                      mode,
+                      syntaxHighlighting,
+                    })
+                  )}
+                >
+                  {renderEditorPreviewText(line.content, tabSize)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function EditorPreview({
   eol,
@@ -776,43 +1194,10 @@ function EditorPreview({
   tabSize: number;
   wordWrap: "on" | "off";
 }) {
-  const { resolvedTheme } = useTheme();
-  const previewRegularValue = useMemo(() => {
-    const eolToken = resolveEditorPreviewEol(eol);
-    return EDITOR_PREVIEW_LINES.join(eolToken);
-  }, [eol]);
-  const previewDiffValue = useMemo(() => {
-    const eolToken = resolveEditorPreviewEol(eol);
-    return EDITOR_PREVIEW_DIFF_LINES.join(eolToken);
-  }, [eol]);
-  const sharedEditorOptions = {
-    automaticLayout: true,
-    contextmenu: false,
-    domReadOnly: true,
-    folding: false,
-    fontFamily,
-    fontSize,
-    glyphMargin: false,
-    guides: {
-      indentation: false,
-    },
-    lineNumbers,
-    minimap: { enabled: false },
-    occurrencesHighlight: "off" as const,
-    overviewRulerBorder: false,
-    overviewRulerLanes: 0,
-    readOnly: true,
-    renderLineHighlight: "none" as const,
-    renderValidationDecorations: "off" as const,
-    scrollBeyondLastLine: false,
-    selectionHighlight: false,
-    smoothScrolling: true,
-    tabSize,
-    wordWrap,
-  };
+  const previewFontFamily = getPreviewFontFamily(fontFamily);
 
   return (
-    <div className="flex h-full min-h-[22rem] flex-col overflow-hidden rounded-lg border border-border/70 bg-card/60">
+    <div className="flex h-full min-h-88 flex-col overflow-hidden rounded-lg border border-border/70 bg-card/60">
       <div className="flex items-center justify-between border-border/70 border-b bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
         <span>Editor Preview</span>
         <SectionActionRow>
@@ -835,23 +1220,93 @@ function EditorPreview({
           </Select>
         </SectionActionRow>
       </div>
-      <div className="min-h-0 flex-1">
-        {mode === "diff" ? (
-          <MonacoPreviewDiffEditor
-            language={syntaxHighlighting ? "typescript" : "plaintext"}
-            modified={previewDiffValue}
-            options={sharedEditorOptions}
-            original={previewRegularValue}
-            theme={resolvedTheme === "light" ? "light" : "vs-dark"}
-          />
-        ) : (
-          <MonacoPreviewEditor
-            language={syntaxHighlighting ? "typescript" : "plaintext"}
-            options={sharedEditorOptions}
-            theme={resolvedTheme === "light" ? "light" : "vs-dark"}
-            value={previewRegularValue}
-          />
-        )}
+      <div
+        className="min-h-0 flex-1 p-2"
+        style={{
+          fontFamily: previewFontFamily,
+          fontSize: `${fontSize}px`,
+        }}
+      >
+        <EditorStaticPreview
+          eol={eol}
+          fontSize={fontSize}
+          lineNumbers={lineNumbers}
+          mode={mode}
+          syntaxHighlighting={syntaxHighlighting}
+          tabSize={tabSize}
+          wordWrap={wordWrap}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TerminalPreview({
+  cursorStyle,
+  fontFamily,
+  fontSize,
+  lineHeight,
+}: {
+  cursorStyle: "bar" | "block" | "underline";
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+}) {
+  const previewFontFamily = getPreviewFontFamily(fontFamily);
+
+  return (
+    <div className="flex h-full min-h-88 flex-col overflow-hidden rounded-lg border border-border/70 bg-card/60">
+      <div className="flex items-center justify-between border-border/70 border-b bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
+        <span>Terminal Preview</span>
+        <span>Default shell directory</span>
+      </div>
+      <div className="min-h-0 flex-1 p-2">
+        <div
+          className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-background px-3 py-3 font-mono"
+          style={{
+            fontFamily: previewFontFamily,
+            fontSize: `${fontSize}px`,
+            lineHeight: String(Math.max(1.25, lineHeight + 0.15)),
+          }}
+        >
+          <div className="min-h-0 flex-1">
+            {TERMINAL_PREVIEW_LINES.map((line) => (
+              <div
+                className="truncate"
+                key={`terminal-preview-${line.prefix}-${line.text}`}
+              >
+                <span
+                  className={cn(
+                    "mr-2",
+                    line.tone === "prompt" && "text-emerald-300",
+                    line.tone === "success" && "text-sky-300",
+                    line.tone === "muted" && "text-muted-foreground/75"
+                  )}
+                >
+                  {line.prefix}
+                </span>
+                <span
+                  className={cn(
+                    line.tone === "prompt" && "text-foreground",
+                    line.tone === "success" && "text-foreground",
+                    line.tone === "muted" && "text-muted-foreground/90"
+                  )}
+                >
+                  {line.text}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 pt-2 text-muted-foreground/80 text-xs">
+            <span className="text-emerald-300">~</span>
+            <span
+              className={cn(
+                "inline-block bg-foreground/80",
+                TERMINAL_CURSOR_STYLE_CLASS_NAMES[cursorStyle]
+              )}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1447,24 +1902,10 @@ function UiSection({ query }: { query: string }) {
         label="Theme"
         query={query}
       >
-        <Select
-          items={THEME_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setThemePreference(value as "system" | "light" | "dark");
-            }
-          }}
-          value={theme}
-        >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="system">System</SelectItem>
-            <SelectItem value="light">Light</SelectItem>
-            <SelectItem value="dark">Dark</SelectItem>
-          </SelectContent>
-        </Select>
+        <ThemeSelector
+          onValueChange={setThemePreference}
+          value={theme as ThemePreference}
+        />
       </SettingsField>
       <SettingsField
         description="Change where toast notifications appear in the desktop shell."
@@ -1662,6 +2103,17 @@ function TerminalSection({ query }: { query: string }) {
   const [terminalFontSizeInput, setTerminalFontSizeInput] = useState(() =>
     String(fontSize)
   );
+  const [previewSidebarWidth, setPreviewSidebarWidth] = useState(
+    getInitialTerminalPreviewSidebarWidth
+  );
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
+  const previewResizeStateRef = useRef<SidebarResizeState | null>(null);
+  const previewResizeAnimationFrameRef = useRef<number | null>(null);
+  const pendingPreviewSidebarWidthRef = useRef<number | null>(null);
+  const previewBodyStyleSnapshotRef = useRef<{
+    cursor: string;
+    userSelect: string;
+  } | null>(null);
   const terminalFonts = useMemo(
     () =>
       Array.from(
@@ -1706,149 +2158,397 @@ function TerminalSection({ query }: { query: string }) {
       .catch(() => undefined);
   }, []);
 
+  const getAvailableTerminalWidth = useCallback(() => {
+    return previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
+  }, []);
+
+  const schedulePreviewSidebarWidthUpdate = useCallback((nextWidth: number) => {
+    pendingPreviewSidebarWidthRef.current = nextWidth;
+
+    if (previewResizeAnimationFrameRef.current !== null) {
+      return;
+    }
+
+    previewResizeAnimationFrameRef.current = window.requestAnimationFrame(
+      () => {
+        const width = pendingPreviewSidebarWidthRef.current;
+
+        previewResizeAnimationFrameRef.current = null;
+        pendingPreviewSidebarWidthRef.current = null;
+
+        if (typeof width === "number") {
+          setPreviewSidebarWidth(width);
+        }
+      }
+    );
+  }, []);
+
+  const resetPreviewResizeState = useCallback(() => {
+    previewResizeStateRef.current = null;
+
+    if (previewResizeAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(previewResizeAnimationFrameRef.current);
+      previewResizeAnimationFrameRef.current = null;
+    }
+
+    pendingPreviewSidebarWidthRef.current = null;
+
+    if (previewBodyStyleSnapshotRef.current) {
+      document.body.style.userSelect =
+        previewBodyStyleSnapshotRef.current.userSelect;
+      document.body.style.cursor = previewBodyStyleSnapshotRef.current.cursor;
+      previewBodyStyleSnapshotRef.current = null;
+    }
+  }, []);
+
+  const startPreviewResize = (event: React.PointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+      getAvailableTerminalWidth()
+    );
+
+    if (maxWidth <= 0) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    previewBodyStyleSnapshotRef.current = {
+      cursor: document.body.style.cursor,
+      userSelect: document.body.style.userSelect,
+    };
+
+    previewResizeStateRef.current = {
+      pointerId: event.pointerId,
+      startWidth: previewSidebarWidth,
+      startX: event.clientX,
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    schedulePreviewSidebarWidthUpdate(
+      clampWidth(previewSidebarWidth, minWidth, maxWidth)
+    );
+  };
+
+  const adjustPreviewSidebarWidth = (delta: number) => {
+    const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+      getAvailableTerminalWidth()
+    );
+
+    if (maxWidth <= 0) {
+      setPreviewSidebarWidth(0);
+      return;
+    }
+
+    setPreviewSidebarWidth((currentWidth) =>
+      clampWidth(currentWidth + delta, minWidth, maxWidth)
+    );
+  };
+
+  const handlePreviewResizeHandleKeyDown = (
+    event: React.KeyboardEvent<HTMLElement>
+  ) => {
+    const resizeStep = event.shiftKey ? 40 : 16;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      adjustPreviewSidebarWidth(resizeStep);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      adjustPreviewSidebarWidth(-resizeStep);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      const { minWidth } = getEditorPreviewResizeBounds(
+        getAvailableTerminalWidth()
+      );
+      setPreviewSidebarWidth(minWidth);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      const { maxWidth } = getEditorPreviewResizeBounds(
+        getAvailableTerminalWidth()
+      );
+      setPreviewSidebarWidth(maxWidth);
+    }
+  };
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = previewResizeStateRef.current;
+
+      if (!resizeState || event.pointerId !== resizeState.pointerId) {
+        return;
+      }
+
+      const delta = event.clientX - resizeState.startX;
+      const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+        getAvailableTerminalWidth()
+      );
+
+      if (maxWidth <= 0) {
+        schedulePreviewSidebarWidthUpdate(0);
+        return;
+      }
+
+      schedulePreviewSidebarWidthUpdate(
+        clampWidth(resizeState.startWidth - delta, minWidth, maxWidth)
+      );
+    };
+
+    const handlePointerUp = () => {
+      if (!previewResizeStateRef.current) {
+        return;
+      }
+
+      resetPreviewResizeState();
+    };
+
+    const handleWindowBlur = () => {
+      if (!previewResizeStateRef.current) {
+        return;
+      }
+
+      resetPreviewResizeState();
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("blur", handleWindowBlur);
+      resetPreviewResizeState();
+    };
+  }, [
+    getAvailableTerminalWidth,
+    resetPreviewResizeState,
+    schedulePreviewSidebarWidthUpdate,
+  ]);
+
+  useEffect(() => {
+    const clampPreviewWidthToViewport = () => {
+      const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
+        getAvailableTerminalWidth()
+      );
+
+      setPreviewSidebarWidth((currentWidth) => {
+        if (maxWidth <= 0) {
+          return 0;
+        }
+
+        return clampWidth(currentWidth, minWidth, maxWidth);
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      clampPreviewWidthToViewport();
+    });
+
+    if (previewContainerRef.current) {
+      resizeObserver.observe(previewContainerRef.current);
+    }
+
+    clampPreviewWidthToViewport();
+    window.addEventListener("resize", clampPreviewWidthToViewport);
+
+    return () => {
+      window.removeEventListener("resize", clampPreviewWidthToViewport);
+      resizeObserver.disconnect();
+    };
+  }, [getAvailableTerminalWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      SETTINGS_TERMINAL_PREVIEW_WIDTH_STORAGE_KEY,
+      String(Math.round(previewSidebarWidth))
+    );
+  }, [previewSidebarWidth]);
+
   return (
-    <div className="grid gap-4">
-      <FontPickerField
-        description="Search installed terminal fonts and bundled fallbacks, then optionally filter to monospace only."
-        emptyMessage={
-          terminalFontStatus === "unavailable"
-            ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
-            : "No matching terminal fonts found."
-        }
-        helperText={
-          terminalFontStatus === "unavailable"
-            ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
-            : "Installed system fonts are shown first, with bundled fallbacks available when needed."
-        }
-        label="Terminal font"
-        monospaceOnly={fontVisibility === "monospace-only"}
-        onMonospaceOnlyChange={(checked) => {
-          setFontVisibility(checked ? "monospace-only" : "all-fonts");
-        }}
-        onSearchChange={setTerminalFontQuery}
-        onValueChange={setFontFamily}
-        options={visibleTerminalFonts}
-        query={query}
-        searchPlaceholder="Search terminal fonts"
-        selectedFont={fontFamily}
-      />
-      <SettingsField
-        description="Live in-app terminal instance using your selected terminal typography settings."
-        label="In-App Terminal preview"
-        query={query}
-      >
-        <div className="overflow-hidden rounded-lg border border-border/70 bg-card/60">
-          <div className="flex items-center justify-between border-border/70 border-b bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
-            <span>Terminal Preview</span>
-            <span>Default shell directory</span>
-          </div>
-          <div className="p-2">
-            <div className="h-44 overflow-hidden rounded-md border border-border/60 bg-background">
-              <TerminalViewport
-                autoFocus={false}
-                contextKey="settings-terminal-preview:default"
-                cwd=""
-                isActive
-                persistSessionOnUnmount={false}
+    <div
+      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
+      ref={previewContainerRef}
+    >
+      <div className="grid gap-4">
+        <FontPickerField
+          description="Search installed terminal fonts and bundled fallbacks, then optionally filter to monospace only."
+          emptyMessage={
+            terminalFontStatus === "unavailable"
+              ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
+              : "No matching terminal fonts found."
+          }
+          helperText={
+            terminalFontStatus === "unavailable"
+              ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
+              : "Installed system fonts are shown first, with bundled fallbacks available when needed."
+          }
+          label="Terminal font"
+          monospaceOnly={fontVisibility === "monospace-only"}
+          onMonospaceOnlyChange={(checked) => {
+            setFontVisibility(checked ? "monospace-only" : "all-fonts");
+          }}
+          onSearchChange={setTerminalFontQuery}
+          onValueChange={setFontFamily}
+          options={visibleTerminalFonts}
+          query={query}
+          searchPlaceholder="Search terminal fonts"
+          selectedFont={fontFamily}
+        />
+        <SettingsField
+          description="Applied immediately to the mounted xterm instance."
+          label="Font size"
+          query={query}
+        >
+          <Input
+            max={32}
+            min={8}
+            onBlur={() => {
+              if (terminalFontSizeInput.trim().length === 0) {
+                setTerminalFontSizeInput(String(fontSize));
+                return;
+              }
+
+              const parsedValue = Number(terminalFontSizeInput);
+
+              if (!Number.isFinite(parsedValue)) {
+                setTerminalFontSizeInput(String(fontSize));
+                return;
+              }
+
+              const clampedValue = clampTerminalFontSize(parsedValue);
+              setFontSize(clampedValue);
+              setTerminalFontSizeInput(String(clampedValue));
+            }}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setTerminalFontSizeInput(nextValue);
+
+              if (nextValue.trim().length === 0) {
+                return;
+              }
+
+              const parsedValue = Number(nextValue);
+
+              if (!Number.isFinite(parsedValue)) {
+                return;
+              }
+
+              if (parsedValue < 8 || parsedValue > 32) {
+                return;
+              }
+
+              setFontSize(parsedValue);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            step={1}
+            type="number"
+            value={terminalFontSizeInput}
+          />
+        </SettingsField>
+        <SettingsField
+          description="Tune line spacing for the integrated terminal."
+          label="Line height"
+          query={query}
+        >
+          <Input
+            min={1}
+            onChange={(event) =>
+              setLineHeight(Math.max(1, Number(event.target.value) || 1))
+            }
+            step="0.1"
+            type="number"
+            value={lineHeight}
+          />
+        </SettingsField>
+        <SettingsField
+          description="Choose the cursor style used by xterm."
+          label="Cursor style"
+          query={query}
+        >
+          <Select
+            items={CURSOR_STYLE_OPTIONS}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                setCursorStyle(value as "block" | "underline" | "bar");
+              }
+            }}
+            value={cursorStyle}
+          >
+            <SelectTrigger>
+              <DefaultSelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="block">Block</SelectItem>
+              <SelectItem value="underline">Underline</SelectItem>
+              <SelectItem value="bar">Bar</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingsField>
+      </div>
+      <div className="hidden xl:flex xl:items-stretch xl:self-stretch">
+        <button
+          aria-controls="terminal-preview-sidebar"
+          aria-label="Resize terminal preview sidebar"
+          className="h-full w-1.5 shrink-0 cursor-col-resize bg-transparent outline-none transition-colors hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/50"
+          onKeyDown={handlePreviewResizeHandleKeyDown}
+          onPointerDown={startPreviewResize}
+          type="button"
+        />
+        <div
+          className="min-w-0 self-stretch"
+          id="terminal-preview-sidebar"
+          style={{
+            width: previewSidebarWidth > 0 ? `${previewSidebarWidth}px` : "0px",
+          }}
+        >
+          <div className="h-full">
+            <div className="h-full min-h-88">
+              <TerminalPreview
+                cursorStyle={cursorStyle}
+                fontFamily={fontFamily}
+                fontSize={fontSize}
+                lineHeight={lineHeight}
               />
             </div>
           </div>
         </div>
-      </SettingsField>
-      <SettingsField
-        description="Applied immediately to the mounted xterm instance."
-        label="Font size"
-        query={query}
-      >
-        <Input
-          max={32}
-          min={8}
-          onBlur={() => {
-            if (terminalFontSizeInput.trim().length === 0) {
-              setTerminalFontSizeInput(String(fontSize));
-              return;
-            }
-
-            const parsedValue = Number(terminalFontSizeInput);
-
-            if (!Number.isFinite(parsedValue)) {
-              setTerminalFontSizeInput(String(fontSize));
-              return;
-            }
-
-            const clampedValue = clampTerminalFontSize(parsedValue);
-            setFontSize(clampedValue);
-            setTerminalFontSizeInput(String(clampedValue));
-          }}
-          onChange={(event) => {
-            const nextValue = event.target.value;
-            setTerminalFontSizeInput(nextValue);
-
-            if (nextValue.trim().length === 0) {
-              return;
-            }
-
-            const parsedValue = Number(nextValue);
-
-            if (!Number.isFinite(parsedValue)) {
-              return;
-            }
-
-            if (parsedValue < 8 || parsedValue > 32) {
-              return;
-            }
-
-            setFontSize(parsedValue);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.currentTarget.blur();
-            }
-          }}
-          step={1}
-          type="number"
-          value={terminalFontSizeInput}
-        />
-      </SettingsField>
-      <SettingsField
-        description="Tune line spacing for the integrated terminal."
-        label="Line height"
-        query={query}
-      >
-        <Input
-          min={1}
-          onChange={(event) =>
-            setLineHeight(Math.max(1, Number(event.target.value) || 1))
-          }
-          step="0.1"
-          type="number"
-          value={lineHeight}
-        />
-      </SettingsField>
-      <SettingsField
-        description="Choose the cursor style used by xterm."
-        label="Cursor style"
-        query={query}
-      >
-        <Select
-          items={CURSOR_STYLE_OPTIONS}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setCursorStyle(value as "block" | "underline" | "bar");
-            }
-          }}
-          value={cursorStyle}
+      </div>
+      <div className="xl:hidden">
+        <SettingsField
+          description="Live in-app terminal instance using your selected terminal typography settings."
+          label="In-App Terminal preview"
+          query={query}
         >
-          <SelectTrigger>
-            <DefaultSelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="block">Block</SelectItem>
-            <SelectItem value="underline">Underline</SelectItem>
-            <SelectItem value="bar">Bar</SelectItem>
-          </SelectContent>
-        </Select>
-      </SettingsField>
+          <div className="h-88">
+            <TerminalPreview
+              cursorStyle={cursorStyle}
+              fontFamily={fontFamily}
+              fontSize={fontSize}
+              lineHeight={lineHeight}
+            />
+          </div>
+        </SettingsField>
+      </div>
     </div>
   );
 }
@@ -1892,6 +2592,43 @@ function NetworkSection({ query }: { query: string }) {
   const [proxyTestMessage, setProxyTestMessage] = useState<string | null>(null);
   const [proxyPasswordInput, setProxyPasswordInput] = useState("");
   const [proxyAuthMessage, setProxyAuthMessage] = useState<string | null>(null);
+  const [proxyTargetDraft, setProxyTargetDraft] = useState(() => ({
+    host: proxyHost,
+    port: String(proxyPort),
+    type: proxyType,
+  }));
+
+  const normalizedProxyDraftHost = proxyTargetDraft.host.trim();
+  const normalizedProxyDraftPort = proxyTargetDraft.port.trim();
+  const parsedProxyDraftPort = Number(normalizedProxyDraftPort);
+  const hasValidProxyDraftPort =
+    normalizedProxyDraftPort.length > 0 &&
+    Number.isInteger(parsedProxyDraftPort) &&
+    parsedProxyDraftPort > 0;
+  const canSaveProxyTarget =
+    normalizedProxyDraftHost.length > 0 && hasValidProxyDraftPort;
+  const canTestProxyTarget = canSaveProxyTarget;
+  const hasSavedProxyTarget = proxyHost.trim().length > 0;
+  const hasUnsavedProxyTargetChanges =
+    proxyTargetDraft.host !== proxyHost ||
+    proxyTargetDraft.port !== String(proxyPort) ||
+    proxyTargetDraft.type !== proxyType;
+
+  const handleSaveProxyTarget = () => {
+    if (!canSaveProxyTarget) {
+      setProxyTestMessage(
+        "Enter a proxy host and a valid positive port before saving."
+      );
+      return;
+    }
+
+    setNetworkProxy({
+      proxyHost: normalizedProxyDraftHost,
+      proxyPort: parsedProxyDraftPort,
+      proxyType: proxyTargetDraft.type,
+    });
+    setProxyTestMessage("Proxy target saved.");
+  };
 
   const resetProxySettings = () => {
     const currentUsername = proxyUsername.trim();
@@ -1911,6 +2648,11 @@ function NetworkSection({ query }: { query: string }) {
       setNetworkProxyAuthSecretStatus({
         hasStoredValue: false,
         storageMode: null,
+      });
+      setProxyTargetDraft({
+        host: DEFAULT_PREFERENCES.network.proxyHost,
+        port: String(DEFAULT_PREFERENCES.network.proxyPort),
+        type: DEFAULT_PREFERENCES.network.proxyType,
       });
       setProxyAuthMessage("Proxy settings reset to defaults.");
       setProxyPasswordInput("");
@@ -1960,6 +2702,14 @@ function NetworkSection({ query }: { query: string }) {
         });
       });
   }, [proxyAuthEnabled, proxyUsername, setNetworkProxyAuthSecretStatus]);
+
+  useEffect(() => {
+    setProxyTargetDraft({
+      host: proxyHost,
+      port: String(proxyPort),
+      type: proxyType,
+    });
+  }, [proxyHost, proxyPort, proxyType]);
 
   return (
     <div className="grid gap-4">
@@ -2015,95 +2765,139 @@ function NetworkSection({ query }: { query: string }) {
         label="Proxy target"
         query={query}
       >
-        <div className="grid gap-3 md:grid-cols-3">
-          <Input
-            onChange={(event) => {
-              setNetworkProxy({ proxyHost: event.target.value });
-            }}
-            placeholder="proxy.local"
-            value={proxyHost}
-          />
-          <Input
-            min={1}
-            onChange={(event) => {
-              setNetworkProxy({
-                proxyPort: Number(event.target.value) || 80,
-              });
-            }}
-            placeholder="80"
-            type="number"
-            value={proxyPort}
-          />
-          <Select
-            items={PROXY_TYPE_OPTIONS}
-            onValueChange={(value) => {
-              if (typeof value === "string") {
-                setNetworkProxy({
-                  proxyType: value as "http" | "https" | "socks5",
-                });
-              }
-            }}
-            value={proxyType}
-          >
-            <SelectTrigger>
-              <DefaultSelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="http">HTTP</SelectItem>
-              <SelectItem value="https">HTTPS</SelectItem>
-              <SelectItem value="socks5">SOCKS5</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            onClick={() => {
-              if (!proxyHost.trim()) {
-                setProxyTestMessage("Proxy host is required before testing.");
-                return;
-              }
-
-              runProxyConnectionTest({
-                host: proxyHost,
-                port: proxyPort,
-                proxyType,
-                username:
-                  proxyAuthEnabled && proxyUsername.trim().length > 0
-                    ? proxyUsername
-                    : undefined,
-                password:
-                  proxyAuthEnabled && proxyPasswordInput.trim().length > 0
-                    ? proxyPasswordInput
-                    : undefined,
-              })
-                .then((result) => {
-                  setProxyTestMessage(result.message);
-                })
-                .catch((error: unknown) => {
+        <div className="grid gap-4 rounded-xl border border-border/60 bg-muted/18 p-4 md:gap-4">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(7rem,0.75fr)_minmax(8rem,0.8fr)]">
+            <div className="grid gap-2">
+              <Label htmlFor="proxy-target-host">Proxy host</Label>
+              <Input
+                id="proxy-target-host"
+                onChange={(event) => {
+                  setProxyTargetDraft((current) => ({
+                    ...current,
+                    host: event.target.value,
+                  }));
+                  setProxyTestMessage(null);
+                }}
+                placeholder="proxy.local"
+                value={proxyTargetDraft.host}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="proxy-target-port">Port</Label>
+              <Input
+                id="proxy-target-port"
+                min={1}
+                onChange={(event) => {
+                  setProxyTargetDraft((current) => ({
+                    ...current,
+                    port: event.target.value,
+                  }));
+                  setProxyTestMessage(null);
+                }}
+                placeholder="80"
+                type="number"
+                value={proxyTargetDraft.port}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="proxy-target-type">Type</Label>
+              <Select
+                items={PROXY_TYPE_OPTIONS}
+                onValueChange={(value) => {
+                  if (typeof value === "string") {
+                    setProxyTargetDraft((current) => ({
+                      ...current,
+                      type: value as "http" | "https" | "socks5",
+                    }));
+                    setProxyTestMessage(null);
+                  }
+                }}
+                value={proxyTargetDraft.type}
+              >
+                <SelectTrigger id="proxy-target-type">
+                  <DefaultSelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="http">HTTP</SelectItem>
+                  <SelectItem value="https">HTTPS</SelectItem>
+                  <SelectItem value="socks5">SOCKS5</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Button
+              disabled={!(canSaveProxyTarget && hasUnsavedProxyTargetChanges)}
+              onClick={handleSaveProxyTarget}
+              type="button"
+            >
+              Save proxy target
+            </Button>
+            <Button
+              disabled={!canTestProxyTarget}
+              onClick={() => {
+                if (!canTestProxyTarget) {
                   setProxyTestMessage(
-                    error instanceof Error ? error.message : "Proxy test failed"
+                    "Enter a proxy host and a valid positive port before testing."
                   );
-                });
-            }}
-            type="button"
-            variant="outline"
-          >
-            Test proxy connection
-          </Button>
+                  return;
+                }
+
+                runProxyConnectionTest({
+                  host: normalizedProxyDraftHost,
+                  port: parsedProxyDraftPort,
+                  proxyType: proxyTargetDraft.type,
+                  username:
+                    proxyAuthEnabled && proxyUsername.trim().length > 0
+                      ? proxyUsername
+                      : undefined,
+                  password:
+                    proxyAuthEnabled && proxyPasswordInput.trim().length > 0
+                      ? proxyPasswordInput
+                      : undefined,
+                })
+                  .then((result) => {
+                    setProxyTestMessage(result.message);
+                  })
+                  .catch((error: unknown) => {
+                    setProxyTestMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "Proxy test failed"
+                    );
+                  });
+              }}
+              type="button"
+              variant="outline"
+            >
+              Test proxy connection
+            </Button>
+            {hasSavedProxyTarget ? (
+              <Button
+                onClick={resetProxySettings}
+                type="button"
+                variant="ghost"
+              >
+                Reset proxy settings
+              </Button>
+            ) : null}
+          </div>
           {proxyTestMessage ? (
-            <span className="text-muted-foreground text-sm">
-              {proxyTestMessage}
-            </span>
+            <SettingsHelpText>{proxyTestMessage}</SettingsHelpText>
           ) : null}
+          {!canSaveProxyTarget &&
+          (normalizedProxyDraftHost.length > 0 ||
+            normalizedProxyDraftPort.length > 0) ? (
+            <SettingsHelpText tone="warning">
+              Enter both a proxy host and a valid positive port before saving or
+              testing.
+            </SettingsHelpText>
+          ) : null}
+          <SettingsHelpText>
+            Leave host empty to disable proxy routing even if the toggle stays
+            on.
+          </SettingsHelpText>
         </div>
-        <SettingsHelpText>
-          Leave host empty to disable proxy routing even if the toggle stays on.
-        </SettingsHelpText>
-        <SectionActionRow>
-          <Button onClick={resetProxySettings} type="button" variant="ghost">
-            Reset proxy settings
-          </Button>
-        </SectionActionRow>
       </SettingsField>
       <SettingsField
         description="Reveal proxy username and password only when your proxy requires authentication. Passwords stay in backend secure storage or session fallback."
@@ -2750,7 +3544,7 @@ function EditorSection({ query }: { query: string }) {
     }
   }, []);
 
-  const startPreviewResize = (event: React.PointerEvent<HTMLElement>) => {
+  const _startPreviewResize = (event: React.PointerEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
 
@@ -2798,7 +3592,7 @@ function EditorSection({ query }: { query: string }) {
     );
   };
 
-  const handlePreviewResizeHandleKeyDown = (
+  const _handlePreviewResizeHandleKeyDown = (
     event: React.KeyboardEvent<HTMLElement>
   ) => {
     const resizeStep = event.shiftKey ? 40 : 16;
@@ -2921,37 +3715,6 @@ function EditorSection({ query }: { query: string }) {
       resizeObserver.disconnect();
     };
   }, [getAvailableEditorWidth]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY,
-      String(Math.round(previewSidebarWidth))
-    );
-  }, [previewSidebarWidth]);
-
-  const renderEditorPreview = () => {
-    return (
-      <SettingsField
-        description="Read-only Monaco preview that reflects current editor settings immediately."
-        label="Monaco preview"
-        query={query}
-      >
-        <div className="h-[22rem] xl:h-[calc(100vh-6rem)]">
-          <EditorPreview
-            eol={editor.eol}
-            fontFamily={editor.fontFamily}
-            fontSize={editor.fontSize}
-            lineNumbers={editor.lineNumbers}
-            mode={editorPreviewMode}
-            onModeChange={setEditorPreviewMode}
-            syntaxHighlighting={editor.syntaxHighlighting}
-            tabSize={editor.tabSize}
-            wordWrap={editor.wordWrap}
-          />
-        </div>
-      </SettingsField>
-    );
-  };
 
   return (
     <div
@@ -3188,23 +3951,49 @@ function EditorSection({ query }: { query: string }) {
           aria-controls="editor-preview-sidebar"
           aria-label="Resize editor preview sidebar"
           className="h-full w-1.5 shrink-0 cursor-col-resize bg-transparent outline-none transition-colors hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/50"
-          onKeyDown={handlePreviewResizeHandleKeyDown}
-          onPointerDown={startPreviewResize}
+          onKeyDown={_handlePreviewResizeHandleKeyDown}
+          onPointerDown={_startPreviewResize}
           type="button"
         />
         <div
-          className="min-w-0"
+          className="min-w-0 self-stretch"
           id="editor-preview-sidebar"
           style={{
             width: previewSidebarWidth > 0 ? `${previewSidebarWidth}px` : "0px",
           }}
         >
-          <div className="xl:sticky xl:top-4 xl:h-fit">
-            {renderEditorPreview()}
+          <div className="h-full">
+            <div className="h-full min-h-88">
+              <EditorPreview
+                eol={editor.eol}
+                fontFamily={editor.fontFamily}
+                fontSize={editor.fontSize}
+                lineNumbers={editor.lineNumbers}
+                mode={editorPreviewMode}
+                onModeChange={setEditorPreviewMode}
+                syntaxHighlighting={editor.syntaxHighlighting}
+                tabSize={editor.tabSize}
+                wordWrap={editor.wordWrap}
+              />
+            </div>
           </div>
         </div>
       </div>
-      <div className="xl:hidden">{renderEditorPreview()}</div>
+      <div className="xl:hidden">
+        <div className="h-88">
+          <EditorPreview
+            eol={editor.eol}
+            fontFamily={editor.fontFamily}
+            fontSize={editor.fontSize}
+            lineNumbers={editor.lineNumbers}
+            mode={editorPreviewMode}
+            onModeChange={setEditorPreviewMode}
+            syntaxHighlighting={editor.syntaxHighlighting}
+            tabSize={editor.tabSize}
+            wordWrap={editor.wordWrap}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -3229,9 +4018,11 @@ function AiSection({ query }: { query: string }) {
     hasStoredValue: boolean;
     storageMode: "secure" | "session";
   }>(null);
+  const [aiSecretMessage, setAiSecretMessage] = useState<string | null>(null);
   const [capabilitiesMessage, setCapabilitiesMessage] = useState<string | null>(
     null
   );
+  const hasStoredAiSecret = aiSecretStatus?.hasStoredValue ?? false;
 
   const resetAiSettings = () => {
     clearAiProviderSecret(provider)
@@ -3245,10 +4036,13 @@ function AiSection({ query }: { query: string }) {
           hasStoredValue: false,
           storageMode: "session",
         });
+        setAiSecretMessage("AI settings reset to defaults.");
       });
   };
 
   useEffect(() => {
+    setAiSecretMessage(null);
+
     getAiProviderSecretStatus(provider)
       .then(setAiSecretStatus)
       .catch(() => {
@@ -3341,7 +4135,10 @@ function AiSection({ query }: { query: string }) {
       >
         <div className="grid gap-3">
           <Input
-            onChange={(event) => setAiSecretInput(event.target.value)}
+            onChange={(event) => {
+              setAiSecretInput(event.target.value);
+              setAiSecretMessage(null);
+            }}
             placeholder="sk-..."
             type="password"
             value={aiSecretInput}
@@ -3354,8 +4151,17 @@ function AiSection({ query }: { query: string }) {
                   .then((status) => {
                     setAiSecretStatus(status);
                     setAiSecretInput("");
+                    setAiSecretMessage(
+                      `API key saved (${status.storageMode}).`
+                    );
                   })
-                  .catch(() => undefined);
+                  .catch((error: unknown) => {
+                    setAiSecretMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to save API key"
+                    );
+                  });
               }}
               type="button"
               variant="outline"
@@ -3368,11 +4174,16 @@ function AiSection({ query }: { query: string }) {
                 : "No API key saved"}
             </span>
           </div>
-          <SectionActionRow>
-            <Button onClick={resetAiSettings} type="button" variant="ghost">
-              Reset AI settings
-            </Button>
-          </SectionActionRow>
+          {hasStoredAiSecret ? (
+            <SectionActionRow>
+              <Button onClick={resetAiSettings} type="button" variant="ghost">
+                Reset AI settings
+              </Button>
+            </SectionActionRow>
+          ) : null}
+          {aiSecretMessage ? (
+            <SettingsHelpText>{aiSecretMessage}</SettingsHelpText>
+          ) : null}
           {capabilitiesMessage ? (
             <div className="text-muted-foreground text-xs">
               {capabilitiesMessage}
@@ -3400,10 +4211,6 @@ export function SettingsPage() {
   const previousActiveSectionRef = useRef<SettingsSectionId | null>(null);
   const resizeAnimationFrameRef = useRef<number | null>(null);
   const pendingSidebarWidthRef = useRef<number | null>(null);
-  const bodyStyleSnapshotRef = useRef<{
-    cursor: string;
-    userSelect: string;
-  } | null>(null);
   const activeSection = usePreferencesStore(
     (state) => state.settings.activeSection
   );
@@ -3500,97 +4307,41 @@ export function SettingsPage() {
 
     pendingSidebarWidthRef.current = null;
 
-    if (bodyStyleSnapshotRef.current) {
-      document.body.style.userSelect = bodyStyleSnapshotRef.current.userSelect;
-      document.body.style.cursor = bodyStyleSnapshotRef.current.cursor;
-      bodyStyleSnapshotRef.current = null;
-    }
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
   }, []);
 
-  const startSidebarResize = (event: React.PointerEvent<HTMLElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
+  const startSidebarResize =
+    (_target: "left") => (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
 
-    const { maxWidth, minWidth } = getSidebarResizeBounds(
-      getAvailableSettingsWidth()
-    );
+      const { maxWidth, minWidth } = getSidebarResizeBounds(
+        getAvailableSettingsWidth()
+      );
 
-    if (maxWidth <= 0) {
-      return;
-    }
+      if (maxWidth <= 0) {
+        return;
+      }
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+      sidebarResizeStateRef.current = {
+        startWidth: clampWidth(leftSidebarWidth, minWidth, maxWidth),
+        startX: event.clientX,
+      };
 
-    bodyStyleSnapshotRef.current = {
-      cursor: document.body.style.cursor,
-      userSelect: document.body.style.userSelect,
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+
+      scheduleSidebarWidthUpdate(
+        clampWidth(leftSidebarWidth, minWidth, maxWidth)
+      );
     };
-
-    sidebarResizeStateRef.current = {
-      pointerId: event.pointerId,
-      startWidth: leftSidebarWidth,
-      startX: event.clientX,
-    };
-
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-
-    scheduleSidebarWidthUpdate(
-      clampWidth(leftSidebarWidth, minWidth, maxWidth)
-    );
-  };
-
-  const adjustSidebarWidth = (delta: number) => {
-    const { maxWidth, minWidth } = getSidebarResizeBounds(
-      getAvailableSettingsWidth()
-    );
-
-    if (maxWidth <= 0) {
-      setLeftSidebarWidth(0);
-      return;
-    }
-
-    setLeftSidebarWidth((currentWidth) =>
-      clampWidth(currentWidth + delta, minWidth, maxWidth)
-    );
-  };
-
-  const handleResizeHandleKeyDown = (
-    event: React.KeyboardEvent<HTMLElement>
-  ) => {
-    const resizeStep = event.shiftKey ? 40 : 16;
-
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      adjustSidebarWidth(-resizeStep);
-      return;
-    }
-
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      adjustSidebarWidth(resizeStep);
-      return;
-    }
-
-    if (event.key === "Home") {
-      event.preventDefault();
-      const { minWidth } = getSidebarResizeBounds(getAvailableSettingsWidth());
-      setLeftSidebarWidth(minWidth);
-      return;
-    }
-
-    if (event.key === "End") {
-      event.preventDefault();
-      const { maxWidth } = getSidebarResizeBounds(getAvailableSettingsWidth());
-      setLeftSidebarWidth(maxWidth);
-    }
-  };
 
   useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
+    const handlePointerMove = (event: MouseEvent) => {
       const resizeState = sidebarResizeStateRef.current;
 
-      if (!resizeState || event.pointerId !== resizeState.pointerId) {
+      if (!resizeState) {
         return;
       }
 
@@ -3625,15 +4376,13 @@ export function SettingsPage() {
       resetResizeState();
     };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp);
     window.addEventListener("blur", handleWindowBlur);
 
     return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
       window.removeEventListener("blur", handleWindowBlur);
       resetResizeState();
     };
@@ -3699,15 +4448,15 @@ export function SettingsPage() {
                 render={
                   <Button
                     aria-label="Exit preferences"
-                    className="shrink-0 whitespace-nowrap text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                    className="shrink-0 whitespace-nowrap pr-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
                     onClick={handleExitPreferences}
-                    size="sm"
+                    size={toolbarLabels ? "sm" : "icon"}
                     type="button"
                     variant="ghost"
                   />
                 }
               >
-                <CaretLeftIcon className="size-4 shrink-0" />
+                <ArrowLeftIcon className="size-4 shrink-0" />
                 <span className={cn(!toolbarLabels && "hidden")}>Exit</span>
               </TooltipTrigger>
               <TooltipContent
@@ -3772,27 +4521,31 @@ export function SettingsPage() {
         </SidebarContent>
       </Sidebar>
       <button
-        aria-controls="settings-content-panel"
         aria-label="Resize left sidebar"
-        className="h-full w-1.5 shrink-0 cursor-col-resize bg-transparent outline-none transition-colors hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/50"
-        onKeyDown={handleResizeHandleKeyDown}
-        onPointerDown={startSidebarResize}
+        className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent hover:bg-accent/30"
+        onMouseDown={startSidebarResize("left")}
         type="button"
       />
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2"
         id="settings-content-panel"
         ref={contentPanelRef}
       >
-        <div className="px-8 py-8">
-          <h2 className="font-semibold text-xl">
-            {SETTINGS_SECTION_LABELS[activeDefinition.id]}
-          </h2>
-          <p className="mt-1 text-muted-foreground text-sm">
-            {activeDefinition.description}
-          </p>
-          <div className="mt-6 grid gap-4">
-            {renderSection(activeDefinition.id, query)}
+        <div className="px-6 py-6 sm:px-8 sm:py-8">
+          <header className="mb-6">
+            <div className="border-primary border-l-4 pl-3">
+              <h2 className="font-mono font-semibold text-foreground text-xl tracking-tight transition-colors sm:text-2xl">
+                {SETTINGS_SECTION_LABELS[activeDefinition.id]}
+              </h2>
+            </div>
+            <p className="mt-3 max-w-3xl text-muted-foreground text-sm leading-relaxed">
+              {activeDefinition.description}
+            </p>
+          </header>
+          <div className="rounded-xl border border-primary/15 bg-primary/[0.025] p-4 sm:p-6">
+            <div className="grid gap-4">
+              {renderSection(activeDefinition.id, query)}
+            </div>
           </div>
         </div>
       </div>
