@@ -13,6 +13,7 @@ import { Label } from "@litgit/ui/components/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -44,14 +45,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   getLocaleOption,
@@ -581,6 +575,7 @@ const SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY =
   "litgit:settings-editor-preview-width";
 const SETTINGS_TERMINAL_PREVIEW_WIDTH_STORAGE_KEY =
   "litgit:settings-terminal-preview-width";
+const SETTINGS_COMBOBOX_DEBOUNCE_MS = 500;
 
 const LINE_NUMBER_OPTIONS = {
   off: "Hidden",
@@ -728,6 +723,21 @@ const getVisibleFonts = (
   }
 
   return fonts.filter((font) => font.isMonospace);
+};
+
+const ensureSelectedOption = <T,>(
+  options: readonly T[],
+  selectedOption: T | null,
+  isEqual: (option: T, selectedOption: T) => boolean
+): readonly T[] => {
+  if (
+    !selectedOption ||
+    options.some((option) => isEqual(option, selectedOption))
+  ) {
+    return options;
+  }
+
+  return [selectedOption, ...options];
 };
 
 const detectMonospaceFont = (fontName: string) => {
@@ -885,6 +895,22 @@ const runWhenBrowserIsIdle = (callback: () => void): (() => void) => {
   return () => {
     window.clearTimeout(handle);
   };
+};
+
+const useDebouncedValue = <T,>(value: T, delayInMs: number): T => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedValue(value);
+    }, delayInMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [delayInMs, value]);
+
+  return debouncedValue;
 };
 
 const describeFontSource = (option: FontPickerOption) => {
@@ -1333,8 +1359,10 @@ function EditorPreview({
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="regular">Regular editor</SelectItem>
-              <SelectItem value="diff">Diff editor</SelectItem>
+              <SelectGroup>
+                <SelectItem value="regular">Regular editor</SelectItem>
+                <SelectItem value="diff">Diff editor</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </SectionActionRow>
@@ -1446,7 +1474,7 @@ function FontPickerField({
   options,
   query,
   searchPlaceholder,
-  selectedFont,
+  selectedOption,
   showLoadingSkeleton,
 }: {
   description: string;
@@ -1462,12 +1490,9 @@ function FontPickerField({
   options: readonly FontPickerOption[];
   query: string;
   searchPlaceholder: string;
-  selectedFont: string;
+  selectedOption: FontPickerOption | null;
   showLoadingSkeleton?: boolean;
 }) {
-  const selectedOption =
-    options.find((option) => option.family === selectedFont) ?? null;
-
   return (
     <SettingsField description={description} label={label} query={query}>
       <div className="grid gap-3">
@@ -1476,8 +1501,13 @@ function FontPickerField({
         ) : (
           <Combobox
             autoHighlight
+            filter={null}
             items={options}
             itemToStringLabel={(option: FontPickerOption) => option.family}
+            onInputValueChange={(nextInputValue) => {
+              onPickerInteract?.();
+              onSearchChange(nextInputValue);
+            }}
             onValueChange={(nextValue: FontPickerOption | null) => {
               if (nextValue) {
                 onValueChange(nextValue.family);
@@ -1487,10 +1517,6 @@ function FontPickerField({
           >
             <ComboboxInput
               className="w-full"
-              onChange={(event) => {
-                onPickerInteract?.();
-                onSearchChange(event.target.value);
-              }}
               onFocus={() => {
                 onPickerInteract?.();
               }}
@@ -2019,7 +2045,31 @@ function UiSection({ query }: { query: string }) {
   );
   const dateFormat = usePreferencesStore((state) => state.ui.dateFormat);
   const setDateFormat = usePreferencesStore((state) => state.setDateFormat);
+  const [localeQuery, setLocaleQuery] = useState("");
   const selectedLocaleOption = getLocaleOption(locale) ?? LOCALE_OPTIONS[0];
+  const debouncedLocaleQuery = useDebouncedValue(
+    localeQuery,
+    SETTINGS_COMBOBOX_DEBOUNCE_MS
+  );
+  const visibleLocaleOptions = useMemo(() => {
+    const normalizedQuery = debouncedLocaleQuery.trim().toLowerCase();
+
+    if (normalizedQuery.length === 0) {
+      return LOCALE_OPTIONS;
+    }
+
+    const filteredOptions = LOCALE_OPTIONS.filter((option) =>
+      `${option.displayName} ${option.code}`
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+
+    return ensureSelectedOption(
+      filteredOptions,
+      selectedLocaleOption,
+      (option, selectedOption) => option.code === selectedOption.code
+    );
+  }, [debouncedLocaleQuery, selectedLocaleOption]);
   const effectiveLocale =
     selectedLocaleOption.code === SYSTEM_LOCALE_CODE ||
     selectedLocaleOption.code.trim().length === 0
@@ -2054,7 +2104,7 @@ function UiSection({ query }: { query: string }) {
         label="Notification location"
         query={query}
       >
-        <SectionActionRow>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
           <Select
             items={TOASTER_OPTIONS}
             onValueChange={(value) => {
@@ -2072,16 +2122,18 @@ function UiSection({ query }: { query: string }) {
             }}
             value={toasterPosition}
           >
-            <SelectTrigger className="w-fit">
+            <SelectTrigger className="w-full">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="top-right">Top right</SelectItem>
-              <SelectItem value="top-center">Top center</SelectItem>
-              <SelectItem value="top-left">Top left</SelectItem>
-              <SelectItem value="bottom-right">Bottom right</SelectItem>
-              <SelectItem value="bottom-center">Bottom center</SelectItem>
-              <SelectItem value="bottom-left">Bottom left</SelectItem>
+              <SelectGroup>
+                <SelectItem value="top-right">Top right</SelectItem>
+                <SelectItem value="top-center">Top center</SelectItem>
+                <SelectItem value="top-left">Top left</SelectItem>
+                <SelectItem value="bottom-right">Bottom right</SelectItem>
+                <SelectItem value="bottom-center">Bottom center</SelectItem>
+                <SelectItem value="bottom-left">Bottom left</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
           <Button
@@ -2097,7 +2149,7 @@ function UiSection({ query }: { query: string }) {
           >
             Test notification
           </Button>
-        </SectionActionRow>
+        </div>
       </SettingsField>
       <SettingsField
         description="Choose the locale used for date rendering with a curated searchable list. System locale follows your OS settings."
@@ -2107,12 +2159,17 @@ function UiSection({ query }: { query: string }) {
         <div className="grid gap-2">
           <Combobox
             autoHighlight
-            items={LOCALE_OPTIONS}
+            filter={null}
+            items={visibleLocaleOptions}
             itemToStringLabel={(option: LocaleOption) =>
               `${option.displayName} ${option.code}`
             }
+            onInputValueChange={(nextInputValue) => {
+              setLocaleQuery(nextInputValue);
+            }}
             onValueChange={(nextValue: LocaleOption | null) => {
               setLocale(nextValue?.code ?? SYSTEM_LOCALE_CODE);
+              setLocaleQuery("");
             }}
             value={selectedLocaleOption}
           >
@@ -2166,12 +2223,14 @@ function UiSection({ query }: { query: string }) {
             }}
             value={dateFormat}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="compact">Compact</SelectItem>
-              <SelectItem value="verbose">Verbose</SelectItem>
+              <SelectGroup>
+                <SelectItem value="compact">Compact</SelectItem>
+                <SelectItem value="verbose">Verbose</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
           <SettingsHelpText>Preview: {selectedDatePreview}</SettingsHelpText>
@@ -2244,7 +2303,10 @@ function TerminalSection({ query }: { query: string }) {
   const [isLoadingTerminalFonts, setIsLoadingTerminalFonts] = useState(false);
   const [hasLoadedTerminalFonts, setHasLoadedTerminalFonts] = useState(false);
   const [terminalFontQuery, setTerminalFontQuery] = useState("");
-  const deferredTerminalFontQuery = useDeferredValue(terminalFontQuery);
+  const debouncedTerminalFontQuery = useDebouncedValue(
+    terminalFontQuery,
+    SETTINGS_COMBOBOX_DEBOUNCE_MS
+  );
   const [terminalFontSizeInput, setTerminalFontSizeInput] = useState(() =>
     String(fontSize)
   );
@@ -2271,18 +2333,37 @@ function TerminalSection({ query }: { query: string }) {
       ),
     [systemTerminalFonts]
   );
+  const selectedTerminalFontOption = useMemo(
+    () => terminalFonts.find((font) => font.family === fontFamily) ?? null,
+    [fontFamily, terminalFonts]
+  );
   const visibleTerminalFonts = useMemo(() => {
     const filteredFonts = getVisibleFonts(terminalFonts, fontVisibility);
-    const normalizedQuery = deferredTerminalFontQuery.trim().toLowerCase();
+    const normalizedQuery = debouncedTerminalFontQuery.trim().toLowerCase();
 
     if (normalizedQuery.length === 0) {
-      return filteredFonts;
+      return ensureSelectedOption(
+        filteredFonts,
+        selectedTerminalFontOption,
+        (option, selectedOption) => option.family === selectedOption.family
+      );
     }
 
-    return filteredFonts.filter((font) =>
+    const queryFilteredFonts = filteredFonts.filter((font) =>
       font.family.toLowerCase().includes(normalizedQuery)
     );
-  }, [deferredTerminalFontQuery, fontVisibility, terminalFonts]);
+
+    return ensureSelectedOption(
+      queryFilteredFonts,
+      selectedTerminalFontOption,
+      (option, selectedOption) => option.family === selectedOption.family
+    );
+  }, [
+    debouncedTerminalFontQuery,
+    fontVisibility,
+    selectedTerminalFontOption,
+    terminalFonts,
+  ]);
 
   useEffect(() => {
     if (!terminalFonts.some((font) => font.family === fontFamily)) {
@@ -2577,11 +2658,14 @@ function TerminalSection({ query }: { query: string }) {
           }}
           onPickerInteract={loadTerminalFonts}
           onSearchChange={setTerminalFontQuery}
-          onValueChange={setFontFamily}
+          onValueChange={(value) => {
+            setFontFamily(value);
+            setTerminalFontQuery("");
+          }}
           options={visibleTerminalFonts}
           query={query}
           searchPlaceholder="Search terminal fonts"
-          selectedFont={fontFamily}
+          selectedOption={selectedTerminalFontOption}
           showLoadingSkeleton={
             isLoadingTerminalFonts && !hasLoadedTerminalFonts
           }
@@ -2670,13 +2754,15 @@ function TerminalSection({ query }: { query: string }) {
             }}
             value={cursorStyle}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="block">Block</SelectItem>
-              <SelectItem value="underline">Underline</SelectItem>
-              <SelectItem value="bar">Bar</SelectItem>
+              <SelectGroup>
+                <SelectItem value="block">Block</SelectItem>
+                <SelectItem value="underline">Underline</SelectItem>
+                <SelectItem value="bar">Bar</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </SettingsField>
@@ -2990,13 +3076,15 @@ function NetworkSection({ query }: { query: string }) {
                 }}
                 value={proxyTargetDraft.type}
               >
-                <SelectTrigger id="proxy-target-type">
+                <SelectTrigger className="w-full" id="proxy-target-type">
                   <DefaultSelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="http">HTTP</SelectItem>
-                  <SelectItem value="https">HTTPS</SelectItem>
-                  <SelectItem value="socks5">SOCKS5</SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="http">HTTP</SelectItem>
+                    <SelectItem value="https">HTTPS</SelectItem>
+                    <SelectItem value="socks5">SOCKS5</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>
@@ -3483,12 +3571,14 @@ function SigningSection({ query }: { query: string }) {
           }}
           value={signingFormat}
         >
-          <SelectTrigger>
+          <SelectTrigger className="w-full">
             <DefaultSelectValue placeholder="OPENPGP" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="gpg">OPENPGP</SelectItem>
-            <SelectItem value="ssh">SSH</SelectItem>
+            <SelectGroup>
+              <SelectItem value="gpg">OPENPGP</SelectItem>
+              <SelectItem value="ssh">SSH</SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
       </SettingsField>
@@ -3547,16 +3637,20 @@ function SigningSection({ query }: { query: string }) {
             }}
             value={signingKey.length > 0 ? signingKey : NO_SIGNING_KEY_VALUE}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue className="min-w-24" placeholder="<None>" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_SIGNING_KEY_VALUE}>&lt;None&gt;</SelectItem>
-              {filteredSigningKeys.map((entry) => (
-                <SelectItem key={entry.id} value={entry.id}>
-                  {entry.label} ({entry.type.toUpperCase()})
+              <SelectGroup>
+                <SelectItem value={NO_SIGNING_KEY_VALUE}>
+                  &lt;None&gt;
                 </SelectItem>
-              ))}
+                {filteredSigningKeys.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {entry.label} ({entry.type.toUpperCase()})
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
           {filteredSigningKeys.length === 0 ? (
@@ -3622,7 +3716,10 @@ function EditorSection({ query }: { query: string }) {
   const [isLoadingEditorFonts, setIsLoadingEditorFonts] = useState(false);
   const [hasLoadedEditorFonts, setHasLoadedEditorFonts] = useState(false);
   const [editorFontQuery, setEditorFontQuery] = useState("");
-  const deferredEditorFontQuery = useDeferredValue(editorFontQuery);
+  const debouncedEditorFontQuery = useDebouncedValue(
+    editorFontQuery,
+    SETTINGS_COMBOBOX_DEBOUNCE_MS
+  );
   const [editorFontSizeInput, setEditorFontSizeInput] = useState(() =>
     String(editor.fontSize)
   );
@@ -3644,18 +3741,37 @@ function EditorSection({ query }: { query: string }) {
       ),
     [systemEditorFonts]
   );
+  const selectedEditorFontOption = useMemo(
+    () => editorFonts.find((font) => font.family === editor.fontFamily) ?? null,
+    [editor.fontFamily, editorFonts]
+  );
   const visibleEditorFonts = useMemo(() => {
     const filteredFonts = getVisibleFonts(editorFonts, editor.fontVisibility);
-    const normalizedQuery = deferredEditorFontQuery.trim().toLowerCase();
+    const normalizedQuery = debouncedEditorFontQuery.trim().toLowerCase();
 
     if (normalizedQuery.length === 0) {
-      return filteredFonts;
+      return ensureSelectedOption(
+        filteredFonts,
+        selectedEditorFontOption,
+        (option, selectedOption) => option.family === selectedOption.family
+      );
     }
 
-    return filteredFonts.filter((font) =>
+    const queryFilteredFonts = filteredFonts.filter((font) =>
       font.family.toLowerCase().includes(normalizedQuery)
     );
-  }, [deferredEditorFontQuery, editor.fontVisibility, editorFonts]);
+
+    return ensureSelectedOption(
+      queryFilteredFonts,
+      selectedEditorFontOption,
+      (option, selectedOption) => option.family === selectedOption.family
+    );
+  }, [
+    debouncedEditorFontQuery,
+    editor.fontVisibility,
+    editorFonts,
+    selectedEditorFontOption,
+  ]);
 
   useEffect(() => {
     if (!editorFonts.some((font) => font.family === editor.fontFamily)) {
@@ -3949,11 +4065,14 @@ function EditorSection({ query }: { query: string }) {
           }}
           onPickerInteract={loadEditorFonts}
           onSearchChange={setEditorFontQuery}
-          onValueChange={(value) => setEditorPreferences({ fontFamily: value })}
+          onValueChange={(value) => {
+            setEditorPreferences({ fontFamily: value });
+            setEditorFontQuery("");
+          }}
           options={visibleEditorFonts}
           query={query}
           searchPlaceholder="Search editor fonts"
-          selectedFont={editor.fontFamily}
+          selectedOption={selectedEditorFontOption}
           showLoadingSkeleton={isLoadingEditorFonts && !hasLoadedEditorFonts}
         />
         <SettingsField
@@ -4080,12 +4199,14 @@ function EditorSection({ query }: { query: string }) {
             }}
             value={editor.lineNumbers}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="on">Visible</SelectItem>
-              <SelectItem value="off">Hidden</SelectItem>
+              <SelectGroup>
+                <SelectItem value="on">Visible</SelectItem>
+                <SelectItem value="off">Hidden</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </SettingsField>
@@ -4143,13 +4264,15 @@ function EditorSection({ query }: { query: string }) {
             }}
             value={editor.eol}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="system">System default</SelectItem>
-              <SelectItem value="lf">LF</SelectItem>
-              <SelectItem value="crlf">CRLF</SelectItem>
+              <SelectGroup>
+                <SelectItem value="system">System default</SelectItem>
+                <SelectItem value="lf">LF</SelectItem>
+                <SelectItem value="crlf">CRLF</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </SettingsField>
@@ -4296,16 +4419,18 @@ function AiSection({ query }: { query: string }) {
           }}
           value={provider}
         >
-          <SelectTrigger>
+          <SelectTrigger className="w-full">
             <DefaultSelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="openai">OpenAI</SelectItem>
-            <SelectItem value="anthropic">Anthropic</SelectItem>
-            <SelectItem value="azure">Azure</SelectItem>
-            <SelectItem value="google">Google</SelectItem>
-            <SelectItem value="ollama">Ollama</SelectItem>
-            <SelectItem value="custom">Custom</SelectItem>
+            <SelectGroup>
+              <SelectItem value="openai">OpenAI</SelectItem>
+              <SelectItem value="anthropic">Anthropic</SelectItem>
+              <SelectItem value="azure">Azure</SelectItem>
+              <SelectItem value="google">Google</SelectItem>
+              <SelectItem value="ollama">Ollama</SelectItem>
+              <SelectItem value="custom">Custom</SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
       </SettingsField>
