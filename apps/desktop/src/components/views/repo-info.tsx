@@ -6378,6 +6378,20 @@ export function RepoInfo() {
                     const commitDescription = (
                       item.messageDescription ?? ""
                     ).trim();
+                    const laneColor = getCommitLaneColor(commits, item.hash);
+                    const commitRefs = item.refs
+                      .map((ref) => normalizeCommitRefLabel(ref) ?? ref.trim())
+                      .filter((ref) => ref.length > 0);
+                    const visibleRefCount = commitRefs.length > 2 ? 1 : 2;
+                    const visibleCommitRefs = commitRefs.slice(
+                      0,
+                      visibleRefCount
+                    );
+                    const hiddenCommitRefs = commitRefs.slice(visibleRefCount);
+                    const hiddenCommitRefCount = Math.max(
+                      0,
+                      commitRefs.length - visibleCommitRefs.length
+                    );
 
                     return (
                       <ContextMenu
@@ -6403,17 +6417,52 @@ export function RepoInfo() {
                             }}
                             type="button"
                           >
-                            <div className="min-w-0 truncate">
-                              {item.refs.length > 0 ? (
-                                <div className="flex min-w-0 items-center gap-1">
-                                  {item.refs.slice(0, 2).map((ref) => (
-                                    <span
-                                      className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
-                                      key={ref}
-                                    >
-                                      {ref}
-                                    </span>
+                            <div className="min-w-0 truncate pr-2">
+                              {visibleCommitRefs.length > 0 ? (
+                                <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                  {visibleCommitRefs.map((ref, index) => (
+                                    <Tooltip key={ref}>
+                                      <TooltipTrigger
+                                        render={
+                                          <span
+                                            className={cn(
+                                              "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-[0.65rem] leading-none",
+                                              index === 0
+                                                ? "max-w-[6rem]"
+                                                : "max-w-[4rem]"
+                                            )}
+                                            style={{
+                                              borderColor: `${laneColor}80`,
+                                            }}
+                                          />
+                                        }
+                                      >
+                                        <span className="truncate">{ref}</span>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="bottom">
+                                        {ref}
+                                      </TooltipContent>
+                                    </Tooltip>
                                   ))}
+                                  {hiddenCommitRefCount > 0 ? (
+                                    <Tooltip>
+                                      <TooltipTrigger
+                                        render={
+                                          <span
+                                            className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-[0.62rem] leading-none"
+                                            style={{
+                                              borderColor: `${laneColor}66`,
+                                            }}
+                                          />
+                                        }
+                                      >
+                                        +{hiddenCommitRefCount}
+                                      </TooltipTrigger>
+                                      <TooltipContent side="bottom">
+                                        {hiddenCommitRefs.join(", ")}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : null}
                                 </div>
                               ) : (
                                 <span className="text-muted-foreground/70 text-xs">
@@ -6426,10 +6475,7 @@ export function RepoInfo() {
                               <div
                                 className="absolute top-0 bottom-0 left-0 rounded-full"
                                 style={{
-                                  backgroundColor: getCommitLaneColor(
-                                    commits,
-                                    item.hash
-                                  ),
+                                  backgroundColor: laneColor,
                                   width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
                                 }}
                               />
