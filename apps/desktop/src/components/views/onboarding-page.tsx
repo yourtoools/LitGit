@@ -1,13 +1,13 @@
 import { Button } from "@litgit/ui/components/button";
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
-import { cn } from "@litgit/ui/lib/utils";
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
   DownloadSimpleIcon,
   FolderSimpleIcon,
   GitBranchIcon,
+  KeyIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
@@ -16,14 +16,14 @@ import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialo
 import { useLauncherActions } from "@/hooks/use-launcher-actions";
 import {
   getGitIdentityStatus,
+  saveGitHubToken,
   saveGitIdentity,
 } from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
-import type { GitIdentityStatus } from "@/stores/repo/repo-store-types";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-type OnboardingPhase = "form" | "loading" | "saved";
+type OnboardingPhase = "form" | "token" | "loading" | "saved";
 
 const formatIdentityValue = (name: string | null, email: string | null) => {
   if (!(name || email)) {
@@ -36,79 +36,6 @@ const formatIdentityValue = (name: string | null, email: string | null) => {
 
   return name ?? email ?? "Not configured";
 };
-
-function IdentityLoadingSkeleton() {
-  return (
-    <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/18 p-5">
-      <div className="flex animate-pulse flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <div className="size-4 rounded-full bg-muted-foreground/15" />
-          <div className="h-4 w-36 rounded bg-muted-foreground/15" />
-        </div>
-        <div className="h-4 w-56 rounded bg-muted-foreground/12" />
-        <div className="mt-1 grid gap-2">
-          <div className="h-3.5 w-40 rounded bg-muted-foreground/10" />
-          <div className="h-3.5 w-44 rounded bg-muted-foreground/10" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function IdentitySummary({
-  identityStatus,
-}: {
-  identityStatus: GitIdentityStatus;
-}) {
-  const effective = identityStatus.effective;
-  const global = identityStatus.global;
-  const effectiveScope = identityStatus.effectiveScope;
-
-  let scopeDescription =
-    "No global Git identity is configured yet. Fill in the fields below to set one.";
-
-  if (effectiveScope === "global") {
-    scopeDescription =
-      "A global Git identity was detected. You can keep or update it below.";
-  } else if (effectiveScope === "local") {
-    scopeDescription =
-      "A repository-local identity was found, but your global identity is not set. Configure your global identity below.";
-  }
-
-  return (
-    <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/18 p-5">
-      <div className="flex items-center gap-2">
-        <GitBranchIcon
-          aria-hidden="true"
-          className={cn(
-            "size-4",
-            effective.isComplete ? "text-primary" : "text-muted-foreground/70"
-          )}
-        />
-        <p className="font-medium text-foreground text-sm leading-none tracking-tight">
-          Detected Git identity
-        </p>
-      </div>
-      <p className="text-muted-foreground text-sm leading-7">
-        {formatIdentityValue(effective.name ?? null, effective.email ?? null)}
-      </p>
-      <div className="grid gap-1 text-muted-foreground/85 text-xs leading-6">
-        <span>
-          Global:{" "}
-          {formatIdentityValue(global.name ?? null, global.email ?? null)}
-        </span>
-        {effectiveScope !== null && (
-          <span className="capitalize">
-            Source: {effectiveScope} Git config
-          </span>
-        )}
-      </div>
-      <p className="text-muted-foreground text-xs leading-6">
-        {scopeDescription}
-      </p>
-    </div>
-  );
-}
 
 function SavedConfirmation({
   identity,
@@ -169,8 +96,163 @@ function SavedConfirmation({
           variant="ghost"
         >
           <ArrowLeftIcon aria-hidden="true" className="size-4" />
-          Back to identity
+          Back to PAT
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function TokenStep({
+  token,
+  onTokenChange,
+  onBack,
+  onSkip,
+  onSuccess,
+}: {
+  token: string;
+  onTokenChange: (value: string) => void;
+  onBack: () => void;
+  onSkip: () => void;
+  onSuccess: (savedToken: string) => void;
+}) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    const trimmedToken = token.trim();
+
+    if (trimmedToken.length === 0) {
+      onSkip();
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await saveGitHubToken(trimmedToken);
+      onSuccess(trimmedToken);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save token");
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-md space-y-6">
+      <div className="grid gap-5 rounded-xl border border-border/60 bg-background/70 p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <KeyIcon
+              aria-hidden="true"
+              className="size-5 text-primary"
+              weight="duotone"
+            />
+          </div>
+          <div className="grid gap-1">
+            <h2 className="font-semibold text-foreground text-sm leading-none tracking-tight">
+              Add GitHub Token (Optional)
+            </h2>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              Link your GitHub account for avatar matching
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label
+            className="font-medium text-sm leading-none"
+            htmlFor="github-token"
+          >
+            Personal Access Token
+          </Label>
+          <Input
+            disabled={isSaving}
+            id="github-token"
+            onChange={(event) => {
+              onTokenChange(event.target.value);
+              setError(null);
+            }}
+            placeholder="github_pat_..."
+            type="password"
+            value={token}
+          />
+        </div>
+
+        <section className="rounded-lg border border-border/50 bg-muted/30 p-3">
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            This token is optional. You can add it later in{" "}
+            <span className="font-medium text-foreground">
+              Settings → GitHub
+            </span>{" "}
+            to link your GitHub account:
+          </p>
+          <ul className="mt-2 grid gap-1 text-muted-foreground text-xs leading-relaxed">
+            <li className="flex items-center gap-1.5">
+              <span className="size-1 rounded-full bg-primary/60" />
+              Show avatar images on your commits
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="size-1 rounded-full bg-primary/60" />
+              Match private email addresses for avatar display
+            </li>
+          </ul>
+          <p className="mt-2 text-muted-foreground text-xs leading-relaxed">
+            Use a fine-grained GitHub Personal Access Token with read-only
+            access to your account email addresses.{" "}
+            <a
+              className="underline underline-offset-2 hover:text-foreground"
+              href="https://github.com/settings/tokens"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              Create one at github.com/settings/tokens
+            </a>
+            .
+          </p>
+        </section>
+
+        {error ? (
+          <section className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 p-3">
+            <WarningCircleIcon
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-destructive"
+            />
+            <p className="text-destructive text-xs leading-relaxed">{error}</p>
+          </section>
+        ) : null}
+
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            className="gap-2"
+            disabled={isSaving}
+            onClick={onBack}
+            type="button"
+            variant="ghost"
+          >
+            <ArrowLeftIcon aria-hidden="true" className="size-4" />
+            Back
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              disabled={isSaving}
+              onClick={onSkip}
+              type="button"
+              variant="outline"
+            >
+              Skip
+            </Button>
+            <Button
+              className="min-w-20"
+              disabled={isSaving}
+              onClick={handleSave}
+              type="button"
+            >
+              {isSaving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -186,11 +268,11 @@ export function OnboardingPage() {
     isCloneDialogOpen,
     setIsCloneDialogOpen,
   } = useLauncherActions();
-  const [identityStatus, setIdentityStatus] =
-    useState<GitIdentityStatus | null>(null);
   const [phase, setPhase] = useState<OnboardingPhase>("loading");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [githubTokenDraft, setGithubTokenDraft] = useState("");
+  const [savedGithubToken, setSavedGithubToken] = useState("");
   const [errors, setErrors] = useState<{ email?: string; name?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -207,8 +289,6 @@ export function OnboardingPage() {
         if (!mounted) {
           return;
         }
-
-        setIdentityStatus(status);
 
         const preferred = status.global ?? status.effective;
         setName(preferred?.name ?? "");
@@ -243,6 +323,23 @@ export function OnboardingPage() {
 
   const handleBackToForm = useCallback(() => {
     setPhase("form");
+    setIsSaving(false);
+  }, []);
+
+  const handleBackToTokenFromSaved = useCallback(() => {
+    setGithubTokenDraft(savedGithubToken);
+    setPhase("token");
+  }, [savedGithubToken]);
+
+  const handleTokenSkip = useCallback(() => {
+    setGithubTokenDraft(savedGithubToken);
+    setPhase("saved");
+  }, [savedGithubToken]);
+
+  const handleTokenSuccess = useCallback((savedToken: string) => {
+    setSavedGithubToken(savedToken);
+    setGithubTokenDraft(savedToken);
+    setPhase("saved");
   }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -272,7 +369,7 @@ export function OnboardingPage() {
     setIsSaving(true);
 
     try {
-      const nextStatus = await saveGitIdentity({
+      await saveGitIdentity({
         gitIdentity: {
           email: trimmedEmail,
           name: trimmedName,
@@ -280,9 +377,8 @@ export function OnboardingPage() {
         },
       });
 
-      setIdentityStatus(nextStatus);
       setSavedIdentity({ email: trimmedEmail, name: trimmedName });
-      setPhase("saved");
+      setPhase("token");
     } catch (error: unknown) {
       setFormError(
         error instanceof Error ? error.message : "Failed to save Git identity"
@@ -292,6 +388,30 @@ export function OnboardingPage() {
   };
 
   const isFormDisabled = phase === "loading" || isSaving;
+  const isTokenPhase = phase === "token";
+  const isSavedPhase = phase === "saved";
+  const isFormOrLoadingPhase = phase === "form" || phase === "loading";
+
+  let headerBadge: string;
+  let headerTitle: string;
+  let headerDescription: string;
+
+  if (isSavedPhase) {
+    headerBadge = "Setup Complete";
+    headerTitle = "You're All Set";
+    headerDescription =
+      "Your global Git identity is configured and ready for commits.";
+  } else if (isTokenPhase) {
+    headerBadge = "Optional Step";
+    headerTitle = "Add GitHub Token";
+    headerDescription =
+      "Link your GitHub account to show avatar images on your commits.";
+  } else {
+    headerBadge = "Welcome to";
+    headerTitle = "Configure Git Identity";
+    headerDescription =
+      "Set your global Git identity. This name and email will appear on every commit you make across all repositories.";
+  }
 
   return (
     <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-300">
@@ -299,42 +419,65 @@ export function OnboardingPage() {
         <header className="flex w-full flex-col gap-4 text-center">
           <div className="mx-auto inline-flex w-fit items-center gap-2 rounded-none border border-primary/25 bg-primary/10 px-3 py-1">
             <span className="font-mono text-primary/85 text-xs uppercase tracking-[0.16em]">
-              {phase === "saved" ? "Setup Complete" : "Welcome to"}
+              {headerBadge}
             </span>
             <span className="font-mono text-foreground/85 text-xs uppercase tracking-[0.14em]">
               LitGit
             </span>
           </div>
           <h1 className="scroll-m-20 font-extrabold font-mono text-4xl text-foreground leading-none tracking-tight">
-            {phase === "saved" ? "You're All Set" : "Configure Git Identity"}
+            {headerTitle}
           </h1>
           <p className="mx-auto max-w-lg text-muted-foreground text-sm leading-relaxed">
-            {phase === "saved"
-              ? "Your global Git identity is configured and ready for commits."
-              : "Set your global Git identity. This name and email will appear on every commit you make across all repositories."}
+            {headerDescription}
           </p>
         </header>
 
-        {phase === "saved" && savedIdentity ? (
+        {isTokenPhase && (
+          <TokenStep
+            onBack={handleBackToForm}
+            onSkip={handleTokenSkip}
+            onSuccess={handleTokenSuccess}
+            onTokenChange={setGithubTokenDraft}
+            token={githubTokenDraft}
+          />
+        )}
+        {isSavedPhase && savedIdentity && (
           <SavedConfirmation
             identity={savedIdentity}
-            onBack={handleBackToForm}
+            onBack={handleBackToTokenFromSaved}
             onCloneRepository={handleCloneRepository}
             onOpenRepository={handleOpenRepository}
           />
-        ) : (
+        )}
+        {isFormOrLoadingPhase && (
           <form
             className="mx-auto w-full max-w-md space-y-6"
             onSubmit={(event) => {
               handleSubmit(event).catch(() => undefined);
             }}
           >
-            {phase === "loading" && <IdentityLoadingSkeleton />}
-            {phase === "form" && identityStatus && (
-              <IdentitySummary identityStatus={identityStatus} />
-            )}
+            <div className="grid gap-5 rounded-xl border border-border/60 bg-background/70 p-6">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                  <GitBranchIcon
+                    aria-hidden="true"
+                    className="size-5 text-primary"
+                    weight="duotone"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <h2 className="font-semibold text-foreground text-sm leading-none tracking-tight">
+                    Set Git identity
+                  </h2>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    {phase === "loading"
+                      ? "Checking your current Git identity..."
+                      : "This global name and email will be used for your commits."}
+                  </p>
+                </div>
+              </div>
 
-            <div className="grid gap-4 rounded-xl border border-border/60 bg-background/70 p-6">
               <div className="grid gap-1.5">
                 <Label
                   className="font-medium text-sm leading-none"
@@ -405,37 +548,48 @@ export function OnboardingPage() {
                   </p>
                 ) : null}
               </div>
-            </div>
 
-            <section className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3 text-muted-foreground text-xs leading-relaxed">
-              <span className="font-medium text-amber-600 tracking-tight dark:text-amber-300">
-                Privacy note:
-              </span>{" "}
-              Your Git author email becomes part of every commit's metadata and
-              may be visible in public repositories. Consider using a private
-              email if your Git host supports it.
-            </section>
-
-            {formError ? (
-              <section className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 p-3">
-                <WarningCircleIcon
-                  aria-hidden="true"
-                  className="mt-0.5 size-4 shrink-0 text-destructive"
-                />
-                <p className="text-destructive text-xs leading-relaxed">
-                  {formError}
+              <section className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3 text-muted-foreground text-xs leading-relaxed">
+                <p>
+                  <span className="font-medium text-amber-600 tracking-tight dark:text-amber-300">
+                    Privacy note:
+                  </span>{" "}
+                  Your Git author email becomes part of each commit metadata and
+                  may be visible in public repositories.
                 </p>
+                <ul className="mt-2 grid gap-1">
+                  <li className="flex items-center gap-1.5">
+                    <span className="size-1 rounded-full bg-amber-500/70" />
+                    This identity is saved to your global Git config.
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <span className="size-1 rounded-full bg-amber-500/70" />
+                    Use a private email address if your Git host supports it.
+                  </li>
+                </ul>
               </section>
-            ) : null}
 
-            <div className="flex items-center justify-end">
-              <Button
-                className="min-w-36"
-                disabled={isFormDisabled}
-                type="submit"
-              >
-                {isSaving ? "Saving…" : "Save and continue"}
-              </Button>
+              {formError ? (
+                <section className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 p-3">
+                  <WarningCircleIcon
+                    aria-hidden="true"
+                    className="mt-0.5 size-4 shrink-0 text-destructive"
+                  />
+                  <p className="text-destructive text-xs leading-relaxed">
+                    {formError}
+                  </p>
+                </section>
+              ) : null}
+
+              <div className="flex items-center justify-end">
+                <Button
+                  className="min-w-36"
+                  disabled={isFormDisabled}
+                  type="submit"
+                >
+                  {isSaving ? "Saving…" : "Save and continue"}
+                </Button>
+              </div>
             </div>
           </form>
         )}
