@@ -222,6 +222,7 @@ const MIN_TIMELINE_CONTENT_WIDTH = 560;
 const COMMIT_MESSAGE_LIST_MARKER_PATTERN = /^[-*•]\s*/;
 const FILE_FILTER_DEBOUNCE_MS = 500;
 const SIDEBAR_FILTER_DEBOUNCE_MS = 500;
+const COMMIT_DIFF_CACHE_LIMIT = 32;
 
 const GIT_STATUS_STYLE_BY_CODE: Record<
   string,
@@ -1056,6 +1057,9 @@ export function RepoInfo() {
   const editorPreferences = usePreferencesStore((state) => state.editor);
   const openedDiffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
     null
+  );
+  const commitDiffCacheRef = useRef<Map<string, RepositoryCommitFileDiff>>(
+    new Map()
   );
   const preAmendDraftRef = useRef<{
     description: string;
@@ -2220,12 +2224,14 @@ export function RepoInfo() {
       setIsLoadingDiffPath(null);
       setOpenedDiff(null);
       setOpenedDiffPath(null);
+      commitDiffCacheRef.current.clear();
       return;
     }
 
     setIsLoadingDiffPath(null);
     setOpenedDiff(null);
     setOpenedDiffPath(null);
+    commitDiffCacheRef.current.clear();
   }, [activeRepoId]);
 
   useEffect(() => {
@@ -4847,6 +4853,14 @@ export function RepoInfo() {
       return;
     }
 
+    const cacheKey = `${commitHash}:${filePath}`;
+    const cachedDiff = commitDiffCacheRef.current.get(cacheKey);
+
+    if (cachedDiff) {
+      setOpenedCommitDiff(cachedDiff);
+      return;
+    }
+
     setIsLoadingCommitDiffPath(`${commitHash}:${filePath}`);
 
     try {
@@ -4854,6 +4868,16 @@ export function RepoInfo() {
 
       if (!diff) {
         return;
+      }
+
+      commitDiffCacheRef.current.set(cacheKey, diff);
+
+      if (commitDiffCacheRef.current.size > COMMIT_DIFF_CACHE_LIMIT) {
+        const oldestCacheKey = commitDiffCacheRef.current.keys().next().value;
+
+        if (typeof oldestCacheKey === "string") {
+          commitDiffCacheRef.current.delete(oldestCacheKey);
+        }
       }
 
       setOpenedCommitDiff(diff);
@@ -4951,7 +4975,7 @@ export function RepoInfo() {
       if (node.file) {
         const file = node.file;
         const loadingKey = `${commitHash}:${file.path}`;
-        const canOpenDiff = file.status.trim().length > 0;
+        const canOpenDiff = showAllCommitFiles || file.status.trim().length > 0;
         let diffRowStateClassName = "";
 
         if (
@@ -5059,7 +5083,7 @@ export function RepoInfo() {
   ): ReactNode => {
     return files.map((file) => {
       const loadingKey = `${commitHash}:${file.path}`;
-      const canOpenDiff = file.status.trim().length > 0;
+      const canOpenDiff = showAllCommitFiles || file.status.trim().length > 0;
       let diffRowStateClassName = "";
 
       if (

@@ -2308,7 +2308,7 @@ fn get_repository_commit_files(
     let first_parent = parent_tokens.get(1).map(|parent| (*parent).to_string());
     let is_merge_commit = parent_tokens.len() > 2;
 
-    let output = if is_merge_commit {
+    let name_status_output = if is_merge_commit {
         let parent_hash = first_parent
             .clone()
             .ok_or_else(|| "Failed to resolve first parent for merge commit".to_string())?;
@@ -2321,11 +2321,12 @@ fn get_repository_commit_files(
                 "--name-status",
                 "--find-renames",
                 "--find-copies",
+                "-z",
                 &parent_hash,
                 &commit_hash,
             ])
             .output()
-            .map_err(|error| format!("Failed to run git diff for merge commit files: {error}"))?
+            .map_err(|error| format!("Failed to run git diff for commit files: {error}"))?
     } else {
         git_command()
             .args([
@@ -2336,103 +2337,179 @@ fn get_repository_commit_files(
                 "--name-status",
                 "--find-renames",
                 "--find-copies",
+                "-z",
                 &commit_hash,
             ])
             .output()
             .map_err(|error| format!("Failed to run git show for commit files: {error}"))?
     };
 
-    if !output.status.success() {
+    if !name_status_output.status.success() {
         return Err(git_error_message(
-            &output.stderr,
+            &name_status_output.stderr,
             "Failed to load commit file list",
         ));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let numstat_output = if is_merge_commit {
+        let parent_hash = first_parent
+            .clone()
+            .ok_or_else(|| "Failed to resolve first parent for merge commit".to_string())?;
+
+        git_command()
+            .args([
+                "-C",
+                &repo_path,
+                "diff",
+                "--numstat",
+                "--find-renames",
+                "--find-copies",
+                "-z",
+                &parent_hash,
+                &commit_hash,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git diff --numstat: {error}"))?
+    } else {
+        git_command()
+            .args([
+                "-C",
+                &repo_path,
+                "show",
+                "--pretty=format:",
+                "--numstat",
+                "--find-renames",
+                "--find-copies",
+                "-z",
+                &commit_hash,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git show --numstat: {error}"))?
+    };
+
+    if !numstat_output.status.success() {
+        return Err(git_error_message(
+            &numstat_output.stderr,
+            "Failed to load commit file statistics",
+        ));
+    }
+
+    let parse_numstat_count =
+        |bytes: &[u8]| -> usize { String::from_utf8_lossy(bytes).parse::<usize>().unwrap_or(0) };
+
+    let mut numstat_by_path: HashMap<String, (usize, usize)> = HashMap::new();
+    let numstat_bytes = &numstat_output.stdout;
+    let mut cursor = 0usize;
+
+    while cursor < numstat_bytes.len() {
+        let Some(additions_end) = numstat_bytes[cursor..]
+            .iter()
+            .position(|byte| *byte == b'\t')
+            .map(|offset| cursor + offset)
+        else {
+            break;
+        };
+
+        let additions = parse_numstat_count(&numstat_bytes[cursor..additions_end]);
+        cursor = additions_end + 1;
+
+        let Some(deletions_end) = numstat_bytes[cursor..]
+            .iter()
+            .position(|byte| *byte == b'\t')
+            .map(|offset| cursor + offset)
+        else {
+            break;
+        };
+
+        let deletions = parse_numstat_count(&numstat_bytes[cursor..deletions_end]);
+        cursor = deletions_end + 1;
+
+        if cursor >= numstat_bytes.len() {
+            break;
+        }
+
+        if numstat_bytes[cursor] == b'\0' {
+            cursor += 1;
+
+            let Some(previous_path_end) = numstat_bytes[cursor..]
+                .iter()
+                .position(|byte| *byte == b'\0')
+                .map(|offset| cursor + offset)
+            else {
+                break;
+            };
+            let previous_path =
+                String::from_utf8_lossy(&numstat_bytes[cursor..previous_path_end]).to_string();
+            cursor = previous_path_end + 1;
+
+            let Some(path_end) = numstat_bytes[cursor..]
+                .iter()
+                .position(|byte| *byte == b'\0')
+                .map(|offset| cursor + offset)
+            else {
+                break;
+            };
+            let path = String::from_utf8_lossy(&numstat_bytes[cursor..path_end]).to_string();
+            cursor = path_end + 1;
+
+            numstat_by_path.insert(previous_path, (additions, deletions));
+            numstat_by_path.insert(path, (additions, deletions));
+            continue;
+        }
+
+        let Some(path_end) = numstat_bytes[cursor..]
+            .iter()
+            .position(|byte| *byte == b'\0')
+            .map(|offset| cursor + offset)
+        else {
+            break;
+        };
+        let path = String::from_utf8_lossy(&numstat_bytes[cursor..path_end]).to_string();
+        cursor = path_end + 1;
+
+        numstat_by_path.insert(path, (additions, deletions));
+    }
+
     let mut files: Vec<RepositoryCommitFile> = Vec::new();
+    let mut name_status_fields = name_status_output
+        .stdout
+        .split(|byte| *byte == b'\0')
+        .filter(|field| !field.is_empty());
 
-    for row in stdout.lines() {
-        let trimmed = row.trim();
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let parts: Vec<&str> = trimmed.split('\t').collect();
-        if parts.len() < 2 {
-            continue;
-        }
-
-        let status_token = parts[0];
+    while let Some(status_field) = name_status_fields.next() {
+        let status_token = String::from_utf8_lossy(status_field);
         let status_char = status_token.chars().next().unwrap_or('M');
         let status = status_char.to_string();
 
         let (path, previous_path) = if status_char == 'R' || status_char == 'C' {
-            if parts.len() < 3 {
-                continue;
-            }
-
-            (parts[2].to_string(), Some(parts[1].to_string()))
-        } else {
-            (parts[1].to_string(), None)
-        };
-
-        let numstat_output = if is_merge_commit {
-            let parent_hash = first_parent
-                .as_deref()
-                .ok_or_else(|| "Failed to resolve first parent for merge commit".to_string())?;
-
-            git_command()
-                .args([
-                    "-C",
-                    &repo_path,
-                    "diff",
-                    "--numstat",
-                    parent_hash,
-                    &commit_hash,
-                    "--",
-                    &path,
-                ])
-                .output()
-                .map_err(|error| format!("Failed to run git diff --numstat: {error}"))?
-        } else {
-            git_command()
-                .args([
-                    "-C",
-                    &repo_path,
-                    "show",
-                    "--pretty=format:",
-                    "--numstat",
-                    &commit_hash,
-                    "--",
-                    &path,
-                ])
-                .output()
-                .map_err(|error| format!("Failed to run git show --numstat: {error}"))?
-        };
-
-        let mut additions: usize = 0;
-        let mut deletions: usize = 0;
-
-        if numstat_output.status.success() {
-            let numstat_stdout = String::from_utf8_lossy(&numstat_output.stdout);
-            for numstat_row in numstat_stdout.lines() {
-                let numstat_trimmed = numstat_row.trim();
-                if numstat_trimmed.is_empty() {
-                    continue;
-                }
-
-                let numstat_parts: Vec<&str> = numstat_trimmed.split('\t').collect();
-                if numstat_parts.len() < 3 {
-                    continue;
-                }
-
-                additions = numstat_parts[0].parse::<usize>().unwrap_or(0);
-                deletions = numstat_parts[1].parse::<usize>().unwrap_or(0);
+            let Some(previous_path_field) = name_status_fields.next() else {
                 break;
-            }
-        }
+            };
+            let Some(path_field) = name_status_fields.next() else {
+                break;
+            };
+
+            (
+                String::from_utf8_lossy(path_field).to_string(),
+                Some(String::from_utf8_lossy(previous_path_field).to_string()),
+            )
+        } else {
+            let Some(path_field) = name_status_fields.next() else {
+                break;
+            };
+
+            (String::from_utf8_lossy(path_field).to_string(), None)
+        };
+
+        let (additions, deletions) = numstat_by_path
+            .get(&path)
+            .copied()
+            .or_else(|| {
+                previous_path
+                    .as_ref()
+                    .and_then(|source_path| numstat_by_path.get(source_path).copied())
+            })
+            .unwrap_or((0, 0));
 
         files.push(RepositoryCommitFile {
             status,
