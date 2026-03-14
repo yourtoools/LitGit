@@ -297,6 +297,49 @@ export const clearAiProviderSecret = async (
   await invoke("clear_ai_provider_secret", { provider });
 };
 
+export const saveGitHubToken = async (token: string): Promise<SecretStatus> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("GitHub token storage works in Tauri desktop app only");
+  }
+
+  const result = parseSecretStatus(
+    await invoke("save_github_token", { token }),
+    "Invalid GitHub token status payload"
+  );
+
+  return result;
+};
+
+export const getGitHubTokenStatus = async (): Promise<SecretStatus> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    return {
+      hasStoredValue: false,
+      storageMode: "session",
+    };
+  }
+
+  const result = parseSecretStatus(
+    await invoke("get_github_token_status"),
+    "Invalid GitHub token status payload"
+  );
+
+  return result;
+};
+
+export const clearGitHubToken = async (): Promise<void> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("GitHub token storage works in Tauri desktop app only");
+  }
+
+  await invoke("clear_github_token");
+};
+
 const parseSecretStatus = (
   result: unknown,
   errorMessage: string

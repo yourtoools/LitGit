@@ -1,6 +1,6 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
-use md5::Md5;
+use serde_json;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -245,6 +245,7 @@ impl Drop for NetworkOperationGuard<'_> {
 
 const AI_SECRET_SERVICE: &str = "litgit.ai.provider";
 const PROXY_SECRET_SERVICE: &str = "litgit.proxy.auth";
+const GITHUB_AVATAR_SERVICE: &str = "litgit.github.avatar";
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -807,7 +808,10 @@ fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, 
 }
 
 #[tauri::command]
-fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, String> {
+fn get_repository_history(
+    repo_path: String,
+    state: State<'_, SettingsState>,
+) -> Result<Vec<RepositoryCommit>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
     let output = git_command()
@@ -862,9 +866,18 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
             let github_identity = match author_email.as_deref() {
                 Some(email) => commit_identity_cache
                     .entry(email.to_string())
-                    .or_insert_with(|| resolve_commit_identity(email))
+                    .or_insert_with(|| resolve_commit_identity(&state, email, &author))
                     .clone(),
-                None => GitHubIdentity::default(),
+                None => {
+                    if !author.trim().is_empty() {
+                        commit_identity_cache
+                            .entry(author.clone())
+                            .or_insert_with(|| resolve_commit_identity(&state, "", &author))
+                            .clone()
+                    } else {
+                        GitHubIdentity::default()
+                    }
+                }
             };
             let date = parts.next()?.to_string();
             let refs_raw = parts.next().unwrap_or("").to_string();
@@ -2749,35 +2762,97 @@ struct GitHubIdentity {
     username: Option<String>,
 }
 
-fn gravatar_url_from_email(email: &str) -> Option<String> {
-    let normalized = email.trim().to_lowercase();
+fn get_github_token(state: &SettingsState) -> Option<String> {
+    if let Ok(Some(token)) = load_keyring_entry(GITHUB_AVATAR_SERVICE, "token") {
+        return Some(token);
+    }
 
-    if normalized.is_empty() {
+    let secrets = state.ai_secrets.lock().ok()?;
+    secrets.get("github_token").map(|v| v.value.clone())
+}
+
+fn fetch_github_user_by_email(email: &str, token: &str) -> Option<GitHubIdentity> {
+    let query = ureq::get("https://api.github.com/search/users")
+        .query("q", &format!("{} in:email", email))
+        .query("per_page", "1")
+        .set("Authorization", &format!("Bearer {}", token))
+        .set("Accept", "application/vnd.github+json")
+        .set("X-GitHub-Api-Version", "2022-11-28")
+        .call()
+        .ok()?;
+
+    let body = query.into_string().ok()?;
+    let json: serde_json::Value = serde_json::from_str(&body).ok()?;
+    let items = json.get("items")?.as_array()?;
+
+    if items.is_empty() {
         return None;
     }
 
-    let hash = Md5::digest(normalized.as_bytes());
-    let hex = hash
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let user = items.first()?;
+    let login = user.get("login")?.as_str()?.to_string();
+    let avatar_url = user.get("avatar_url")?.as_str()?.to_string();
 
-    Some(format!(
-        "https://www.gravatar.com/avatar/{hex}?d=404&s=128"
-    ))
+    Some(GitHubIdentity {
+        avatar_url: Some(avatar_url),
+        username: Some(login),
+    })
 }
 
-fn resolve_commit_identity(email: &str) -> GitHubIdentity {
+fn fetch_github_user_by_name(name: &str, token: &str) -> Option<GitHubIdentity> {
+    let query = ureq::get("https://api.github.com/search/users")
+        .query("q", &format!("{} in:name", name))
+        .query("sort", "followers")
+        .query("order", "desc")
+        .query("per_page", "1")
+        .set("Authorization", &format!("Bearer {}", token))
+        .set("Accept", "application/vnd.github+json")
+        .set("X-GitHub-Api-Version", "2022-11-28")
+        .call()
+        .ok()?;
+
+    let body = query.into_string().ok()?;
+    let json: serde_json::Value = serde_json::from_str(&body).ok()?;
+    let items = json.get("items")?.as_array()?;
+
+    if items.is_empty() {
+        return None;
+    }
+
+    let user = items.first()?;
+    let login = user.get("login")?.as_str()?.to_string();
+    let avatar_url = user.get("avatar_url")?.as_str()?.to_string();
+
+    Some(GitHubIdentity {
+        avatar_url: Some(avatar_url),
+        username: Some(login),
+    })
+}
+
+fn resolve_commit_identity(state: &SettingsState, email: &str, author: &str) -> GitHubIdentity {
     let github_identity = resolve_github_identity_from_email(email);
 
     if github_identity.avatar_url.is_some() {
         return github_identity;
     }
 
-    GitHubIdentity {
-        avatar_url: gravatar_url_from_email(email),
-        username: None,
+    let token = match get_github_token(state) {
+        Some(t) => t,
+        None => return GitHubIdentity::default(),
+    };
+
+    if !email.is_empty() {
+        if let Some(identity) = fetch_github_user_by_email(email, &token) {
+            return identity;
+        }
     }
+
+    if !author.is_empty() {
+        return fetch_github_user_by_name(author, &token)
+            .unwrap_or_else(GitHubIdentity::default);
+    }
+
+    GitHubIdentity::default()
 }
 
 fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
@@ -3649,6 +3724,79 @@ fn clear_ai_provider_secret(
 }
 
 #[tauri::command]
+fn save_github_token(
+    state: State<'_, SettingsState>,
+    token: String,
+) -> Result<SecretStatusPayload, String> {
+    let trimmed_token = token.trim();
+
+    if trimmed_token.is_empty() {
+        return Err("GitHub token is required".to_string());
+    }
+
+    if save_keyring_entry(GITHUB_AVATAR_SERVICE, "token", trimmed_token).is_ok() {
+        return Ok(SecretStatusPayload {
+            has_stored_value: true,
+            storage_mode: "secure".to_string(),
+        });
+    }
+
+    let mut secrets = state
+        .ai_secrets
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    secrets.insert(
+        "github_token".to_string(),
+        StoredSecretValue::session(trimmed_token),
+    );
+
+    Ok(SecretStatusPayload {
+        has_stored_value: true,
+        storage_mode: "session".to_string(),
+    })
+}
+
+#[tauri::command]
+fn get_github_token_status(
+    state: State<'_, SettingsState>,
+) -> Result<SecretStatusPayload, String> {
+    if load_keyring_entry(GITHUB_AVATAR_SERVICE, "token")?.is_some() {
+        return Ok(SecretStatusPayload {
+            has_stored_value: true,
+            storage_mode: "secure".to_string(),
+        });
+    }
+
+    let secrets = state
+        .ai_secrets
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    let status = secrets.get("github_token");
+
+    Ok(SecretStatusPayload {
+        has_stored_value: status.is_some(),
+        storage_mode: status
+            .map(|value| value.storage_mode.clone())
+            .unwrap_or_else(|| "session".to_string()),
+    })
+}
+
+#[tauri::command]
+fn clear_github_token(state: State<'_, SettingsState>) -> Result<(), String> {
+    let _ = clear_keyring_entry(GITHUB_AVATAR_SERVICE, "token");
+
+    let mut secrets = state
+        .ai_secrets
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+    secrets.remove("github_token");
+
+    Ok(())
+}
+
+#[tauri::command]
 fn save_proxy_auth_secret(
     state: State<'_, SettingsState>,
     username: String,
@@ -4252,6 +4400,9 @@ pub fn run() {
             save_ai_provider_secret,
             get_ai_provider_secret_status,
             clear_ai_provider_secret,
+            save_github_token,
+            get_github_token_status,
+            clear_github_token,
             save_proxy_auth_secret,
             get_proxy_auth_secret_status,
             clear_proxy_auth_secret,
