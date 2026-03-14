@@ -5,6 +5,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
+import { useWindowEvent } from "@mantine/hooks";
 import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -79,41 +80,29 @@ export default function Footer() {
     });
   }, [zoom]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
+  useWindowEvent("keydown", (event) => {
+    const shouldZoomIn = isZoomInShortcut(event);
+    const shouldZoomOut = isZoomOutShortcut(event);
+    const shouldResetZoom = isResetZoomShortcut(event);
+
+    if (!(shouldZoomIn || shouldZoomOut || shouldResetZoom)) {
       return;
     }
 
-    const handleZoomShortcut = (event: KeyboardEvent) => {
-      const shouldZoomIn = isZoomInShortcut(event);
-      const shouldZoomOut = isZoomOutShortcut(event);
-      const shouldResetZoom = isResetZoomShortcut(event);
+    event.preventDefault();
 
-      if (!(shouldZoomIn || shouldZoomOut || shouldResetZoom)) {
-        return;
+    setZoom((currentZoom) => {
+      if (shouldResetZoom) {
+        return 100;
       }
 
-      event.preventDefault();
+      const nextZoom = shouldZoomIn
+        ? currentZoom + ZOOM_STEP
+        : currentZoom - ZOOM_STEP;
 
-      setZoom((currentZoom) => {
-        if (shouldResetZoom) {
-          return 100;
-        }
-
-        const nextZoom = shouldZoomIn
-          ? currentZoom + ZOOM_STEP
-          : currentZoom - ZOOM_STEP;
-
-        return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
-      });
-    };
-
-    window.addEventListener("keydown", handleZoomShortcut);
-
-    return () => {
-      window.removeEventListener("keydown", handleZoomShortcut);
-    };
-  }, []);
+      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+    });
+  });
 
   const openReleaseNotes = async () => {
     if (isTauri()) {

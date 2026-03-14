@@ -31,6 +31,7 @@ import {
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
+import { useWindowEvent } from "@mantine/hooks";
 import {
   ArrowLeftIcon,
   CpuIcon,
@@ -47,6 +48,11 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  COMBOBOX_DEBOUNCE_DELAY_MS,
+  normalizeComboboxQuery,
+  useDebouncedValue,
+} from "@/hooks/use-debounced-value";
 import {
   getLocaleOption,
   LOCALE_OPTIONS,
@@ -575,7 +581,6 @@ const SETTINGS_EDITOR_PREVIEW_WIDTH_STORAGE_KEY =
   "litgit:settings-editor-preview-width";
 const SETTINGS_TERMINAL_PREVIEW_WIDTH_STORAGE_KEY =
   "litgit:settings-terminal-preview-width";
-const SETTINGS_COMBOBOX_DEBOUNCE_MS = 500;
 
 const LINE_NUMBER_OPTIONS = {
   off: "Hidden",
@@ -895,22 +900,6 @@ const runWhenBrowserIsIdle = (callback: () => void): (() => void) => {
   return () => {
     window.clearTimeout(handle);
   };
-};
-
-const useDebouncedValue = <T,>(value: T, delayInMs: number): T => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDebouncedValue(value);
-    }, delayInMs);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [delayInMs, value]);
-
-  return debouncedValue;
 };
 
 const describeFontSource = (option: FontPickerOption) => {
@@ -1474,6 +1463,7 @@ function FontPickerField({
   options,
   query,
   searchPlaceholder,
+  searchValue,
   selectedOption,
   showLoadingSkeleton,
 }: {
@@ -1490,9 +1480,13 @@ function FontPickerField({
   options: readonly FontPickerOption[];
   query: string;
   searchPlaceholder: string;
+  searchValue: string;
   selectedOption: FontPickerOption | null;
   showLoadingSkeleton?: boolean;
 }) {
+  const inputValue =
+    searchValue.length > 0 ? searchValue : (selectedOption?.family ?? "");
+
   return (
     <SettingsField description={description} label={label} query={query}>
       <div className="grid gap-3">
@@ -1502,6 +1496,7 @@ function FontPickerField({
           <Combobox
             autoHighlight
             filter={null}
+            inputValue={inputValue}
             items={options}
             itemToStringLabel={(option: FontPickerOption) => option.family}
             onInputValueChange={(nextInputValue) => {
@@ -1517,8 +1512,9 @@ function FontPickerField({
           >
             <ComboboxInput
               className="w-full"
-              onFocus={() => {
+              onFocus={(event) => {
                 onPickerInteract?.();
+                event.currentTarget.select();
               }}
               placeholder={searchPlaceholder}
               showClear
@@ -2049,10 +2045,10 @@ function UiSection({ query }: { query: string }) {
   const selectedLocaleOption = getLocaleOption(locale) ?? LOCALE_OPTIONS[0];
   const debouncedLocaleQuery = useDebouncedValue(
     localeQuery,
-    SETTINGS_COMBOBOX_DEBOUNCE_MS
+    COMBOBOX_DEBOUNCE_DELAY_MS
   );
   const visibleLocaleOptions = useMemo(() => {
-    const normalizedQuery = debouncedLocaleQuery.trim().toLowerCase();
+    const normalizedQuery = normalizeComboboxQuery(debouncedLocaleQuery);
 
     if (normalizedQuery.length === 0) {
       return LOCALE_OPTIONS;
@@ -2086,6 +2082,8 @@ function UiSection({ query }: { query: string }) {
     );
   };
   const selectedDatePreview = formatDatePreview(dateFormat);
+  const localeInputValue =
+    localeQuery.length > 0 ? localeQuery : selectedLocaleOption.displayName;
 
   return (
     <div className="grid gap-4">
@@ -2160,6 +2158,7 @@ function UiSection({ query }: { query: string }) {
           <Combobox
             autoHighlight
             filter={null}
+            inputValue={localeInputValue}
             items={visibleLocaleOptions}
             itemToStringLabel={(option: LocaleOption) =>
               `${option.displayName} ${option.code}`
@@ -2175,6 +2174,9 @@ function UiSection({ query }: { query: string }) {
           >
             <ComboboxInput
               className="w-full"
+              onFocus={(event) => {
+                event.currentTarget.select();
+              }}
               placeholder="Search locale"
               showClear
             />
@@ -2305,7 +2307,7 @@ function TerminalSection({ query }: { query: string }) {
   const [terminalFontQuery, setTerminalFontQuery] = useState("");
   const debouncedTerminalFontQuery = useDebouncedValue(
     terminalFontQuery,
-    SETTINGS_COMBOBOX_DEBOUNCE_MS
+    COMBOBOX_DEBOUNCE_DELAY_MS
   );
   const [terminalFontSizeInput, setTerminalFontSizeInput] = useState(() =>
     String(fontSize)
@@ -2339,7 +2341,7 @@ function TerminalSection({ query }: { query: string }) {
   );
   const visibleTerminalFonts = useMemo(() => {
     const filteredFonts = getVisibleFonts(terminalFonts, fontVisibility);
-    const normalizedQuery = debouncedTerminalFontQuery.trim().toLowerCase();
+    const normalizedQuery = normalizeComboboxQuery(debouncedTerminalFontQuery);
 
     if (normalizedQuery.length === 0) {
       return ensureSelectedOption(
@@ -2665,6 +2667,7 @@ function TerminalSection({ query }: { query: string }) {
           options={visibleTerminalFonts}
           query={query}
           searchPlaceholder="Search terminal fonts"
+          searchValue={terminalFontQuery}
           selectedOption={selectedTerminalFontOption}
           showLoadingSkeleton={
             isLoadingTerminalFonts && !hasLoadedTerminalFonts
@@ -3718,7 +3721,7 @@ function EditorSection({ query }: { query: string }) {
   const [editorFontQuery, setEditorFontQuery] = useState("");
   const debouncedEditorFontQuery = useDebouncedValue(
     editorFontQuery,
-    SETTINGS_COMBOBOX_DEBOUNCE_MS
+    COMBOBOX_DEBOUNCE_DELAY_MS
   );
   const [editorFontSizeInput, setEditorFontSizeInput] = useState(() =>
     String(editor.fontSize)
@@ -3747,7 +3750,7 @@ function EditorSection({ query }: { query: string }) {
   );
   const visibleEditorFonts = useMemo(() => {
     const filteredFonts = getVisibleFonts(editorFonts, editor.fontVisibility);
-    const normalizedQuery = debouncedEditorFontQuery.trim().toLowerCase();
+    const normalizedQuery = normalizeComboboxQuery(debouncedEditorFontQuery);
 
     if (normalizedQuery.length === 0) {
       return ensureSelectedOption(
@@ -4072,6 +4075,7 @@ function EditorSection({ query }: { query: string }) {
           options={visibleEditorFonts}
           query={query}
           searchPlaceholder="Search editor fonts"
+          searchValue={editorFontQuery}
           selectedOption={selectedEditorFontOption}
           showLoadingSkeleton={isLoadingEditorFonts && !hasLoadedEditorFonts}
         />
@@ -4541,6 +4545,7 @@ export function SettingsPage() {
   const sidebarResizeStateRef = useRef<SidebarResizeState | null>(null);
   const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
   const contentPanelRef = useRef<HTMLDivElement | null>(null);
+  const settingsSearchInputRef = useRef<HTMLInputElement | null>(null);
   const previousActiveSectionRef = useRef<SettingsSectionId | null>(null);
   const resizeAnimationFrameRef = useRef<number | null>(null);
   const pendingSidebarWidthRef = useRef<number | null>(null);
@@ -4562,6 +4567,16 @@ export function SettingsPage() {
     select: (state) => state.location.pathname,
   });
 
+  useWindowEvent("keydown", (event) => {
+    if (!(event.ctrlKey && event.altKey) || event.key.toLowerCase() !== "f") {
+      return;
+    }
+
+    event.preventDefault();
+    settingsSearchInputRef.current?.focus();
+    settingsSearchInputRef.current?.select();
+  });
+
   const filteredSections = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -4577,6 +4592,25 @@ export function SettingsPage() {
       ])
     );
   }, [query]);
+
+  useEffect(() => {
+    if (filteredSections.length === 0) {
+      return;
+    }
+
+    const hasActiveSectionInFilter = filteredSections.some(
+      (section) => section.id === activeSection
+    );
+
+    if (hasActiveSectionInFilter) {
+      return;
+    }
+
+    const fallbackSection = filteredSections[0];
+    if (fallbackSection) {
+      setSection(fallbackSection.id);
+    }
+  }, [activeSection, filteredSections, setSection]);
 
   const activeDefinition =
     SETTINGS_SECTIONS.find((section) => section.id === activeSection) ??
@@ -4810,7 +4844,8 @@ export function SettingsPage() {
             <Input
               id="settings-search"
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search categories"
+              placeholder="Search categories (Ctrl + Alt + F)"
+              ref={settingsSearchInputRef}
               value={query}
             />
             {query.length > 0 ? (

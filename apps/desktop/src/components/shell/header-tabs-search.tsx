@@ -18,6 +18,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
+import { useWindowEvent } from "@mantine/hooks";
 import {
   CaretDownIcon,
   FileIcon,
@@ -25,11 +26,16 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { UngroupConfirmDialog } from "@/components/tabs/ungroup-confirm-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import { useUngroupConfirmation } from "@/hooks/tabs/use-ungroup-confirmation";
+import {
+  COMBOBOX_DEBOUNCE_DELAY_MS,
+  normalizeComboboxQuery,
+  useDebouncedValue,
+} from "@/hooks/use-debounced-value";
 import {
   getSearchTabsShortcutLabel,
   isEditableTarget,
@@ -52,6 +58,11 @@ const SCROLLBAR_CLASSES =
 export function HeaderTabsSearch() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const normalizedDebouncedQuery = useDebouncedValue(
+    query,
+    COMBOBOX_DEBOUNCE_DELAY_MS,
+    normalizeComboboxQuery
+  );
   const tabs = useTabStore((state) => state.tabs);
   const groups = useTabStore((state) => state.groups);
   const closedTabHistory = useTabStore((state) => state.closedTabHistory);
@@ -135,51 +146,39 @@ export function HeaderTabsSearch() {
   }, [tabs, closedTabHistory]);
 
   const filteredOpen = useMemo(() => {
-    if (!query) {
+    if (normalizedDebouncedQuery.length === 0) {
       return parsedItems.openItems;
     }
-    const lowerQuery = query.toLowerCase();
+
     return parsedItems.openItems.filter((i) =>
-      i.title.toLowerCase().includes(lowerQuery)
+      i.title.toLowerCase().includes(normalizedDebouncedQuery)
     );
-  }, [parsedItems.openItems, query]);
+  }, [normalizedDebouncedQuery, parsedItems.openItems]);
 
   const filteredClosed = useMemo(() => {
-    if (!query) {
+    if (normalizedDebouncedQuery.length === 0) {
       return parsedItems.closedItems;
     }
-    const lowerQuery = query.toLowerCase();
+
     return parsedItems.closedItems.filter((i) =>
-      i.title.toLowerCase().includes(lowerQuery)
+      i.title.toLowerCase().includes(normalizedDebouncedQuery)
     );
-  }, [parsedItems.closedItems, query]);
+  }, [normalizedDebouncedQuery, parsedItems.closedItems]);
 
   const hasResults = filteredOpen.length > 0 || filteredClosed.length > 0;
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
+  useWindowEvent("keydown", (event) => {
+    if (event.repeat || isEditableTarget(event.target)) {
       return;
     }
 
-    const handleSearchTabsShortcut = (event: KeyboardEvent) => {
-      if (event.repeat || isEditableTarget(event.target)) {
-        return;
-      }
+    if (!isSearchTabsShortcut(event)) {
+      return;
+    }
 
-      if (!isSearchTabsShortcut(event)) {
-        return;
-      }
-
-      event.preventDefault();
-      setOpen((prev) => !prev);
-    };
-
-    window.addEventListener("keydown", handleSearchTabsShortcut);
-
-    return () => {
-      window.removeEventListener("keydown", handleSearchTabsShortcut);
-    };
-  }, []);
+    event.preventDefault();
+    setOpen((prev) => !prev);
+  });
 
   const handleSelect = async (val: SearchTabItem | null) => {
     if (!val) {
@@ -244,9 +243,12 @@ export function HeaderTabsSearch() {
 
         <PopoverContent align="end" className="w-88 p-0" sideOffset={8}>
           <Combobox
+            filter={null}
             inputValue={query}
             itemToStringLabel={(item: SearchTabItem) => item.title}
-            onInputValueChange={setQuery}
+            onInputValueChange={(nextInputValue) => {
+              setQuery(nextInputValue);
+            }}
             onValueChange={(val) => {
               handleSelect(val).catch(() => {
                 return;

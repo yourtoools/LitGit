@@ -39,6 +39,11 @@ import {
 import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import {
+  COMBOBOX_DEBOUNCE_DELAY_MS,
+  normalizeComboboxQuery,
+  useDebouncedValue,
+} from "@/hooks/use-debounced-value";
+import {
   localGitignoreTemplateContents,
   localGitignoreTemplateOptions,
   localLicenseTemplateContents,
@@ -196,6 +201,35 @@ function TemplateSelect({
   value,
 }: TemplateSelectProps) {
   const selectedOption = options.find((option) => option.key === value) ?? null;
+  const [templateQuery, setTemplateQuery] = useState("");
+  const normalizedTemplateQuery = useDebouncedValue(
+    templateQuery,
+    COMBOBOX_DEBOUNCE_DELAY_MS,
+    normalizeComboboxQuery
+  );
+  const visibleOptions = useMemo(() => {
+    if (normalizedTemplateQuery.length === 0) {
+      return options;
+    }
+
+    const filteredOptions = options.filter((option) =>
+      `${option.label} ${option.description ?? ""}`
+        .toLowerCase()
+        .includes(normalizedTemplateQuery)
+    );
+
+    if (!selectedOption) {
+      return filteredOptions;
+    }
+
+    const hasSelectedOption = filteredOptions.some(
+      (option) => option.key === selectedOption.key
+    );
+
+    return hasSelectedOption
+      ? filteredOptions
+      : [selectedOption, ...filteredOptions];
+  }, [normalizedTemplateQuery, options, selectedOption]);
   let helpText = fallback;
   let helpTextClassName = "text-xs text-muted-foreground/70";
 
@@ -214,9 +248,15 @@ function TemplateSelect({
       <Combobox
         autoHighlight
         disabled={disabled}
-        items={options}
+        filter={null}
+        inputValue={templateQuery}
+        items={visibleOptions}
         itemToStringLabel={(option: RepositoryTemplateOption) => option.label}
+        onInputValueChange={(nextInputValue) => {
+          setTemplateQuery(nextInputValue);
+        }}
         onValueChange={(nextValue: RepositoryTemplateOption | null) => {
+          setTemplateQuery("");
           onValueChange(nextValue?.key ?? null);
         }}
         value={selectedOption}

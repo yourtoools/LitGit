@@ -12,6 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
+import { useWindowEvent } from "@mantine/hooks";
 import { KeyboardIcon, XIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
@@ -231,34 +232,22 @@ export function KeyboardShortcutsDialog() {
     );
   }, [visibleShortcuts]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
+  useWindowEvent("keydown", (event) => {
+    if (event.repeat) {
       return;
     }
 
-    const handleShortcutHelp = (event: KeyboardEvent) => {
-      if (event.repeat) {
-        return;
-      }
+    if (!isShortcutHelpShortcut(event)) {
+      return;
+    }
 
-      if (!isShortcutHelpShortcut(event)) {
-        return;
-      }
+    if (isEditableTarget(event.target)) {
+      return;
+    }
 
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-
-      event.preventDefault();
-      setIsOpen(true);
-    };
-
-    window.addEventListener("keydown", handleShortcutHelp);
-
-    return () => {
-      window.removeEventListener("keydown", handleShortcutHelp);
-    };
-  }, []);
+    event.preventDefault();
+    setIsOpen(true);
+  });
 
   return (
     <>

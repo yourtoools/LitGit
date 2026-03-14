@@ -24,6 +24,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@litgit/env": "workspace:*",
     "@litgit/ui": "workspace:*",
+    "@mantine/hooks": "catalog:",
     "@monaco-editor/react": "^4.7.0",
     "monaco-editor": "^0.52.2",
     "@phosphor-icons/react": "catalog:",

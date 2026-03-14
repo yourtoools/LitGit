@@ -1,10 +1,10 @@
 import { env } from "@litgit/env/desktop";
 import { Button } from "@litgit/ui/components/button";
-
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
 import { TooltipProvider } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
+import { useWindowEvent } from "@mantine/hooks";
 import {
   BugIcon,
   CodeIcon,
@@ -27,6 +27,10 @@ import { RepositoryInitializeDialog } from "@/components/views/repository-initia
 import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
+import {
+  COMBOBOX_DEBOUNCE_DELAY_MS,
+  useDebouncedValue,
+} from "@/hooks/use-debounced-value";
 import {
   getPrimaryShortcutAria,
   getPrimaryShortcutLabel,
@@ -76,7 +80,10 @@ export function NewTabContent() {
   const action = search.action as string | undefined;
 
   const [searchInputValue, setSearchInputValue] = useState("");
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebouncedValue(
+    searchInputValue,
+    COMBOBOX_DEBOUNCE_DELAY_MS
+  );
   const [isInitializingRepository, setIsInitializingRepository] =
     useState(false);
   const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
@@ -118,16 +125,6 @@ export function NewTabContent() {
         : filteredRepos,
     [filteredRepos, shouldCollapse]
   );
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDebouncedSearchQuery(searchInputValue);
-    }, 220);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [searchInputValue]);
 
   const focusRecentSearchInput = useCallback(() => {
     if (typeof document === "undefined") {
@@ -326,34 +323,22 @@ export function NewTabContent() {
     };
   }, [updateRecentListFades]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
+  useWindowEvent("keydown", (event) => {
+    if (event.repeat || pendingRepoInitialization) {
       return;
     }
 
-    const handleSearchShortcut = (event: KeyboardEvent) => {
-      if (event.repeat || pendingRepoInitialization) {
-        return;
-      }
+    if (!isPrimaryShortcut(event, "k")) {
+      return;
+    }
 
-      if (!isPrimaryShortcut(event, "k")) {
-        return;
-      }
+    if (isEditableTarget(event.target)) {
+      return;
+    }
 
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-
-      event.preventDefault();
-      focusRecentSearchInput();
-    };
-
-    window.addEventListener("keydown", handleSearchShortcut);
-
-    return () => {
-      window.removeEventListener("keydown", handleSearchShortcut);
-    };
-  }, [focusRecentSearchInput, pendingRepoInitialization]);
+    event.preventDefault();
+    focusRecentSearchInput();
+  });
 
   const handleRepoListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {

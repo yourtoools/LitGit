@@ -130,6 +130,11 @@ import {
   TIMELINE_BRANCH_COLUMN_WIDTH,
 } from "@/components/views/git-graph-layout";
 import { GitGraphOverlay } from "@/components/views/git-graph-overlay";
+import {
+  COMBOBOX_DEBOUNCE_DELAY_MS,
+  normalizeComboboxQuery,
+  useDebouncedValue,
+} from "@/hooks/use-debounced-value";
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import {
   DEFAULT_REPO_FILE_BROWSER_STATE,
@@ -215,6 +220,8 @@ const COMMIT_DETAILS_PANEL_MAX_HEIGHT = 160;
 const HORIZONTAL_RESIZE_HANDLE_WIDTH = 6;
 const MIN_TIMELINE_CONTENT_WIDTH = 560;
 const COMMIT_MESSAGE_LIST_MARKER_PATTERN = /^[-*•]\s*/;
+const FILE_FILTER_DEBOUNCE_MS = 500;
+const SIDEBAR_FILTER_DEBOUNCE_MS = 500;
 
 const GIT_STATUS_STYLE_BY_CODE: Record<
   string,
@@ -849,10 +856,10 @@ export function RepoInfo() {
   );
   const [commitFileFilterInputValue, setCommitFileFilterInputValue] =
     useState("");
-  const [
-    debouncedCommitFileFilterInputValue,
-    setDebouncedCommitFileFilterInputValue,
-  ] = useState("");
+  const debouncedCommitFileFilterInputValue = useDebouncedValue(
+    commitFileFilterInputValue,
+    FILE_FILTER_DEBOUNCE_MS
+  );
   const [commitFileSortOrder, setCommitFileSortOrder] =
     useState<RepoFileBrowserSortOrder>("asc");
   const [expandedCommitTreeNodePaths, setExpandedCommitTreeNodePaths] =
@@ -1058,10 +1065,10 @@ export function RepoInfo() {
   const fileTreeSortOrder = repoFileBrowserPreferences.sortOrder;
   const repositoryFileFilterInputValue =
     repoFileBrowserPreferences.filterInputValue;
-  const [
-    debouncedRepositoryFileFilterInputValue,
-    setDebouncedRepositoryFileFilterInputValue,
-  ] = useState(repositoryFileFilterInputValue);
+  const debouncedRepositoryFileFilterInputValue = useDebouncedValue(
+    repositoryFileFilterInputValue,
+    FILE_FILTER_DEBOUNCE_MS
+  );
   const unstagedItems = useMemo(
     () =>
       workingTreeItems.filter(
@@ -1303,6 +1310,12 @@ export function RepoInfo() {
       totalCount: selectedCommitFiles.length,
     };
   }, [selectedCommitFiles]);
+  const [branchQuery, setBranchQuery] = useState("");
+  const normalizedBranchQuery = useDebouncedValue(
+    branchQuery,
+    COMBOBOX_DEBOUNCE_DELAY_MS,
+    normalizeComboboxQuery
+  );
   const branchComboboxOptions = useMemo<BranchComboboxOption[]>(
     () =>
       branches
@@ -1319,6 +1332,27 @@ export function RepoInfo() {
       null,
     [branchComboboxOptions, currentBranch]
   );
+  const visibleBranchComboboxOptions = useMemo(() => {
+    if (normalizedBranchQuery.length === 0) {
+      return branchComboboxOptions;
+    }
+
+    const filteredOptions = branchComboboxOptions.filter((branch) =>
+      branch.name.toLowerCase().includes(normalizedBranchQuery)
+    );
+
+    if (!selectedBranchOption) {
+      return filteredOptions;
+    }
+
+    const hasSelectedOption = filteredOptions.some(
+      (branch) => branch.name === selectedBranchOption.name
+    );
+
+    return hasSelectedOption
+      ? filteredOptions
+      : [selectedBranchOption, ...filteredOptions];
+  }, [branchComboboxOptions, normalizedBranchQuery, selectedBranchOption]);
   const timelineRows = useMemo<GitTimelineRow[]>(() => {
     const rows: GitTimelineRow[] = [];
 
@@ -2094,28 +2128,6 @@ export function RepoInfo() {
   }, [selectedCommit]);
 
   useEffect(() => {
-    const timeoutHandle = globalThis.setTimeout(() => {
-      setDebouncedCommitFileFilterInputValue(commitFileFilterInputValue);
-    }, 500);
-
-    return () => {
-      globalThis.clearTimeout(timeoutHandle);
-    };
-  }, [commitFileFilterInputValue]);
-
-  useEffect(() => {
-    const timeoutHandle = globalThis.setTimeout(() => {
-      setDebouncedRepositoryFileFilterInputValue(
-        repositoryFileFilterInputValue
-      );
-    }, 500);
-
-    return () => {
-      globalThis.clearTimeout(timeoutHandle);
-    };
-  }, [repositoryFileFilterInputValue]);
-
-  useEffect(() => {
     if (!activeRepoId || isWorkingTreeSelection || !selectedCommit) {
       setOpenedCommitDiff(null);
       setIsLoadingCommitFilesHash(null);
@@ -2389,7 +2401,7 @@ export function RepoInfo() {
         setSidebarFilterQuery(nextValue);
       });
       sidebarFilterDebounceRef.current = null;
-    }, 120);
+    }, SIDEBAR_FILTER_DEBOUNCE_MS);
   };
 
   const clearSidebarFilter = () => {
@@ -5858,9 +5870,15 @@ export function RepoInfo() {
                 disabled={
                   isSwitchingBranch || branchComboboxOptions.length === 0
                 }
-                items={branchComboboxOptions}
+                filter={null}
+                inputValue={branchQuery}
+                items={visibleBranchComboboxOptions}
                 itemToStringLabel={(item: BranchComboboxOption) => item.name}
+                onInputValueChange={(nextInputValue) => {
+                  setBranchQuery(nextInputValue);
+                }}
                 onValueChange={(nextValue: BranchComboboxOption | null) => {
+                  setBranchQuery("");
                   handleToolbarBranchChange(nextValue).catch(() => undefined);
                 }}
                 value={selectedBranchOption}
