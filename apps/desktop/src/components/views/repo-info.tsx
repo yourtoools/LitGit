@@ -94,7 +94,9 @@ import {
   GearIcon,
   GitBranchIcon,
   GithubLogoIcon,
+  MinusIcon,
   PencilSimpleIcon,
+  PlusIcon,
   SortAscendingIcon,
   SortDescendingIcon,
   SpinnerGapIcon,
@@ -219,7 +221,7 @@ const GIT_STATUS_STYLE_BY_CODE: Record<
   { className: string; label: string; short: string }
 > = {
   A: {
-    className: "text-emerald-500 dark:text-emerald-400",
+    className: "text-emerald-700 dark:text-emerald-300",
     label: "Added",
     short: "+",
   },
@@ -229,12 +231,12 @@ const GIT_STATUS_STYLE_BY_CODE: Record<
     short: "C",
   },
   D: {
-    className: "text-rose-500 dark:text-rose-400",
+    className: "text-rose-700 dark:text-rose-300",
     label: "Removed",
     short: "-",
   },
   M: {
-    className: "text-amber-500 dark:text-amber-400",
+    className: "text-amber-700 dark:text-amber-300",
     label: "Edited",
     short: "~",
   },
@@ -254,7 +256,7 @@ const GIT_STATUS_STYLE_BY_CODE: Record<
     short: "!",
   },
   "?": {
-    className: "text-emerald-500 dark:text-emerald-400",
+    className: "text-emerald-700 dark:text-emerald-300",
     label: "Added",
     short: "+",
   },
@@ -4831,10 +4833,14 @@ export function RepoInfo() {
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
             <span className="inline-flex items-center gap-1 text-[0.72rem] text-muted-foreground">
               {file.additions > 0 ? (
-                <span className="text-emerald-400">+{file.additions}</span>
+                <span className="text-emerald-700 dark:text-emerald-300">
+                  +{file.additions}
+                </span>
               ) : null}
               {file.deletions > 0 ? (
-                <span className="text-rose-400">-{file.deletions}</span>
+                <span className="text-rose-700 dark:text-rose-300">
+                  -{file.deletions}
+                </span>
               ) : null}
             </span>
             {isLoadingCommitDiffPath === loadingKey ? (
@@ -4863,18 +4869,18 @@ export function RepoInfo() {
             {collapsedChangeSummary ? (
               <span className="ml-auto inline-flex items-center gap-2 text-[0.72rem] leading-none">
                 {collapsedChangeSummary.modifiedCount > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-amber-300">
+                  <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
                     <PencilSimpleIcon className="size-2.5" />
                     {collapsedChangeSummary.modifiedCount}
                   </span>
                 ) : null}
                 {collapsedChangeSummary.addedCount > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-300">
+                  <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
                     +{collapsedChangeSummary.addedCount}
                   </span>
                 ) : null}
                 {collapsedChangeSummary.removedCount > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-rose-300">
+                  <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300">
                     -{collapsedChangeSummary.removedCount}
                   </span>
                 ) : null}
@@ -4933,10 +4939,14 @@ export function RepoInfo() {
           <span className="min-w-0 flex-1 truncate">{file.path}</span>
           <span className="inline-flex items-center gap-1 text-[0.72rem] text-muted-foreground">
             {file.additions > 0 ? (
-              <span className="text-emerald-400">+{file.additions}</span>
+              <span className="text-emerald-700 dark:text-emerald-300">
+                +{file.additions}
+              </span>
             ) : null}
             {file.deletions > 0 ? (
-              <span className="text-rose-400">-{file.deletions}</span>
+              <span className="text-rose-700 dark:text-rose-300">
+                -{file.deletions}
+              </span>
             ) : null}
           </span>
           {isLoadingCommitDiffPath === loadingKey ? (
@@ -6316,18 +6326,27 @@ export function RepoInfo() {
                             placeholder="// WIP"
                             value={draftCommitSummary}
                           />
-                          <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-300">
-                            <span aria-hidden>~</span>
-                            {workingTreeIndicators.editedCount}
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-[0.78rem] text-emerald-300">
-                            <span aria-hidden>+</span>
-                            {workingTreeIndicators.addedCount}
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-[0.78rem] text-rose-300">
-                            <span aria-hidden>-</span>
-                            {workingTreeIndicators.removedCount}
-                          </span>
+                          {workingTreeIndicators.editedCount && (
+                            <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-700 dark:text-amber-300">
+                              <PencilSimpleIcon
+                                aria-hidden
+                                className="size-2.5"
+                              />
+                              {workingTreeIndicators.editedCount}
+                            </span>
+                          )}
+                          {workingTreeIndicators.addedCount && (
+                            <span className="inline-flex items-center gap-1 text-[0.78rem] text-emerald-700 dark:text-emerald-300">
+                              <PlusIcon aria-hidden className="size-2.5" />
+                              {workingTreeIndicators.addedCount}
+                            </span>
+                          )}
+                          {workingTreeIndicators.removedCount > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[0.78rem] text-rose-700 dark:text-rose-300">
+                              <MinusIcon aria-hidden className="size-2.5" />
+                              {workingTreeIndicators.removedCount}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -6633,18 +6652,18 @@ export function RepoInfo() {
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs">
                         {selectedCommitFileSummary.modifiedCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                          <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
                             <PencilSimpleIcon className="size-3" />
                             {selectedCommitFileSummary.modifiedCount} modified
                           </span>
                         ) : null}
                         {selectedCommitFileSummary.addedCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-300">
+                          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
                             + {selectedCommitFileSummary.addedCount} added
                           </span>
                         ) : null}
                         {selectedCommitFileSummary.removedCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-rose-300">
+                          <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300">
                             - {selectedCommitFileSummary.removedCount} deleted
                           </span>
                         ) : null}
