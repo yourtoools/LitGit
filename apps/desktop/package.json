@@ -35,6 +35,7 @@
     "@xterm/addon-search": "^0.15.0",
     "@xterm/addon-serialize": "^0.13.0",
     "@xterm/addon-web-links": "^0.11.0",
+    "@xyflow/react": "^12.8.2",
     "date-fns": "catalog:",
     "dotenv": "catalog:",
     "gitignore-templates": "^0.0.6",

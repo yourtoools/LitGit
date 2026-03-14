@@ -119,6 +119,13 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
+import {
+  type GitTimelineRow,
+  getCommitLaneColor,
+  resolveGitGraphColumnWidth,
+  TIMELINE_BRANCH_COLUMN_WIDTH,
+} from "@/components/views/git-graph-layout";
+import { GitGraphOverlay } from "@/components/views/git-graph-overlay";
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import {
   DEFAULT_REPO_FILE_BROWSER_STATE,
@@ -442,6 +449,7 @@ const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const WORKING_TREE_ROW_ID = "__working_tree__";
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
+const TIMELINE_ROW_HEIGHT = 48;
 
 const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
   c: "c",
@@ -1297,6 +1305,36 @@ export function RepoInfo() {
       null,
     [branchComboboxOptions, currentBranch]
   );
+  const timelineRows = useMemo<GitTimelineRow[]>(() => {
+    const rows: GitTimelineRow[] = [];
+
+    if (hasAnyWorkingTreeChanges) {
+      rows.push({
+        anchorCommitHash: commits[0]?.hash,
+        id: WORKING_TREE_ROW_ID,
+        type: "wip",
+      });
+    }
+
+    for (const commit of commits) {
+      rows.push({
+        commitHash: commit.hash,
+        id: commit.hash,
+        type: "commit",
+      });
+    }
+
+    return rows;
+  }, [commits, hasAnyWorkingTreeChanges]);
+  const selectedTimelineRowId =
+    selectedCommitId === WORKING_TREE_ROW_ID
+      ? WORKING_TREE_ROW_ID
+      : selectedCommitId;
+  const timelineGraphColumnWidth = useMemo(
+    () => resolveGitGraphColumnWidth(commits),
+    [commits]
+  );
+  const timelineGridTemplateColumns = `${TIMELINE_BRANCH_COLUMN_WIDTH}px ${timelineGraphColumnWidth}px minmax(0,1fr)`;
   const childCommitCountByHash = useMemo<Record<string, number>>(() => {
     const countsByHash: Record<string, number> = {};
 
@@ -6107,7 +6145,10 @@ export function RepoInfo() {
 
           <div className="flex min-h-0 flex-1">
             <section className="relative flex min-w-0 flex-1 flex-col">
-              <div className="grid grid-cols-[180px_60px_minmax(0,1fr)] border-border/60 border-b px-3 py-2 text-[0.68rem] text-muted-foreground uppercase tracking-[0.14em]">
+              <div
+                className="grid border-border/60 border-b px-3 py-2 text-[0.68rem] text-muted-foreground uppercase tracking-[0.14em]"
+                style={{ gridTemplateColumns: timelineGridTemplateColumns }}
+              >
                 <span>Branch / Tag</span>
                 <span className="text-center">Graph</span>
                 <span>Commit Message</span>
@@ -6120,7 +6161,10 @@ export function RepoInfo() {
                 ref={mainScrollContainerRef}
               >
                 {isBranchCreateInputOpen ? (
-                  <div className="grid grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 py-2">
+                  <div
+                    className="grid items-center border-border/35 border-b px-3 py-2"
+                    style={{ gridTemplateColumns: timelineGridTemplateColumns }}
+                  >
                     <div className="min-w-0 truncate">
                       <span className="inline-flex items-center gap-1 rounded border border-border/70 bg-accent/20 px-2 py-0.5 text-xs">
                         {currentBranch}
@@ -6183,114 +6227,127 @@ export function RepoInfo() {
                     </div>
                   </div>
                 ) : null}
-                {hasAnyWorkingTreeChanges ? (
-                  <button
-                    className={cn(
-                      "group grid w-full cursor-pointer grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 py-2 text-left transition-colors",
-                      selectedCommitId === WORKING_TREE_ROW_ID
-                        ? "bg-accent/30"
-                        : "hover:bg-accent/20"
-                    )}
-                    onClick={handleWorkingTreeRowClick}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        handleWorkingTreeRowClick();
-                      }
-                    }}
-                    type="button"
-                  >
-                    <div className="min-w-0" />
-                    <div className="flex items-center justify-center">
-                      <CircleIcon className="size-3 text-muted-foreground" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <Input
-                          className="h-7 w-full max-w-52"
-                          disabled
-                          placeholder="// WIP"
-                          value={draftCommitSummary}
-                        />
-                        <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-300">
-                          <span aria-hidden>~</span>
-                          {workingTreeIndicators.editedCount}
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-[0.78rem] text-emerald-300">
-                          <span aria-hidden>+</span>
-                          {workingTreeIndicators.addedCount}
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-[0.78rem] text-rose-300">
-                          <span aria-hidden>-</span>
-                          {workingTreeIndicators.removedCount}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                ) : null}
-
-                {commits.map((item, index) => (
-                  <ContextMenu
-                    key={item.hash}
-                    onOpenChange={(open) => {
-                      handleCommitMenuOpenChange(item.hash, open);
-                    }}
-                  >
-                    <ContextMenuTrigger>
-                      <button
-                        className={cn(
-                          "group grid h-12 w-full grid-cols-[180px_60px_minmax(0,1fr)] items-center border-border/35 border-b px-3 text-left transition-colors hover:bg-accent/20",
-                          (selectedCommitId === item.hash ||
-                            openCommitMenuHash === item.hash) &&
-                            "bg-accent/30"
-                        )}
-                        onClick={() => {
-                          handleCommitRowClick(item.hash);
-                        }}
-                        type="button"
-                      >
-                        <div className="min-w-0 truncate">
-                          {item.refs.length > 0 ? (
-                            <div className="flex min-w-0 items-center gap-1">
-                              {item.refs.slice(0, 2).map((ref) => (
-                                <span
-                                  className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
-                                  key={ref}
-                                >
-                                  {ref}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground/70 text-xs">
-                              <span className="sr-only">No refs</span>
-                            </span>
-                          )}
-                        </div>
-                        <div className="relative flex h-full items-center justify-center">
-                          <span className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-border/60 border-l" />
-                          {index === 0 ? (
-                            <span className="absolute top-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
-                          ) : null}
-                          {index === commits.length - 1 ? (
-                            <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 bg-background px-px" />
-                          ) : null}
-                        </div>
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="min-w-0 flex-1 truncate pr-2 text-sm">
-                            {item.message}
-                          </p>
-                          <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
-                            {item.author}
+                <div className="relative">
+                  <GitGraphOverlay
+                    commits={commits}
+                    rowHeight={TIMELINE_ROW_HEIGHT}
+                    rows={timelineRows}
+                    selectedRowId={selectedTimelineRowId}
+                  />
+                  {hasAnyWorkingTreeChanges ? (
+                    <button
+                      className={cn(
+                        "group relative z-10 grid h-12 w-full cursor-pointer items-center border-border/35 border-b px-3 text-left transition-colors",
+                        selectedCommitId === WORKING_TREE_ROW_ID
+                          ? "bg-accent/30"
+                          : "hover:bg-accent/20"
+                      )}
+                      onClick={handleWorkingTreeRowClick}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleWorkingTreeRowClick();
+                        }
+                      }}
+                      style={{
+                        gridTemplateColumns: timelineGridTemplateColumns,
+                      }}
+                      type="button"
+                    >
+                      <div className="min-w-0" />
+                      <div className="h-full" />
+                      <div className="space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <Input
+                            className="h-7 w-full max-w-52"
+                            disabled
+                            placeholder="// WIP"
+                            value={draftCommitSummary}
+                          />
+                          <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-300">
+                            <span aria-hidden>~</span>
+                            {workingTreeIndicators.editedCount}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[0.78rem] text-emerald-300">
+                            <span aria-hidden>+</span>
+                            {workingTreeIndicators.addedCount}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[0.78rem] text-rose-300">
+                            <span aria-hidden>-</span>
+                            {workingTreeIndicators.removedCount}
                           </span>
                         </div>
-                      </button>
-                    </ContextMenuTrigger>
-                    {openCommitMenuHash === item.hash
-                      ? renderCommitRowContextMenuContent(item)
-                      : null}
-                  </ContextMenu>
-                ))}
+                      </div>
+                    </button>
+                  ) : null}
+
+                  {commits.map((item) => (
+                    <ContextMenu
+                      key={item.hash}
+                      onOpenChange={(open) => {
+                        handleCommitMenuOpenChange(item.hash, open);
+                      }}
+                    >
+                      <ContextMenuTrigger>
+                        <button
+                          className={cn(
+                            "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors hover:bg-accent/20",
+                            (selectedCommitId === item.hash ||
+                              openCommitMenuHash === item.hash) &&
+                              "bg-accent/30"
+                          )}
+                          onClick={() => {
+                            handleCommitRowClick(item.hash);
+                          }}
+                          style={{
+                            gridTemplateColumns: timelineGridTemplateColumns,
+                          }}
+                          type="button"
+                        >
+                          <div className="min-w-0 truncate">
+                            {item.refs.length > 0 ? (
+                              <div className="flex min-w-0 items-center gap-1">
+                                {item.refs.slice(0, 2).map((ref) => (
+                                  <span
+                                    className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
+                                    key={ref}
+                                  >
+                                    {ref}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground/70 text-xs">
+                                <span className="sr-only">No refs</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="h-full" />
+                          <div className="flex min-w-0 items-center gap-2">
+                            <div
+                              className="h-full w-0.5 shrink-0 rounded-full"
+                              style={{
+                                backgroundColor: getCommitLaneColor(
+                                  commits,
+                                  item.hash
+                                ),
+                              }}
+                            />
+                            <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                              {item.message}
+                            </p>
+                            <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
+                              {item.author}
+                            </span>
+                          </div>
+                        </button>
+                      </ContextMenuTrigger>
+                      {openCommitMenuHash === item.hash
+                        ? renderCommitRowContextMenuContent(item)
+                        : null}
+                    </ContextMenu>
+                  ))}
+                </div>
                 {commits.length === 0 && !isLoadingHistory ? (
                   <div className="px-3 py-4 text-muted-foreground text-sm">
                     No commits found.
