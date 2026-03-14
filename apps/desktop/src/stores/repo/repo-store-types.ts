@@ -79,6 +79,8 @@ export interface RepositoryCommit {
   date: string;
   hash: string;
   message: string;
+  messageDescription: string;
+  messageSummary: string;
   parentHashes: string[];
   refs: string[];
   shortHash: string;

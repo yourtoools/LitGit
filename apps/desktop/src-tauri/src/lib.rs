@@ -32,6 +32,8 @@ struct RepositoryCommit {
     short_hash: String,
     parent_hashes: Vec<String>,
     message: String,
+    message_summary: String,
+    message_description: String,
     author: String,
     author_email: Option<String>,
     author_username: Option<String>,
@@ -816,7 +818,7 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
             "--decorate=short",
             "--date=iso-strict",
             "--max-count=150",
-            "--pretty=format:%H%x1f%h%x1f%P%x1f%B%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%b%x1f%B%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
         ])
         .output()
         .map_err(|error| format!("Failed to run git log: {error}"))?;
@@ -847,6 +849,8 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
             let hash = parts.next()?.to_string();
             let short_hash = parts.next()?.to_string();
             let parents_raw = parts.next()?.to_string();
+            let message_summary = parts.next().unwrap_or("").trim().to_string();
+            let message_description = parts.next().unwrap_or("").trim().to_string();
             let message = parts.next()?.to_string();
             let author = parts.next()?.to_string();
             let author_email_raw = parts.next().unwrap_or("").trim().to_string();
@@ -885,6 +889,8 @@ fn get_repository_history(repo_path: String) -> Result<Vec<RepositoryCommit>, St
                 short_hash,
                 parent_hashes,
                 message,
+                message_summary,
+                message_description,
                 author,
                 author_email: author_email.clone(),
                 author_username: github_identity.username,

@@ -6333,83 +6333,102 @@ export function RepoInfo() {
                     </button>
                   ) : null}
 
-                  {commits.map((item) => (
-                    <ContextMenu
-                      key={item.hash}
-                      onOpenChange={(open) => {
-                        handleCommitMenuOpenChange(item.hash, open);
-                      }}
-                    >
-                      <ContextMenuTrigger>
-                        <button
-                          className={cn(
-                            "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
-                            selectedCommitId === item.hash ||
-                              openCommitMenuHash === item.hash
-                              ? "bg-muted hover:bg-muted"
-                              : "hover:bg-muted/35"
-                          )}
-                          onClick={() => {
-                            handleCommitRowClick(item.hash);
-                          }}
-                          style={{
-                            gridTemplateColumns: timelineGridTemplateColumns,
-                          }}
-                          type="button"
-                        >
-                          <div className="min-w-0 truncate">
-                            {item.refs.length > 0 ? (
-                              <div className="flex min-w-0 items-center gap-1">
-                                {item.refs.slice(0, 2).map((ref) => (
-                                  <span
-                                    className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
-                                    key={ref}
-                                  >
-                                    {ref}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground/70 text-xs">
-                                <span className="sr-only">No refs</span>
-                              </span>
+                  {commits.map((item) => {
+                    const commitMessageSummary = (
+                      item.messageSummary ?? ""
+                    ).trim();
+                    const commitTitle =
+                      commitMessageSummary.length > 0
+                        ? commitMessageSummary
+                        : (item.message ?? "");
+                    const commitDescription = (
+                      item.messageDescription ?? ""
+                    ).trim();
+
+                    return (
+                      <ContextMenu
+                        key={item.hash}
+                        onOpenChange={(open) => {
+                          handleCommitMenuOpenChange(item.hash, open);
+                        }}
+                      >
+                        <ContextMenuTrigger>
+                          <button
+                            className={cn(
+                              "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
+                              selectedCommitId === item.hash ||
+                                openCommitMenuHash === item.hash
+                                ? "bg-muted hover:bg-muted"
+                                : "hover:bg-muted/35"
                             )}
-                          </div>
-                          <div className="h-full" />
-                          <div className="relative min-w-0 self-stretch">
-                            <div
-                              className="absolute top-0 bottom-0 left-0 rounded-full"
-                              style={{
-                                backgroundColor: getCommitLaneColor(
-                                  commits,
-                                  item.hash
-                                ),
-                                width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
-                              }}
-                            />
-                            <div
-                              className="flex h-full min-w-0 items-center gap-2"
-                              style={{
-                                paddingLeft:
-                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
-                                  TIMELINE_COMMIT_MESSAGE_BAR_GAP,
-                              }}
-                            >
-                              <p className="min-w-0 flex-1 truncate pr-2 text-sm">
-                                {item.message}
-                              </p>
-                              <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
-                                {item.author}
-                              </span>
+                            onClick={() => {
+                              handleCommitRowClick(item.hash);
+                            }}
+                            style={{
+                              gridTemplateColumns: timelineGridTemplateColumns,
+                            }}
+                            type="button"
+                          >
+                            <div className="min-w-0 truncate">
+                              {item.refs.length > 0 ? (
+                                <div className="flex min-w-0 items-center gap-1">
+                                  {item.refs.slice(0, 2).map((ref) => (
+                                    <span
+                                      className="truncate rounded border border-border/75 bg-muted/40 px-1.5 py-0.5 text-[0.65rem]"
+                                      key={ref}
+                                    >
+                                      {ref}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground/70 text-xs">
+                                  <span className="sr-only">No refs</span>
+                                </span>
+                              )}
                             </div>
-                          </div>
-                        </button>
-                      </ContextMenuTrigger>
-                      {openCommitMenuHash === item.hash
-                        ? renderCommitRowContextMenuContent(item)
-                        : null}
-                    </ContextMenu>
-                  ))}
+                            <div className="h-full" />
+                            <div className="relative min-w-0 self-stretch">
+                              <div
+                                className="absolute top-0 bottom-0 left-0 rounded-full"
+                                style={{
+                                  backgroundColor: getCommitLaneColor(
+                                    commits,
+                                    item.hash
+                                  ),
+                                  width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                                }}
+                              />
+                              <div
+                                className="flex h-full min-w-0 items-center gap-2"
+                                style={{
+                                  paddingLeft:
+                                    TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                    TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                                }}
+                              >
+                                <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                                  <span>{commitTitle}</span>
+                                  {commitDescription.length > 0 ? (
+                                    <span className="text-muted-foreground/80">
+                                      {" "}
+                                      {commitDescription}
+                                    </span>
+                                  ) : null}
+                                </p>
+                                <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
+                                  {item.author}
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        </ContextMenuTrigger>
+                        {openCommitMenuHash === item.hash
+                          ? renderCommitRowContextMenuContent(item)
+                          : null}
+                      </ContextMenu>
+                    );
+                  })}
                 </div>
                 {commits.length === 0 && !isLoadingHistory ? (
                   <div className="px-3 py-4 text-muted-foreground text-sm">

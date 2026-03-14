@@ -167,6 +167,8 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     shortHash,
     parentHashes,
     message,
+    messageSummary,
+    messageDescription,
     author,
     authorEmail,
     authorUsername,
@@ -181,6 +183,14 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     !Array.isArray(parentHashes) ||
     parentHashes.some((parentHash) => typeof parentHash !== "string") ||
     typeof message !== "string" ||
+    !(
+      typeof messageSummary === "string" ||
+      typeof messageSummary === "undefined"
+    ) ||
+    !(
+      typeof messageDescription === "string" ||
+      typeof messageDescription === "undefined"
+    ) ||
     typeof author !== "string" ||
     !(typeof authorEmail === "string" || authorEmail === null) ||
     !(typeof authorUsername === "string" || authorUsername === null) ||
@@ -195,12 +205,21 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
         (reference): reference is string => typeof reference === "string"
       )
     : [];
+  const fallbackSummary = message
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const parsedMessageSummary =
+    messageSummary?.trim() || fallbackSummary || message.trim();
+  const parsedMessageDescription = messageDescription?.trim() ?? "";
 
   return {
     hash,
     shortHash,
     parentHashes,
     message,
+    messageSummary: parsedMessageSummary,
+    messageDescription: parsedMessageDescription,
     author,
     authorEmail,
     authorUsername,
