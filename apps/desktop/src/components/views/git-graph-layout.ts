@@ -5,6 +5,8 @@ export type GitTimelineRowType = "commit" | "stash" | "tag" | "wip";
 
 export interface GitTimelineRow {
   anchorCommitHash?: string;
+  author?: string;
+  authorAvatarUrl?: string | null;
   commitHash?: string;
   id: string;
   type: GitTimelineRowType;
@@ -239,6 +241,9 @@ export function buildGitGraphLayout(
     const positionedLane = isCompactGraph ? compactAnchorLane : lane;
     const nodeId = `graph-node:${row.id}`;
     const commit = commitByHash.get(rowCommitHash);
+    const nodeAuthor = row.author ?? commit?.author ?? "";
+    const nodeAuthorAvatarUrl =
+      row.authorAvatarUrl ?? commit?.authorAvatarUrl ?? null;
     nodeIdByRowId.set(row.id, nodeId);
     nodes.push(
       createNode(
@@ -251,8 +256,8 @@ export function buildGitGraphLayout(
         color,
         selectedRowId === row.id,
         row.type,
-        commit?.author ?? "",
-        commit?.authorAvatarUrl ?? null,
+        nodeAuthor,
+        nodeAuthorAvatarUrl,
         dashedStrokePattern
       )
     );

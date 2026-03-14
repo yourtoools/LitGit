@@ -303,6 +303,114 @@ function normalizeCommitRefLabel(rawReference: string): string | null {
 }
 
 const TREE_STATUS_SUMMARY_ORDER = ["M", "A", "D", "R", "C", "U", "T", "?"];
+const GITHUB_NOREPLY_EMAIL_SUFFIX = "@users.noreply.github.com";
+const ASCII_DIGITS_PATTERN = /^\d+$/;
+
+function isValidGitHubUsername(username: string): boolean {
+  const length = username.length;
+
+  if (length === 0 || length > 39) {
+    return false;
+  }
+
+  if (username.startsWith("-") || username.endsWith("-")) {
+    return false;
+  }
+
+  for (const character of username) {
+    const isAlphabet =
+      (character >= "a" && character <= "z") ||
+      (character >= "A" && character <= "Z");
+    const isDigit = character >= "0" && character <= "9";
+
+    if (!(isAlphabet || isDigit || character === "-")) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function resolveGitHubAvatarFromIdentityEmail(
+  email: string | null
+): string | null {
+  const normalizedEmail = email?.trim().toLowerCase() ?? "";
+
+  if (!normalizedEmail.endsWith(GITHUB_NOREPLY_EMAIL_SUFFIX)) {
+    return null;
+  }
+
+  const localPart = normalizedEmail.slice(
+    0,
+    -GITHUB_NOREPLY_EMAIL_SUFFIX.length
+  );
+
+  if (localPart.length === 0) {
+    return null;
+  }
+
+  const plusSeparatorIndex = localPart.indexOf("+");
+
+  if (plusSeparatorIndex >= 0) {
+    const left = localPart.slice(0, plusSeparatorIndex);
+    const right = localPart.slice(plusSeparatorIndex + 1);
+    let username: string | null = null;
+
+    if (isValidGitHubUsername(right)) {
+      username = right;
+    } else if (isValidGitHubUsername(left)) {
+      username = left;
+    }
+
+    if (ASCII_DIGITS_PATTERN.test(left)) {
+      return `https://avatars.githubusercontent.com/u/${left}?v=4`;
+    }
+
+    return username ? `https://github.com/${username}.png` : null;
+  }
+
+  if (isValidGitHubUsername(localPart)) {
+    return `https://github.com/${localPart}.png`;
+  }
+
+  return null;
+}
+
+function resolveWipAuthorAvatarUrl(
+  commits: RepositoryCommit[],
+  identityEmail: string | null,
+  identityName: string | null
+): string | null {
+  const normalizedIdentityEmail = identityEmail?.trim().toLowerCase() ?? "";
+
+  if (normalizedIdentityEmail.length > 0) {
+    for (const commit of commits) {
+      if (!(commit.authorAvatarUrl && commit.authorEmail)) {
+        continue;
+      }
+
+      if (commit.authorEmail.trim().toLowerCase() === normalizedIdentityEmail) {
+        return commit.authorAvatarUrl;
+      }
+    }
+  }
+
+  const normalizedIdentityName = identityName?.trim().toLowerCase() ?? "";
+
+  if (normalizedIdentityName.length > 0) {
+    for (const commit of commits) {
+      if (!commit.authorAvatarUrl) {
+        continue;
+      }
+
+      if (commit.author.trim().toLowerCase() === normalizedIdentityName) {
+        return commit.authorAvatarUrl;
+      }
+    }
+  }
+
+  return resolveGitHubAvatarFromIdentityEmail(identityEmail);
+}
 
 function createEmptyTreeNode(name: string, fullPath: string): ChangeTreeNode {
   return {
@@ -719,6 +827,7 @@ export function RepoInfo() {
     (state) => state.repoWorkingTreeItems
   );
   const repoFilesById = useRepoStore((state) => state.repoFilesById);
+  const repoGitIdentities = useRepoStore((state) => state.repoGitIdentities);
   const isLoadingBranches = useRepoStore((state) => state.isLoadingBranches);
   const isLoadingHistory = useRepoStore((state) => state.isLoadingHistory);
   const isLoadingStatus = useRepoStore((state) => state.isLoadingStatus);
@@ -970,6 +1079,26 @@ export function RepoInfo() {
   const commits = useMemo<RepositoryCommit[]>(
     () => (activeRepoId ? (repoCommits[activeRepoId] ?? []) : []),
     [activeRepoId, repoCommits]
+  );
+  const activeRepoIdentity = activeRepoId
+    ? (repoGitIdentities[activeRepoId] ?? null)
+    : null;
+  const preferredWipIdentity = activeRepoIdentity?.global.isComplete
+    ? activeRepoIdentity.global
+    : (activeRepoIdentity?.effective ?? null);
+  const preferredWipEmail = preferredWipIdentity?.email ?? null;
+  const preferredWipRawName = preferredWipIdentity?.name ?? null;
+  const preferredWipName = preferredWipRawName?.trim() ?? "";
+  const wipAuthorName =
+    preferredWipName.length > 0 ? preferredWipName : (commits[0]?.author ?? "");
+  const wipAuthorAvatarUrl = useMemo(
+    () =>
+      resolveWipAuthorAvatarUrl(
+        commits,
+        preferredWipEmail,
+        preferredWipRawName
+      ),
+    [commits, preferredWipEmail, preferredWipRawName]
   );
   const branches = useMemo(
     () => (activeRepoId ? (repoBranches[activeRepoId] ?? []) : []),
@@ -1359,6 +1488,8 @@ export function RepoInfo() {
     if (hasAnyWorkingTreeChanges) {
       rows.push({
         anchorCommitHash: commits[0]?.hash,
+        author: wipAuthorName,
+        authorAvatarUrl: wipAuthorAvatarUrl,
         id: WORKING_TREE_ROW_ID,
         type: "wip",
       });
@@ -1373,7 +1504,7 @@ export function RepoInfo() {
     }
 
     return rows;
-  }, [commits, hasAnyWorkingTreeChanges]);
+  }, [commits, hasAnyWorkingTreeChanges, wipAuthorAvatarUrl, wipAuthorName]);
   const selectedTimelineRowId =
     selectedCommitId === WORKING_TREE_ROW_ID
       ? WORKING_TREE_ROW_ID
@@ -6446,8 +6577,8 @@ export function RepoInfo() {
                                             className={cn(
                                               "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-[0.65rem] leading-none",
                                               index === 0
-                                                ? "max-w-[6rem]"
-                                                : "max-w-[4rem]"
+                                                ? "max-w-24"
+                                                : "max-w-16"
                                             )}
                                             style={{
                                               borderColor: `${laneColor}80`,
