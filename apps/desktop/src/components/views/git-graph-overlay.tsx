@@ -13,6 +13,12 @@ const nodeTypes = {
   gitNode: GitNode,
 };
 
+const DEFAULT_EDGE_OPTIONS = {
+  style: {
+    strokeDasharray: "4 3",
+  },
+} as const;
+
 interface GitGraphOverlayProps {
   commits: RepositoryCommit[];
   graphColumnWidth: number;
@@ -28,6 +34,8 @@ export function GitGraphOverlay({
   rows,
   selectedRowId,
 }: GitGraphOverlayProps) {
+  const dashedStrokePattern = DEFAULT_EDGE_OPTIONS.style.strokeDasharray;
+
   const layout = useMemo(
     () =>
       buildGitGraphLayout(
@@ -35,9 +43,17 @@ export function GitGraphOverlay({
         commits,
         selectedRowId,
         rowHeight,
-        graphColumnWidth
+        graphColumnWidth,
+        dashedStrokePattern
       ),
-    [commits, graphColumnWidth, rowHeight, rows, selectedRowId]
+    [
+      commits,
+      dashedStrokePattern,
+      graphColumnWidth,
+      rowHeight,
+      rows,
+      selectedRowId,
+    ]
   );
   const graphHeight = Math.max(rowHeight * rows.length, rowHeight);
 
@@ -48,6 +64,7 @@ export function GitGraphOverlay({
       style={{ height: graphHeight }}
     >
       <ReactFlow
+        defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         edges={layout.edges}
         elementsSelectable={false}

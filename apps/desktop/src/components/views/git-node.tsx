@@ -13,6 +13,7 @@ interface GitNodeData {
   author: string;
   authorAvatarUrl: string | null;
   color: string;
+  dashedStrokePattern?: string;
   isCompact: boolean;
   isSelected: boolean;
   type: GitTimelineRowType;
@@ -23,6 +24,8 @@ const WHITESPACE_SPLIT_PATTERN = /\s+/;
 export function GitNode({ data }: NodeProps) {
   const nodeData = data as unknown as GitNodeData;
   const size = resolveGitTimelineNodeSize(nodeData.type);
+  const isWipNode = nodeData.type === "wip";
+  const dashPattern = isWipNode ? nodeData.dashedStrokePattern : undefined;
   const initials = nodeData.author
     .split(WHITESPACE_SPLIT_PATTERN)
     .map((w: string) => w[0])
@@ -34,13 +37,29 @@ export function GitNode({ data }: NodeProps) {
     <div
       className="relative flex items-center justify-center rounded-full"
       style={{
-        border: `2px solid ${nodeData.color}`,
         boxShadow: `0 0 0 1px ${nodeData.color}55`,
         backgroundColor: "#ffffff",
         height: size,
         width: size,
       }}
     >
+      <svg
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-10"
+        height={size}
+        width={size}
+      >
+        <title>Timeline node border</title>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          fill="none"
+          r={(size - 2) / 2}
+          stroke={nodeData.color}
+          strokeDasharray={dashPattern}
+          strokeWidth={2}
+        />
+      </svg>
       <Handle
         className="!border-none !bg-transparent"
         position={Position.Top}

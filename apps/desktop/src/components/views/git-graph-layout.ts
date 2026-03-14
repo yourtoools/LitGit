@@ -37,11 +37,12 @@ const GIT_NODE_SIZE_BY_TYPE: Record<GitTimelineRowType, number> = {
   commit: 28,
   stash: 24,
   tag: 28,
-  wip: 24,
+  wip: 28,
 };
 const MAX_NODE_SIZE = 28;
 const DEFAULT_ROW_HEIGHT = 48;
 const NODE_OPTICAL_VERTICAL_OFFSET = -1;
+const DEFAULT_DASH_PATTERN = "4 3";
 
 export function resolveGitTimelineNodeSize(type: GitTimelineRowType): number {
   return GIT_NODE_SIZE_BY_TYPE[type];
@@ -132,7 +133,8 @@ function createNode(
   isSelected: boolean,
   type: GitTimelineRowType,
   author: string,
-  authorAvatarUrl: string | null
+  authorAvatarUrl: string | null,
+  dashedStrokePattern?: string
 ): Node {
   const size = resolveGitTimelineNodeSize(type);
   const baseCenterX =
@@ -147,6 +149,7 @@ function createNode(
       author,
       authorAvatarUrl,
       color,
+      dashedStrokePattern: type === "wip" ? dashedStrokePattern : undefined,
       isCompact,
       isSelected,
       type,
@@ -168,7 +171,8 @@ function createEdge(
   sourceId: string,
   targetId: string,
   color: string,
-  isDashed: boolean
+  isDashed: boolean,
+  dashedStrokePattern?: string
 ): Edge {
   return {
     animated: false,
@@ -177,7 +181,9 @@ function createEdge(
     source: sourceId,
     style: {
       stroke: color,
-      strokeDasharray: isDashed ? "4 3" : undefined,
+      strokeDasharray: isDashed
+        ? (dashedStrokePattern ?? DEFAULT_DASH_PATTERN)
+        : undefined,
       strokeLinecap: "round",
       strokeLinejoin: "round",
       strokeWidth: 2,
@@ -192,7 +198,8 @@ export function buildGitGraphLayout(
   commits: RepositoryCommit[],
   selectedRowId: string | null,
   rowHeight: number = DEFAULT_ROW_HEIGHT,
-  graphColumnWidth?: number
+  graphColumnWidth?: number,
+  dashedStrokePattern?: string
 ): GitGraphLayoutResult {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -245,7 +252,8 @@ export function buildGitGraphLayout(
         selectedRowId === row.id,
         row.type,
         commit?.author ?? "",
-        commit?.authorAvatarUrl ?? null
+        commit?.authorAvatarUrl ?? null,
+        dashedStrokePattern
       )
     );
   }
@@ -295,7 +303,8 @@ export function buildGitGraphLayout(
           sourceNodeId,
           targetNodeId,
           color,
-          false
+          false,
+          dashedStrokePattern
         )
       );
     }
@@ -332,7 +341,8 @@ export function buildGitGraphLayout(
         sourceNodeId,
         targetNodeId,
         getLaneColor(lane),
-        false
+        true,
+        dashedStrokePattern
       )
     );
   }
@@ -370,7 +380,8 @@ export function buildGitGraphLayout(
         sourceNodeId,
         targetNodeId,
         getLaneColor(lane),
-        true
+        true,
+        dashedStrokePattern
       )
     );
   }
