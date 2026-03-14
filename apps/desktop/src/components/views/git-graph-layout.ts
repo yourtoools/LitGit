@@ -126,6 +126,8 @@ function createNode(
   lane: number,
   rowIndex: number,
   rowHeight: number,
+  graphScaleX: number,
+  isCompact: boolean,
   color: string,
   isSelected: boolean,
   type: GitTimelineRowType,
@@ -133,7 +135,10 @@ function createNode(
   authorAvatarUrl: string | null
 ): Node {
   const size = resolveGitTimelineNodeSize(type);
-  const centerX = GRAPH_COLUMN_START_X + LANE_OFFSET_X + lane * LANE_SPACING_X;
+  const baseCenterX =
+    GRAPH_COLUMN_START_X + LANE_OFFSET_X + lane * LANE_SPACING_X;
+  const centerX =
+    GRAPH_COLUMN_START_X + (baseCenterX - GRAPH_COLUMN_START_X) * graphScaleX;
   const centerY =
     rowIndex * rowHeight + rowHeight / 2 + NODE_OPTICAL_VERTICAL_OFFSET;
 
@@ -142,6 +147,7 @@ function createNode(
       author,
       authorAvatarUrl,
       color,
+      isCompact,
       isSelected,
       type,
     },
@@ -185,7 +191,8 @@ export function buildGitGraphLayout(
   rows: GitTimelineRow[],
   commits: RepositoryCommit[],
   selectedRowId: string | null,
-  rowHeight: number = DEFAULT_ROW_HEIGHT
+  rowHeight: number = DEFAULT_ROW_HEIGHT,
+  graphColumnWidth?: number
 ): GitGraphLayoutResult {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -194,6 +201,12 @@ export function buildGitGraphLayout(
   const rowIndexByCommitHash = new Map<string, number>();
   const nodeIdByRowId = new Map<string, string>();
   const laneByHash = buildCommitLaneMap(commits);
+  const baseGraphWidth = resolveGitGraphColumnWidth(commits);
+  const targetGraphWidth = graphColumnWidth ?? baseGraphWidth;
+  const graphScaleX =
+    baseGraphWidth > 0 ? targetGraphWidth / baseGraphWidth : 1;
+  const isCompactGraph = targetGraphWidth <= 64;
+  const compactAnchorLane = 0;
 
   for (const [rowIndex, row] of rows.entries()) {
     if (row.type === "commit" && row.commitHash) {
@@ -216,15 +229,18 @@ export function buildGitGraphLayout(
 
     const lane = laneByHash.get(rowCommitHash) ?? 0;
     const color = getLaneColor(lane);
+    const positionedLane = isCompactGraph ? compactAnchorLane : lane;
     const nodeId = `graph-node:${row.id}`;
     const commit = commitByHash.get(rowCommitHash);
     nodeIdByRowId.set(row.id, nodeId);
     nodes.push(
       createNode(
         nodeId,
-        lane,
+        positionedLane,
         rowIndex,
         rowHeight,
+        graphScaleX,
+        isCompactGraph,
         color,
         selectedRowId === row.id,
         row.type,
@@ -248,7 +264,11 @@ export function buildGitGraphLayout(
 
     const sourceLane = laneByHash.get(row.commitHash) ?? 0;
 
-    for (const parentHash of sourceCommit.parentHashes) {
+    const parentHashes = isCompactGraph
+      ? sourceCommit.parentHashes.slice(0, 1)
+      : sourceCommit.parentHashes;
+
+    for (const parentHash of parentHashes) {
       const parentRowIndex = rowIndexByCommitHash.get(parentHash);
 
       if (typeof parentRowIndex !== "number") {

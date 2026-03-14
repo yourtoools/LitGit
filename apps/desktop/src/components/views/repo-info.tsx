@@ -43,6 +43,7 @@ import {
 } from "@litgit/ui/components/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -90,6 +91,7 @@ import {
   DotOutlineIcon,
   DotsThreeVerticalIcon,
   DownloadSimpleIcon,
+  GearIcon,
   GitBranchIcon,
   GithubLogoIcon,
   PencilSimpleIcon,
@@ -450,6 +452,10 @@ const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const WORKING_TREE_ROW_ID = "__working_tree__";
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
 const TIMELINE_ROW_HEIGHT = 48;
+const TIMELINE_GRAPH_COLUMN_MIN_WIDTH = 60;
+const TIMELINE_GRAPH_COLUMN_MAX_WIDTH = 320;
+const TIMELINE_COMMIT_MESSAGE_BAR_WIDTH = 3;
+const TIMELINE_COMMIT_MESSAGE_BAR_GAP = 8;
 
 const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
   c: "c",
@@ -760,6 +766,9 @@ export function RepoInfo() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(
     RIGHT_SIDEBAR_DEFAULT_WIDTH
   );
+  const [timelineGraphColumnWidth, setTimelineGraphColumnWidth] = useState<
+    number | null
+  >(null);
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [isBranchCreateInputOpen, setIsBranchCreateInputOpen] = useState(false);
@@ -1330,11 +1339,18 @@ export function RepoInfo() {
     selectedCommitId === WORKING_TREE_ROW_ID
       ? WORKING_TREE_ROW_ID
       : selectedCommitId;
-  const timelineGraphColumnWidth = useMemo(
+  const resolvedTimelineGraphColumnWidth = useMemo(
     () => resolveGitGraphColumnWidth(commits),
     [commits]
   );
-  const timelineGridTemplateColumns = `${TIMELINE_BRANCH_COLUMN_WIDTH}px ${timelineGraphColumnWidth}px minmax(0,1fr)`;
+  const effectiveTimelineGraphColumnWidth = clampWidth(
+    timelineGraphColumnWidth ?? resolvedTimelineGraphColumnWidth,
+    TIMELINE_GRAPH_COLUMN_MIN_WIDTH,
+    TIMELINE_GRAPH_COLUMN_MAX_WIDTH
+  );
+  const isTimelineGraphCompactMode =
+    timelineGraphColumnWidth === TIMELINE_GRAPH_COLUMN_MIN_WIDTH;
+  const timelineGridTemplateColumns = `${TIMELINE_BRANCH_COLUMN_WIDTH}px ${effectiveTimelineGraphColumnWidth}px minmax(0,1fr)`;
   const childCommitCountByHash = useMemo<Record<string, number>>(() => {
     const countsByHash: Record<string, number> = {};
 
@@ -2401,6 +2417,12 @@ export function RepoInfo() {
 
     document.body.style.userSelect = "none";
     document.body.style.cursor = "row-resize";
+  };
+
+  const setTimelineGraphCompactMode = (isCompact: boolean) => {
+    setTimelineGraphColumnWidth(
+      isCompact ? TIMELINE_GRAPH_COLUMN_MIN_WIDTH : null
+    );
   };
 
   const preventLeftClickInMenus = (event: React.MouseEvent) => {
@@ -6150,8 +6172,37 @@ export function RepoInfo() {
                 style={{ gridTemplateColumns: timelineGridTemplateColumns }}
               >
                 <span>Branch / Tag</span>
-                <span className="text-center">Graph</span>
-                <span>Commit Message</span>
+                <span className="flex items-center justify-center">Graph</span>
+                <span className="flex items-center justify-between gap-2">
+                  <span>Commit Message</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <button
+                          aria-label="Timeline settings"
+                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
+                          type="button"
+                        />
+                      }
+                    >
+                      <GearIcon className="size-3.5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-52"
+                      sideOffset={6}
+                    >
+                      <DropdownMenuCheckboxItem
+                        checked={isTimelineGraphCompactMode}
+                        onCheckedChange={(checked) => {
+                          setTimelineGraphCompactMode(checked === true);
+                        }}
+                      >
+                        Compact graph (1 line)
+                      </DropdownMenuCheckboxItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
               </div>
               <div
                 className={cn(
@@ -6230,6 +6281,7 @@ export function RepoInfo() {
                 <div className="relative">
                   <GitGraphOverlay
                     commits={commits}
+                    graphColumnWidth={effectiveTimelineGraphColumnWidth}
                     rowHeight={TIMELINE_ROW_HEIGHT}
                     rows={timelineRows}
                     selectedRowId={selectedTimelineRowId}
@@ -6239,8 +6291,8 @@ export function RepoInfo() {
                       className={cn(
                         "group relative z-10 grid h-12 w-full cursor-pointer items-center border-border/35 border-b px-3 text-left transition-colors",
                         selectedCommitId === WORKING_TREE_ROW_ID
-                          ? "bg-accent/30"
-                          : "hover:bg-accent/20"
+                          ? "bg-muted"
+                          : "hover:bg-muted/35"
                       )}
                       onClick={handleWorkingTreeRowClick}
                       onKeyDown={(event) => {
@@ -6291,10 +6343,11 @@ export function RepoInfo() {
                       <ContextMenuTrigger>
                         <button
                           className={cn(
-                            "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors hover:bg-accent/20",
-                            (selectedCommitId === item.hash ||
-                              openCommitMenuHash === item.hash) &&
-                              "bg-accent/30"
+                            "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
+                            selectedCommitId === item.hash ||
+                              openCommitMenuHash === item.hash
+                              ? "bg-muted hover:bg-muted"
+                              : "hover:bg-muted/35"
                           )}
                           onClick={() => {
                             handleCommitRowClick(item.hash);
@@ -6323,22 +6376,32 @@ export function RepoInfo() {
                             )}
                           </div>
                           <div className="h-full" />
-                          <div className="flex min-w-0 items-center gap-2">
+                          <div className="relative min-w-0 self-stretch">
                             <div
-                              className="h-full w-0.5 shrink-0 rounded-full"
+                              className="absolute top-0 bottom-0 left-0 rounded-full"
                               style={{
                                 backgroundColor: getCommitLaneColor(
                                   commits,
                                   item.hash
                                 ),
+                                width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
                               }}
                             />
-                            <p className="min-w-0 flex-1 truncate pr-2 text-sm">
-                              {item.message}
-                            </p>
-                            <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
-                              {item.author}
-                            </span>
+                            <div
+                              className="flex h-full min-w-0 items-center gap-2"
+                              style={{
+                                paddingLeft:
+                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                  TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                              }}
+                            >
+                              <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                                {item.message}
+                              </p>
+                              <span className="hidden text-muted-foreground text-xs group-hover:inline md:inline">
+                                {item.author}
+                              </span>
+                            </div>
                           </div>
                         </button>
                       </ContextMenuTrigger>

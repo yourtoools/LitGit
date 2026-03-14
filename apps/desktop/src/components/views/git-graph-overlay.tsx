@@ -15,6 +15,7 @@ const nodeTypes = {
 
 interface GitGraphOverlayProps {
   commits: RepositoryCommit[];
+  graphColumnWidth: number;
   rowHeight: number;
   rows: GitTimelineRow[];
   selectedRowId: string | null;
@@ -22,20 +23,28 @@ interface GitGraphOverlayProps {
 
 export function GitGraphOverlay({
   commits,
+  graphColumnWidth,
   rowHeight,
   rows,
   selectedRowId,
 }: GitGraphOverlayProps) {
   const layout = useMemo(
-    () => buildGitGraphLayout(rows, commits, selectedRowId, rowHeight),
-    [commits, rowHeight, rows, selectedRowId]
+    () =>
+      buildGitGraphLayout(
+        rows,
+        commits,
+        selectedRowId,
+        rowHeight,
+        graphColumnWidth
+      ),
+    [commits, graphColumnWidth, rowHeight, rows, selectedRowId]
   );
   const graphHeight = Math.max(rowHeight * rows.length, rowHeight);
 
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute top-0 right-0 left-0 z-0"
+      className="pointer-events-none absolute top-0 right-0 left-0 z-20"
       style={{ height: graphHeight }}
     >
       <ReactFlow

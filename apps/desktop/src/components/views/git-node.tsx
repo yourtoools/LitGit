@@ -13,6 +13,7 @@ interface GitNodeData {
   author: string;
   authorAvatarUrl: string | null;
   color: string;
+  isCompact: boolean;
   isSelected: boolean;
   type: GitTimelineRowType;
 }
@@ -34,9 +35,7 @@ export function GitNode({ data }: NodeProps) {
       className="relative flex items-center justify-center rounded-full"
       style={{
         border: `2px solid ${nodeData.color}`,
-        boxShadow: nodeData.isSelected
-          ? `0 0 0 2px rgba(255,255,255,0.8), 0 0 0 4px ${nodeData.color}66`
-          : `0 0 0 1px ${nodeData.color}55`,
+        boxShadow: `0 0 0 1px ${nodeData.color}55`,
         backgroundColor: "#ffffff",
         height: size,
         width: size,
@@ -54,7 +53,7 @@ export function GitNode({ data }: NodeProps) {
         style={{ bottom: -0.5, height: 1, left: "50%", width: 1 }}
         type="source"
       />
-      <Avatar style={{ height: size - 4, width: size - 4 }}>
+      <Avatar style={{ height: size - 4, width: size - 4, zIndex: 30 }}>
         <AvatarImage
           alt={nodeData.author}
           height={size - 4}
