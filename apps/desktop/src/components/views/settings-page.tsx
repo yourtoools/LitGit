@@ -22,6 +22,7 @@ import {
   SidebarContent,
   SidebarHeader,
 } from "@litgit/ui/components/sidebar";
+import { Skeleton } from "@litgit/ui/components/skeleton";
 import { Switch } from "@litgit/ui/components/switch";
 import {
   Tooltip,
@@ -42,7 +43,15 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import {
   getLocaleOption,
@@ -746,74 +755,136 @@ const BUNDLED_FONT_OPTIONS = [
   },
 ] as const satisfies readonly FontPickerOption[];
 
-const readSystemFontFamilies = async (): Promise<SystemFontReadResult> => {
-  try {
-    const tauriFontFamilies = await listSystemFontFamilies();
+let cachedSystemFontReadResult: SystemFontReadResult | null = null;
+let systemFontReadInFlightPromise: Promise<SystemFontReadResult> | null = null;
 
-    if (tauriFontFamilies.length > 0) {
-      return {
-        options: tauriFontFamilies.map((family) => ({
-          family,
-          isMonospace: detectMonospaceFont(family),
-          source: "system" as const,
-        })),
-        status: "available",
-      };
-    }
-  } catch {
-    // Fall back to browser APIs when native enumeration is unavailable.
-  }
+const readSystemFontFamiliesUncached =
+  async (): Promise<SystemFontReadResult> => {
+    try {
+      const tauriFontFamilies = await listSystemFontFamilies();
 
-  if (!(typeof window !== "undefined" && "queryLocalFonts" in window)) {
-    return {
-      options: [],
-      status: "unavailable",
-    };
-  }
-
-  try {
-    const queryLocalFonts = (
-      window as Window & {
-        queryLocalFonts?: () => Promise<Array<{ family: string }>>;
+      if (tauriFontFamilies.length > 0) {
+        return {
+          options: tauriFontFamilies.map((family) => ({
+            family,
+            isMonospace: detectMonospaceFont(family),
+            source: "system" as const,
+          })),
+          status: "available",
+        };
       }
-    ).queryLocalFonts;
+    } catch {
+      // Fall back to browser APIs when native enumeration is unavailable.
+    }
 
-    if (!queryLocalFonts) {
+    if (!(typeof window !== "undefined" && "queryLocalFonts" in window)) {
       return {
         options: [],
         status: "unavailable",
       };
     }
 
-    const fonts = await queryLocalFonts();
+    try {
+      const queryLocalFonts = (
+        window as Window & {
+          queryLocalFonts?: () => Promise<Array<{ family: string }>>;
+        }
+      ).queryLocalFonts;
 
-    return {
-      options: Array.from(
-        new Map(
-          fonts
-            .filter((font) => typeof font.family === "string")
-            .map((font) => {
-              const family = font.family.trim();
+      if (!queryLocalFonts) {
+        return {
+          options: [],
+          status: "unavailable",
+        };
+      }
 
-              return [
-                family,
-                {
+      const fonts = await queryLocalFonts();
+
+      return {
+        options: Array.from(
+          new Map(
+            fonts
+              .filter((font) => typeof font.family === "string")
+              .map((font) => {
+                const family = font.family.trim();
+
+                return [
                   family,
-                  isMonospace: detectMonospaceFont(family),
-                  source: "system" as const,
-                },
-              ];
-            })
-        ).values()
-      ).filter((font) => font.family.length > 0),
-      status: "available",
-    };
-  } catch {
-    return {
-      options: [],
-      status: "unavailable",
+                  {
+                    family,
+                    isMonospace: detectMonospaceFont(family),
+                    source: "system" as const,
+                  },
+                ];
+              })
+          ).values()
+        ).filter((font) => font.family.length > 0),
+        status: "available",
+      };
+    } catch {
+      return {
+        options: [],
+        status: "unavailable",
+      };
+    }
+  };
+
+const readSystemFontFamilies = async (): Promise<SystemFontReadResult> => {
+  if (cachedSystemFontReadResult) {
+    return cachedSystemFontReadResult;
+  }
+
+  if (systemFontReadInFlightPromise) {
+    return systemFontReadInFlightPromise;
+  }
+
+  systemFontReadInFlightPromise = readSystemFontFamiliesUncached();
+
+  try {
+    const result = await systemFontReadInFlightPromise;
+    cachedSystemFontReadResult = result;
+
+    return result;
+  } finally {
+    systemFontReadInFlightPromise = null;
+  }
+};
+
+const runWhenBrowserIsIdle = (callback: () => void): (() => void) => {
+  if (typeof window === "undefined") {
+    callback();
+
+    return () => undefined;
+  }
+
+  const idleWindow = window as Window & {
+    cancelIdleCallback?: (id: number) => void;
+    requestIdleCallback?: (
+      callback: (deadline: unknown) => void,
+      options?: { timeout: number }
+    ) => number;
+  };
+
+  if (idleWindow.requestIdleCallback) {
+    const handle = idleWindow.requestIdleCallback(
+      () => {
+        callback();
+      },
+      { timeout: 300 }
+    );
+
+    return () => {
+      idleWindow.cancelIdleCallback?.(handle);
     };
   }
+
+  const handle = window.setTimeout(() => {
+    callback();
+  }, 0);
+
+  return () => {
+    window.clearTimeout(handle);
+  };
 };
 
 const describeFontSource = (option: FontPickerOption) => {
@@ -945,13 +1016,45 @@ function DefaultSelectValue({
   return <SelectValue placeholder={placeholder} />;
 }
 
-const EDITOR_PREVIEW_DIFF_THEME_CLASSES = {
-  added: "text-emerald-300",
-  keyword: "text-sky-300",
-  muted: "text-muted-foreground/70",
-  plain: "text-foreground/90",
-  string: "text-amber-200",
-  type: "text-cyan-300",
+type EditorPreviewThemeMode = "dark" | "light";
+
+const EDITOR_PREVIEW_THEME_CLASSES = {
+  dark: {
+    addedHighlight:
+      "rounded-sm bg-emerald-500/12 pl-2 ring-1 ring-emerald-400/25",
+    markerAdded: "text-emerald-300",
+    markerRemoved: "text-rose-300",
+    markerUnchanged: "text-muted-foreground/50",
+    removedHighlight:
+      "rounded-sm bg-rose-500/10 pl-2 opacity-90 ring-1 ring-rose-400/20",
+    surface: "bg-[#171717]",
+    tone: {
+      added: "text-emerald-300",
+      keyword: "text-sky-300",
+      muted: "text-muted-foreground/70",
+      plain: "text-foreground/90",
+      string: "text-amber-200",
+      type: "text-cyan-300",
+    },
+  },
+  light: {
+    addedHighlight:
+      "rounded-sm bg-emerald-100/80 pl-2 ring-1 ring-emerald-300/70",
+    markerAdded: "text-emerald-700",
+    markerRemoved: "text-rose-700",
+    markerUnchanged: "text-muted-foreground/70",
+    removedHighlight:
+      "rounded-sm bg-rose-100/80 pl-2 opacity-95 ring-1 ring-rose-300/70",
+    surface: "bg-background",
+    tone: {
+      added: "text-emerald-700",
+      keyword: "text-sky-700",
+      muted: "text-muted-foreground/80",
+      plain: "text-foreground",
+      string: "text-amber-700",
+      type: "text-cyan-700",
+    },
+  },
 } as const;
 
 const TERMINAL_PREVIEW_LINES = [
@@ -1005,21 +1108,25 @@ const getEditorPreviewTone = ({
   content,
   mode,
   syntaxHighlighting,
+  themeMode,
 }: {
   content: string;
   mode: "diff" | "regular";
   syntaxHighlighting: boolean;
+  themeMode: EditorPreviewThemeMode;
 }) => {
+  const toneClasses = EDITOR_PREVIEW_THEME_CLASSES[themeMode].tone;
+
   if (!syntaxHighlighting) {
-    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.plain;
+    return toneClasses.plain;
   }
 
   if (mode === "diff" && content.includes("delivery")) {
-    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.added;
+    return toneClasses.added;
   }
 
   if (content.includes("type")) {
-    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.type;
+    return toneClasses.type;
   }
 
   if (
@@ -1027,14 +1134,14 @@ const getEditorPreviewTone = ({
     content.includes("export") ||
     content.startsWith("//")
   ) {
-    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.keyword;
+    return toneClasses.keyword;
   }
 
   if (content.includes('"')) {
-    return EDITOR_PREVIEW_DIFF_THEME_CLASSES.string;
+    return toneClasses.string;
   }
 
-  return EDITOR_PREVIEW_DIFF_THEME_CLASSES.plain;
+  return toneClasses.plain;
 };
 
 const getEditorPreviewDiffState = (content: string) => {
@@ -1075,6 +1182,7 @@ function EditorStaticPreview({
   lineNumbers,
   syntaxHighlighting,
   tabSize,
+  themeMode,
   wordWrap,
 }: {
   eol: "system" | "lf" | "crlf";
@@ -1083,6 +1191,7 @@ function EditorStaticPreview({
   mode: "diff" | "regular";
   syntaxHighlighting: boolean;
   tabSize: number;
+  themeMode: EditorPreviewThemeMode;
   wordWrap: "on" | "off";
 }) {
   const lines = (
@@ -1099,9 +1208,15 @@ function EditorStaticPreview({
       ? "whitespace-pre-wrap break-words"
       : "truncate whitespace-pre"
   );
+  const previewThemeClasses = EDITOR_PREVIEW_THEME_CLASSES[themeMode];
 
   return (
-    <div className="h-full overflow-hidden rounded-md border border-border/60 bg-[#171717]">
+    <div
+      className={cn(
+        "h-full overflow-hidden rounded-md border border-border/60",
+        previewThemeClasses.surface
+      )}
+    >
       <div className="flex h-full min-h-0 flex-col overflow-hidden p-3">
         <div className="flex items-center justify-between gap-3 border-border/60 border-b pb-2 text-[11px] text-muted-foreground/80 uppercase tracking-[0.12em]">
           <span>{mode === "diff" ? "Diff preview" : "Regular preview"}</span>
@@ -1131,10 +1246,10 @@ function EditorStaticPreview({
                   lineClassName,
                   mode === "diff" &&
                     getEditorPreviewDiffState(line.content) === "added" &&
-                    "rounded-sm bg-emerald-500/12 pl-2 ring-1 ring-emerald-400/25",
+                    previewThemeClasses.addedHighlight,
                   mode === "diff" &&
                     getEditorPreviewDiffState(line.content) === "removed" &&
-                    "rounded-sm bg-rose-500/10 pl-2 opacity-90 ring-1 ring-rose-400/20"
+                    previewThemeClasses.removedHighlight
                 )}
                 key={line.id}
               >
@@ -1143,11 +1258,11 @@ function EditorStaticPreview({
                     className={cn(
                       "mr-2 inline-block w-3 text-center",
                       getEditorPreviewDiffState(line.content) === "added" &&
-                        "text-emerald-300",
+                        previewThemeClasses.markerAdded,
                       getEditorPreviewDiffState(line.content) === "removed" &&
-                        "text-rose-300",
+                        previewThemeClasses.markerRemoved,
                       getEditorPreviewDiffState(line.content) === "unchanged" &&
-                        "text-muted-foreground/50"
+                        previewThemeClasses.markerUnchanged
                     )}
                   >
                     {getEditorPreviewDiffMarker(line.content)}
@@ -1159,6 +1274,7 @@ function EditorStaticPreview({
                       content: line.content,
                       mode,
                       syntaxHighlighting,
+                      themeMode,
                     })
                   )}
                 >
@@ -1195,6 +1311,9 @@ function EditorPreview({
   wordWrap: "on" | "off";
 }) {
   const previewFontFamily = getPreviewFontFamily(fontFamily);
+  const { resolvedTheme } = useTheme();
+  const previewThemeMode: EditorPreviewThemeMode =
+    resolvedTheme === "light" ? "light" : "dark";
 
   return (
     <div className="flex h-full min-h-88 flex-col overflow-hidden rounded-lg border border-border/70 bg-card/60">
@@ -1234,6 +1353,7 @@ function EditorPreview({
           mode={mode}
           syntaxHighlighting={syntaxHighlighting}
           tabSize={tabSize}
+          themeMode={previewThemeMode}
           wordWrap={wordWrap}
         />
       </div>
@@ -1316,28 +1436,34 @@ function FontPickerField({
   description,
   emptyMessage,
   helperText,
+  isLoadingOptions,
   label,
+  monospaceOnly,
   onMonospaceOnlyChange,
+  onPickerInteract,
   onSearchChange,
   onValueChange,
   options,
   query,
   searchPlaceholder,
   selectedFont,
-  monospaceOnly,
+  showLoadingSkeleton,
 }: {
   description: string;
   emptyMessage: string;
   helperText: string;
+  isLoadingOptions?: boolean;
   label: string;
   monospaceOnly: boolean;
   onMonospaceOnlyChange: (checked: boolean) => void;
+  onPickerInteract?: () => void;
   onSearchChange: (value: string) => void;
   onValueChange: (value: string) => void;
   options: readonly FontPickerOption[];
   query: string;
   searchPlaceholder: string;
   selectedFont: string;
+  showLoadingSkeleton?: boolean;
 }) {
   const selectedOption =
     options.find((option) => option.family === selectedFont) ?? null;
@@ -1345,41 +1471,51 @@ function FontPickerField({
   return (
     <SettingsField description={description} label={label} query={query}>
       <div className="grid gap-3">
-        <Combobox
-          autoHighlight
-          items={options}
-          itemToStringLabel={(option: FontPickerOption) => option.family}
-          onValueChange={(nextValue: FontPickerOption | null) => {
-            if (nextValue) {
-              onValueChange(nextValue.family);
-            }
-          }}
-          value={selectedOption}
-        >
-          <ComboboxInput
-            className="w-full"
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder={searchPlaceholder}
-            showClear
-          />
-          <ComboboxContent>
-            <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
-            <ComboboxList className="[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
-              {(option: FontPickerOption) => (
-                <ComboboxItem key={option.family} value={option}>
-                  <div className="flex min-w-0 flex-1 items-center justify-between gap-3 pr-6">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm">{option.family}</div>
-                      <div className="truncate text-muted-foreground text-xs">
-                        {describeFontSource(option)}
+        {showLoadingSkeleton ? (
+          <Skeleton className="h-8 w-full rounded-lg border border-input/60 bg-input/35" />
+        ) : (
+          <Combobox
+            autoHighlight
+            items={options}
+            itemToStringLabel={(option: FontPickerOption) => option.family}
+            onValueChange={(nextValue: FontPickerOption | null) => {
+              if (nextValue) {
+                onValueChange(nextValue.family);
+              }
+            }}
+            value={selectedOption}
+          >
+            <ComboboxInput
+              className="w-full"
+              onChange={(event) => {
+                onPickerInteract?.();
+                onSearchChange(event.target.value);
+              }}
+              onFocus={() => {
+                onPickerInteract?.();
+              }}
+              placeholder={searchPlaceholder}
+              showClear
+            />
+            <ComboboxContent>
+              <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
+              <ComboboxList className="[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
+                {(option: FontPickerOption) => (
+                  <ComboboxItem key={option.family} value={option}>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3 pr-6">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm">{option.family}</div>
+                        <div className="truncate text-muted-foreground text-xs">
+                          {describeFontSource(option)}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </ComboboxItem>
-              )}
-            </ComboboxList>
-          </ComboboxContent>
-        </Combobox>
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+        )}
         <label className="inline-flex items-center gap-3">
           <Switch
             checked={monospaceOnly}
@@ -1389,6 +1525,12 @@ function FontPickerField({
           />
           <span className="text-sm">Show monospace fonts only</span>
         </label>
+        {isLoadingOptions ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-xs">
+            <span className="inline-flex size-2 animate-pulse rounded-full bg-primary/60" />
+            <span>Loading installed fonts...</span>
+          </div>
+        ) : null}
         <SettingsHelpText>{helperText}</SettingsHelpText>
       </div>
     </SettingsField>
@@ -2099,7 +2241,10 @@ function TerminalSection({ query }: { query: string }) {
   >([]);
   const [terminalFontStatus, setTerminalFontStatus] =
     useState<SystemFontReadResult["status"]>("available");
+  const [isLoadingTerminalFonts, setIsLoadingTerminalFonts] = useState(false);
+  const [hasLoadedTerminalFonts, setHasLoadedTerminalFonts] = useState(false);
   const [terminalFontQuery, setTerminalFontQuery] = useState("");
+  const deferredTerminalFontQuery = useDeferredValue(terminalFontQuery);
   const [terminalFontSizeInput, setTerminalFontSizeInput] = useState(() =>
     String(fontSize)
   );
@@ -2128,7 +2273,7 @@ function TerminalSection({ query }: { query: string }) {
   );
   const visibleTerminalFonts = useMemo(() => {
     const filteredFonts = getVisibleFonts(terminalFonts, fontVisibility);
-    const normalizedQuery = terminalFontQuery.trim().toLowerCase();
+    const normalizedQuery = deferredTerminalFontQuery.trim().toLowerCase();
 
     if (normalizedQuery.length === 0) {
       return filteredFonts;
@@ -2137,7 +2282,7 @@ function TerminalSection({ query }: { query: string }) {
     return filteredFonts.filter((font) =>
       font.family.toLowerCase().includes(normalizedQuery)
     );
-  }, [fontVisibility, terminalFontQuery, terminalFonts]);
+  }, [deferredTerminalFontQuery, fontVisibility, terminalFonts]);
 
   useEffect(() => {
     if (!terminalFonts.some((font) => font.family === fontFamily)) {
@@ -2149,14 +2294,33 @@ function TerminalSection({ query }: { query: string }) {
     setTerminalFontSizeInput(String(fontSize));
   }, [fontSize]);
 
-  useEffect(() => {
+  const loadTerminalFonts = useCallback(() => {
+    if (hasLoadedTerminalFonts || isLoadingTerminalFonts) {
+      return;
+    }
+
+    setIsLoadingTerminalFonts(true);
     readSystemFontFamilies()
       .then((result) => {
         setSystemTerminalFonts(result.options);
         setTerminalFontStatus(result.status);
+        setHasLoadedTerminalFonts(true);
       })
-      .catch(() => undefined);
-  }, []);
+      .catch(() => undefined)
+      .finally(() => {
+        setIsLoadingTerminalFonts(false);
+      });
+  }, [hasLoadedTerminalFonts, isLoadingTerminalFonts]);
+
+  useEffect(() => {
+    if (hasLoadedTerminalFonts || isLoadingTerminalFonts) {
+      return;
+    }
+
+    return runWhenBrowserIsIdle(() => {
+      loadTerminalFonts();
+    });
+  }, [hasLoadedTerminalFonts, isLoadingTerminalFonts, loadTerminalFonts]);
 
   const getAvailableTerminalWidth = useCallback(() => {
     return previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
@@ -2380,6 +2544,17 @@ function TerminalSection({ query }: { query: string }) {
     );
   }, [previewSidebarWidth]);
 
+  let terminalFontHelperText =
+    "Loading installed system fonts in the background. Bundled fallbacks are available immediately.";
+
+  if (hasLoadedTerminalFonts && terminalFontStatus === "unavailable") {
+    terminalFontHelperText =
+      "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only.";
+  } else if (hasLoadedTerminalFonts) {
+    terminalFontHelperText =
+      "Installed system fonts are shown first, with bundled fallbacks available when needed.";
+  }
+
   return (
     <div
       className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
@@ -2393,22 +2568,23 @@ function TerminalSection({ query }: { query: string }) {
               ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
               : "No matching terminal fonts found."
           }
-          helperText={
-            terminalFontStatus === "unavailable"
-              ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
-              : "Installed system fonts are shown first, with bundled fallbacks available when needed."
-          }
+          helperText={terminalFontHelperText}
+          isLoadingOptions={isLoadingTerminalFonts}
           label="Terminal font"
           monospaceOnly={fontVisibility === "monospace-only"}
           onMonospaceOnlyChange={(checked) => {
             setFontVisibility(checked ? "monospace-only" : "all-fonts");
           }}
+          onPickerInteract={loadTerminalFonts}
           onSearchChange={setTerminalFontQuery}
           onValueChange={setFontFamily}
           options={visibleTerminalFonts}
           query={query}
           searchPlaceholder="Search terminal fonts"
           selectedFont={fontFamily}
+          showLoadingSkeleton={
+            isLoadingTerminalFonts && !hasLoadedTerminalFonts
+          }
         />
         <SettingsField
           description="Applied immediately to the mounted xterm instance."
@@ -3443,7 +3619,10 @@ function EditorSection({ query }: { query: string }) {
   >([]);
   const [editorFontStatus, setEditorFontStatus] =
     useState<SystemFontReadResult["status"]>("available");
+  const [isLoadingEditorFonts, setIsLoadingEditorFonts] = useState(false);
+  const [hasLoadedEditorFonts, setHasLoadedEditorFonts] = useState(false);
   const [editorFontQuery, setEditorFontQuery] = useState("");
+  const deferredEditorFontQuery = useDeferredValue(editorFontQuery);
   const [editorFontSizeInput, setEditorFontSizeInput] = useState(() =>
     String(editor.fontSize)
   );
@@ -3467,7 +3646,7 @@ function EditorSection({ query }: { query: string }) {
   );
   const visibleEditorFonts = useMemo(() => {
     const filteredFonts = getVisibleFonts(editorFonts, editor.fontVisibility);
-    const normalizedQuery = editorFontQuery.trim().toLowerCase();
+    const normalizedQuery = deferredEditorFontQuery.trim().toLowerCase();
 
     if (normalizedQuery.length === 0) {
       return filteredFonts;
@@ -3476,7 +3655,7 @@ function EditorSection({ query }: { query: string }) {
     return filteredFonts.filter((font) =>
       font.family.toLowerCase().includes(normalizedQuery)
     );
-  }, [editor.fontVisibility, editorFontQuery, editorFonts]);
+  }, [deferredEditorFontQuery, editor.fontVisibility, editorFonts]);
 
   useEffect(() => {
     if (!editorFonts.some((font) => font.family === editor.fontFamily)) {
@@ -3492,14 +3671,33 @@ function EditorSection({ query }: { query: string }) {
     setEditorTabSizeInput(String(editor.tabSize));
   }, [editor.tabSize]);
 
-  useEffect(() => {
+  const loadEditorFonts = useCallback(() => {
+    if (hasLoadedEditorFonts || isLoadingEditorFonts) {
+      return;
+    }
+
+    setIsLoadingEditorFonts(true);
     readSystemFontFamilies()
       .then((result) => {
         setSystemEditorFonts(result.options);
         setEditorFontStatus(result.status);
+        setHasLoadedEditorFonts(true);
       })
-      .catch(() => undefined);
-  }, []);
+      .catch(() => undefined)
+      .finally(() => {
+        setIsLoadingEditorFonts(false);
+      });
+  }, [hasLoadedEditorFonts, isLoadingEditorFonts]);
+
+  useEffect(() => {
+    if (hasLoadedEditorFonts || isLoadingEditorFonts) {
+      return;
+    }
+
+    return runWhenBrowserIsIdle(() => {
+      loadEditorFonts();
+    });
+  }, [hasLoadedEditorFonts, isLoadingEditorFonts, loadEditorFonts]);
 
   const getAvailableEditorWidth = useCallback(() => {
     return previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
@@ -3716,6 +3914,17 @@ function EditorSection({ query }: { query: string }) {
     };
   }, [getAvailableEditorWidth]);
 
+  let editorFontHelperText =
+    "Loading installed system fonts in the background. Bundled fallbacks are available immediately.";
+
+  if (hasLoadedEditorFonts && editorFontStatus === "unavailable") {
+    editorFontHelperText =
+      "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only.";
+  } else if (hasLoadedEditorFonts) {
+    editorFontHelperText =
+      "Installed system fonts are shown first, with bundled fallbacks available when needed.";
+  }
+
   return (
     <div
       className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
@@ -3729,11 +3938,8 @@ function EditorSection({ query }: { query: string }) {
               ? "No installed fonts could be read on this platform. Bundled fallbacks are still available."
               : "No matching editor fonts found."
           }
-          helperText={
-            editorFontStatus === "unavailable"
-              ? "System font enumeration is unavailable here, so the picker is showing bundled fallbacks only."
-              : "Installed system fonts are shown first, with bundled fallbacks available when needed."
-          }
+          helperText={editorFontHelperText}
+          isLoadingOptions={isLoadingEditorFonts}
           label="Editor font"
           monospaceOnly={editor.fontVisibility === "monospace-only"}
           onMonospaceOnlyChange={(checked) => {
@@ -3741,12 +3947,14 @@ function EditorSection({ query }: { query: string }) {
               fontVisibility: checked ? "monospace-only" : "all-fonts",
             });
           }}
+          onPickerInteract={loadEditorFonts}
           onSearchChange={setEditorFontQuery}
           onValueChange={(value) => setEditorPreferences({ fontFamily: value })}
           options={visibleEditorFonts}
           query={query}
           searchPlaceholder="Search editor fonts"
           selectedFont={editor.fontFamily}
+          showLoadingSkeleton={isLoadingEditorFonts && !hasLoadedEditorFonts}
         />
         <SettingsField
           description="Changes Monaco font size immediately for open diff views."
@@ -4263,6 +4471,12 @@ export function SettingsPage() {
     previousActiveSectionRef.current = activeSection;
   }, [activeSection]);
 
+  useEffect(() => {
+    return runWhenBrowserIsIdle(() => {
+      readSystemFontFamilies().catch(() => undefined);
+    });
+  }, []);
+
   const handleExitPreferences = useCallback(() => {
     const nextPath =
       lastNonSettingsRoute &&
@@ -4542,7 +4756,7 @@ export function SettingsPage() {
               {activeDefinition.description}
             </p>
           </header>
-          <div className="rounded-xl border border-primary/15 bg-primary/[0.025] p-4 sm:p-6">
+          <div className="rounded-xl border border-primary/15 bg-primary/2.5 p-4 sm:p-6">
             <div className="grid gap-4">
               {renderSection(activeDefinition.id, query)}
             </div>

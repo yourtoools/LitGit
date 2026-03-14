@@ -172,7 +172,7 @@ struct SigningKeyInfo {
     r#type: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct SystemFontFamily {
     family: String,
@@ -438,7 +438,18 @@ fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
 }
 
 #[tauri::command]
-fn list_system_font_families() -> Result<Vec<SystemFontFamily>, String> {
+fn list_system_font_families(
+    state: State<'_, SettingsState>,
+) -> Result<Vec<SystemFontFamily>, String> {
+    let mut cached_fonts = state
+        .system_font_families
+        .lock()
+        .map_err(|_| "Failed to access system font cache".to_string())?;
+
+    if let Some(font_families) = cached_fonts.as_ref() {
+        return Ok(font_families.clone());
+    }
+
     let mut database = fontdb::Database::new();
     database.load_system_fonts();
 
@@ -457,6 +468,8 @@ fn list_system_font_families() -> Result<Vec<SystemFontFamily>, String> {
         .collect::<Vec<_>>();
 
     font_families.sort_by(|left, right| left.family.cmp(&right.family));
+
+    *cached_fonts = Some(font_families.clone());
 
     Ok(font_families)
 }
@@ -3950,6 +3963,7 @@ struct TerminalState {
 struct SettingsState {
     ai_secrets: Mutex<HashMap<String, StoredSecretValue>>,
     http_credentials: Mutex<HashMap<String, StoredHttpCredential>>,
+    system_font_families: Mutex<Option<Vec<SystemFontFamily>>>,
     active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
     auto_fetch_scheduler: Mutex<Option<AutoFetchSchedulerHandle>>,
 }
@@ -3959,6 +3973,7 @@ impl Default for SettingsState {
         Self {
             ai_secrets: Mutex::default(),
             http_credentials: Mutex::default(),
+            system_font_families: Mutex::default(),
             active_network_repo_paths: Arc::new(Mutex::new(HashSet::new())),
             auto_fetch_scheduler: Mutex::default(),
         }
