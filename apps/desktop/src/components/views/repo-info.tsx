@@ -458,6 +458,7 @@ const TIMELINE_GRAPH_COLUMN_MIN_WIDTH = 60;
 const TIMELINE_GRAPH_COLUMN_MAX_WIDTH = 320;
 const TIMELINE_COMMIT_MESSAGE_BAR_WIDTH = 3;
 const TIMELINE_COMMIT_MESSAGE_BAR_GAP = 8;
+const TIMELINE_AUTO_COMPACT_BREAKPOINT = 1200;
 
 const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
   c: "c",
@@ -771,6 +772,8 @@ export function RepoInfo() {
   const [timelineGraphColumnWidth, setTimelineGraphColumnWidth] = useState<
     number | null
   >(null);
+  const [isTimelineGraphAutoCompact, setIsTimelineGraphAutoCompact] =
+    useState(false);
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [isBranchCreateInputOpen, setIsBranchCreateInputOpen] = useState(false);
@@ -1346,11 +1349,14 @@ export function RepoInfo() {
     [commits]
   );
   const effectiveTimelineGraphColumnWidth = clampWidth(
-    timelineGraphColumnWidth ?? resolvedTimelineGraphColumnWidth,
+    isTimelineGraphAutoCompact
+      ? TIMELINE_GRAPH_COLUMN_MIN_WIDTH
+      : (timelineGraphColumnWidth ?? resolvedTimelineGraphColumnWidth),
     TIMELINE_GRAPH_COLUMN_MIN_WIDTH,
     TIMELINE_GRAPH_COLUMN_MAX_WIDTH
   );
   const isTimelineGraphCompactMode =
+    isTimelineGraphAutoCompact ||
     timelineGraphColumnWidth === TIMELINE_GRAPH_COLUMN_MIN_WIDTH;
   const timelineGridTemplateColumns = `${TIMELINE_BRANCH_COLUMN_WIDTH}px ${effectiveTimelineGraphColumnWidth}px minmax(0,1fr)`;
   const childCommitCountByHash = useMemo<Record<string, number>>(() => {
@@ -2230,6 +2236,12 @@ export function RepoInfo() {
   useEffect(() => {
     const clampSidebarWidths = () => {
       const viewportWidth = globalThis.innerWidth;
+      const shouldAutoCompact =
+        viewportWidth <= TIMELINE_AUTO_COMPACT_BREAKPOINT;
+
+      setIsTimelineGraphAutoCompact((current) =>
+        current === shouldAutoCompact ? current : shouldAutoCompact
+      );
       const hasRightSidebar = isRightSidebarOpen;
       const leftMaxWidth = getLeftSidebarMaxWidth(
         viewportWidth,
@@ -6204,11 +6216,14 @@ export function RepoInfo() {
                     >
                       <DropdownMenuCheckboxItem
                         checked={isTimelineGraphCompactMode}
+                        disabled={isTimelineGraphAutoCompact}
                         onCheckedChange={(checked) => {
                           setTimelineGraphCompactMode(checked === true);
                         }}
                       >
-                        Compact graph (1 line)
+                        {isTimelineGraphAutoCompact
+                          ? "Compact graph (auto on small screen)"
+                          : "Compact graph (1 line)"}
                       </DropdownMenuCheckboxItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
