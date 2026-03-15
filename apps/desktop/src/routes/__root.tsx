@@ -6,7 +6,6 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState } from "react";
 import { RootShell } from "@/components/layout/root-shell";
@@ -81,7 +80,7 @@ function RootComponent() {
         </RootShell>
         <Toaster position={toasterPosition} richColors />
       </ThemeProvider>
-      <TanStackRouterDevtools position="bottom-left" />
+      {/* <TanStackRouterDevtools position="bottom-left" /> */}
     </>
   );
 }
