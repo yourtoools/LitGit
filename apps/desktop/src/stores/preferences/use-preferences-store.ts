@@ -23,8 +23,10 @@ import { TAB_STORE_KEY } from "@/stores/tabs/tab-store.helpers";
 
 interface PreferencesStoreState extends AppPreferences {
   resetSettingsSearch: () => void;
+  setAiCommitInstruction: (commitInstruction: string) => void;
   setAiCustomEndpoint: (customEndpoint: string) => void;
   setAiMaxInputTokens: (maxInputTokens: number) => void;
+  setAiModel: (model: string) => void;
   setAiProvider: (provider: AppPreferences["ai"]["provider"]) => void;
   setAutoFetchIntervalMinutes: (minutes: number) => void;
   setDateFormat: (dateFormat: DateFormatPreset) => void;
@@ -99,6 +101,14 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
   persist(
     (set) => ({
       ...DEFAULT_PREFERENCES,
+      setAiCommitInstruction: (commitInstruction) => {
+        set((state) => ({
+          ai: {
+            ...state.ai,
+            commitInstruction,
+          },
+        }));
+      },
       resetSettingsSearch: () => {
         set((state) => ({
           settings: {
@@ -123,10 +133,19 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
           },
         }));
       },
+      setAiModel: (model) => {
+        set((state) => ({
+          ai: {
+            ...state.ai,
+            model,
+          },
+        }));
+      },
       setAiProvider: (provider) => {
         set((state) => ({
           ai: {
             ...state.ai,
+            model: provider === state.ai.provider ? state.ai.model : "",
             provider,
           },
         }));

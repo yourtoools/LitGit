@@ -105,10 +105,15 @@ export interface NetworkPreferences {
 }
 
 export interface AiPreferences {
+  commitInstruction: string;
   customEndpoint: string;
   maxInputTokens: number;
+  model: string;
   provider: "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom";
 }
+
+export const DEFAULT_AI_COMMIT_INSTRUCTION =
+  "Generate a clear git commit title and optional body from staged changes only. If the repository has no commits yet, prefer git commit conventions such as Conventional Commits. If the repository already has commits, follow the existing commit style for consistency. Use imperative mood when appropriate, avoid speculation, and keep the body brief. When a commit description is needed, format it as bullet points listing the key changes.";
 
 export interface AppPreferences {
   ai: AiPreferences;
@@ -198,9 +203,11 @@ export const clampAiMaxInputTokens = (value: number): number => {
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
   ai: {
+    commitInstruction: DEFAULT_AI_COMMIT_INSTRUCTION,
     provider: "openai",
     customEndpoint: "",
     maxInputTokens: 4096,
+    model: "",
   },
   editor: {
     eol: "system",

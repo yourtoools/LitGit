@@ -25,6 +25,7 @@ import {
 } from "@litgit/ui/components/sidebar";
 import { Skeleton } from "@litgit/ui/components/skeleton";
 import { Switch } from "@litgit/ui/components/switch";
+import { Textarea } from "@litgit/ui/components/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -60,6 +61,7 @@ import {
   SYSTEM_LOCALE_CODE,
 } from "@/lib/settings/locale-options";
 import {
+  type AiModelInfo,
   clearAiProviderSecret,
   clearGitHubToken,
   clearProxyAuthSecret,
@@ -70,6 +72,7 @@ import {
   getGitIdentityStatus,
   getProxyAuthSecretStatus,
   getSettingsBackendCapabilities,
+  listAiModels,
   listSigningKeys,
   listStoredHttpCredentialEntries,
   listSystemFontFamilies,
@@ -85,6 +88,7 @@ import {
   clampEditorFontSize,
   clampEditorTabSize,
   clampTerminalFontSize,
+  DEFAULT_AI_COMMIT_INSTRUCTION,
   DEFAULT_EDITOR_FONT_FAMILY,
   DEFAULT_PREFERENCES,
   DEFAULT_TERMINAL_FONT_FAMILY,
@@ -971,7 +975,7 @@ function SettingsField({
   );
 }
 
-function PlannedField({
+function _PlannedField({
   description,
   label,
   query,
@@ -4458,21 +4462,32 @@ function EditorSection({ query }: { query: string }) {
 }
 
 function AiSection({ query }: { query: string }) {
+  const commitInstruction = usePreferencesStore(
+    (state) => state.ai.commitInstruction
+  );
   const customEndpoint = usePreferencesStore(
     (state) => state.ai.customEndpoint
   );
   const maxInputTokens = usePreferencesStore(
     (state) => state.ai.maxInputTokens
   );
+  const model = usePreferencesStore((state) => state.ai.model);
   const provider = usePreferencesStore((state) => state.ai.provider);
+  const setAiCommitInstruction = usePreferencesStore(
+    (state) => state.setAiCommitInstruction
+  );
   const setAiCustomEndpoint = usePreferencesStore(
     (state) => state.setAiCustomEndpoint
   );
   const setAiMaxInputTokens = usePreferencesStore(
     (state) => state.setAiMaxInputTokens
   );
+  const setAiModel = usePreferencesStore((state) => state.setAiModel);
   const setAiProvider = usePreferencesStore((state) => state.setAiProvider);
   const [aiSecretInput, setAiSecretInput] = useState("");
+  const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
+  const [isLoadingAiModels, setIsLoadingAiModels] = useState(false);
+  const [aiModelsMessage, setAiModelsMessage] = useState<string | null>(null);
   const [aiSecretStatus, setAiSecretStatus] = useState<null | {
     hasStoredValue: boolean;
     storageMode: "secure" | "session";
@@ -4488,8 +4503,12 @@ function AiSection({ query }: { query: string }) {
       .catch(() => undefined)
       .finally(() => {
         setAiProvider(DEFAULT_PREFERENCES.ai.provider);
+        setAiCommitInstruction(DEFAULT_PREFERENCES.ai.commitInstruction);
         setAiCustomEndpoint(DEFAULT_PREFERENCES.ai.customEndpoint);
         setAiMaxInputTokens(DEFAULT_PREFERENCES.ai.maxInputTokens);
+        setAiModel(DEFAULT_PREFERENCES.ai.model);
+        setAiModels([]);
+        setAiModelsMessage(null);
         setAiSecretInput("");
         setAiSecretStatus({
           hasStoredValue: false,
@@ -4499,8 +4518,45 @@ function AiSection({ query }: { query: string }) {
       });
   };
 
+  const refreshAiModels = useCallback(() => {
+    setIsLoadingAiModels(true);
+    setAiModelsMessage(null);
+
+    listAiModels({
+      customEndpoint,
+      provider,
+    })
+      .then((models) => {
+        setAiModels(models);
+
+        if (models.length === 0) {
+          setAiModel("");
+          setAiModelsMessage("No models were returned by the AI endpoint.");
+          return;
+        }
+
+        const hasSelectedModel = models.some((entry) => entry.id === model);
+        const nextModel = hasSelectedModel ? model : (models[0]?.id ?? "");
+
+        setAiModel(nextModel);
+        setAiModelsMessage(`Loaded ${models.length} model(s).`);
+      })
+      .catch((error: unknown) => {
+        setAiModels([]);
+        setAiModel("");
+        setAiModelsMessage(
+          error instanceof Error ? error.message : "Failed to load AI models"
+        );
+      })
+      .finally(() => {
+        setIsLoadingAiModels(false);
+      });
+  }, [customEndpoint, model, provider, setAiModel]);
+
   useEffect(() => {
     setAiSecretMessage(null);
+    setAiModels([]);
+    setAiModelsMessage(null);
 
     getAiProviderSecretStatus(provider)
       .then(setAiSecretStatus)
@@ -4563,8 +4619,8 @@ function AiSection({ query }: { query: string }) {
         </Select>
       </SettingsField>
       <SettingsField
-        description="Store a custom endpoint for future AI provider requests."
-        label="Custom API endpoint"
+        description="Use an OpenAI-compatible base URL. Custom endpoints must expose /models and /chat/completions."
+        label="Base URL"
         query={query}
       >
         <Input
@@ -4573,22 +4629,20 @@ function AiSection({ query }: { query: string }) {
           value={customEndpoint}
         />
       </SettingsField>
-      {provider === "custom" ? (
-        <SettingsField
-          description="Set the maximum input tokens for requests sent to your custom AI provider."
-          label="Max input tokens"
-          query={query}
-        >
-          <Input
-            min={1}
-            onChange={(event) => {
-              setAiMaxInputTokens(Number(event.target.value) || 1);
-            }}
-            type="number"
-            value={maxInputTokens}
-          />
-        </SettingsField>
-      ) : null}
+      <SettingsField
+        description="Set the maximum token budget sent to the OpenAI-compatible chat completions endpoint."
+        label="Max input tokens"
+        query={query}
+      >
+        <Input
+          min={1}
+          onChange={(event) => {
+            setAiMaxInputTokens(Number(event.target.value) || 1);
+          }}
+          type="number"
+          value={maxInputTokens}
+        />
+      </SettingsField>
       <SettingsField
         description="Secrets are saved in the desktop backend and only metadata comes back to the renderer."
         label="API key storage"
@@ -4652,11 +4706,81 @@ function AiSection({ query }: { query: string }) {
           ) : null}
         </div>
       </SettingsField>
-      <PlannedField
-        description="Prompt templates stay non-interactive in v1 to avoid shipping dead controls."
-        label="AI instruction templates"
+      <SettingsField
+        description="Discover models from the configured OpenAI-compatible endpoint. If this fails, the endpoint contract is not compatible."
+        label="Model selection"
         query={query}
-      />
+      >
+        <div className="grid gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              disabled={!hasStoredAiSecret || isLoadingAiModels}
+              onClick={refreshAiModels}
+              type="button"
+              variant="outline"
+            >
+              {isLoadingAiModels ? "Refreshing..." : "Refresh models"}
+            </Button>
+            <span className="text-muted-foreground text-sm">
+              {model.trim().length > 0
+                ? `Selected: ${model}`
+                : "No model selected"}
+            </span>
+          </div>
+          <Select
+            items={Object.fromEntries(
+              aiModels.map((entry) => [entry.id, entry.label])
+            )}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                setAiModel(value);
+              }
+            }}
+            value={model}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Refresh models first" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {aiModels.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {aiModelsMessage ? (
+            <SettingsHelpText>{aiModelsMessage}</SettingsHelpText>
+          ) : null}
+        </div>
+      </SettingsField>
+      <SettingsField
+        description="This default instruction seeds AI commit generation and stays editable from the commit composer."
+        label="Default commit instruction"
+        query={query}
+      >
+        <div className="grid gap-3">
+          <Textarea
+            className="min-h-28"
+            onChange={(event) => setAiCommitInstruction(event.target.value)}
+            placeholder="Describe how commit titles and bodies should be written"
+            value={commitInstruction}
+          />
+          <SectionActionRow>
+            <Button
+              onClick={() =>
+                setAiCommitInstruction(DEFAULT_AI_COMMIT_INSTRUCTION)
+              }
+              type="button"
+              variant="outline"
+            >
+              Reset Default
+            </Button>
+          </SectionActionRow>
+        </div>
+      </SettingsField>
     </div>
   );
 }

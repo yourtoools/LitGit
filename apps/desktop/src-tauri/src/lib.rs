@@ -263,6 +263,20 @@ struct LatestRepositoryCommitMessage {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AiModelInfo {
+    id: String,
+    label: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedCommitMessage {
+    body: String,
+    title: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SettingsBackendCapabilities {
     runtime_platform: String,
     secure_storage_available: bool,
@@ -2254,12 +2268,11 @@ fn commit_repository_changes(
         .map_err(|error| format!("Failed to run git commit: {error}"))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            "Failed to create commit".to_string()
-        } else {
-            stderr
-        });
+        return Err(git_process_error_message(
+            &output.stdout,
+            &output.stderr,
+            "Failed to create commit",
+        ));
     }
 
     Ok(())
@@ -3575,6 +3588,22 @@ fn git_error_message(stderr: &[u8], fallback: &str) -> String {
     message
 }
 
+fn git_process_error_message(stdout: &[u8], stderr: &[u8], fallback: &str) -> String {
+    let stderr_message = String::from_utf8_lossy(stderr).trim().to_string();
+
+    if !stderr_message.is_empty() {
+        return git_error_message(stderr, fallback);
+    }
+
+    let stdout_message = String::from_utf8_lossy(stdout).trim().to_string();
+
+    if !stdout_message.is_empty() {
+        return stdout_message;
+    }
+
+    fallback.to_string()
+}
+
 fn is_git_authentication_message(message: &str) -> bool {
     let normalized = message.to_lowercase();
 
@@ -4086,6 +4115,260 @@ fn clear_keyring_entry(service: &str, account: &str) -> Result<(), String> {
     }
 }
 
+fn get_ai_secret_from_session(
+    state: &SettingsState,
+    provider: &str,
+) -> Result<Option<String>, String> {
+    let secrets = state
+        .ai_secrets
+        .lock()
+        .map_err(|_| "Failed to access settings state".to_string())?;
+
+    Ok(secrets.get(provider).map(|secret| secret.value.clone()))
+}
+
+fn resolve_ai_provider_secret(
+    state: &State<'_, SettingsState>,
+    provider: &str,
+) -> Result<String, String> {
+    let trimmed_provider = provider.trim();
+
+    if trimmed_provider.is_empty() {
+        return Err("AI provider is required".to_string());
+    }
+
+    if let Some(secret) = load_keyring_entry(AI_SECRET_SERVICE, trimmed_provider)? {
+        return Ok(secret);
+    }
+
+    if let Some(secret) = get_ai_secret_from_session(state.inner(), trimmed_provider)? {
+        return Ok(secret);
+    }
+
+    Err(format!(
+        "No API key saved for the '{}' AI provider",
+        trimmed_provider
+    ))
+}
+
+fn resolve_ai_base_url(provider: &str, custom_endpoint: &str) -> Result<String, String> {
+    let trimmed_provider = provider.trim();
+    let trimmed_endpoint = custom_endpoint.trim().trim_end_matches('/');
+
+    let base_url = match trimmed_provider {
+        "openai" => {
+            if trimmed_endpoint.is_empty() {
+                "https://api.openai.com/v1"
+            } else {
+                trimmed_endpoint
+            }
+        }
+        "anthropic" => {
+            if trimmed_endpoint.is_empty() {
+                "https://api.anthropic.com/v1"
+            } else {
+                trimmed_endpoint
+            }
+        }
+        "google" => {
+            if trimmed_endpoint.is_empty() {
+                "https://generativelanguage.googleapis.com/v1beta/openai"
+            } else {
+                trimmed_endpoint
+            }
+        }
+        "ollama" => {
+            if trimmed_endpoint.is_empty() {
+                "http://localhost:11434/v1"
+            } else {
+                trimmed_endpoint
+            }
+        }
+        "azure" => {
+            if trimmed_endpoint.is_empty() {
+                return Err("Azure requires a custom OpenAI-compatible base URL".to_string());
+            }
+
+            trimmed_endpoint
+        }
+        "custom" => {
+            if trimmed_endpoint.is_empty() {
+                return Err("Custom AI endpoint is required".to_string());
+            }
+
+            trimmed_endpoint
+        }
+        _ => {
+            if trimmed_endpoint.is_empty() {
+                return Err("Unsupported AI provider".to_string());
+            }
+
+            trimmed_endpoint
+        }
+    };
+
+    if !(base_url.starts_with("http://") || base_url.starts_with("https://")) {
+        return Err("AI endpoint must start with http:// or https://".to_string());
+    }
+
+    Ok(base_url.to_string())
+}
+
+fn read_ureq_response_string(response: ureq::Response) -> Result<String, String> {
+    response
+        .into_string()
+        .map_err(|error| format!("Failed to read AI response body: {error}"))
+}
+
+fn map_ai_http_error(error: ureq::Error) -> String {
+    match error {
+        ureq::Error::Status(code, response) => {
+            let body = read_ureq_response_string(response).unwrap_or_default();
+            let compact_body = body.trim();
+
+            match code {
+                401 | 403 => "The configured AI endpoint rejected the API key.".to_string(),
+                _ => {
+                    if compact_body.is_empty() {
+                        format!("AI request failed with HTTP {code}")
+                    } else {
+                        format!("AI request failed with HTTP {code}: {compact_body}")
+                    }
+                }
+            }
+        }
+        ureq::Error::Transport(transport) => format!("Failed to reach AI endpoint: {transport}"),
+    }
+}
+
+fn parse_ai_model_list(value: &serde_json::Value) -> Result<Vec<AiModelInfo>, String> {
+    let data = value
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+
+    let mut models = data
+        .iter()
+        .filter_map(|entry| {
+            let id = entry.get("id")?.as_str()?.trim();
+
+            if id.is_empty() {
+                return None;
+            }
+
+            Some(AiModelInfo {
+                id: id.to_string(),
+                label: id.to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    models.sort_by(|left, right| left.label.cmp(&right.label));
+    models.dedup_by(|left, right| left.id == right.id);
+
+    Ok(models)
+}
+
+fn extract_ai_message_content(value: &serde_json::Value) -> Option<String> {
+    let content = value
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("message")?
+        .get("content")?;
+
+    if let Some(text) = content.as_str() {
+        return Some(text.to_string());
+    }
+
+    let content_parts = content.as_array()?;
+    let mut combined = String::new();
+
+    for part in content_parts {
+        let text = part.get("text").and_then(serde_json::Value::as_str)?;
+        combined.push_str(text);
+    }
+
+    Some(combined)
+}
+
+fn parse_generated_commit_message(content: &str) -> Result<GeneratedCommitMessage, String> {
+    let parsed: serde_json::Value = serde_json::from_str(content.trim())
+        .map_err(|_| "AI response was not valid JSON.".to_string())?;
+    let title = parsed
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "AI response did not include a valid commit title.".to_string())?;
+    let body = parsed
+        .get("body")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+
+    Ok(GeneratedCommitMessage {
+        body: body.to_string(),
+        title: title.to_string(),
+    })
+}
+
+fn run_git_text_command(repo_path: &str, args: &[&str], fallback: &str) -> Result<String, String> {
+    let output = git_command()
+        .args(["-C", repo_path])
+        .args(args)
+        .output()
+        .map_err(|error| format!("Failed to run git command: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(&output.stderr, fallback));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn build_commit_generation_prompt(
+    status: &str,
+    diff_stat: &str,
+    staged_diff: &str,
+    recent_titles: &str,
+    instruction: &str,
+) -> String {
+    format!(
+        concat!(
+            "You generate git commit messages.\n",
+            "Return strict JSON with exactly this shape: ",
+            "{{\"title\":\"string\",\"body\":\"string\"}}.\n",
+            "Rules:\n",
+            "- Use staged changes only.\n",
+            "- Title must be concise, imperative, and specific.\n",
+            "- Body is optional and should be brief.\n",
+            "- Do not mention files unless they matter.\n",
+            "- Do not wrap the JSON in markdown.\n",
+            "- If the body is unnecessary, return an empty string.\n\n",
+            "User instruction:\n{instruction}\n\n",
+            "Recent commit titles for tone/style continuity:\n{recent_titles}\n\n",
+            "Git status --short:\n{status}\n\n",
+            "Git diff --cached --stat:\n{diff_stat}\n\n",
+            "Git diff --cached --unified=0:\n{staged_diff}\n"
+        ),
+        instruction = instruction.trim(),
+        recent_titles = recent_titles,
+        status = status,
+        diff_stat = diff_stat,
+        staged_diff = staged_diff
+    )
+}
+
+fn truncate_for_ai_budget(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let truncated = value.chars().take(max_chars).collect::<String>();
+    format!("{truncated}\n...[truncated]")
+}
+
 fn get_proxy_secret_from_session(
     state: &SettingsState,
     username: &str,
@@ -4222,7 +4505,10 @@ fn apply_git_preferences(
 
 #[cfg(test)]
 mod tests {
-    use super::{git_error_message, is_git_authentication_message};
+    use super::{
+        git_error_message, git_process_error_message, is_git_authentication_message,
+        parse_ai_model_list, parse_generated_commit_message, truncate_for_ai_budget,
+    };
 
     #[test]
     fn detects_terminal_prompts_disabled_as_auth_error() {
@@ -4274,6 +4560,59 @@ mod tests {
             git_error_message(b"fatal: not a git repository", "Fallback error"),
             "fatal: not a git repository"
         );
+    }
+
+    #[test]
+    fn falls_back_to_stdout_when_stderr_is_empty() {
+        assert_eq!(
+            git_process_error_message(
+                b"husky - pre-commit hook exited with code 1",
+                b"",
+                "Fallback error",
+            ),
+            "husky - pre-commit hook exited with code 1"
+        );
+    }
+
+    #[test]
+    fn parses_openai_model_list_payload() {
+        let payload = serde_json::json!({
+            "data": [
+                { "id": "gpt-4o-mini" },
+                { "id": "gpt-4.1" }
+            ]
+        });
+
+        let models = parse_ai_model_list(&payload).expect("model list should parse");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "gpt-4.1");
+        assert_eq!(models[1].id, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn rejects_invalid_generated_commit_payload() {
+        assert!(parse_generated_commit_message("not-json").is_err());
+        assert!(parse_generated_commit_message(r#"{"body":"Only body"}"#).is_err());
+    }
+
+    #[test]
+    fn parses_generated_commit_payload() {
+        let generated = parse_generated_commit_message(
+            r#"{"title":"Add AI commit generation","body":"Wire settings and repo composer."}"#,
+        )
+        .expect("generated commit payload should parse");
+
+        assert_eq!(generated.title, "Add AI commit generation");
+        assert_eq!(generated.body, "Wire settings and repo composer.");
+    }
+
+    #[test]
+    fn truncates_large_prompt_segments() {
+        let truncated = truncate_for_ai_budget("abcdefghijklmnopqrstuvwxyz", 10);
+
+        assert!(truncated.starts_with("abcdefghij"));
+        assert!(truncated.contains("[truncated]"));
     }
 }
 
@@ -4389,6 +4728,122 @@ fn clear_ai_provider_secret(
     secrets.remove(trimmed_provider);
 
     Ok(())
+}
+
+#[tauri::command]
+fn list_ai_models(
+    state: State<'_, SettingsState>,
+    provider: String,
+    custom_endpoint: String,
+) -> Result<Vec<AiModelInfo>, String> {
+    let secret = resolve_ai_provider_secret(&state, &provider)?;
+    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
+    let models_url = format!("{base_url}/models");
+    let response = ureq::get(&models_url)
+        .set("Accept", "application/json")
+        .set("Authorization", &format!("Bearer {secret}"))
+        .call()
+        .map_err(map_ai_http_error)?;
+    let body = read_ureq_response_string(response)?;
+    let payload: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|_| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+
+    parse_ai_model_list(&payload)
+}
+
+#[tauri::command]
+fn generate_repository_commit_message(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    provider: String,
+    custom_endpoint: String,
+    model: String,
+    instruction: String,
+    max_input_tokens: usize,
+) -> Result<GeneratedCommitMessage, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_model = model.trim();
+
+    if trimmed_model.is_empty() {
+        return Err("Select an AI model before generating a commit message".to_string());
+    }
+
+    let diff_stat = run_git_text_command(
+        &repo_path,
+        &["diff", "--cached", "--stat"],
+        "Failed to inspect staged diff",
+    )?;
+
+    if diff_stat.trim().is_empty() {
+        return Err("Stage changes before generating a commit message".to_string());
+    }
+
+    let staged_diff = run_git_text_command(
+        &repo_path,
+        &["diff", "--cached", "--unified=0"],
+        "Failed to inspect staged diff",
+    )?;
+    let status = run_git_text_command(
+        &repo_path,
+        &["status", "--short"],
+        "Failed to inspect repository status",
+    )?;
+    let recent_titles = run_git_text_command(
+        &repo_path,
+        &["log", "-5", "--pretty=format:%s"],
+        "Failed to inspect recent commits",
+    )
+    .unwrap_or_default();
+    let input_budget_chars = max_input_tokens.max(512).saturating_mul(4);
+    let staged_diff_budget = input_budget_chars.saturating_mul(70) / 100;
+    let diff_stat_budget = input_budget_chars.saturating_mul(15) / 100;
+    let status_budget = input_budget_chars.saturating_mul(10) / 100;
+    let recent_titles_budget = input_budget_chars.saturating_mul(5) / 100;
+    let truncated_staged_diff = truncate_for_ai_budget(&staged_diff, staged_diff_budget.max(512));
+    let truncated_diff_stat = truncate_for_ai_budget(&diff_stat, diff_stat_budget.max(128));
+    let truncated_status = truncate_for_ai_budget(&status, status_budget.max(64));
+    let truncated_recent_titles =
+        truncate_for_ai_budget(&recent_titles, recent_titles_budget.max(64));
+
+    let prompt = build_commit_generation_prompt(
+        &truncated_status,
+        &truncated_diff_stat,
+        &truncated_staged_diff,
+        &truncated_recent_titles,
+        &instruction,
+    );
+    let secret = resolve_ai_provider_secret(&state, &provider)?;
+    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
+    let completions_url = format!("{base_url}/chat/completions");
+    let request_body = serde_json::json!({
+        "model": trimmed_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You write high-quality git commit messages and must respond with strict JSON only."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": max_input_tokens.min(300).max(64),
+        "temperature": 0.2
+    });
+    let response = ureq::post(&completions_url)
+        .set("Accept", "application/json")
+        .set("Authorization", &format!("Bearer {secret}"))
+        .set("Content-Type", "application/json")
+        .send_string(&request_body.to_string())
+        .map_err(map_ai_http_error)?;
+    let body = read_ureq_response_string(response)?;
+    let payload: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|_| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+    let content = extract_ai_message_content(&payload)
+        .ok_or_else(|| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+
+    parse_generated_commit_message(&content)
 }
 
 #[tauri::command]
@@ -5082,6 +5537,8 @@ pub fn run() {
             save_ai_provider_secret,
             get_ai_provider_secret_status,
             clear_ai_provider_secret,
+            list_ai_models,
+            generate_repository_commit_message,
             save_github_token,
             get_github_token_status,
             clear_github_token,

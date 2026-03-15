@@ -99,6 +99,7 @@ import {
   PlusIcon,
   SortAscendingIcon,
   SortDescendingIcon,
+  SparkleIcon,
   SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
@@ -946,6 +947,9 @@ export function RepoInfo() {
   const getLatestCommitMessage = useRepoStore(
     (state) => state.getLatestCommitMessage
   );
+  const generateAiCommitMessage = useRepoStore(
+    (state) => state.generateAiCommitMessage
+  );
   const getCommitFiles = useRepoStore((state) => state.getCommitFiles);
   const getCommitFileDiff = useRepoStore((state) => state.getCommitFileDiff);
   const discardAllChanges = useRepoStore((state) => state.discardAllChanges);
@@ -995,6 +999,8 @@ export function RepoInfo() {
     null
   );
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isGeneratingAiCommitMessage, setIsGeneratingAiCommitMessage] =
+    useState(false);
   const [isDiscardingAllChanges, setIsDiscardingAllChanges] = useState(false);
   const [isDiscardAllConfirmOpen, setIsDiscardAllConfirmOpen] = useState(false);
   const [isDeleteBranchConfirmOpen, setIsDeleteBranchConfirmOpen] =
@@ -1150,6 +1156,7 @@ export function RepoInfo() {
     (state) => state.ui.dateFormat
   );
   const localePreference = usePreferencesStore((state) => state.ui.locale);
+  const aiSelectedModel = usePreferencesStore((state) => state.ai.model);
   const repoFileBrowserPreferences = usePreferencesStore((state) =>
     activeRepoId
       ? (state.ui.repoFileBrowserByRepoId[activeRepoId] ??
@@ -6136,6 +6143,27 @@ export function RepoInfo() {
     }
   };
 
+  const handleGenerateAiCommitMessage = async () => {
+    if (
+      !activeRepoId ||
+      isGeneratingAiCommitMessage ||
+      aiSelectedModel.trim().length === 0
+    ) {
+      return;
+    }
+
+    setIsGeneratingAiCommitMessage(true);
+
+    try {
+      const generatedCommit = await generateAiCommitMessage(activeRepoId, "");
+
+      setDraftCommitSummary(generatedCommit.title);
+      setDraftCommitDescription(generatedCommit.body);
+    } finally {
+      setIsGeneratingAiCommitMessage(false);
+    }
+  };
+
   const handleCommit = async () => {
     if (!activeRepoId || isCommitting || !canCommit) {
       return;
@@ -7888,7 +7916,29 @@ export function RepoInfo() {
 
                   <form className="shrink-0 border-border/70 border-t px-4 py-4">
                     <div className="space-y-2">
-                      <Label htmlFor="commit-summary">Title</Label>
+                      <div className="flex items-center justify-between gap-3">
+                        <Label htmlFor="commit-summary">Title</Label>
+                        <Button
+                          disabled={
+                            isGeneratingAiCommitMessage ||
+                            aiSelectedModel.trim().length === 0 ||
+                            !hasStagedChanges
+                          }
+                          onClick={() => {
+                            handleGenerateAiCommitMessage().catch(
+                              () => undefined
+                            );
+                          }}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <SparkleIcon className="size-4" />
+                          {isGeneratingAiCommitMessage
+                            ? "Generating..."
+                            : "Generate with AI"}
+                        </Button>
+                      </div>
                       <Input
                         id="commit-summary"
                         onChange={(event) =>

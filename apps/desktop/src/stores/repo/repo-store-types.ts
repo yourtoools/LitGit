@@ -187,6 +187,11 @@ export interface LatestRepositoryCommitMessage {
   summary: string;
 }
 
+export interface GeneratedRepositoryCommitMessage {
+  body: string;
+  title: string;
+}
+
 export interface RepoStoreState {
   activeRepoId: string | null;
   addIgnoreRule: (id: string, pattern: string) => Promise<void>;
@@ -230,6 +235,10 @@ export interface RepoStoreState {
   discardAllChanges: (id: string) => Promise<void>;
   discardPathChanges: (id: string, filePath: string) => Promise<void>;
   dropStash: (id: string, stashRef: string) => Promise<void>;
+  generateAiCommitMessage: (
+    id: string,
+    instruction: string
+  ) => Promise<GeneratedRepositoryCommitMessage>;
   getCommitFileDiff: (
     id: string,
     commitHash: string,

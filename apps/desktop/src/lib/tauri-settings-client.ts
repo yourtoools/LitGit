@@ -18,6 +18,16 @@ interface SecretStatus {
   storageMode: "secure" | "session";
 }
 
+export interface AiModelInfo {
+  id: string;
+  label: string;
+}
+
+export interface GeneratedCommitMessage {
+  body: string;
+  title: string;
+}
+
 interface AutoFetchScheduleRequest {
   intervalMinutes: number;
   preferences: Record<string, unknown>;
@@ -295,6 +305,65 @@ export const clearAiProviderSecret = async (
   }
 
   await invoke("clear_ai_provider_secret", { provider });
+};
+
+export const listAiModels = async (input: {
+  customEndpoint: string;
+  provider: string;
+}): Promise<AiModelInfo[]> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("AI model discovery works in Tauri desktop app only");
+  }
+
+  const result = await invoke("list_ai_models", input);
+
+  if (!Array.isArray(result)) {
+    throw new Error("Invalid AI models payload");
+  }
+
+  return result.map((entry) => {
+    const parsed = parseRecord(entry, "Invalid AI models payload");
+
+    if (typeof parsed.id !== "string" || typeof parsed.label !== "string") {
+      throw new Error("Invalid AI models payload");
+    }
+
+    return {
+      id: parsed.id,
+      label: parsed.label,
+    } satisfies AiModelInfo;
+  });
+};
+
+export const generateRepositoryCommitMessage = async (input: {
+  customEndpoint: string;
+  instruction: string;
+  maxInputTokens: number;
+  model: string;
+  provider: string;
+  repoPath: string;
+}): Promise<GeneratedCommitMessage> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("AI commit generation works in Tauri desktop app only");
+  }
+
+  const result = parseRecord(
+    await invoke("generate_repository_commit_message", input),
+    "Invalid AI commit message payload"
+  );
+
+  if (typeof result.body !== "string" || typeof result.title !== "string") {
+    throw new Error("Invalid AI commit message payload");
+  }
+
+  return {
+    body: result.body,
+    title: result.title,
+  };
 };
 
 export const saveGitHubToken = async (token: string): Promise<SecretStatus> => {

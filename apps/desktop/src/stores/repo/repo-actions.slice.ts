@@ -28,6 +28,7 @@ import {
   unstageAllRepoChanges,
   unstageRepoFile,
 } from "@/lib/tauri-repo-client";
+import { generateRepositoryCommitMessage } from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
 import type {
@@ -35,6 +36,7 @@ import type {
   RepoStoreSet,
 } from "@/stores/repo/repo-store.slice-types";
 import type {
+  GeneratedRepositoryCommitMessage,
   LatestRepositoryCommitMessage,
   PublishRepositoryOptions,
   RepoStoreState,
@@ -165,6 +167,7 @@ type RepoActionsSliceKeys =
   | "discardAllChanges"
   | "discardPathChanges"
   | "dropStash"
+  | "generateAiCommitMessage"
   | "getRedoRepoActionLabel"
   | "getUndoRepoActionLabel"
   | "getCommitFileDiff"
@@ -709,6 +712,7 @@ export const createRepoActionsSlice = (
   ) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
     const headBeforeCommit = get().repoCommits[id]?.[0]?.hash ?? null;
+    const startedAt = performance.now();
 
     if (!targetRepo) {
       return;
@@ -756,16 +760,36 @@ export const createRepoActionsSlice = (
         });
       }
       setRepoHistoryRewriteHint(set, id, false);
+      useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
+        command: amend ? "git commit --amend" : "git commit",
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        level: "info",
+        message: "Command completed",
+      });
       toast.success("Commit created");
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
         message: amend ? "Commit amended" : "Commit created",
       });
     } catch (error) {
-      toast.error(resolveErrorMessage(error, "Failed to commit changes"));
+      let detailedMessage = "Failed to commit changes";
+
+      if (error instanceof Error) {
+        detailedMessage = error.message;
+      } else if (typeof error === "string") {
+        detailedMessage = error;
+      }
+
+      useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
+        command: amend ? "git commit --amend" : "git commit",
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        level: "error",
+        message: detailedMessage,
+      });
+      toast.error("Failed to commit changes");
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
-        message: resolveErrorMessage(error, "Failed to commit changes"),
+        message: "Failed to commit changes",
       });
       throw error;
     }
@@ -1088,6 +1112,62 @@ export const createRepoActionsSlice = (
         resolveErrorMessage(error, "Failed to load latest commit message")
       );
       return null;
+    }
+  },
+  generateAiCommitMessage: async (
+    id,
+    instruction
+  ): Promise<GeneratedRepositoryCommitMessage> => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    const preferences = usePreferencesStore.getState().ai;
+    const startedAt = performance.now();
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: "User requested AI commit message generation",
+    });
+
+    try {
+      const result = await generateRepositoryCommitMessage({
+        customEndpoint: preferences.customEndpoint,
+        instruction:
+          instruction.trim().length > 0
+            ? instruction
+            : preferences.commitInstruction,
+        maxInputTokens: preferences.maxInputTokens,
+        model: preferences.model,
+        provider: preferences.provider,
+        repoPath: targetRepo.path,
+      });
+      useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
+        command: "ai.generate_commit_message",
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        level: "info",
+        message: "Command completed",
+      });
+      return result;
+    } catch (error) {
+      const message = resolveErrorMessage(
+        error,
+        "Failed to generate AI commit message"
+      );
+      useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
+        command: "ai.generate_commit_message",
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        level: "error",
+        message,
+      });
+      toast.error(message);
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message,
+      });
+      throw error;
     }
   },
 });
