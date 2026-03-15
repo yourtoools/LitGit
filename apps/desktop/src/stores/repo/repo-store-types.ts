@@ -282,6 +282,7 @@ export interface RepoStoreState {
     branchName: string,
     newBranchName: string
   ) => Promise<void>;
+  repoBackgroundRefreshById: Record<string, boolean>;
   repoBranches: Record<string, RepositoryBranch[]>;
   repoCommitDraftPrefillById: Record<
     string,
@@ -291,6 +292,7 @@ export interface RepoStoreState {
   repoFilesById: Record<string, RepositoryFileEntry[]>;
   repoGitIdentities: Record<string, GitIdentityStatus | undefined>;
   repoHistoryRewriteHintById: Record<string, boolean>;
+  repoLastLoadedAtById: Record<string, number>;
   repoRedoDepthById: Record<string, number>;
   repoRedoLabelById: Record<string, string | null>;
   repoRemoteNames: Record<string, string[]>;
@@ -301,7 +303,7 @@ export interface RepoStoreState {
   repoWorkingTreeStatuses: Record<string, RepositoryWorkingTreeStatus>;
   setActiveRepo: (
     id: string,
-    options?: { forceRefresh?: boolean }
+    options?: { background?: boolean; forceRefresh?: boolean }
   ) => Promise<void>;
   setBranchUpstream: (
     id: string,

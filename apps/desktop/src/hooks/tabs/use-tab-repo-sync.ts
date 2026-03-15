@@ -4,6 +4,9 @@ import { getGitIdentityStatus } from "@/lib/tauri-settings-client";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 
+const TAURI_FOCUS_REFRESH_DEBOUNCE_MS = 300;
+const TAURI_WINDOW_MOVE_SETTLE_MS = 150;
+
 async function refreshActiveTab(
   setActiveRepo: ReturnType<typeof useRepoStore.getState>["setActiveRepo"],
   refreshOpenedRepositories: ReturnType<
@@ -34,7 +37,10 @@ async function refreshActiveTab(
     return;
   }
 
-  await setActiveRepo(activeTabRepoId, { forceRefresh: true });
+  await setActiveRepo(activeTabRepoId, {
+    background: true,
+    forceRefresh: true,
+  });
 
   const activeRepo = useRepoStore
     .getState()
@@ -70,6 +76,13 @@ export function useTabRepoSync() {
     repoId: string | null;
     tabId: string | null;
   } | null>(null);
+  const tauriFocusDebounceTimeoutRef = useRef<number | null>(null);
+  const tauriMoveSettleTimeoutRef = useRef<number | null>(null);
+  const tauriWindowFocusedRef = useRef<boolean | null>(null);
+  const tauriWindowMovingRef = useRef(false);
+  const pendingFocusRefreshAfterMoveRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
 
   useEffect(() => {
     const previousState = prevActiveTabState.current;
@@ -89,9 +102,10 @@ export function useTabRepoSync() {
       const activeRepoId = useRepoStore.getState().activeRepoId;
 
       if (didTabChange) {
-        setActiveRepo(activeTabRepoId, { forceRefresh: true }).catch(
-          () => undefined
-        );
+        setActiveRepo(activeTabRepoId, {
+          background: true,
+          forceRefresh: true,
+        }).catch(() => undefined);
         return;
       }
 
@@ -183,6 +197,83 @@ export function useTabRepoSync() {
 
   useEffect(() => {
     let unlistenTauriFocus: (() => void) | null = null;
+    let unlistenTauriMoved: (() => void) | null = null;
+
+    const clearPendingFocusRefresh = () => {
+      if (tauriFocusDebounceTimeoutRef.current === null) {
+        return;
+      }
+
+      window.clearTimeout(tauriFocusDebounceTimeoutRef.current);
+      tauriFocusDebounceTimeoutRef.current = null;
+    };
+
+    const clearWindowMoveSettle = () => {
+      if (tauriMoveSettleTimeoutRef.current === null) {
+        return;
+      }
+
+      window.clearTimeout(tauriMoveSettleTimeoutRef.current);
+      tauriMoveSettleTimeoutRef.current = null;
+    };
+
+    const runRefreshActiveTab = async () => {
+      if (refreshInFlightRef.current) {
+        refreshQueuedRef.current = true;
+        return;
+      }
+
+      refreshInFlightRef.current = true;
+
+      try {
+        await refreshActiveTab(
+          setActiveRepo,
+          refreshOpenedRepositories,
+          setRepoGitIdentity
+        );
+      } finally {
+        refreshInFlightRef.current = false;
+
+        const shouldRunQueuedRefresh = refreshQueuedRef.current;
+        refreshQueuedRef.current = false;
+
+        if (shouldRunQueuedRefresh) {
+          await runRefreshActiveTab();
+        }
+      }
+    };
+
+    const scheduleRefreshActiveTab = () => {
+      if (tauriWindowMovingRef.current) {
+        pendingFocusRefreshAfterMoveRef.current = true;
+        clearPendingFocusRefresh();
+        return;
+      }
+
+      clearPendingFocusRefresh();
+      tauriFocusDebounceTimeoutRef.current = window.setTimeout(() => {
+        tauriFocusDebounceTimeoutRef.current = null;
+        runRefreshActiveTab().catch(() => undefined);
+      }, TAURI_FOCUS_REFRESH_DEBOUNCE_MS);
+    };
+
+    const markWindowMoved = () => {
+      tauriWindowMovingRef.current = true;
+      clearPendingFocusRefresh();
+      clearWindowMoveSettle();
+      tauriMoveSettleTimeoutRef.current = window.setTimeout(() => {
+        tauriMoveSettleTimeoutRef.current = null;
+        tauriWindowMovingRef.current = false;
+
+        if (
+          pendingFocusRefreshAfterMoveRef.current &&
+          tauriWindowFocusedRef.current === true
+        ) {
+          pendingFocusRefreshAfterMoveRef.current = false;
+          scheduleRefreshActiveTab();
+        }
+      }, TAURI_WINDOW_MOVE_SETTLE_MS);
+    };
 
     const setupTauriFocusListener = async () => {
       const { isTauri } = await import("@tauri-apps/api/core");
@@ -193,24 +284,38 @@ export function useTabRepoSync() {
 
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const appWindow = getCurrentWindow();
+      tauriWindowFocusedRef.current = await appWindow
+        .isFocused()
+        .catch(() => null);
 
       unlistenTauriFocus = await appWindow.onFocusChanged(({ payload }) => {
         if (!payload) {
+          tauriWindowFocusedRef.current = false;
+          pendingFocusRefreshAfterMoveRef.current = false;
+          clearPendingFocusRefresh();
           return;
         }
 
-        refreshActiveTab(
-          setActiveRepo,
-          refreshOpenedRepositories,
-          setRepoGitIdentity
-        ).catch(() => undefined);
+        if (tauriWindowFocusedRef.current === true) {
+          return;
+        }
+
+        tauriWindowFocusedRef.current = true;
+        scheduleRefreshActiveTab();
+      });
+
+      unlistenTauriMoved = await appWindow.onMoved(() => {
+        markWindowMoved();
       });
     };
 
     setupTauriFocusListener().catch(() => undefined);
 
     return () => {
+      clearPendingFocusRefresh();
+      clearWindowMoveSettle();
       unlistenTauriFocus?.();
+      unlistenTauriMoved?.();
     };
   }, [refreshOpenedRepositories, setActiveRepo, setRepoGitIdentity]);
 

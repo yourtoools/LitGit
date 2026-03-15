@@ -62,6 +62,28 @@ const clearRepoLoadingFlags = (set: RepoStoreSet) => {
   });
 };
 
+const setRepoBackgroundRefreshState = (
+  set: RepoStoreSet,
+  id: string,
+  isRefreshing: boolean
+) => {
+  set((state) => ({
+    repoBackgroundRefreshById: {
+      ...state.repoBackgroundRefreshById,
+      [id]: isRefreshing,
+    },
+  }));
+};
+
+const markRepoLoadedAt = (set: RepoStoreSet, id: string) => {
+  set((state) => ({
+    repoLastLoadedAtById: {
+      ...state.repoLastLoadedAtById,
+      [id]: Date.now(),
+    },
+  }));
+};
+
 const applyRepoPayloads = (
   set: RepoStoreSet,
   id: string,
@@ -179,6 +201,9 @@ export const createRepoLoaderSlice = (
     }
 
     const forceRefresh = options?.forceRefresh ?? false;
+    const hadCachedRepoData = hasAllRepoData(getRepoCacheState(get, id, false));
+    const shouldRefreshInBackground =
+      (options?.background ?? false) && hadCachedRepoData;
 
     set({ activeRepoId: id });
 
@@ -206,7 +231,11 @@ export const createRepoLoaderSlice = (
       return;
     }
 
-    setRepoLoadingFlags(set, cacheState);
+    if (shouldRefreshInBackground) {
+      setRepoBackgroundRefreshState(set, id, true);
+    } else {
+      setRepoLoadingFlags(set, cacheState);
+    }
 
     try {
       const result = await fetchRepoData(
@@ -227,7 +256,12 @@ export const createRepoLoaderSlice = (
       }
 
       applyRepoPayloads(set, id, result);
-      notifyRepoLoadErrors(result);
+
+      if (!shouldRefreshInBackground) {
+        notifyRepoLoadErrors(result);
+      }
+
+      markRepoLoadedAt(set, id);
     } catch (error) {
       const repoStillExists = get().openedRepos.some((repo) => repo.id === id);
 
@@ -235,9 +269,17 @@ export const createRepoLoaderSlice = (
         return;
       }
 
-      toast.error(resolveErrorMessage(error, "Failed to load repository data"));
+      if (!shouldRefreshInBackground) {
+        toast.error(
+          resolveErrorMessage(error, "Failed to load repository data")
+        );
+      }
     } finally {
-      clearRepoLoadingFlags(set);
+      if (shouldRefreshInBackground) {
+        setRepoBackgroundRefreshState(set, id, false);
+      } else {
+        clearRepoLoadingFlags(set);
+      }
     }
   },
 });
