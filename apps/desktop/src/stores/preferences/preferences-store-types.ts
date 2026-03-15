@@ -108,9 +108,12 @@ export interface AiPreferences {
   commitInstruction: string;
   customEndpoint: string;
   maxInputTokens: number;
+  maxOutputTokens: number;
   model: string;
   provider: "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom";
 }
+
+export type AiProvider = AiPreferences["provider"];
 
 export const DEFAULT_AI_COMMIT_INSTRUCTION =
   "Generate a clear git commit title and optional body from staged changes only. If the repository has no commits yet, prefer git commit conventions such as Conventional Commits. If the repository already has commits, follow the existing commit style for consistency. Use imperative mood when appropriate, avoid speculation, and keep the body brief. When a commit description is needed, format it as bullet points listing the key changes.";
@@ -195,10 +198,46 @@ export const clampTerminalLineHeight = (value: number): number => {
 
 export const clampAiMaxInputTokens = (value: number): number => {
   if (!Number.isFinite(value)) {
-    return 4096;
+    return 1024;
   }
 
-  return Math.min(1_000_000, Math.max(1, Math.round(value)));
+  return Math.min(4096, Math.max(256, Math.round(value)));
+};
+
+export const clampAiMaxOutputTokens = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return 96;
+  }
+
+  return Math.min(512, Math.max(32, Math.round(value)));
+};
+
+export const getDefaultAiMaxInputTokens = (provider: AiProvider): number => {
+  switch (provider) {
+    case "ollama": {
+      return 1024;
+    }
+    default: {
+      return 1024;
+    }
+  }
+};
+
+export const getDefaultAiMaxOutputTokens = (provider: AiProvider): number => {
+  switch (provider) {
+    case "ollama": {
+      return 96;
+    }
+    case "google": {
+      return 96;
+    }
+    case "anthropic": {
+      return 96;
+    }
+    default: {
+      return 96;
+    }
+  }
 };
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
@@ -206,7 +245,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     commitInstruction: DEFAULT_AI_COMMIT_INSTRUCTION,
     provider: "openai",
     customEndpoint: "",
-    maxInputTokens: 4096,
+    maxInputTokens: getDefaultAiMaxInputTokens("openai"),
+    maxOutputTokens: getDefaultAiMaxOutputTokens("openai"),
     model: "",
   },
   editor: {

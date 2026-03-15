@@ -1249,6 +1249,11 @@ export function RepoInfo() {
   const [isCommitting, setIsCommitting] = useState(false);
   const [isGeneratingAiCommitMessage, setIsGeneratingAiCommitMessage] =
     useState(false);
+  const [lastAiCommitGeneration, setLastAiCommitGeneration] = useState<null | {
+    promptMode: string;
+    providerKind: string;
+    schemaFallbackUsed: boolean;
+  }>(null);
   const [isDiscardingAllChanges, setIsDiscardingAllChanges] = useState(false);
   const [isDiscardAllConfirmOpen, setIsDiscardAllConfirmOpen] = useState(false);
   const [isDeleteBranchConfirmOpen, setIsDeleteBranchConfirmOpen] =
@@ -3175,12 +3180,14 @@ export function RepoInfo() {
       setDraftCommitSummary("");
       setDraftCommitDescription("");
       setAmendPreviousCommit(false);
+      setLastAiCommitGeneration(null);
       return;
     }
 
     setDraftCommitSummary("");
     setDraftCommitDescription("");
     setAmendPreviousCommit(false);
+    setLastAiCommitGeneration(null);
   }, [activeRepoId]);
 
   useEffect(() => {
@@ -3197,6 +3204,7 @@ export function RepoInfo() {
     setDraftCommitSummary(prefill.summary);
     setDraftCommitDescription(prefill.description);
     setAmendPreviousCommit(false);
+    setLastAiCommitGeneration(null);
     clearRepoCommitDraftPrefill(activeRepoId);
   }, [activeRepoId, clearRepoCommitDraftPrefill, repoCommitDraftPrefillById]);
 
@@ -4359,6 +4367,7 @@ export function RepoInfo() {
       setAmendPreviousCommit(false);
       setPushAfterCommit(false);
       setSkipCommitHooks(false);
+      setLastAiCommitGeneration(null);
       preAmendDraftRef.current = null;
     } finally {
       setIsCreatingStash(false);
@@ -7688,7 +7697,7 @@ export function RepoInfo() {
         return (
           <button
             className={cn(
-              "flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
+              "focus-visible:desktop-focus flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
               !canOpenDiff && "cursor-default opacity-80",
               diffRowStateClassName
             )}
@@ -7734,7 +7743,7 @@ export function RepoInfo() {
       return (
         <div key={`${commitHash}-${node.fullPath}`}>
           <button
-            className="flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+            className="focus-visible:desktop-focus flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
             onClick={() => toggleCommitTreeNode(commitHash, node.fullPath)}
             style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
             type="button"
@@ -7798,7 +7807,7 @@ export function RepoInfo() {
       return (
         <button
           className={cn(
-            "flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
+            "focus-visible:desktop-focus flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
             !canOpenDiff && "cursor-default opacity-80",
             diffRowStateClassName
           )}
@@ -8072,7 +8081,7 @@ export function RepoInfo() {
             <ContextMenuTrigger>
               <div
                 className={cn(
-                  "group relative flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/20",
+                  "group focus-within:desktop-focus relative flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/20",
                   isDiffOpened && "bg-accent/30"
                 )}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
@@ -8132,7 +8141,7 @@ export function RepoInfo() {
           <ContextMenu>
             <ContextMenuTrigger>
               <button
-                className="flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+                className="focus-visible:desktop-focus flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
                 onClick={() => toggleTreeNode(section, node.fullPath)}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
                 type="button"
@@ -8224,7 +8233,7 @@ export function RepoInfo() {
           <ContextMenuTrigger>
             <div
               className={cn(
-                "group relative flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/20",
+                "group focus-within:desktop-focus relative flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/20",
                 isDiffOpened && "bg-accent/30"
               )}
             >
@@ -8477,6 +8486,11 @@ export function RepoInfo() {
 
       setDraftCommitSummary(generatedCommit.title);
       setDraftCommitDescription(generatedCommit.body);
+      setLastAiCommitGeneration({
+        promptMode: generatedCommit.promptMode,
+        providerKind: generatedCommit.providerKind,
+        schemaFallbackUsed: generatedCommit.schemaFallbackUsed,
+      });
     } finally {
       setIsGeneratingAiCommitMessage(false);
     }
@@ -8562,6 +8576,7 @@ export function RepoInfo() {
       setAmendPreviousCommit(false);
       setPushAfterCommit(false);
       setSkipCommitHooks(false);
+      setLastAiCommitGeneration(null);
       preAmendDraftRef.current = null;
     } finally {
       setIsCommitting(false);
@@ -8629,7 +8644,7 @@ export function RepoInfo() {
                 </div>
                 <div className="relative mt-1.5">
                   <Input
-                    className="h-7 pr-7 text-xs"
+                    className="focus-visible:desktop-focus h-7 pr-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                     onChange={(event) => {
                       const nextValue = event.target.value;
                       setSidebarFilterInputValue(nextValue);
@@ -8642,7 +8657,7 @@ export function RepoInfo() {
                   {sidebarFilterInputValue.length > 0 ? (
                     <Button
                       aria-label="Clear filter"
-                      className="absolute top-0.5 right-0.5"
+                      className="focus-visible:desktop-focus-strong absolute top-0.5 right-0.5 focus-visible:ring-0! focus-visible:ring-offset-0!"
                       onClick={clearSidebarFilter}
                       size="icon-xs"
                       type="button"
@@ -8816,7 +8831,7 @@ export function RepoInfo() {
             </Sidebar>
             <button
               aria-label="Resize left sidebar"
-              className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent hover:bg-accent/30"
+              className="desktop-resize-handle-vertical-focus h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent transition-colors hover:bg-accent/30"
               onMouseDown={startSidebarResize("left")}
               type="button"
             />
@@ -8883,6 +8898,7 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Undo"
+                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={!canUndoAction || isUndoRedoBusy}
                         onClick={() => {
                           handleUndoAction().catch(() => undefined);
@@ -8908,6 +8924,7 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Redo"
+                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={!canRedoAction || isUndoRedoBusy}
                         onClick={() => {
                           handleRedoAction().catch(() => undefined);
@@ -8935,7 +8952,7 @@ export function RepoInfo() {
                         <InputGroup className="h-7 w-auto border-border/60 bg-transparent">
                           <Button
                             aria-label={`Run ${selectedPullActionLabel}`}
-                            className="h-7 border-0 px-2"
+                            className="focus-visible:desktop-focus h-7 border-0 px-2 focus-visible:ring-0! focus-visible:ring-offset-0!"
                             disabled={isPulling}
                             onClick={handlePullWithSelectedMode}
                             size="sm"
@@ -8956,7 +8973,7 @@ export function RepoInfo() {
                               render={
                                 <Button
                                   aria-label="Select pull mode"
-                                  className="h-7 border-0 border-border/60 border-l px-1.5"
+                                  className="focus-visible:desktop-focus-strong h-7 border-0 border-border/60 border-l px-1.5 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   disabled={isPulling}
                                   size="sm"
                                   type="button"
@@ -9034,6 +9051,7 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Push"
+                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={isPushing}
                         onClick={() => {
                           handlePushAction().catch(() => undefined);
@@ -9063,6 +9081,7 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Branch"
+                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={
                           !activeRepoId || isCreatingBranch || isSwitchingBranch
                         }
@@ -9090,6 +9109,7 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Stash"
+                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={isCreatingStash || !canCreateStash}
                         onClick={() => {
                           handleCreateStash().catch(() => undefined);
@@ -9121,6 +9141,7 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Pop"
+                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={isPoppingStash || !canPopCurrentStash}
                         onClick={() => {
                           handlePopCurrentStash().catch(() => undefined);
@@ -9150,6 +9171,7 @@ export function RepoInfo() {
                     render={
                       <Button
                         aria-label="Terminal"
+                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                         onClick={toggleTerminalPanel}
                         size="sm"
                         type="button"
@@ -9190,7 +9212,7 @@ export function RepoInfo() {
                       render={
                         <button
                           aria-label="Timeline settings"
-                          className="absolute right-0 inline-flex size-5 shrink-0 items-center justify-center transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
+                          className="focus-visible:desktop-focus-strong absolute right-0 inline-flex size-5 shrink-0 items-center justify-center transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
                           type="button"
                         />
                       }
@@ -9268,7 +9290,7 @@ export function RepoInfo() {
                         }}
                       >
                         <Input
-                          className="h-full border-0 bg-transparent px-3 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                          className="focus-visible:desktop-focus h-full border-0 bg-transparent px-3 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
                           disabled={isCreatingBranch}
                           onChange={(event) =>
                             setNewBranchName(event.target.value)
@@ -9293,7 +9315,7 @@ export function RepoInfo() {
                         />
                       </div>
                       <Button
-                        className="h-7 px-3 shadow-sm"
+                        className="focus-visible:desktop-focus h-7 px-3 shadow-sm focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={
                           isCreatingBranch || newBranchName.trim().length === 0
                         }
@@ -9313,7 +9335,7 @@ export function RepoInfo() {
                         {isCreatingBranch ? "Creating..." : "Create"}
                       </Button>
                       <Button
-                        className="h-7 px-3"
+                        className="focus-visible:desktop-focus h-7 px-3 focus-visible:ring-0! focus-visible:ring-offset-0!"
                         disabled={isCreatingBranch}
                         onClick={closeBranchCreateInput}
                         size="sm"
@@ -10328,7 +10350,7 @@ export function RepoInfo() {
             {isRightSidebarVisible ? (
               <button
                 aria-label="Resize right sidebar"
-                className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-l bg-transparent hover:bg-accent/30"
+                className="desktop-resize-handle-vertical-focus h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-l bg-transparent transition-colors hover:bg-accent/30"
                 onMouseDown={startSidebarResize("right")}
                 type="button"
               />
@@ -10392,7 +10414,7 @@ export function RepoInfo() {
                             </div>
                             <button
                               aria-label="Resize commit message"
-                              className="h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                              className="desktop-resize-handle-horizontal-focus h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent transition-colors hover:bg-accent/30"
                               onMouseDown={startCommitDetailsResize}
                               type="button"
                             />
@@ -10461,7 +10483,7 @@ export function RepoInfo() {
                                   render={
                                     <Button
                                       aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
-                                      className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                      className="focus-visible:desktop-focus-strong h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                                       onClick={() => {
                                         setCommitFileSortOrder((current) =>
                                           current === "asc" ? "desc" : "asc"
@@ -10559,7 +10581,7 @@ export function RepoInfo() {
                                   {showAllCommitFiles ? (
                                     <div className="border-border/70 border-b px-2 py-2">
                                       <Input
-                                        className="h-7"
+                                        className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                         onChange={(event) => {
                                           setCommitFileFilterInputValue(
                                             event.target.value
@@ -10591,7 +10613,7 @@ export function RepoInfo() {
 
                                         return (
                                           <Button
-                                            className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                            className="focus-visible:desktop-focus h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                             onClick={() => {
                                               if (isCommitTreeFullyExpanded) {
                                                 collapseCommitTree(
@@ -10728,7 +10750,7 @@ export function RepoInfo() {
                             </div>
                             <button
                               aria-label="Resize commit message"
-                              className="h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                              className="desktop-resize-handle-horizontal-focus h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent transition-colors hover:bg-accent/30"
                               onMouseDown={startCommitDetailsResize}
                               type="button"
                             />
@@ -10776,7 +10798,7 @@ export function RepoInfo() {
                           selectedStash ? (
                             <div className="flex flex-wrap items-center gap-2">
                               <Button
-                                className="h-7"
+                                className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                 disabled={isApplyingStash}
                                 onClick={() => {
                                   handleApplyStash({
@@ -10797,7 +10819,7 @@ export function RepoInfo() {
                                 Apply
                               </Button>
                               <Button
-                                className="h-7"
+                                className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                 disabled={isPoppingStash}
                                 onClick={() => {
                                   handlePopStash({
@@ -10818,7 +10840,7 @@ export function RepoInfo() {
                                 Pop
                               </Button>
                               <Button
-                                className="h-7"
+                                className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                 disabled={isDroppingStash}
                                 onClick={() => {
                                   handleDropStash({
@@ -10872,7 +10894,7 @@ export function RepoInfo() {
                                     render={
                                       <Button
                                         aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
-                                        className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                        className="focus-visible:desktop-focus-strong h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                                         onClick={() => {
                                           setCommitFileSortOrder((current) =>
                                             current === "asc" ? "desc" : "asc"
@@ -10947,7 +10969,7 @@ export function RepoInfo() {
                             {showAllCommitFiles ? (
                               <div className="border-border/70 border-b px-2 py-2">
                                 <Input
-                                  className="h-7"
+                                  className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   onChange={(event) => {
                                     setCommitFileFilterInputValue(
                                       event.target.value
@@ -10979,7 +11001,7 @@ export function RepoInfo() {
 
                                   return (
                                     <Button
-                                      className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                      className="focus-visible:desktop-focus h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                       onClick={() => {
                                         if (isReferenceTreeFullyExpanded) {
                                           collapseCommitTree(
@@ -11077,7 +11099,7 @@ export function RepoInfo() {
                       <div className="flex items-center justify-between gap-1.5">
                         <Button
                           aria-label="Discard all changes"
-                          className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                          className="focus-visible:desktop-focus-strong h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                           disabled={
                             !hasAnyWorkingTreeChanges || isDiscardingAllChanges
                           }
@@ -11108,7 +11130,7 @@ export function RepoInfo() {
                               render={
                                 <Button
                                   aria-label={`Sort by filename ${fileTreeSortOrder === "asc" ? "descending" : "ascending"}`}
-                                  className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                  className="focus-visible:desktop-focus-strong h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   onClick={toggleFileTreeSortOrder}
                                   size="icon-sm"
                                   type="button"
@@ -11184,7 +11206,7 @@ export function RepoInfo() {
                             <section className="flex min-h-0 flex-1 flex-col">
                               <div className="border-border/70 border-b px-2 py-2">
                                 <Input
-                                  className="h-7"
+                                  className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   onChange={(event) => {
                                     setRepositoryFileFilterInputValue(
                                       event.target.value
@@ -11213,7 +11235,7 @@ export function RepoInfo() {
 
                                     return (
                                       <Button
-                                        className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                        className="focus-visible:desktop-focus h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                         onClick={() => {
                                           if (isAllFilesTreeFullyExpanded) {
                                             setExpandedTreeNodePaths(
@@ -11278,7 +11300,7 @@ export function RepoInfo() {
                               >
                                 <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
                                   <button
-                                    className="inline-flex items-center gap-1 text-left font-medium text-xs"
+                                    className="focus-visible:desktop-focus inline-flex items-center gap-1 text-left font-medium text-xs"
                                     onClick={() =>
                                       setIsUnstagedSectionCollapsed(
                                         (current) => !current
@@ -11294,7 +11316,7 @@ export function RepoInfo() {
                                     Unstaged Files ({unstagedItems.length})
                                   </button>
                                   <Button
-                                    className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                    className="focus-visible:desktop-focus ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                     disabled={
                                       !hasUnstagedChanges || isStagingAll
                                     }
@@ -11325,7 +11347,7 @@ export function RepoInfo() {
                               {isChangesSectionsResizable ? (
                                 <button
                                   aria-label="Resize unstaged and staged sections"
-                                  className="h-2 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                                  className="desktop-resize-handle-horizontal-focus h-2 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent transition-colors hover:bg-accent/30"
                                   onMouseDown={startChangesSectionsResize}
                                   type="button"
                                 />
@@ -11342,7 +11364,7 @@ export function RepoInfo() {
                               >
                                 <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
                                   <button
-                                    className="inline-flex items-center gap-1 text-left font-medium text-xs"
+                                    className="focus-visible:desktop-focus inline-flex items-center gap-1 text-left font-medium text-xs"
                                     onClick={() =>
                                       setIsStagedSectionCollapsed(
                                         (current) => !current
@@ -11358,7 +11380,7 @@ export function RepoInfo() {
                                     Staged Files ({stagedItems.length})
                                   </button>
                                   <Button
-                                    className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                    className="focus-visible:desktop-focus ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                     disabled={
                                       !hasStagedChanges || isUnstagingAll
                                     }
@@ -11391,7 +11413,7 @@ export function RepoInfo() {
                       </div>
                       <button
                         aria-label="Resize changed files section"
-                        className="h-1.5 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                        className="desktop-resize-handle-horizontal-focus h-1.5 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent transition-colors hover:bg-accent/30"
                         onMouseDown={startWorkingTreeFilesPanelResize}
                         type="button"
                       />
@@ -11401,9 +11423,19 @@ export function RepoInfo() {
                       >
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-2">
-                            <Label className="text-xs" htmlFor="commit-summary">
-                              Title
-                            </Label>
+                            <div className="flex items-center gap-2">
+                              <Label
+                                className="text-xs"
+                                htmlFor="commit-summary"
+                              >
+                                Title
+                              </Label>
+                              {lastAiCommitGeneration ? (
+                                <span className="inline-flex items-center rounded border border-border/70 px-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.08em]">
+                                  AI {lastAiCommitGeneration.promptMode}
+                                </span>
+                              ) : null}
+                            </div>
                             <Button
                               className="h-6 px-2 text-xs"
                               disabled={
@@ -11427,15 +11459,22 @@ export function RepoInfo() {
                             </Button>
                           </div>
                           <Input
-                            className="h-7 text-xs"
+                            className="focus-visible:desktop-focus h-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                             id="commit-summary"
-                            onChange={(event) =>
-                              setDraftCommitSummary(event.target.value)
-                            }
+                            onChange={(event) => {
+                              setDraftCommitSummary(event.target.value);
+                              setLastAiCommitGeneration(null);
+                            }}
                             placeholder="Describe your changes"
                             ref={commitSummaryInputRef}
                             value={draftCommitSummary}
                           />
+                          {lastAiCommitGeneration?.promptMode === "fast" ? (
+                            <p className="text-[11px] text-muted-foreground leading-4">
+                              AI used summary context instead of full patch
+                              hunks because the staged diff was large.
+                            </p>
+                          ) : null}
                         </div>
                         <div className="mt-3 space-y-2">
                           <Label
@@ -11445,18 +11484,19 @@ export function RepoInfo() {
                             Description
                           </Label>
                           <textarea
-                            className="h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                            className="focus-visible:desktop-focus h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs"
                             id="commit-description"
-                            onChange={(event) =>
-                              setDraftCommitDescription(event.target.value)
-                            }
+                            onChange={(event) => {
+                              setDraftCommitDescription(event.target.value);
+                              setLastAiCommitGeneration(null);
+                            }}
                             placeholder="Optional details..."
                             value={draftCommitDescription}
                           />
                         </div>
                         <div className="mt-3 border border-border/70 px-3 py-2">
                           <button
-                            className="inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
+                            className="focus-visible:desktop-focus inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
                             onClick={() =>
                               setIsCommitOptionsCollapsed((current) => !current)
                             }
@@ -11552,7 +11592,7 @@ export function RepoInfo() {
                           )}
                         </div>
                         <Button
-                          className="mt-3 h-7 w-full text-xs"
+                          className="focus-visible:desktop-focus mt-3 h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                           disabled={isCommitting || !canCommit}
                           onClick={handleCommit}
                           size="sm"
@@ -11600,6 +11640,7 @@ export function RepoInfo() {
             <Input
               autoCapitalize="none"
               autoCorrect="off"
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isRenamingBranch}
               id="rename-branch-name"
               onChange={(event) =>
@@ -11623,6 +11664,7 @@ export function RepoInfo() {
           </div>
           <DialogFooter>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isRenamingBranch}
               onClick={() => {
                 setIsRenameBranchDialogOpen(false);
@@ -11635,6 +11677,7 @@ export function RepoInfo() {
               Cancel
             </Button>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={
                 isRenamingBranch || renameBranchTargetName.trim().length === 0
               }
@@ -11687,7 +11730,7 @@ export function RepoInfo() {
                 }}
                 value={setUpstreamRemoteName}
               >
-                <SelectTrigger className="h-9 w-44">
+                <SelectTrigger className="focus-visible:desktop-focus h-9 w-44 focus-visible:ring-0! focus-visible:ring-offset-0!">
                   <SelectValue placeholder="Select remote" />
                 </SelectTrigger>
                 <SelectContent>
@@ -11702,7 +11745,7 @@ export function RepoInfo() {
               <Input
                 autoCapitalize="none"
                 autoCorrect="off"
-                className="h-9"
+                className="focus-visible:desktop-focus h-9 focus-visible:ring-0! focus-visible:ring-offset-0!"
                 disabled={isSettingUpstream}
                 id="set-upstream-target-branch"
                 onChange={(event) => {
@@ -11726,6 +11769,7 @@ export function RepoInfo() {
           </div>
           <DialogFooter>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isSettingUpstream}
               onClick={() => {
                 setIsSetUpstreamDialogOpen(false);
@@ -11740,6 +11784,7 @@ export function RepoInfo() {
               Cancel
             </Button>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={
                 isSettingUpstream ||
                 setUpstreamRemoteName.trim().length === 0 ||
@@ -11787,6 +11832,7 @@ export function RepoInfo() {
             <Input
               autoCapitalize="none"
               autoCorrect="off"
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isCreatingRefBranch}
               id="create-ref-branch-name"
               onChange={(event) => {
@@ -11804,6 +11850,7 @@ export function RepoInfo() {
           </div>
           <DialogFooter>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isCreatingRefBranch}
               onClick={() => {
                 setIsCreateRefBranchDialogOpen(false);
@@ -11814,6 +11861,7 @@ export function RepoInfo() {
               Cancel
             </Button>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={
                 isCreatingRefBranch || createRefBranchName.trim().length === 0
               }
@@ -11864,6 +11912,7 @@ export function RepoInfo() {
             <Input
               autoCapitalize="none"
               autoCorrect="off"
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isCreatingTagAtReference}
               id="create-tag-name"
               onChange={(event) => {
@@ -11881,6 +11930,7 @@ export function RepoInfo() {
           </div>
           <DialogFooter>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isCreatingTagAtReference}
               onClick={() => {
                 setIsCreateTagDialogOpen(false);
@@ -11891,6 +11941,7 @@ export function RepoInfo() {
               Cancel
             </Button>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={
                 isCreatingTagAtReference ||
                 createTagNameValue.trim().length === 0
@@ -11937,6 +11988,7 @@ export function RepoInfo() {
               <Input
                 autoCapitalize="none"
                 autoCorrect="off"
+                className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
                 disabled={isSubmittingPublishRepo}
                 id="publish-repository-name"
                 onChange={(event) => {
@@ -11952,7 +12004,7 @@ export function RepoInfo() {
               <legend className="font-medium text-sm">Visibility</legend>
               <div className="grid grid-cols-2 gap-2">
                 <Button
-                  className="justify-start"
+                  className="focus-visible:desktop-focus justify-start focus-visible:ring-0! focus-visible:ring-offset-0!"
                   disabled={isSubmittingPublishRepo}
                   onClick={() => {
                     setPublishRepoVisibility("private");
@@ -11965,7 +12017,7 @@ export function RepoInfo() {
                   Private
                 </Button>
                 <Button
-                  className="justify-start"
+                  className="focus-visible:desktop-focus justify-start focus-visible:ring-0! focus-visible:ring-offset-0!"
                   disabled={isSubmittingPublishRepo}
                   onClick={() => {
                     setPublishRepoVisibility("public");
@@ -11985,6 +12037,7 @@ export function RepoInfo() {
           </div>
           <DialogFooter>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isSubmittingPublishRepo}
               onClick={() => {
                 setIsPublishRepoConfirmOpen(false);
@@ -11997,6 +12050,7 @@ export function RepoInfo() {
               Cancel
             </Button>
             <Button
+              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isSubmittingPublishRepo}
               onClick={() => {
                 executePublishAndPush().catch(() => undefined);

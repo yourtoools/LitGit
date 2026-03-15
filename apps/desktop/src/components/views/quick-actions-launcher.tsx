@@ -33,30 +33,32 @@ export function QuickActionButton({
 }: QuickActionButtonProps) {
   return (
     <Tooltip>
-      <TooltipTrigger className="w-full">
-        <Button
-          aria-keyshortcuts={shortcutAriaLabel}
-          className="group h-auto w-full flex-col items-start justify-start gap-3 border border-primary/20 bg-primary/10 px-4 py-4 text-left shadow-none transition-colors hover:border-primary/45 hover:bg-primary/20"
-          disabled={disabled}
-          onClick={onClick}
-          type="button"
-          variant="ghost"
-        >
-          {icon}
-          <span className="w-full">
-            <span className="block font-mono text-primary/80 text-xs uppercase tracking-[0.2em] transition-colors group-hover:text-primary">
-              Execute
-            </span>
-            <span className="mt-1 flex items-center gap-2 font-mono font-semibold text-sm tracking-tight">
-              {label}
-              {shortcut && (
-                <span className="border border-current/35 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider">
-                  {shortcut}
-                </span>
-              )}
-            </span>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-keyshortcuts={shortcutAriaLabel}
+            className="focus-visible:desktop-focus group h-auto w-full flex-col items-start justify-start gap-3 border border-primary/20 bg-primary/10 px-4 py-4 text-left shadow-none transition-colors hover:border-primary/45 hover:bg-primary/20 focus-visible:ring-0! focus-visible:ring-offset-0!"
+            disabled={disabled}
+            onClick={onClick}
+            type="button"
+            variant="ghost"
+          />
+        }
+      >
+        {icon}
+        <span className="w-full">
+          <span className="block font-mono text-primary/80 text-xs uppercase tracking-[0.2em] transition-colors group-hover:text-primary">
+            Execute
           </span>
-        </Button>
+          <span className="mt-1 flex items-center gap-2 font-mono font-semibold text-sm tracking-tight">
+            {label}
+            {shortcut && (
+              <span className="border border-current/35 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider">
+                {shortcut}
+              </span>
+            )}
+          </span>
+        </span>
       </TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={8}>
         {tooltip}

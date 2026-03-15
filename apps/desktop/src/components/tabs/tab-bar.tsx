@@ -1206,7 +1206,7 @@ export function TabBar() {
                       render={
                         <Button
                           aria-label="Add new tab"
-                          className="h-8 w-8"
+                          className="focus-visible:desktop-focus h-8 w-8 focus-visible:ring-0! focus-visible:ring-offset-0!"
                           onClick={handleAddTab}
                           size="icon"
                           variant="outline"

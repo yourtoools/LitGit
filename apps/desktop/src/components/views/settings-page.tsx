@@ -92,6 +92,7 @@ import {
   DEFAULT_EDITOR_FONT_FAMILY,
   DEFAULT_PREFERENCES,
   DEFAULT_TERMINAL_FONT_FAMILY,
+  getDefaultAiMaxOutputTokens,
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,
 } from "@/stores/preferences/preferences-store-types";
@@ -241,7 +242,7 @@ function ThemePreviewCard({
       <span
         aria-hidden="true"
         className={cn(
-          "group relative flex min-w-0 cursor-pointer flex-col gap-2 border p-3 text-left transition-all duration-150 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
+          "group focus-within:desktop-focus relative flex min-w-0 cursor-pointer flex-col gap-2 border p-3 text-left transition-all duration-150",
           isSelected
             ? "border-primary/60 bg-primary/5 shadow-primary/10 shadow-sm"
             : "border-border/60 bg-background/70 hover:border-border hover:bg-muted/30"
@@ -1351,7 +1352,7 @@ function EditorPreview({
             }}
             value={mode}
           >
-            <SelectTrigger className="h-7 w-36 bg-background text-xs">
+            <SelectTrigger className="focus-visible:desktop-focus h-7 w-36 bg-background text-xs focus-visible:ring-0! focus-visible:ring-offset-0!">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -2244,7 +2245,7 @@ function UiSection({ query }: { query: string }) {
             }}
             value={toasterPosition}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -2349,7 +2350,7 @@ function UiSection({ query }: { query: string }) {
             }}
             value={dateFormat}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -2881,7 +2882,7 @@ function TerminalSection({ query }: { query: string }) {
             }}
             value={cursorStyle}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -2898,7 +2899,7 @@ function TerminalSection({ query }: { query: string }) {
         <button
           aria-controls="terminal-preview-sidebar"
           aria-label="Resize terminal preview sidebar"
-          className="h-full w-1.5 shrink-0 cursor-col-resize bg-transparent outline-none transition-colors hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/50"
+          className="desktop-resize-handle-vertical-focus h-full w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-accent/30"
           onKeyDown={handlePreviewResizeHandleKeyDown}
           onPointerDown={startPreviewResize}
           type="button"
@@ -3203,7 +3204,10 @@ function NetworkSection({ query }: { query: string }) {
                 }}
                 value={proxyTargetDraft.type}
               >
-                <SelectTrigger className="w-full" id="proxy-target-type">
+                <SelectTrigger
+                  className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!"
+                  id="proxy-target-type"
+                >
                   <DefaultSelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -3698,7 +3702,7 @@ function SigningSection({ query }: { query: string }) {
           }}
           value={signingFormat}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
             <DefaultSelectValue placeholder="OPENPGP" />
           </SelectTrigger>
           <SelectContent>
@@ -3764,7 +3768,7 @@ function SigningSection({ query }: { query: string }) {
             }}
             value={signingKey.length > 0 ? signingKey : NO_SIGNING_KEY_VALUE}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
               <SelectValue className="min-w-24" placeholder="<None>" />
             </SelectTrigger>
             <SelectContent>
@@ -4327,7 +4331,7 @@ function EditorSection({ query }: { query: string }) {
             }}
             value={editor.lineNumbers}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -4392,7 +4396,7 @@ function EditorSection({ query }: { query: string }) {
             }}
             value={editor.eol}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -4409,7 +4413,7 @@ function EditorSection({ query }: { query: string }) {
         <button
           aria-controls="editor-preview-sidebar"
           aria-label="Resize editor preview sidebar"
-          className="h-full w-1.5 shrink-0 cursor-col-resize bg-transparent outline-none transition-colors hover:bg-accent/30 focus-visible:bg-accent/30 focus-visible:ring-2 focus-visible:ring-primary/50"
+          className="desktop-resize-handle-vertical-focus h-full w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-accent/30"
           onKeyDown={_handlePreviewResizeHandleKeyDown}
           onPointerDown={_startPreviewResize}
           type="button"
@@ -4467,6 +4471,9 @@ function AiSection({ query }: { query: string }) {
   const maxInputTokens = usePreferencesStore(
     (state) => state.ai.maxInputTokens
   );
+  const maxOutputTokens = usePreferencesStore(
+    (state) => state.ai.maxOutputTokens
+  );
   const model = usePreferencesStore((state) => state.ai.model);
   const provider = usePreferencesStore((state) => state.ai.provider);
   const setAiCommitInstruction = usePreferencesStore(
@@ -4477,6 +4484,9 @@ function AiSection({ query }: { query: string }) {
   );
   const setAiMaxInputTokens = usePreferencesStore(
     (state) => state.setAiMaxInputTokens
+  );
+  const setAiMaxOutputTokens = usePreferencesStore(
+    (state) => state.setAiMaxOutputTokens
   );
   const setAiModel = usePreferencesStore((state) => state.setAiModel);
   const setAiProvider = usePreferencesStore((state) => state.setAiProvider);
@@ -4502,6 +4512,7 @@ function AiSection({ query }: { query: string }) {
         setAiCommitInstruction(DEFAULT_PREFERENCES.ai.commitInstruction);
         setAiCustomEndpoint(DEFAULT_PREFERENCES.ai.customEndpoint);
         setAiMaxInputTokens(DEFAULT_PREFERENCES.ai.maxInputTokens);
+        setAiMaxOutputTokens(DEFAULT_PREFERENCES.ai.maxOutputTokens);
         setAiModel(DEFAULT_PREFERENCES.ai.model);
         setAiModels([]);
         setAiModelsMessage(null);
@@ -4586,20 +4597,21 @@ function AiSection({ query }: { query: string }) {
           items={AI_PROVIDER_OPTIONS}
           onValueChange={(value) => {
             if (typeof value === "string") {
-              setAiProvider(
-                value as
-                  | "openai"
-                  | "anthropic"
-                  | "azure"
-                  | "google"
-                  | "ollama"
-                  | "custom"
-              );
+              const nextProvider = value as
+                | "openai"
+                | "anthropic"
+                | "azure"
+                | "google"
+                | "ollama"
+                | "custom";
+
+              setAiProvider(nextProvider);
+              setAiMaxOutputTokens(getDefaultAiMaxOutputTokens(nextProvider));
             }
           }}
           value={provider}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
             <DefaultSelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -4626,17 +4638,33 @@ function AiSection({ query }: { query: string }) {
         />
       </SettingsField>
       <SettingsField
-        description="Set the maximum token budget sent to the OpenAI-compatible chat completions endpoint."
+        description="Set the prompt budget used for commit generation. Lower values are faster; the staged diff is trimmed automatically."
         label="Max input tokens"
         query={query}
       >
         <Input
-          min={1}
+          max={4096}
+          min={256}
           onChange={(event) => {
-            setAiMaxInputTokens(Number(event.target.value) || 1);
+            setAiMaxInputTokens(Number(event.target.value) || 256);
           }}
           type="number"
           value={maxInputTokens}
+        />
+      </SettingsField>
+      <SettingsField
+        description="Set the response budget used for commit generation. Lower values reduce latency and keep commit bodies concise."
+        label="Max output tokens"
+        query={query}
+      >
+        <Input
+          max={512}
+          min={32}
+          onChange={(event) => {
+            setAiMaxOutputTokens(Number(event.target.value) || 32);
+          }}
+          type="number"
+          value={maxOutputTokens}
         />
       </SettingsField>
       <SettingsField
@@ -4734,7 +4762,7 @@ function AiSection({ query }: { query: string }) {
             }}
             value={model}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
               <SelectValue placeholder="Refresh models first" />
             </SelectTrigger>
             <SelectContent>
@@ -4759,7 +4787,7 @@ function AiSection({ query }: { query: string }) {
       >
         <div className="grid gap-3">
           <Textarea
-            className="min-h-28"
+            className="focus-visible:desktop-focus min-h-28 focus-visible:ring-0! focus-visible:ring-offset-0!"
             onChange={(event) => setAiCommitInstruction(event.target.value)}
             placeholder="Describe how commit titles and bodies should be written"
             value={commitInstruction}
@@ -5065,7 +5093,7 @@ export function SettingsPage() {
                 render={
                   <Button
                     aria-label="Exit preferences"
-                    className="shrink-0 whitespace-nowrap pr-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                    className="focus-visible:desktop-focus shrink-0 whitespace-nowrap pr-0 text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
                     onClick={handleExitPreferences}
                     size={toolbarLabels ? "sm" : "icon"}
                     type="button"
@@ -5095,7 +5123,7 @@ export function SettingsPage() {
             {query.length > 0 ? (
               <Button
                 aria-label="Clear search"
-                className="absolute top-1/2 right-0.5 -translate-y-1/2"
+                className="focus-visible:desktop-focus-strong absolute top-1/2 right-0.5 -translate-y-1/2 focus-visible:ring-0! focus-visible:ring-offset-0!"
                 onClick={resetSettingsSearch}
                 size="icon-xs"
                 type="button"
@@ -5120,7 +5148,7 @@ export function SettingsPage() {
                 return (
                   <button
                     className={cn(
-                      "flex w-full items-center gap-3 px-2 py-2 text-left text-sm transition-colors",
+                      "focus-visible:desktop-focus flex w-full items-center gap-3 px-2 py-2 text-left text-sm transition-colors",
                       isActive
                         ? "bg-primary/10 font-medium text-primary"
                         : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
@@ -5140,7 +5168,7 @@ export function SettingsPage() {
       </Sidebar>
       <button
         aria-label="Resize left sidebar"
-        className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent hover:bg-accent/30"
+        className="desktop-resize-handle-vertical-focus h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent transition-colors hover:bg-accent/30"
         onMouseDown={startSidebarResize("left")}
         type="button"
       />

@@ -74,12 +74,23 @@ const formatSystemLogLine = (entry: OperationLogEntry) => {
 
 const getSystemLogDetail = (entry: OperationLogEntry): string | null => {
   const trimmedMessage = entry.message.trim();
+  const metadataEntries = Object.entries(entry.metadata ?? {});
+  const metadataDetail =
+    metadataEntries.length > 0
+      ? metadataEntries
+          .map(([key, value]) => `${key}=${String(value)}`)
+          .join(" ")
+      : null;
 
   if (trimmedMessage.length === 0 || trimmedMessage === "Command completed") {
-    return null;
+    return metadataDetail;
   }
 
-  return trimmedMessage;
+  if (!metadataDetail) {
+    return trimmedMessage;
+  }
+
+  return `${trimmedMessage}\n${metadataDetail}`;
 };
 
 const formatActivityLogLine = (entry: OperationLogEntry) => {

@@ -280,6 +280,9 @@ export interface LatestRepositoryCommitMessage {
 
 export interface GeneratedRepositoryCommitMessage {
   body: string;
+  promptMode: string;
+  providerKind: string;
+  schemaFallbackUsed: boolean;
   title: string;
 }
 

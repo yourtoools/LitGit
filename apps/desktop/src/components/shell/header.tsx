@@ -278,7 +278,7 @@ export default function Header() {
               render={
                 <Button
                   aria-label="Workspace settings"
-                  className="shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                  className="focus-visible:desktop-focus shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
                   onClick={() => {
                     resetSettingsSearch();
                     setSection("general");

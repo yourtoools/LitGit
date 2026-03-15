@@ -61,6 +61,7 @@ import type {
   PublishRepositoryOptions,
   RepoStoreState,
 } from "@/stores/repo/repo-store-types";
+import { useAiGenerationMetricsStore } from "@/stores/ui/use-ai-generation-metrics-store";
 import { useOperationLogStore } from "@/stores/ui/use-operation-log-store";
 
 interface RepoUndoRedoEntry {
@@ -1554,15 +1555,29 @@ export const createRepoActionsSlice = (
             ? instruction
             : preferences.commitInstruction,
         maxInputTokens: preferences.maxInputTokens,
+        maxOutputTokens: preferences.maxOutputTokens,
         model: preferences.model,
         provider: preferences.provider,
         repoPath: targetRepo.path,
       });
+      const durationMs = Math.max(0, Math.round(performance.now() - startedAt));
+
+      useAiGenerationMetricsStore.getState().recordSuccess({
+        durationMs,
+        promptMode: result.promptMode,
+        providerKind: result.providerKind,
+        schemaFallbackUsed: result.schemaFallbackUsed,
+      });
       useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
         command: "ai.generate_commit_message",
-        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        durationMs,
         level: "info",
         message: "Command completed",
+        metadata: {
+          prompt_mode: result.promptMode,
+          provider_kind: result.providerKind,
+          schema_fallback_used: result.schemaFallbackUsed,
+        },
       });
       return result;
     } catch (error) {
@@ -1570,6 +1585,9 @@ export const createRepoActionsSlice = (
         error,
         "Failed to generate AI commit message"
       );
+      useAiGenerationMetricsStore
+        .getState()
+        .recordFailure(preferences.provider);
       useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
         command: "ai.generate_commit_message",
         durationMs: Math.max(0, Math.round(performance.now() - startedAt)),

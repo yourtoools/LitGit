@@ -520,7 +520,7 @@ export function NewTabContent() {
             </h2>
             {hasMoreThanLimit && !isSearching ? (
               <Button
-                className="h-6 gap-1 px-1 font-mono text-primary/70 text-xs uppercase tracking-[0.14em] hover:text-primary"
+                className="focus-visible:desktop-focus h-6 gap-1 px-1 font-mono text-primary/70 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
                 onClick={() => setIsExpanded((prev) => !prev)}
                 type="button"
                 variant="ghost"
@@ -541,7 +541,7 @@ export function NewTabContent() {
             <Input
               aria-describedby={`${RECENT_REPO_SEARCH_HINT_ID} ${RECENT_REPO_SEARCH_STATUS_ID}`}
               aria-keyshortcuts={searchShortcutAria}
-              className="h-10 border-primary/25 bg-primary/5 pr-16 pl-9 font-mono text-sm focus-visible:ring-primary/45"
+              className="focus-visible:desktop-focus h-10 border-primary/25 bg-primary/5 pr-16 pl-9 font-mono text-sm focus-visible:ring-0! focus-visible:ring-offset-0!"
               id={RECENT_REPO_SEARCH_INPUT_ID}
               onChange={(event) => {
                 setSearchInputValue(event.target.value);
@@ -717,7 +717,7 @@ export function NewTabContent() {
               <li>
                 <Button
                   aria-label="Visit Mayar website (opens in new window)"
-                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
+                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => {
                     openExternalUrl(MAYAR_URL).catch(() => {
                       return;
@@ -733,7 +733,7 @@ export function NewTabContent() {
               <li>
                 <Button
                   aria-label="View source code (opens in new window)"
-                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
+                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => {
                     openExternalUrl(SOURCE_CODE_URL).catch(() => {
                       return;
@@ -749,7 +749,7 @@ export function NewTabContent() {
               <li>
                 <Button
                   aria-label="Report a bug (opens in new window)"
-                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
+                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => {
                     openExternalUrl(BUG_REPORT_URL).catch(() => {
                       return;
@@ -764,7 +764,7 @@ export function NewTabContent() {
               </li>
               <li>
                 <Button
-                  className="h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary"
+                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => {
                     resetSettingsSearch();
                     setSection("general");

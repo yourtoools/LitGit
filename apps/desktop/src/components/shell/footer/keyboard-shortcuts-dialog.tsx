@@ -258,7 +258,7 @@ export function KeyboardShortcutsDialog() {
               aria-haspopup="dialog"
               aria-keyshortcuts={`${getPrimaryModifierAriaKey()}+/`}
               aria-label={`Keyboard shortcuts (${getKeyboardShortcutsShortcutLabel()})`}
-              className="hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+              className="focus-visible:desktop-focus hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
               onClick={() => setIsOpen(true)}
               size="icon-sm"
               variant="ghost"
@@ -294,7 +294,7 @@ export function KeyboardShortcutsDialog() {
                 />
                 <Button
                   aria-label="Close keyboard shortcuts"
-                  className="-mt-1 -mr-2 hover:bg-transparent hover:text-foreground"
+                  className="focus-visible:desktop-focus-strong -mt-1 -mr-2 hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => setIsOpen(false)}
                   size="icon-sm"
                   variant="ghost"

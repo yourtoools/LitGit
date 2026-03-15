@@ -25,6 +25,9 @@ export interface AiModelInfo {
 
 export interface GeneratedCommitMessage {
   body: string;
+  promptMode: string;
+  providerKind: string;
+  schemaFallbackUsed: boolean;
   title: string;
 }
 
@@ -341,6 +344,7 @@ export const generateRepositoryCommitMessage = async (input: {
   customEndpoint: string;
   instruction: string;
   maxInputTokens: number;
+  maxOutputTokens: number;
   model: string;
   provider: string;
   repoPath: string;
@@ -356,12 +360,21 @@ export const generateRepositoryCommitMessage = async (input: {
     "Invalid AI commit message payload"
   );
 
-  if (typeof result.body !== "string" || typeof result.title !== "string") {
+  if (
+    typeof result.body !== "string" ||
+    typeof result.promptMode !== "string" ||
+    typeof result.providerKind !== "string" ||
+    typeof result.schemaFallbackUsed !== "boolean" ||
+    typeof result.title !== "string"
+  ) {
     throw new Error("Invalid AI commit message payload");
   }
 
   return {
     body: result.body,
+    promptMode: result.promptMode,
+    providerKind: result.providerKind,
+    schemaFallbackUsed: result.schemaFallbackUsed,
     title: result.title,
   };
 };

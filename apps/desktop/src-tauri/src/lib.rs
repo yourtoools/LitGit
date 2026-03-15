@@ -12,7 +12,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
@@ -343,8 +343,40 @@ struct AiModelInfo {
 #[serde(rename_all = "camelCase")]
 struct GeneratedCommitMessage {
     body: String,
+    prompt_mode: String,
+    provider_kind: String,
+    schema_fallback_used: bool,
     title: String,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommitPromptMode {
+    Fast,
+    Full,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AiRequestKind {
+    Anthropic,
+    Gemini,
+    OpenAiCompatible,
+}
+
+const AI_REQUEST_TIMEOUT_SECS: u64 = 20;
+const COMMIT_MESSAGE_DEFAULT_OUTPUT_TOKEN_LIMIT: usize = 96;
+const COMMIT_MESSAGE_MAX_OUTPUT_TOKEN_LIMIT: usize = 512;
+const COMMIT_DIFF_STAT_MIN_BUDGET_CHARS: usize = 160;
+const COMMIT_CHANGED_FILES_MIN_BUDGET_CHARS: usize = 128;
+const COMMIT_RECENT_TITLES_MIN_BUDGET_CHARS: usize = 64;
+const COMMIT_STAGED_DIFF_MIN_BUDGET_CHARS: usize = 512;
+const COMMIT_FAST_MODE_DIFF_CHAR_THRESHOLD: usize = 12_000;
+const COMMIT_FAST_MODE_FILE_COUNT_THRESHOLD: usize = 40;
+
+static AI_HTTP_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+    ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(AI_REQUEST_TIMEOUT_SECS))
+        .build()
+});
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -4571,7 +4603,7 @@ fn resolve_ai_base_url(provider: &str, custom_endpoint: &str) -> Result<String, 
         }
         "google" => {
             if trimmed_endpoint.is_empty() {
-                "https://generativelanguage.googleapis.com/v1beta/openai"
+                "https://generativelanguage.googleapis.com/v1beta"
             } else {
                 trimmed_endpoint
             }
@@ -4644,12 +4676,19 @@ fn parse_ai_model_list(value: &serde_json::Value) -> Result<Vec<AiModelInfo>, St
     let data = value
         .get("data")
         .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+        .or_else(|| value.get("models").and_then(serde_json::Value::as_array))
+        .ok_or_else(|| "The configured AI endpoint did not return a supported model list.".to_string())?;
 
     let mut models = data
         .iter()
         .filter_map(|entry| {
-            let id = entry.get("id")?.as_str()?.trim();
+            let raw_id = entry
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| entry.get("name").and_then(serde_json::Value::as_str))?
+                .trim();
+
+            let id = raw_id.strip_prefix("models/").unwrap_or(raw_id);
 
             if id.is_empty() {
                 return None;
@@ -4708,6 +4747,9 @@ fn parse_generated_commit_message(content: &str) -> Result<GeneratedCommitMessag
 
     Ok(GeneratedCommitMessage {
         body: body.to_string(),
+        prompt_mode: String::new(),
+        provider_kind: String::new(),
+        schema_fallback_used: false,
         title: title.to_string(),
     })
 }
@@ -4727,36 +4769,185 @@ fn run_git_text_command(repo_path: &str, args: &[&str], fallback: &str) -> Resul
 }
 
 fn build_commit_generation_prompt(
-    status: &str,
     diff_stat: &str,
+    changed_files: &str,
     staged_diff: &str,
     recent_titles: &str,
     instruction: &str,
+    prompt_mode: CommitPromptMode,
 ) -> String {
+    let diff_section = match prompt_mode {
+        CommitPromptMode::Fast => "Git diff hunks omitted because the staged diff is large. Infer the message from file changes and diff stats only.\n",
+        CommitPromptMode::Full => staged_diff,
+    };
+
     format!(
         concat!(
             "You generate git commit messages.\n",
-            "Return strict JSON with exactly this shape: ",
-            "{{\"title\":\"string\",\"body\":\"string\"}}.\n",
             "Rules:\n",
             "- Use staged changes only.\n",
             "- Title must be concise, imperative, and specific.\n",
             "- Body is optional and should be brief.\n",
             "- Do not mention files unless they matter.\n",
-            "- Do not wrap the JSON in markdown.\n",
             "- If the body is unnecessary, return an empty string.\n\n",
             "User instruction:\n{instruction}\n\n",
             "Recent commit titles for tone/style continuity:\n{recent_titles}\n\n",
-            "Git status --short:\n{status}\n\n",
+            "Changed staged files (git diff --cached --name-status):\n{changed_files}\n\n",
             "Git diff --cached --stat:\n{diff_stat}\n\n",
             "Git diff --cached --unified=0:\n{staged_diff}\n"
         ),
         instruction = instruction.trim(),
         recent_titles = recent_titles,
-        status = status,
+        changed_files = changed_files,
         diff_stat = diff_stat,
-        staged_diff = staged_diff
+        staged_diff = diff_section
     )
+}
+
+fn build_commit_message_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A concise, specific, imperative git commit title."
+            },
+            "body": {
+                "type": "string",
+                "description": "An optional brief commit body. Return an empty string when unnecessary."
+            }
+        },
+        "required": ["title", "body"],
+        "additionalProperties": false
+    })
+}
+
+fn build_legacy_json_commit_prompt(prompt: &str) -> String {
+    format!(
+        concat!(
+            "Return strict JSON with exactly this shape: ",
+            "{{\"title\":\"string\",\"body\":\"string\"}}.\n",
+            "Do not wrap the JSON in markdown.\n\n",
+            "{prompt}"
+        ),
+        prompt = prompt
+    )
+}
+
+fn get_commit_prompt_mode(staged_diff: &str, changed_files: &str) -> CommitPromptMode {
+    let changed_file_count = changed_files.lines().count();
+
+    if staged_diff.len() > COMMIT_FAST_MODE_DIFF_CHAR_THRESHOLD
+        || changed_file_count > COMMIT_FAST_MODE_FILE_COUNT_THRESHOLD
+    {
+        return CommitPromptMode::Fast;
+    }
+
+    CommitPromptMode::Full
+}
+
+fn commit_prompt_mode_label(prompt_mode: CommitPromptMode) -> &'static str {
+    match prompt_mode {
+        CommitPromptMode::Fast => "fast",
+        CommitPromptMode::Full => "full",
+    }
+}
+
+fn get_ai_request_kind(provider: &str, base_url: &str) -> AiRequestKind {
+    match provider.trim() {
+        "anthropic" => AiRequestKind::Anthropic,
+        "google" => AiRequestKind::Gemini,
+        _ if base_url.contains("generativelanguage.googleapis.com") => AiRequestKind::Gemini,
+        _ => AiRequestKind::OpenAiCompatible,
+    }
+}
+
+fn ai_request_kind_label(request_kind: AiRequestKind) -> &'static str {
+    match request_kind {
+        AiRequestKind::Anthropic => "anthropic",
+        AiRequestKind::Gemini => "gemini",
+        AiRequestKind::OpenAiCompatible => "openai-compatible",
+    }
+}
+
+fn create_ai_post_request(url: &str, request_kind: AiRequestKind, secret: &str) -> ureq::Request {
+    let request = AI_HTTP_AGENT
+        .post(url)
+        .set("Accept", "application/json")
+        .set("Content-Type", "application/json");
+
+    match request_kind {
+        AiRequestKind::Anthropic => request
+            .set("x-api-key", secret)
+            .set("anthropic-version", "2023-06-01"),
+        AiRequestKind::Gemini => request.set("x-goog-api-key", secret),
+        AiRequestKind::OpenAiCompatible => request.set("Authorization", &format!("Bearer {secret}")),
+    }
+}
+
+fn extract_anthropic_message_content(value: &serde_json::Value) -> Option<String> {
+    let content_parts = value.get("content")?.as_array()?;
+    let mut combined = String::new();
+
+    for part in content_parts {
+        let text = match part.get("type")?.as_str()? {
+            "text" => part.get("text").and_then(serde_json::Value::as_str)?,
+            _ => continue,
+        };
+
+        combined.push_str(text);
+    }
+
+    if combined.is_empty() {
+        return None;
+    }
+
+    Some(combined)
+}
+
+fn extract_gemini_message_content(value: &serde_json::Value) -> Option<String> {
+    let parts = value
+        .get("candidates")?
+        .as_array()?
+        .first()?
+        .get("content")?
+        .get("parts")?
+        .as_array()?;
+    let mut combined = String::new();
+
+    for part in parts {
+        let text = part.get("text").and_then(serde_json::Value::as_str)?;
+        combined.push_str(text);
+    }
+
+    if combined.is_empty() {
+        return None;
+    }
+
+    Some(combined)
+}
+
+fn extract_ai_commit_message_content(
+    value: &serde_json::Value,
+    request_kind: AiRequestKind,
+) -> Option<String> {
+    match request_kind {
+        AiRequestKind::Anthropic => extract_anthropic_message_content(value),
+        AiRequestKind::Gemini => extract_gemini_message_content(value),
+        AiRequestKind::OpenAiCompatible => extract_ai_message_content(value),
+    }
+}
+
+fn send_ai_json_request(
+    url: &str,
+    request_kind: AiRequestKind,
+    secret: &str,
+    request_body: &serde_json::Value,
+) -> Result<ureq::Response, String> {
+    create_ai_post_request(url, request_kind, secret)
+        .send_string(&request_body.to_string())
+        .map_err(map_ai_http_error)
 }
 
 fn truncate_for_ai_budget(value: &str, max_chars: usize) -> String {
@@ -4905,8 +5096,9 @@ fn apply_git_preferences(
 #[cfg(test)]
 mod tests {
     use super::{
-        git_error_message, git_process_error_message, is_git_authentication_message,
-        parse_ai_model_list, parse_generated_commit_message, truncate_for_ai_budget,
+        get_commit_prompt_mode, git_error_message, git_process_error_message,
+        is_git_authentication_message, parse_ai_model_list, parse_generated_commit_message,
+        truncate_for_ai_budget, CommitPromptMode,
     };
 
     #[test]
@@ -4996,6 +5188,22 @@ mod tests {
     }
 
     #[test]
+    fn parses_google_model_list_payload() {
+        let payload = serde_json::json!({
+            "models": [
+                { "name": "models/gemini-2.5-flash" },
+                { "name": "models/gemini-2.5-pro" }
+            ]
+        });
+
+        let models = parse_ai_model_list(&payload).expect("google model list should parse");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "gemini-2.5-flash");
+        assert_eq!(models[1].id, "gemini-2.5-pro");
+    }
+
+    #[test]
     fn rejects_invalid_generated_commit_payload() {
         assert!(parse_generated_commit_message("not-json").is_err());
         assert!(parse_generated_commit_message(r#"{"body":"Only body"}"#).is_err());
@@ -5018,6 +5226,20 @@ mod tests {
 
         assert!(truncated.starts_with("abcdefghij"));
         assert!(truncated.contains("[truncated]"));
+    }
+
+    #[test]
+    fn uses_fast_prompt_mode_for_large_staged_diff() {
+        let prompt_mode = get_commit_prompt_mode(&"x".repeat(12_001), "M\tfile.ts");
+
+        assert_eq!(prompt_mode, CommitPromptMode::Fast);
+    }
+
+    #[test]
+    fn uses_full_prompt_mode_for_small_staged_diff() {
+        let prompt_mode = get_commit_prompt_mode("@@ -1 +1 @@\n+hello", "M\tfile.ts");
+
+        assert_eq!(prompt_mode, CommitPromptMode::Full);
     }
 }
 
@@ -5144,11 +5366,28 @@ fn list_ai_models(
     let secret = resolve_ai_provider_secret(&state, &provider)?;
     let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
     let models_url = format!("{base_url}/models");
-    let response = ureq::get(&models_url)
-        .set("Accept", "application/json")
-        .set("Authorization", &format!("Bearer {secret}"))
-        .call()
-        .map_err(map_ai_http_error)?;
+    let request_kind = get_ai_request_kind(&provider, &base_url);
+    let response = match request_kind {
+        AiRequestKind::Anthropic => AI_HTTP_AGENT
+            .get(&models_url)
+            .set("Accept", "application/json")
+            .set("x-api-key", &secret)
+            .set("anthropic-version", "2023-06-01")
+            .call()
+            .map_err(map_ai_http_error)?,
+        AiRequestKind::Gemini => AI_HTTP_AGENT
+            .get(&models_url)
+            .set("Accept", "application/json")
+            .set("x-goog-api-key", &secret)
+            .call()
+            .map_err(map_ai_http_error)?,
+        AiRequestKind::OpenAiCompatible => AI_HTTP_AGENT
+            .get(&models_url)
+            .set("Accept", "application/json")
+            .set("Authorization", &format!("Bearer {secret}"))
+            .call()
+            .map_err(map_ai_http_error)?,
+    };
     let body = read_ureq_response_string(response)?;
     let payload: serde_json::Value = serde_json::from_str(&body)
         .map_err(|_| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
@@ -5165,6 +5404,7 @@ fn generate_repository_commit_message(
     model: String,
     instruction: String,
     max_input_tokens: usize,
+    max_output_tokens: usize,
 ) -> Result<GeneratedCommitMessage, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -5184,71 +5424,190 @@ fn generate_repository_commit_message(
         return Err("Stage changes before generating a commit message".to_string());
     }
 
+    let changed_files = run_git_text_command(
+        &repo_path,
+        &["diff", "--cached", "--name-status", "--find-renames"],
+        "Failed to inspect staged files",
+    )?;
     let staged_diff = run_git_text_command(
         &repo_path,
         &["diff", "--cached", "--unified=0"],
         "Failed to inspect staged diff",
     )?;
-    let status = run_git_text_command(
-        &repo_path,
-        &["status", "--short"],
-        "Failed to inspect repository status",
-    )?;
     let recent_titles = run_git_text_command(
         &repo_path,
-        &["log", "-5", "--pretty=format:%s"],
+        &["log", "-3", "--pretty=format:%s"],
         "Failed to inspect recent commits",
     )
     .unwrap_or_default();
-    let input_budget_chars = max_input_tokens.max(512).saturating_mul(4);
-    let staged_diff_budget = input_budget_chars.saturating_mul(70) / 100;
-    let diff_stat_budget = input_budget_chars.saturating_mul(15) / 100;
-    let status_budget = input_budget_chars.saturating_mul(10) / 100;
+    let prompt_mode = get_commit_prompt_mode(&staged_diff, &changed_files);
+    let input_budget_chars = max_input_tokens.clamp(256, 2048).saturating_mul(4);
+    let staged_diff_budget = input_budget_chars.saturating_mul(68) / 100;
+    let diff_stat_budget = input_budget_chars.saturating_mul(18) / 100;
+    let changed_files_budget = input_budget_chars.saturating_mul(9) / 100;
     let recent_titles_budget = input_budget_chars.saturating_mul(5) / 100;
-    let truncated_staged_diff = truncate_for_ai_budget(&staged_diff, staged_diff_budget.max(512));
-    let truncated_diff_stat = truncate_for_ai_budget(&diff_stat, diff_stat_budget.max(128));
-    let truncated_status = truncate_for_ai_budget(&status, status_budget.max(64));
+    let truncated_staged_diff = if prompt_mode == CommitPromptMode::Fast {
+        String::new()
+    } else {
+        truncate_for_ai_budget(
+            &staged_diff,
+            staged_diff_budget.max(COMMIT_STAGED_DIFF_MIN_BUDGET_CHARS),
+        )
+    };
+    let truncated_diff_stat =
+        truncate_for_ai_budget(&diff_stat, diff_stat_budget.max(COMMIT_DIFF_STAT_MIN_BUDGET_CHARS));
+    let truncated_changed_files = truncate_for_ai_budget(
+        &changed_files,
+        changed_files_budget.max(COMMIT_CHANGED_FILES_MIN_BUDGET_CHARS),
+    );
     let truncated_recent_titles =
-        truncate_for_ai_budget(&recent_titles, recent_titles_budget.max(64));
+        truncate_for_ai_budget(&recent_titles, recent_titles_budget.max(COMMIT_RECENT_TITLES_MIN_BUDGET_CHARS));
 
     let prompt = build_commit_generation_prompt(
-        &truncated_status,
         &truncated_diff_stat,
+        &truncated_changed_files,
         &truncated_staged_diff,
         &truncated_recent_titles,
         &instruction,
+        prompt_mode,
     );
     let secret = resolve_ai_provider_secret(&state, &provider)?;
     let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
-    let completions_url = format!("{base_url}/chat/completions");
-    let request_body = serde_json::json!({
-        "model": trimmed_model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You write high-quality git commit messages and must respond with strict JSON only."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "max_tokens": max_input_tokens.min(300).max(64),
-        "temperature": 0.2
-    });
-    let response = ureq::post(&completions_url)
-        .set("Accept", "application/json")
-        .set("Authorization", &format!("Bearer {secret}"))
-        .set("Content-Type", "application/json")
-        .send_string(&request_body.to_string())
-        .map_err(map_ai_http_error)?;
+    let request_kind = get_ai_request_kind(&provider, &base_url);
+    let output_token_limit = max_output_tokens
+        .max(COMMIT_MESSAGE_DEFAULT_OUTPUT_TOKEN_LIMIT)
+        .clamp(32, COMMIT_MESSAGE_MAX_OUTPUT_TOKEN_LIMIT);
+    let schema = build_commit_message_schema();
+    let (request_url, request_body) = match request_kind {
+        AiRequestKind::Anthropic => (
+            format!("{base_url}/messages"),
+            serde_json::json!({
+                "model": trimmed_model,
+                "system": [
+                    {
+                        "type": "text",
+                        "text": "You write high-quality git commit messages from staged changes only."
+                    },
+                    {
+                        "type": "text",
+                        "text": "Return a concise title and optional brief body.",
+                        "cache_control": { "type": "ephemeral" }
+                    }
+                ],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": output_token_limit,
+                "temperature": 0.2,
+                "output_config": {
+                    "effort": "low",
+                    "format": {
+                        "type": "json_schema",
+                        "schema": schema
+                    }
+                }
+            }),
+        ),
+        AiRequestKind::Gemini => (
+            format!("{base_url}/models/{trimmed_model}:generateContent"),
+            serde_json::json!({
+                "system_instruction": {
+                    "parts": [
+                        {
+                            "text": "You write high-quality git commit messages from staged changes only."
+                        }
+                    ]
+                },
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "maxOutputTokens": output_token_limit,
+                    "temperature": 0.2,
+                    "responseMimeType": "application/json",
+                    "responseJsonSchema": schema,
+                    "thinkingConfig": {
+                        "thinkingLevel": "low"
+                    }
+                }
+            }),
+        ),
+        AiRequestKind::OpenAiCompatible => (
+            format!("{base_url}/chat/completions"),
+            serde_json::json!({
+                "model": trimmed_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You write high-quality git commit messages from staged changes only."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": output_token_limit,
+                "temperature": 0.2,
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "commit_message",
+                        "strict": true,
+                        "schema": schema
+                    }
+                }
+            }),
+        ),
+    };
+    let mut schema_fallback_used = false;
+    let response = match send_ai_json_request(&request_url, request_kind, &secret, &request_body) {
+        Ok(response) => response,
+        Err(error)
+            if request_kind == AiRequestKind::OpenAiCompatible
+                && (error.contains("response_format") || error.contains("json_schema")) =>
+        {
+            schema_fallback_used = true;
+            let fallback_body = serde_json::json!({
+                "model": trimmed_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You write high-quality git commit messages from staged changes only and must respond with strict JSON only."
+                    },
+                    {
+                        "role": "user",
+                        "content": build_legacy_json_commit_prompt(&prompt)
+                    }
+                ],
+                "max_tokens": output_token_limit,
+                "temperature": 0.2
+            });
+
+            send_ai_json_request(&request_url, request_kind, &secret, &fallback_body)?
+        }
+        Err(error) => return Err(error),
+    };
     let body = read_ureq_response_string(response)?;
     let payload: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|_| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
-    let content = extract_ai_message_content(&payload)
-        .ok_or_else(|| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+        .map_err(|_| "The configured AI endpoint returned invalid JSON.".to_string())?;
+    let content = extract_ai_commit_message_content(&payload, request_kind)
+        .ok_or_else(|| "The configured AI endpoint did not return a parseable commit message.".to_string())?;
 
-    parse_generated_commit_message(&content)
+    let mut generated = parse_generated_commit_message(&content)?;
+    generated.prompt_mode = commit_prompt_mode_label(prompt_mode).to_string();
+    generated.provider_kind = ai_request_kind_label(request_kind).to_string();
+    generated.schema_fallback_used = schema_fallback_used;
+
+    Ok(generated)
 }
 
 #[tauri::command]

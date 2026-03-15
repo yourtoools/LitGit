@@ -149,7 +149,7 @@ export function GroupContextMenu({ groupId, children }: GroupContextMenuProps) {
         >
           <div className="space-y-3 p-2">
             <Input
-              className="h-9 w-full"
+              className="focus-visible:desktop-focus h-9 w-full focus-visible:ring-0! focus-visible:ring-offset-0!"
               onChange={(event) => renameGroup(groupId, event.target.value)}
               onKeyDown={(event) => event.stopPropagation()}
               placeholder="Name this group"
@@ -161,7 +161,7 @@ export function GroupContextMenu({ groupId, children }: GroupContextMenuProps) {
               {GROUP_COLORS.map((color) => (
                 <button
                   className={cn(
-                    "h-5 w-5 shrink-0 rounded-full border-2 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    "focus-visible:desktop-focus-strong h-5 w-5 shrink-0 rounded-full border-2 transition-all hover:scale-110",
                     group.color === color
                       ? "scale-110 border-foreground"
                       : "border-transparent"
@@ -180,7 +180,7 @@ export function GroupContextMenu({ groupId, children }: GroupContextMenuProps) {
 
           <div className="flex flex-col">
             <Button
-              className="flex w-full justify-start gap-2"
+              className="focus-visible:desktop-focus flex w-full justify-start gap-2 focus-visible:ring-0! focus-visible:ring-offset-0!"
               onClick={handleNewTab}
               variant="ghost"
             >
@@ -189,7 +189,7 @@ export function GroupContextMenu({ groupId, children }: GroupContextMenuProps) {
             </Button>
 
             <Button
-              className="flex w-full justify-start gap-2"
+              className="focus-visible:desktop-focus flex w-full justify-start gap-2 focus-visible:ring-0! focus-visible:ring-offset-0!"
               onClick={handleUngroupClick}
               variant="ghost"
             >
@@ -198,7 +198,7 @@ export function GroupContextMenu({ groupId, children }: GroupContextMenuProps) {
             </Button>
 
             <Button
-              className="flex w-full justify-start gap-2 text-destructive"
+              className="focus-visible:desktop-focus-destructive flex w-full justify-start gap-2 text-destructive focus-visible:ring-0! focus-visible:ring-offset-0!"
               onClick={handleCloseGroupClick}
               variant="ghost"
             >

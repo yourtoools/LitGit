@@ -5,7 +5,7 @@ import { isWindowsPlatform } from "@/lib/runtime-platform";
 
 const TITLEBAR_HEIGHT_CLASS = "h-7";
 const CONTROL_BUTTON_BASE_CLASS =
-  "tauri-no-drag inline-flex items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70";
+  "tauri-no-drag inline-flex items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors focus-visible:desktop-focus focus-visible:text-foreground";
 const CONTROL_BUTTON_SIZE_CLASS = `${TITLEBAR_HEIGHT_CLASS} w-8`;
 const CONTROL_BUTTON_HOVER_CLASS = "hover:bg-muted/70 hover:text-foreground";
 const CONTROL_BUTTON_CLOSE_HOVER_CLASS =

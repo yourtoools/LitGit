@@ -95,7 +95,7 @@ export function TabItem({
               aria-label={`Open tab ${tabLabel}`}
               aria-selected={isActive}
               className={cn(
-                "inline-flex h-full w-full flex-1 items-center gap-1.5 border-0 border-transparent px-2 font-medium text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring/70",
+                "focus-visible:desktop-focus inline-flex h-full w-full flex-1 items-center gap-1.5 border-0 border-transparent px-2 font-medium text-xs transition-colors focus-visible:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!",
                 !isSingleTab && "pr-5"
               )}
               data-tab-button="true"
@@ -163,7 +163,7 @@ export function TabItem({
       <Button
         aria-label={isLoading ? `Loading ${tabLabel}` : `Close ${tabLabel}`}
         className={cn(
-          "absolute right-1 size-4 border border-transparent p-0 transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/70",
+          "focus-visible:desktop-focus absolute right-1 size-4 border border-transparent p-0 transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-0! focus-visible:ring-offset-0!",
           showCloseButton
             ? "pointer-events-auto opacity-100 hover:border-border/70 hover:bg-background/80"
             : "pointer-events-none opacity-0"

@@ -94,8 +94,10 @@ const PRESENTATION_OPTIONS: Array<{
 ];
 const BUTTON_GROUP_CLASS =
   "inline-flex items-center gap-0.5  border border-border/70 bg-muted/20 p-0.5";
-const TEXT_BUTTON_CLASS = "h-7 px-2 text-[0.72rem]";
-const ICON_BUTTON_CLASS = "h-7 w-7 p-0";
+const TEXT_BUTTON_CLASS =
+  "focus-visible:desktop-focus h-7 px-2 text-[0.72rem] focus-visible:ring-0! focus-visible:ring-offset-0!";
+const ICON_BUTTON_CLASS =
+  "focus-visible:desktop-focus-strong h-7 w-7 p-0 focus-visible:ring-0! focus-visible:ring-offset-0!";
 
 function groupEncodingOptions(
   options: DiffWorkspaceEncodingOption[]
@@ -190,7 +192,7 @@ export function DiffWorkspaceToolbar({
 
         {stageActionLabel ? (
           <Button
-            className="h-7 px-2 text-xs"
+            className="focus-visible:desktop-focus h-7 px-2 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
             disabled={isStageActionDisabled}
             onClick={onStageAction}
             size="sm"
@@ -203,7 +205,7 @@ export function DiffWorkspaceToolbar({
 
         <Button
           aria-label="Close diff editor"
-          className="h-7 w-7 p-0"
+          className="focus-visible:desktop-focus-strong h-7 w-7 p-0 focus-visible:ring-0! focus-visible:ring-offset-0!"
           onClick={onClose}
           size="icon-sm"
           type="button"
@@ -231,7 +233,7 @@ export function DiffWorkspaceToolbar({
           value={encoding}
         >
           <SelectTrigger
-            className="h-7 w-auto max-w-48 gap-1 border-0! bg-transparent! px-0! font-medium text-[0.68rem] text-muted-foreground uppercase tracking-wide shadow-none hover:text-foreground focus-visible:border-transparent! focus-visible:ring-0! focus-visible:ring-offset-0! [&_svg]:size-3"
+            className="focus-visible:desktop-focus h-7 w-auto max-w-48 gap-1 border-0! bg-transparent! px-0! font-medium text-[0.68rem] text-muted-foreground uppercase tracking-wide shadow-none hover:text-foreground focus-visible:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! [&_svg]:size-3"
             size="sm"
           >
             <SelectValue placeholder="Encoding" />
@@ -243,7 +245,7 @@ export function DiffWorkspaceToolbar({
 
         {stageActionLabel ? (
           <Button
-            className="h-7 px-2 text-xs"
+            className="focus-visible:desktop-focus h-7 px-2 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
             disabled={isStageActionDisabled}
             onClick={onStageAction}
             size="sm"
@@ -256,7 +258,7 @@ export function DiffWorkspaceToolbar({
 
         <Button
           aria-label="Close diff editor"
-          className="h-7 w-7 p-0"
+          className="focus-visible:desktop-focus-strong h-7 w-7 p-0 focus-visible:ring-0! focus-visible:ring-offset-0!"
           onClick={onClose}
           size="icon-sm"
           type="button"
@@ -270,7 +272,7 @@ export function DiffWorkspaceToolbar({
         <div className="flex items-center gap-2">
           {isAttributionMode ? null : (
             <Button
-              className="h-7 gap-1.5 px-2 text-xs"
+              className="focus-visible:desktop-focus h-7 gap-1.5 px-2 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
               onClick={onEdit}
               size="sm"
               type="button"

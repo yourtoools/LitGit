@@ -225,7 +225,7 @@ export function HeaderTabsSearch() {
                   render={
                     <Button
                       aria-label="Search Opened Tabs"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                      className="focus-visible:desktop-focus text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
                       size="icon"
                       variant="ghost"
                     />
@@ -294,7 +294,7 @@ export function HeaderTabsSearch() {
                       <span className="flex-1 truncate">{item.title}</span>
                       <button
                         aria-label={`Close ${item.title}`}
-                        className="ml-auto flex size-6 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted group-data-highlighted/tab-item:opacity-100"
+                        className="focus-visible:desktop-focus-strong ml-auto flex size-6 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-data-highlighted/tab-item:opacity-100"
                         onClick={(e) => handleCloseTab(e, item)}
                         type="button"
                       >

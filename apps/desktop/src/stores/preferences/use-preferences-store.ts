@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   type AppPreferences,
   clampAiMaxInputTokens,
+  clampAiMaxOutputTokens,
   clampAutoFetchInterval,
   clampEditorFontSize,
   clampEditorTabSize,
@@ -12,6 +13,8 @@ import {
   type DateFormatPreset,
   DEFAULT_PREFERENCES,
   DEFAULT_REPO_FILE_BROWSER_STATE,
+  getDefaultAiMaxInputTokens,
+  getDefaultAiMaxOutputTokens,
   PREFERENCES_STORAGE_KEY,
   type RepoFileBrowserState,
   type SettingsSectionId,
@@ -26,6 +29,7 @@ interface PreferencesStoreState extends AppPreferences {
   setAiCommitInstruction: (commitInstruction: string) => void;
   setAiCustomEndpoint: (customEndpoint: string) => void;
   setAiMaxInputTokens: (maxInputTokens: number) => void;
+  setAiMaxOutputTokens: (maxOutputTokens: number) => void;
   setAiModel: (model: string) => void;
   setAiProvider: (provider: AppPreferences["ai"]["provider"]) => void;
   setAutoFetchIntervalMinutes: (minutes: number) => void;
@@ -133,6 +137,14 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
           },
         }));
       },
+      setAiMaxOutputTokens: (maxOutputTokens) => {
+        set((state) => ({
+          ai: {
+            ...state.ai,
+            maxOutputTokens: clampAiMaxOutputTokens(maxOutputTokens),
+          },
+        }));
+      },
       setAiModel: (model) => {
         set((state) => ({
           ai: {
@@ -145,6 +157,14 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
         set((state) => ({
           ai: {
             ...state.ai,
+            maxInputTokens:
+              provider === state.ai.provider
+                ? state.ai.maxInputTokens
+                : getDefaultAiMaxInputTokens(provider),
+            maxOutputTokens:
+              provider === state.ai.provider
+                ? state.ai.maxOutputTokens
+                : getDefaultAiMaxOutputTokens(provider),
             model: provider === state.ai.provider ? state.ai.model : "",
             provider,
           },

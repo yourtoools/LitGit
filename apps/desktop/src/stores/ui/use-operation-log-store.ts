@@ -4,12 +4,15 @@ const MAX_ENTRIES_PER_STREAM = 800;
 
 type OperationLogLevel = "error" | "info" | "warn";
 
+type OperationLogMetadataValue = boolean | number | string;
+
 export interface OperationLogEntry {
   command?: string;
   durationMs?: number;
   id: string;
   level: OperationLogLevel;
   message: string;
+  metadata?: Record<string, OperationLogMetadataValue>;
   timestampMs: number;
 }
 
@@ -18,6 +21,7 @@ interface AppendOperationLogInput {
   durationMs?: number;
   level: OperationLogLevel;
   message: string;
+  metadata?: Record<string, OperationLogMetadataValue>;
   timestampMs?: number;
 }
 
