@@ -6209,7 +6209,7 @@ export function RepoInfo() {
         activeRepoId,
         draftCommitSummary.trim(),
         draftCommitDescription.trim(),
-        !amendPreviousCommit,
+        false,
         amendPreviousCommit,
         skipCommitHooks
       );
