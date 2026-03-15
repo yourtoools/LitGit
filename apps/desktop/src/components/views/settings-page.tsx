@@ -241,13 +241,13 @@ function ThemePreviewCard({
       <span
         aria-hidden="true"
         className={cn(
-          "group relative flex min-w-0 cursor-pointer flex-col gap-2 rounded-xl border p-3 text-left transition-all duration-150 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
+          "group relative flex min-w-0 cursor-pointer flex-col gap-2 border p-3 text-left transition-all duration-150 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
           isSelected
             ? "border-primary/60 bg-primary/5 shadow-primary/10 shadow-sm"
             : "border-border/60 bg-background/70 hover:border-border hover:bg-muted/30"
         )}
       >
-        <div className="relative overflow-hidden rounded-lg border border-border/50">
+        <div className="relative overflow-hidden border border-border/50">
           <ThemePreviewArt value={option.value} />
         </div>
         <div className="flex items-center gap-2 pt-1">
@@ -279,17 +279,17 @@ function LightThemePreview() {
   return (
     <div className="flex h-16 flex-col bg-[oklch(0.98_0_0)]">
       <div className="flex items-center gap-1 border-[oklch(0.922_0_0)] border-b px-1.5 py-1">
-        <div className="size-1.5 rounded-sm bg-[oklch(0.556_0_0)]" />
-        <div className="size-1.5 rounded-sm bg-[oklch(0.556_0_0)]" />
-        <div className="size-1.5 rounded-sm bg-[oklch(0.556_0_0)]" />
+        <div className="size-1.5 bg-[oklch(0.556_0_0)]" />
+        <div className="size-1.5 bg-[oklch(0.556_0_0)]" />
+        <div className="size-1.5 bg-[oklch(0.556_0_0)]" />
         <div className="ml-auto size-1.5 rounded-full bg-[oklch(0.708_0_0)]" />
       </div>
       <div className="flex flex-1 gap-1 p-1">
-        <div className="w-5 rounded-sm bg-[oklch(0.97_0_0)]" />
+        <div className="w-5 bg-[oklch(0.97_0_0)]" />
         <div className="flex flex-1 flex-col gap-0.5">
-          <div className="h-2 rounded-sm bg-[oklch(0.922_0_0)]" />
-          <div className="h-1.5 w-3/4 rounded-sm bg-[oklch(0.922_0_0)]" />
-          <div className="h-1.5 w-1/2 rounded-sm bg-[oklch(0.922_0_0)]" />
+          <div className="h-2 bg-[oklch(0.922_0_0)]" />
+          <div className="h-1.5 w-3/4 bg-[oklch(0.922_0_0)]" />
+          <div className="h-1.5 w-1/2 bg-[oklch(0.922_0_0)]" />
         </div>
       </div>
     </div>
@@ -300,17 +300,17 @@ function DarkThemePreview() {
   return (
     <div className="flex h-16 flex-col bg-[oklch(0.145_0_0)]">
       <div className="flex items-center gap-1 border-[oklch(1_0_0/10%)] border-b px-1.5 py-1">
-        <div className="size-1.5 rounded-sm bg-[oklch(0.708_0_0)]" />
-        <div className="size-1.5 rounded-sm bg-[oklch(0.708_0_0)]" />
-        <div className="size-1.5 rounded-sm bg-[oklch(0.708_0_0)]" />
+        <div className="size-1.5 bg-[oklch(0.708_0_0)]" />
+        <div className="size-1.5 bg-[oklch(0.708_0_0)]" />
+        <div className="size-1.5 bg-[oklch(0.708_0_0)]" />
         <div className="ml-auto size-1.5 rounded-full bg-[oklch(0.556_0_0)]" />
       </div>
       <div className="flex flex-1 gap-1 p-1">
-        <div className="w-5 rounded-sm bg-[oklch(0.269_0_0)]" />
+        <div className="w-5 bg-[oklch(0.269_0_0)]" />
         <div className="flex flex-1 flex-col gap-0.5">
-          <div className="h-2 rounded-sm bg-[oklch(0.269_0_0)]" />
-          <div className="h-1.5 w-3/4 rounded-sm bg-[oklch(0.269_0_0)]" />
-          <div className="h-1.5 w-1/2 rounded-sm bg-[oklch(0.269_0_0)]" />
+          <div className="h-2 bg-[oklch(0.269_0_0)]" />
+          <div className="h-1.5 w-3/4 bg-[oklch(0.269_0_0)]" />
+          <div className="h-1.5 w-1/2 bg-[oklch(0.269_0_0)]" />
         </div>
       </div>
     </div>
@@ -322,22 +322,22 @@ function SystemThemePreview() {
     <div className="flex h-16">
       <div className="flex w-1/2 flex-col bg-[oklch(0.98_0_0)]">
         <div className="flex items-center gap-0.5 border-[oklch(0.922_0_0)] border-b px-1 py-0.5">
-          <div className="size-1 rounded-sm bg-[oklch(0.556_0_0)]" />
-          <div className="size-1 rounded-sm bg-[oklch(0.556_0_0)]" />
+          <div className="size-1 bg-[oklch(0.556_0_0)]" />
+          <div className="size-1 bg-[oklch(0.556_0_0)]" />
         </div>
         <div className="flex flex-1 flex-col gap-0.5 p-1">
-          <div className="h-1.5 rounded-sm bg-[oklch(0.922_0_0)]" />
-          <div className="h-1 w-3/4 rounded-sm bg-[oklch(0.922_0_0)]" />
+          <div className="h-1.5 bg-[oklch(0.922_0_0)]" />
+          <div className="h-1 w-3/4 bg-[oklch(0.922_0_0)]" />
         </div>
       </div>
       <div className="flex w-1/2 flex-col bg-[oklch(0.145_0_0)]">
         <div className="flex items-center gap-0.5 border-[oklch(1_0_0/10%)] border-b px-1 py-0.5">
-          <div className="size-1 rounded-sm bg-[oklch(0.708_0_0)]" />
-          <div className="size-1 rounded-sm bg-[oklch(0.708_0_0)]" />
+          <div className="size-1 bg-[oklch(0.708_0_0)]" />
+          <div className="size-1 bg-[oklch(0.708_0_0)]" />
         </div>
         <div className="flex flex-1 flex-col gap-0.5 p-1">
-          <div className="h-1.5 rounded-sm bg-[oklch(0.269_0_0)]" />
-          <div className="h-1 w-3/4 rounded-sm bg-[oklch(0.269_0_0)]" />
+          <div className="h-1.5 bg-[oklch(0.269_0_0)]" />
+          <div className="h-1 w-3/4 bg-[oklch(0.269_0_0)]" />
         </div>
       </div>
     </div>
@@ -953,7 +953,7 @@ function SettingsField({
   return (
     <div
       className={cn(
-        "grid gap-2 rounded-xl border border-border/60 bg-background/70 p-4 transition-colors md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
+        "grid gap-2 border border-border/60 bg-background/70 p-4 transition-colors md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
         isHighlighted && "border-primary/40 bg-primary/5"
       )}
     >
@@ -989,7 +989,7 @@ function _PlannedField({
   return (
     <div
       className={cn(
-        "grid gap-1 rounded-xl border border-border/70 border-dashed bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
+        "grid gap-1 border border-border/70 border-dashed bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
         isHighlighted && "border-primary/50 bg-primary/5"
       )}
     >
@@ -1046,13 +1046,11 @@ type EditorPreviewThemeMode = "dark" | "light";
 
 const EDITOR_PREVIEW_THEME_CLASSES = {
   dark: {
-    addedHighlight:
-      "rounded-sm bg-emerald-500/12 pl-2 ring-1 ring-emerald-400/25",
+    addedHighlight: " bg-emerald-500/12 pl-2 ring-1 ring-emerald-400/25",
     markerAdded: "text-emerald-300",
     markerRemoved: "text-rose-300",
     markerUnchanged: "text-muted-foreground/50",
-    removedHighlight:
-      "rounded-sm bg-rose-500/10 pl-2 opacity-90 ring-1 ring-rose-400/20",
+    removedHighlight: " bg-rose-500/10 pl-2 opacity-90 ring-1 ring-rose-400/20",
     surface: "bg-[#171717]",
     tone: {
       added: "text-emerald-300",
@@ -1064,13 +1062,11 @@ const EDITOR_PREVIEW_THEME_CLASSES = {
     },
   },
   light: {
-    addedHighlight:
-      "rounded-sm bg-emerald-100/80 pl-2 ring-1 ring-emerald-300/70",
+    addedHighlight: " bg-emerald-100/80 pl-2 ring-1 ring-emerald-300/70",
     markerAdded: "text-emerald-700",
     markerRemoved: "text-rose-700",
     markerUnchanged: "text-muted-foreground/70",
-    removedHighlight:
-      "rounded-sm bg-rose-100/80 pl-2 opacity-95 ring-1 ring-rose-300/70",
+    removedHighlight: " bg-rose-100/80 pl-2 opacity-95 ring-1 ring-rose-300/70",
     surface: "bg-background",
     tone: {
       added: "text-emerald-700",
@@ -1094,7 +1090,7 @@ const TERMINAL_PREVIEW_LINES = [
 
 const TERMINAL_CURSOR_STYLE_CLASS_NAMES = {
   bar: "h-4 w-0.5 rounded-full",
-  block: "h-4 w-2 rounded-[1px]",
+  block: "h-4 w-2 ",
   underline: "h-0.5 w-3 rounded-full",
 } as const;
 
@@ -1239,7 +1235,7 @@ function EditorStaticPreview({
   return (
     <div
       className={cn(
-        "h-full overflow-hidden rounded-md border border-border/60",
+        "h-full overflow-hidden border border-border/60",
         previewThemeClasses.surface
       )}
     >
@@ -1342,7 +1338,7 @@ function EditorPreview({
     resolvedTheme === "light" ? "light" : "dark";
 
   return (
-    <div className="flex h-full min-h-88 flex-col overflow-hidden rounded-lg border border-border/70 bg-card/60">
+    <div className="flex h-full min-h-88 flex-col overflow-hidden border border-border/70 bg-card/60">
       <div className="flex items-center justify-between border-border/70 border-b bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
         <span>Editor Preview</span>
         <SectionActionRow>
@@ -1403,14 +1399,14 @@ function TerminalPreview({
   const previewFontFamily = getPreviewFontFamily(fontFamily);
 
   return (
-    <div className="flex h-full min-h-88 flex-col overflow-hidden rounded-lg border border-border/70 bg-card/60">
+    <div className="flex h-full min-h-88 flex-col overflow-hidden border border-border/70 bg-card/60">
       <div className="flex items-center justify-between border-border/70 border-b bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
         <span>Terminal Preview</span>
         <span>Default shell directory</span>
       </div>
       <div className="min-h-0 flex-1 p-2">
         <div
-          className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-background px-3 py-3 font-mono"
+          className="flex h-full min-h-0 flex-col overflow-hidden border border-border/60 bg-background px-3 py-3 font-mono"
           style={{
             fontFamily: previewFontFamily,
             fontSize: `${fontSize}px`,
@@ -1502,7 +1498,7 @@ function FontPickerField({
     <SettingsField description={description} label={label} query={query}>
       <div className="grid gap-3">
         {showLoadingSkeleton ? (
-          <Skeleton className="h-8 w-full rounded-lg border border-input/60 bg-input/35" />
+          <Skeleton className="h-8 w-full border border-input/60 bg-input/35" />
         ) : (
           <Combobox
             autoHighlight
@@ -1794,7 +1790,7 @@ function GitSection({ query }: { query: string }) {
         query={query}
       >
         <div className="grid gap-3">
-          <div className="grid gap-2 rounded-xl border border-border/60 bg-muted/18 p-4">
+          <div className="grid gap-2 border border-border/60 bg-muted/18 p-4">
             {isEditing ? (
               <div className="grid gap-4">
                 <div className="grid gap-2">
@@ -2379,16 +2375,16 @@ function UiSection({ query }: { query: string }) {
             />
             <span className="text-sm">Display action labels in the header</span>
           </label>
-          <div className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 p-2">
-            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/70 bg-background px-2 py-1 text-xs">
+          <div className="inline-flex items-center gap-2 border border-border/70 bg-muted/20 p-2">
+            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap border border-border/70 bg-background px-2 py-1 text-xs">
               <GitBranchIcon className="size-3.5" />
               {toolbarLabels ? <span>Branches</span> : null}
             </span>
-            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/70 bg-background px-2 py-1 text-xs">
+            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap border border-border/70 bg-background px-2 py-1 text-xs">
               <TerminalWindowIcon className="size-3.5" />
               {toolbarLabels ? <span>Terminal</span> : null}
             </span>
-            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border/70 bg-background px-2 py-1 text-xs">
+            <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap border border-border/70 bg-background px-2 py-1 text-xs">
               <ShieldCheckIcon className="size-3.5" />
               {toolbarLabels ? <span>Security</span> : null}
             </span>
@@ -3158,7 +3154,7 @@ function NetworkSection({ query }: { query: string }) {
         label="Proxy target"
         query={query}
       >
-        <div className="grid gap-4 rounded-xl border border-border/60 bg-muted/18 p-4 md:gap-4">
+        <div className="grid gap-4 border border-border/60 bg-muted/18 p-4 md:gap-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(7rem,0.75fr)_minmax(8rem,0.8fr)]">
             <div className="grid gap-2">
               <Label htmlFor="proxy-target-host">Proxy host</Label>
@@ -3430,7 +3426,7 @@ function NetworkSection({ query }: { query: string }) {
           ) : (
             credentialEntries.map((entry) => (
               <div
-                className="flex items-center justify-between gap-3 rounded-lg border border-border/70 px-3 py-2"
+                className="flex items-center justify-between gap-3 border border-border/70 px-3 py-2"
                 key={entry.id}
               >
                 <div className="min-w-0">
@@ -5124,7 +5120,7 @@ export function SettingsPage() {
                 return (
                   <button
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                      "flex w-full items-center gap-3 px-2 py-2 text-left text-sm transition-colors",
                       isActive
                         ? "bg-primary/10 font-medium text-primary"
                         : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
@@ -5164,7 +5160,7 @@ export function SettingsPage() {
               {activeDefinition.description}
             </p>
           </header>
-          <div className="rounded-xl border border-primary/15 bg-primary/2.5 p-4 sm:p-6">
+          <div className="border border-primary/15 bg-primary/2.5 p-4 sm:p-6">
             <div className="grid gap-4">
               {renderSection(activeDefinition.id, query)}
             </div>

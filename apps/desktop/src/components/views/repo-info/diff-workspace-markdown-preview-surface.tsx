@@ -43,7 +43,7 @@ function renderInlineMarkdown(value: string): ReactNode[] {
     if (token.startsWith("`") && token.endsWith("`")) {
       nodes.push(
         <code
-          className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono font-semibold text-sm"
+          className="relative bg-muted px-[0.3rem] py-[0.2rem] font-mono font-semibold text-sm"
           key={`inline-code-${tokenStart}-${token}`}
         >
           {token.slice(1, -1)}
@@ -153,7 +153,7 @@ function parseMarkdownBlocks(markdown: string): ReactNode[] {
 
       blocks.push(
         <pre
-          className="my-6 overflow-auto rounded-md border border-border/70 bg-muted/30 px-4 py-3"
+          className="my-6 overflow-auto border border-border/70 bg-muted/30 px-4 py-3"
           key={`code-block-${blockStart}`}
         >
           {language.length > 0 ? (

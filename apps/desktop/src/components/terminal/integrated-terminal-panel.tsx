@@ -270,24 +270,21 @@ export function IntegratedTerminalPanel({
         value={activeTab}
       >
         <div className="flex h-9 items-center justify-between border-border/60 border-b bg-muted/30 px-2">
-          <TabsList
-            className="h-8 rounded-none bg-transparent p-0"
-            variant="line"
-          >
+          <TabsList className="h-8 bg-transparent p-0" variant="line">
             <TabsTrigger
-              className="h-7 rounded-md px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
+              className="h-7 px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
               value="terminal"
             >
               Terminal
             </TabsTrigger>
             <TabsTrigger
-              className="h-7 rounded-md px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
+              className="h-7 px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
               value="output"
             >
               Output
             </TabsTrigger>
             <TabsTrigger
-              className="h-7 rounded-md px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
+              className="h-7 px-2 font-medium text-[0.68rem] uppercase tracking-[0.12em]"
               value="activity"
             >
               Activity Log

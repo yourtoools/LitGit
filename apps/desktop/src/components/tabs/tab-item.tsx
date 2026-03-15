@@ -163,7 +163,7 @@ export function TabItem({
       <Button
         aria-label={isLoading ? `Loading ${tabLabel}` : `Close ${tabLabel}`}
         className={cn(
-          "absolute right-1 size-4 rounded-sm border border-transparent p-0 transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/70",
+          "absolute right-1 size-4 border border-transparent p-0 transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/70",
           showCloseButton
             ? "pointer-events-auto opacity-100 hover:border-border/70 hover:bg-background/80"
             : "pointer-events-none opacity-0"

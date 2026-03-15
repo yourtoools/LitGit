@@ -36,7 +36,7 @@ export function QuickActionButton({
       <TooltipTrigger className="w-full">
         <Button
           aria-keyshortcuts={shortcutAriaLabel}
-          className="group h-auto w-full flex-col items-start justify-start gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-4 text-left shadow-none transition-colors hover:border-primary/45 hover:bg-primary/20"
+          className="group h-auto w-full flex-col items-start justify-start gap-3 border border-primary/20 bg-primary/10 px-4 py-4 text-left shadow-none transition-colors hover:border-primary/45 hover:bg-primary/20"
           disabled={disabled}
           onClick={onClick}
           type="button"
@@ -50,7 +50,7 @@ export function QuickActionButton({
             <span className="mt-1 flex items-center gap-2 font-mono font-semibold text-sm tracking-tight">
               {label}
               {shortcut && (
-                <span className="rounded border border-current/35 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider">
+                <span className="border border-current/35 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider">
                   {shortcut}
                 </span>
               )}

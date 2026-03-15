@@ -282,7 +282,7 @@ export function HeaderTabsSearch() {
                   </ComboboxLabel>
                   {filteredOpen.map((item) => (
                     <ComboboxItem
-                      className="group/tab-item relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                      className="group/tab-item relative flex w-full cursor-default select-none items-center px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
                       key={item.id}
                       value={item}
                     >
@@ -294,7 +294,7 @@ export function HeaderTabsSearch() {
                       <span className="flex-1 truncate">{item.title}</span>
                       <button
                         aria-label={`Close ${item.title}`}
-                        className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity hover:bg-muted group-data-highlighted/tab-item:opacity-100"
+                        className="ml-auto flex size-6 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted group-data-highlighted/tab-item:opacity-100"
                         onClick={(e) => handleCloseTab(e, item)}
                         type="button"
                       >
@@ -316,7 +316,7 @@ export function HeaderTabsSearch() {
                     </ComboboxLabel>
                     {filteredClosed.map((item) => (
                       <ComboboxItem
-                        className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                        className="relative flex w-full cursor-default select-none items-center px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
                         key={item.id}
                         value={item}
                       >

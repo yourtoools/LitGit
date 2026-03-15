@@ -167,7 +167,7 @@ export function DiffWorkspaceHistorySurface({
   if (renderError && entries.length === 0) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+        <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
           <p className="font-medium text-sm">Error loading file history</p>
           <Button
             className="h-7 px-3 text-xs"
@@ -211,7 +211,7 @@ export function DiffWorkspaceHistorySurface({
                 }}
                 type="button"
               >
-                <Avatar className="size-8 rounded-sm border border-border/60">
+                <Avatar className="size-8 border border-border/60">
                   <AvatarImage
                     alt={entry.author}
                     src={avatarSrc ?? undefined}
@@ -272,7 +272,7 @@ export function DiffWorkspaceHistorySurface({
             <div className="h-full overflow-auto p-3">
               {useImageSplitView ? (
                 <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                  <div className="flex min-h-0 flex-col border border-border/70 bg-background">
                     <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
                       Original
                     </p>
@@ -280,7 +280,7 @@ export function DiffWorkspaceHistorySurface({
                       {diff.oldImageDataUrl ? (
                         <img
                           alt={`Original version of ${diff.path}`}
-                          className="max-h-full max-w-full rounded-md object-contain"
+                          className="max-h-full max-w-full object-contain"
                           height={800}
                           src={diff.oldImageDataUrl}
                           width={1200}
@@ -292,7 +292,7 @@ export function DiffWorkspaceHistorySurface({
                       )}
                     </div>
                   </div>
-                  <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                  <div className="flex min-h-0 flex-col border border-border/70 bg-background">
                     <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
                       Modified
                     </p>
@@ -300,7 +300,7 @@ export function DiffWorkspaceHistorySurface({
                       {diff.newImageDataUrl ? (
                         <img
                           alt={`Modified version of ${diff.path}`}
-                          className="max-h-full max-w-full rounded-md object-contain"
+                          className="max-h-full max-w-full object-contain"
                           height={800}
                           src={diff.newImageDataUrl}
                           width={1200}
@@ -314,11 +314,11 @@ export function DiffWorkspaceHistorySurface({
                   </div>
                 </div>
               ) : (
-                <div className="flex min-h-full items-center justify-center rounded-md border border-border/70 bg-background p-3">
+                <div className="flex min-h-full items-center justify-center border border-border/70 bg-background p-3">
                   {centeredImageDataUrl ? (
                     <img
                       alt={diff.path}
-                      className="max-h-full max-w-full rounded-md object-contain"
+                      className="max-h-full max-w-full object-contain"
                       height={800}
                       src={centeredImageDataUrl}
                       width={1200}
@@ -344,7 +344,7 @@ export function DiffWorkspaceHistorySurface({
           diff.viewerKind !== "text" &&
           diff.viewerKind !== "image" ? (
             <div className="flex h-full items-center justify-center px-6">
-              <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+              <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
                 <p className="font-medium text-sm">
                   Unsupported file extension
                 </p>

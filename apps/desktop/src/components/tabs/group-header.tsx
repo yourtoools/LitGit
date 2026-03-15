@@ -31,7 +31,7 @@ export function GroupHeader({
         aria-haspopup="menu"
         aria-label={`Tab group ${group.name}`}
         className={cn(
-          "z-10 flex h-8 max-w-36 cursor-grab items-center gap-1.5 rounded-md px-2 font-medium text-white text-xs transition-all hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 active:cursor-grabbing"
+          "z-10 flex h-8 max-w-36 cursor-grab items-center gap-1.5 px-2 font-medium text-white text-xs transition-all hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 active:cursor-grabbing"
         )}
         onClick={(e) => {
           e.preventDefault();

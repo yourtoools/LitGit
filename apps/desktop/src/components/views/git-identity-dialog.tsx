@@ -151,7 +151,7 @@ export function GitIdentityDialog({
         </DialogHeader>
 
         <div className="grid gap-4 px-6 py-5">
-          <section className="rounded-xl border border-border/60 bg-muted/18 p-4">
+          <section className="border border-border/60 bg-muted/18 p-4">
             <p className="font-medium text-foreground text-sm">
               Current Git identity
             </p>
@@ -235,13 +235,13 @@ export function GitIdentityDialog({
             is configured separately.
           </p>
 
-          <section className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3 text-muted-foreground text-xs leading-relaxed">
+          <section className="border border-amber-500/25 bg-amber-500/8 p-3 text-muted-foreground text-xs leading-relaxed">
             Your Git author email becomes part of commit metadata and may be
             visible in public repositories.
           </section>
 
           {formError ? (
-            <section className="rounded-xl border border-destructive/30 bg-destructive/8 p-3">
+            <section className="border border-destructive/30 bg-destructive/8 p-3">
               <p className="text-destructive text-xs leading-relaxed">
                 {formError}
               </p>

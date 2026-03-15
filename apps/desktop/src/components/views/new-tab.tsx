@@ -438,7 +438,7 @@ export function NewTabContent() {
     <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-300">
       <PageContainer className="relative flex w-full flex-1 flex-col gap-8">
         <header className="flex flex-col gap-4">
-          <div className="inline-flex w-fit items-center gap-2 rounded-none border border-primary/25 bg-primary/10 px-3 py-1">
+          <div className="inline-flex w-fit items-center gap-2 border border-primary/25 bg-primary/10 px-3 py-1">
             <span className="font-mono text-primary/85 text-xs uppercase tracking-[0.16em]">
               Built at
             </span>
@@ -569,7 +569,7 @@ export function NewTabContent() {
             />
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-primary/35 bg-primary/10 px-1.5 py-0.5 font-mono text-primary/80 text-xs uppercase tracking-wider"
+              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 border border-primary/35 bg-primary/10 px-1.5 py-0.5 font-mono text-primary/80 text-xs uppercase tracking-wider"
             >
               {searchInputValue ? "ESC" : searchShortcutLabel}
             </span>
@@ -591,7 +591,7 @@ export function NewTabContent() {
             {searchStatusMessage}
           </output>
 
-          <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-primary/5">
+          <div className="relative overflow-hidden border border-primary/20 bg-primary/5">
             {showRecentTopFade && (
               <span
                 aria-hidden="true"

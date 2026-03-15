@@ -30,7 +30,7 @@ export function DiffWorkspaceFileExplorer({
   }, [files, query]);
 
   return (
-    <aside className="absolute top-2 right-2 z-30 flex h-[55vh] w-[22rem] max-w-[85vw] flex-col overflow-hidden rounded-md border border-border/70 bg-background shadow-lg">
+    <aside className="absolute top-2 right-2 z-30 flex h-[55vh] w-[22rem] max-w-[85vw] flex-col overflow-hidden border border-border/70 bg-background shadow-lg">
       <div className="border-border/70 border-b p-2">
         <p className="mb-1 font-medium text-xs">Files</p>
         <Input
@@ -45,7 +45,7 @@ export function DiffWorkspaceFileExplorer({
       <div className="min-h-0 flex-1 overflow-auto p-1">
         {filteredFiles.map((file) => (
           <button
-            className={`block w-full rounded px-2 py-1.5 text-left text-xs ${
+            className={`block w-full px-2 py-1.5 text-left text-xs ${
               file.path === activePath ? "bg-accent/40" : "hover:bg-accent/20"
             }`}
             key={file.path}

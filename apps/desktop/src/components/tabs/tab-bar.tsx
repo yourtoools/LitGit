@@ -129,7 +129,7 @@ function GroupDragOverlay({ group, tabs }: GroupDragOverlayProps) {
   return (
     <div className="flex items-center gap-1 px-1 py-1">
       <div
-        className="z-10 flex h-7 max-w-36 items-center gap-1.5 rounded-md px-2 font-medium text-white text-xs"
+        className="z-10 flex h-7 max-w-36 items-center gap-1.5 px-2 font-medium text-white text-xs"
         style={{ backgroundColor: group.color }}
       >
         <span className="truncate" title={group.name}>

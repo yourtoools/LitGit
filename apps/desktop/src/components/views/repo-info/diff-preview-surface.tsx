@@ -38,7 +38,7 @@ export function DiffPreviewSurface({
   if (state.kind === "guarded") {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <div className="w-full max-w-md space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+        <div className="w-full max-w-md space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
           <p className="font-medium text-sm">{state.title}</p>
           <p className="text-muted-foreground text-xs">{state.description}</p>
           <div className="flex items-center justify-center gap-2">
@@ -68,7 +68,7 @@ export function DiffPreviewSurface({
   if (state.kind === "unsupportedBinary") {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <div className="space-y-2 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+        <div className="space-y-2 border border-border/70 bg-background px-4 py-4 text-center">
           <p className="font-medium text-sm">Binary file not supported</p>
           <p className="text-muted-foreground text-xs">
             This file cannot be rendered in the current preview.
@@ -88,7 +88,7 @@ export function DiffPreviewSurface({
 
   return (
     <div className="flex h-full items-center justify-center px-6">
-      <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+      <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
         <p className="font-medium text-sm">{title}</p>
         <p className="text-muted-foreground text-xs">{description}</p>
         <div className="flex items-center justify-center gap-2">

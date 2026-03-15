@@ -93,7 +93,7 @@ const PRESENTATION_OPTIONS: Array<{
   { icon: SquareSplitHorizontalIcon, label: "Split", mode: "split" },
 ];
 const BUTTON_GROUP_CLASS =
-  "inline-flex items-center gap-0.5 rounded border border-border/70 bg-muted/20 p-0.5";
+  "inline-flex items-center gap-0.5  border border-border/70 bg-muted/20 p-0.5";
 const TEXT_BUTTON_CLASS = "h-7 px-2 text-[0.72rem]";
 const ICON_BUTTON_CLASS = "h-7 w-7 p-0";
 
@@ -231,7 +231,7 @@ export function DiffWorkspaceToolbar({
           value={encoding}
         >
           <SelectTrigger
-            className="h-7 w-auto max-w-48 gap-1 rounded-none! border-0! bg-transparent! px-0! font-medium text-[0.68rem] text-muted-foreground uppercase tracking-wide shadow-none hover:text-foreground focus-visible:border-transparent! focus-visible:ring-0! focus-visible:ring-offset-0! [&_svg]:size-3"
+            className="h-7 w-auto max-w-48 gap-1 border-0! bg-transparent! px-0! font-medium text-[0.68rem] text-muted-foreground uppercase tracking-wide shadow-none hover:text-foreground focus-visible:border-transparent! focus-visible:ring-0! focus-visible:ring-offset-0! [&_svg]:size-3"
             size="sm"
           >
             <SelectValue placeholder="Encoding" />
@@ -284,7 +284,7 @@ export function DiffWorkspaceToolbar({
 
         <div className="flex min-w-0 items-center justify-center gap-2">
           {!isAttributionMode && stageBadgeLabel ? (
-            <span className="inline-flex h-7 items-center rounded border border-border/80 bg-muted/40 px-2 font-medium text-[0.68rem] uppercase tracking-wide">
+            <span className="inline-flex h-7 items-center border border-border/80 bg-muted/40 px-2 font-medium text-[0.68rem] uppercase tracking-wide">
               {stageBadgeLabel}
             </span>
           ) : null}

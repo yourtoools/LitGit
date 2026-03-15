@@ -60,7 +60,7 @@ export function DiffWorkspaceHunkSurface({
   if (renderError) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+        <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
           <p className="font-medium text-sm">Error rendering diff</p>
           <Button
             className="h-7 px-3 text-xs"

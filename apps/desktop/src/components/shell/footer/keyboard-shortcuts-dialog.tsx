@@ -48,7 +48,7 @@ const ShortcutKeys = ({ keys }: { keys: string[] }) => {
     <span className="flex items-center gap-1 font-medium text-foreground/90 text-xs">
       {keys.map((key) => (
         <kbd
-          className="min-w-6 rounded-md border border-border/70 bg-background/90 px-1.5 py-0.5 text-center font-mono text-xs uppercase tracking-[0.16em] shadow-[inset_0_1px_0_rgb(255_255_255/0.3)]"
+          className="min-w-6 border border-border/70 bg-background/90 px-1.5 py-0.5 text-center font-mono text-xs uppercase tracking-[0.16em] shadow-[inset_0_1px_0_rgb(255_255_255/0.3)]"
           key={key}
         >
           {key}
@@ -341,7 +341,7 @@ export function KeyboardShortcutsDialog() {
                       .filter((shortcut) => shortcut.group === group)
                       .map((shortcut) => (
                         <div
-                          className="group flex flex-col gap-1.5 rounded-md px-3 py-3 hover:bg-muted/50"
+                          className="group flex flex-col gap-1.5 px-3 py-3 hover:bg-muted/50"
                           key={shortcut.id}
                         >
                           <div className="flex items-center justify-between gap-3">

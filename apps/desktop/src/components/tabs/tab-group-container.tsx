@@ -66,7 +66,7 @@ export function TabGroupContainer({
   return (
     <div
       className={cn(
-        "relative flex h-full items-center gap-1 rounded-md px-1 py-1 transition-all",
+        "relative flex h-full items-center gap-1 px-1 py-1 transition-all",
         isDragging && "z-50",
         isHoveredForDrop && "bg-primary/5"
       )}
@@ -74,12 +74,12 @@ export function TabGroupContainer({
       style={style}
     >
       <div
-        className="pointer-events-none absolute inset-x-4 top-0 z-20 h-7 rounded-b-sm"
+        className="pointer-events-none absolute inset-x-4 top-0 z-20 h-7"
         ref={setDroppableRef}
       />
 
       <div
-        className="pointer-events-none absolute inset-x-1 bottom-1 z-10 h-0.5 rounded-t-sm opacity-80"
+        className="pointer-events-none absolute inset-x-1 bottom-1 z-10 h-0.5 opacity-80"
         style={{ backgroundColor: group.color }}
       />
 

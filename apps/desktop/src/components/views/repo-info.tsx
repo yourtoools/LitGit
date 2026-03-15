@@ -3378,7 +3378,7 @@ export function RepoInfo() {
       );
       highlightedParts.push(
         <span
-          className="rounded-sm bg-primary/20 px-0.5 text-foreground"
+          className="bg-primary/20 px-0.5 text-foreground"
           key={`${name}-${key}`}
         >
           {matchedText}
@@ -7076,7 +7076,7 @@ export function RepoInfo() {
         return (
           <button
             className={cn(
-              "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors",
+              "flex w-full items-center gap-2 px-2 py-1 text-left text-sm transition-colors",
               !canOpenDiff && "cursor-default opacity-80",
               diffRowStateClassName
             )}
@@ -7122,7 +7122,7 @@ export function RepoInfo() {
       return (
         <div key={`${commitHash}-${node.fullPath}`}>
           <button
-            className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+            className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
             onClick={() => toggleCommitTreeNode(commitHash, node.fullPath)}
             style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
             type="button"
@@ -7186,7 +7186,7 @@ export function RepoInfo() {
       return (
         <button
           className={cn(
-            "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors",
+            "flex w-full items-center gap-2 px-2 py-1 text-left text-sm transition-colors",
             !canOpenDiff && "cursor-default opacity-80",
             diffRowStateClassName
           )}
@@ -7460,14 +7460,14 @@ export function RepoInfo() {
             <ContextMenuTrigger>
               <div
                 className={cn(
-                  "group relative flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20",
+                  "group relative flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/20",
                   isDiffOpened && "bg-accent/30"
                 )}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
               >
                 <button
                   aria-label={`Open diff for ${item.path}`}
-                  className="absolute inset-0 z-0 rounded"
+                  className="absolute inset-0 z-0"
                   onClick={() => {
                     handleOpenFileDiff(item).catch(() => undefined);
                   }}
@@ -7520,7 +7520,7 @@ export function RepoInfo() {
           <ContextMenu>
             <ContextMenuTrigger>
               <button
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
                 onClick={() => toggleTreeNode(section, node.fullPath)}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
                 type="button"
@@ -7612,13 +7612,13 @@ export function RepoInfo() {
           <ContextMenuTrigger>
             <div
               className={cn(
-                "group relative flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/20",
+                "group relative flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/20",
                 isDiffOpened && "bg-accent/30"
               )}
             >
               <button
                 aria-label={`Open diff for ${item.path}`}
-                className="absolute inset-0 z-0 rounded"
+                className="absolute inset-0 z-0"
                 onClick={() => {
                   handleOpenFileDiff(item).catch(() => undefined);
                 }}
@@ -8026,7 +8026,7 @@ export function RepoInfo() {
                       <InputGroupAddon>
                         <Button
                           aria-label="Clear filter"
-                          className="rounded-l-none border-0 border-input border-l"
+                          className="border-0 border-input border-l"
                           onClick={clearSidebarFilter}
                           size="icon-sm"
                           type="button"
@@ -8163,7 +8163,7 @@ export function RepoInfo() {
                                             <button
                                               aria-label={`More options for ${entry.name}`}
                                               className={cn(
-                                                "ml-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
+                                                "ml-0.5 inline-flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
                                                 isEntryMenuOpen &&
                                                   "opacity-100",
                                                 entry.active &&
@@ -8314,7 +8314,7 @@ export function RepoInfo() {
                         <InputGroup className="h-8 w-auto border-border/60 bg-transparent">
                           <Button
                             aria-label={`Run ${selectedPullActionLabel}`}
-                            className="h-7 rounded-r-none border-0 px-2"
+                            className="h-7 border-0 px-2"
                             disabled={isPulling}
                             onClick={handlePullWithSelectedMode}
                             size="sm"
@@ -8335,7 +8335,7 @@ export function RepoInfo() {
                               render={
                                 <Button
                                   aria-label="Select pull mode"
-                                  className="h-7 rounded-l-none border-0 border-border/60 border-l px-1.5"
+                                  className="h-7 border-0 border-border/60 border-l px-1.5"
                                   disabled={isPulling}
                                   size="sm"
                                   type="button"
@@ -8567,7 +8567,7 @@ export function RepoInfo() {
                       render={
                         <button
                           aria-label="Timeline settings"
-                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
+                          className="inline-flex size-6 shrink-0 items-center justify-center transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
                           type="button"
                         />
                       }
@@ -8607,7 +8607,7 @@ export function RepoInfo() {
                     style={{ gridTemplateColumns: timelineGridTemplateColumns }}
                   >
                     <div className="min-w-0 truncate">
-                      <span className="inline-flex items-center gap-1 rounded border border-border/70 bg-accent/20 px-2 py-0.5 text-xs">
+                      <span className="inline-flex items-center gap-1 border border-border/70 bg-accent/20 px-2 py-0.5 text-xs">
                         {currentBranch}
                       </span>
                     </div>
@@ -9229,7 +9229,7 @@ export function RepoInfo() {
                           <div className="h-full overflow-auto p-3">
                             {useImageSplitView ? (
                               <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2">
-                                <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                                <div className="flex min-h-0 flex-col border border-border/70 bg-background">
                                   <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
                                     Original
                                   </p>
@@ -9237,7 +9237,7 @@ export function RepoInfo() {
                                     {activeDiffOldImageDataUrl ? (
                                       <img
                                         alt={`Original version of ${activeDiffPath}`}
-                                        className="max-h-full max-w-full rounded-md object-contain"
+                                        className="max-h-full max-w-full object-contain"
                                         height={800}
                                         src={activeDiffOldImageDataUrl}
                                         width={1200}
@@ -9249,7 +9249,7 @@ export function RepoInfo() {
                                     )}
                                   </div>
                                 </div>
-                                <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                                <div className="flex min-h-0 flex-col border border-border/70 bg-background">
                                   <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
                                     Modified
                                   </p>
@@ -9257,7 +9257,7 @@ export function RepoInfo() {
                                     {activeDiffNewImageDataUrl ? (
                                       <img
                                         alt={`Modified version of ${activeDiffPath}`}
-                                        className="max-h-full max-w-full rounded-md object-contain"
+                                        className="max-h-full max-w-full object-contain"
                                         height={800}
                                         src={activeDiffNewImageDataUrl}
                                         width={1200}
@@ -9271,11 +9271,11 @@ export function RepoInfo() {
                                 </div>
                               </div>
                             ) : (
-                              <div className="flex min-h-full items-center justify-center rounded-md border border-border/70 bg-background p-3">
+                              <div className="flex min-h-full items-center justify-center border border-border/70 bg-background p-3">
                                 {centeredImageDataUrl ? (
                                   <img
                                     alt={activeDiffPath}
-                                    className="max-h-full max-w-full rounded-md object-contain"
+                                    className="max-h-full max-w-full object-contain"
                                     height={800}
                                     src={centeredImageDataUrl}
                                     width={1200}
@@ -9292,7 +9292,7 @@ export function RepoInfo() {
                         ) : null}
                         {activeDiffViewerKind === "unsupported" ? (
                           <div className="flex h-full items-center justify-center px-6">
-                            <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+                            <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
                               <pre
                                 aria-hidden="true"
                                 className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
@@ -9387,11 +9387,11 @@ export function RepoInfo() {
                         ) : null}
                         {activeDiffViewerKind === "image" ? (
                           <div className="h-full overflow-auto p-3">
-                            <div className="flex min-h-full items-center justify-center rounded-md border border-border/70 bg-background p-3">
+                            <div className="flex min-h-full items-center justify-center border border-border/70 bg-background p-3">
                               {centeredImageDataUrl ? (
                                 <img
                                   alt={activeDiffPath}
-                                  className="max-h-full max-w-full rounded-md object-contain"
+                                  className="max-h-full max-w-full object-contain"
                                   height={800}
                                   src={centeredImageDataUrl}
                                   width={1200}
@@ -9406,7 +9406,7 @@ export function RepoInfo() {
                         ) : null}
                         {activeDiffViewerKind === "unsupported" ? (
                           <div className="flex h-full items-center justify-center px-6">
-                            <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+                            <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
                               <pre
                                 aria-hidden="true"
                                 className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
@@ -9565,7 +9565,7 @@ export function RepoInfo() {
                         ) : null}
                         {editLoadError ? (
                           <div className="flex h-full items-center justify-center px-6">
-                            <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+                            <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
                               <p className="font-medium text-sm">
                                 Error loading file
                               </p>
@@ -9698,7 +9698,7 @@ export function RepoInfo() {
 
                   <div className="flex min-h-0 flex-1 flex-col">
                     <div className="space-y-3 border-border/70 border-b px-3 py-3 text-sm">
-                      <div className="rounded border border-border/70 bg-background/70">
+                      <div className="border border-border/70 bg-background/70">
                         <div
                           className="overflow-y-auto px-3 pt-3"
                           ref={commitDetailsLayoutRef}
@@ -9729,9 +9729,9 @@ export function RepoInfo() {
                           type="button"
                         />
                       </div>
-                      <div className="rounded border border-border/70 bg-background/50 p-2.5">
+                      <div className="border border-border/70 bg-background/50 p-2.5">
                         <div className="flex items-start gap-2.5">
-                          <Avatar className="size-8 shrink-0 rounded">
+                          <Avatar className="size-8 shrink-0">
                             <AvatarImage
                               alt={selectedCommit.author}
                               src={selectedCommit.authorAvatarUrl ?? undefined}
@@ -9814,11 +9814,11 @@ export function RepoInfo() {
                               order
                             </TooltipContent>
                           </Tooltip>
-                          <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
+                          <div className="inline-flex border border-border/80 bg-background/70 p-0.5">
                             {showAllCommitFiles ? null : (
                               <button
                                 className={cn(
-                                  "rounded px-3 py-1 font-medium text-xs transition-colors",
+                                  "px-3 py-1 font-medium text-xs transition-colors",
                                   commitDetailsViewMode === "path"
                                     ? "bg-accent text-accent-foreground"
                                     : "text-muted-foreground hover:text-foreground"
@@ -9831,7 +9831,7 @@ export function RepoInfo() {
                             )}
                             <button
                               className={cn(
-                                "rounded px-3 py-1 font-medium text-xs transition-colors",
+                                "px-3 py-1 font-medium text-xs transition-colors",
                                 commitDetailsViewMode === "tree"
                                   ? "bg-accent text-accent-foreground"
                                   : "text-muted-foreground hover:text-foreground"
@@ -9876,7 +9876,7 @@ export function RepoInfo() {
 
                         return (
                           <div className="h-full overflow-hidden px-2 py-2">
-                            <div className="flex h-full min-h-0 flex-col rounded-md border border-border/70 bg-background/50">
+                            <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
                               {showAllCommitFiles ? (
                                 <div className="border-border/70 border-b px-2 py-2">
                                   <Input
@@ -9991,7 +9991,7 @@ export function RepoInfo() {
                             : `${workingTreeItems.length} file changes`}
                         </span>{" "}
                         on{" "}
-                        <span className="rounded bg-accent px-2 py-0.5 font-medium text-accent-foreground">
+                        <span className="bg-accent px-2 py-0.5 font-medium text-accent-foreground">
                           {currentBranch}
                         </span>
                       </p>
@@ -10025,10 +10025,10 @@ export function RepoInfo() {
                               : "ascending"}
                           </TooltipContent>
                         </Tooltip>
-                        <div className="inline-flex rounded-sm border border-border/80 bg-background/70 p-0.5">
+                        <div className="inline-flex border border-border/80 bg-background/70 p-0.5">
                           <button
                             className={cn(
-                              "rounded px-3 py-1 font-medium text-xs transition-colors",
+                              "px-3 py-1 font-medium text-xs transition-colors",
                               changesViewMode === "path"
                                 ? "bg-accent text-accent-foreground"
                                 : "text-muted-foreground hover:text-foreground",
@@ -10042,7 +10042,7 @@ export function RepoInfo() {
                           </button>
                           <button
                             className={cn(
-                              "rounded px-3 py-1 font-medium text-xs transition-colors",
+                              "px-3 py-1 font-medium text-xs transition-colors",
                               changesViewMode === "tree"
                                 ? "bg-accent text-accent-foreground"
                                 : "text-muted-foreground hover:text-foreground"
@@ -10058,7 +10058,7 @@ export function RepoInfo() {
                   </header>
 
                   <div className="min-h-0 flex-1 overflow-hidden px-3 py-3">
-                    <div className="flex h-full min-h-0 flex-col rounded-md border border-border/70 bg-background/50">
+                    <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
                       {showAllFiles ? (
                         <section className="flex min-h-0 flex-1 flex-col">
                           <div className="border-border/70 border-b px-2 py-2">
@@ -10275,7 +10275,7 @@ export function RepoInfo() {
                     <div className="mt-3 space-y-2">
                       <Label htmlFor="commit-description">Description</Label>
                       <textarea
-                        className="h-24 w-full resize-none overflow-y-scroll rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className="h-24 w-full resize-none overflow-y-scroll border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                         id="commit-description"
                         onChange={(event) =>
                           setDraftCommitDescription(event.target.value)
@@ -10284,7 +10284,7 @@ export function RepoInfo() {
                         value={draftCommitDescription}
                       />
                     </div>
-                    <div className="mt-3 rounded-md border border-border/70 px-3 py-2">
+                    <div className="mt-3 border border-border/70 px-3 py-2">
                       <button
                         className="inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
                         onClick={() =>

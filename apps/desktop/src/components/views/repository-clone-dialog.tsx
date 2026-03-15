@@ -206,7 +206,7 @@ function CloneSuccessPanel({
 }) {
   return (
     <div className="space-y-4 px-6 py-5">
-      <section className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/8 p-3.5">
+      <section className="flex items-start gap-3 border border-emerald-500/20 bg-emerald-500/8 p-3.5">
         <CheckCircleIcon
           aria-hidden="true"
           className="mt-0.5 size-4.5 shrink-0 text-emerald-400"
@@ -223,7 +223,7 @@ function CloneSuccessPanel({
 
       <div
         aria-live="polite"
-        className="grid gap-px overflow-hidden rounded-xl border border-border/60"
+        className="grid gap-px overflow-hidden border border-border/60"
       >
         <div className="bg-background/70 px-4 py-3">
           <p className="text-muted-foreground text-xs uppercase tracking-[0.12em]">
@@ -290,7 +290,7 @@ function CloneFormPanel({
             aria-invalid={Boolean(errors.repositoryUrl)}
             autoCapitalize="none"
             autoCorrect="off"
-            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-9 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
             id={urlInputId}
             onChange={(event) => {
               setRepositoryUrl(event.target.value);
@@ -330,7 +330,7 @@ function CloneFormPanel({
                   : undefined
               }
               aria-invalid={Boolean(errors.destinationParent)}
-              className="h-9 flex-1 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+              className="h-9 flex-1 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
               id={destinationInputId}
               onChange={(event) => {
                 setDestinationParent(event.target.value);
@@ -345,7 +345,7 @@ function CloneFormPanel({
               value={destinationParent}
             />
             <Button
-              className="h-9 shrink-0 gap-1.5 rounded-lg px-3 text-sm"
+              className="h-9 shrink-0 gap-1.5 px-3 text-sm"
               onClick={() => {
                 handlePickDestination().catch(() => {
                   return;
@@ -382,7 +382,7 @@ function CloneFormPanel({
               errors.folderName ? `${folderInputId}-error` : undefined
             }
             aria-invalid={Boolean(errors.folderName)}
-            className="h-9 rounded-lg border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-9 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
             id={folderInputId}
             onChange={(event) => {
               setFolderName(event.target.value);
@@ -413,7 +413,7 @@ function CloneFormPanel({
       </fieldset>
 
       {/* --- Destination path preview --- */}
-      <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3.5 py-2.5">
+      <div className="flex items-center gap-3 border border-border/50 bg-muted/20 px-3.5 py-2.5">
         <FolderOpenIcon
           aria-hidden="true"
           className="size-3.5 shrink-0 text-muted-foreground/70"
@@ -430,7 +430,7 @@ function CloneFormPanel({
       {formError ? (
         <section
           aria-live="polite"
-          className="rounded-xl border border-destructive/30 bg-destructive/8 p-4"
+          className="border border-destructive/30 bg-destructive/8 p-4"
         >
           <p className="font-medium text-destructive text-sm">
             Could not clone repository
@@ -444,7 +444,7 @@ function CloneFormPanel({
       {errors.sshKeyPair ? (
         <section
           aria-live="polite"
-          className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-4"
+          className="border border-amber-500/30 bg-amber-500/8 p-4"
         >
           <p className="font-medium text-amber-700 text-sm dark:text-amber-300">
             SSH key paths need attention
@@ -457,7 +457,7 @@ function CloneFormPanel({
 
       {/* --- Submodules option --- */}
       <label
-        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-0.5 py-1"
+        className="flex cursor-pointer items-center gap-2.5 px-0.5 py-1"
         htmlFor={submodulesCheckboxId}
       >
         <Checkbox
@@ -478,7 +478,7 @@ function CloneFormPanel({
         <section
           aria-describedby={statusRegionId}
           aria-live="polite"
-          className="space-y-3 rounded-xl border border-primary/20 bg-primary/4 p-4"
+          className="space-y-3 border border-primary/20 bg-primary/4 p-4"
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
@@ -895,7 +895,7 @@ export function RepositoryCloneDialog({
       >
         <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/25">
+            <div className="flex size-8 shrink-0 items-center justify-center border border-border/50 bg-muted/25">
               {headerIcon}
             </div>
             <DialogTitle className="text-sm">

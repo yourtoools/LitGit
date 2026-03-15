@@ -750,7 +750,7 @@ export function TerminalViewport({
     <div className="relative h-full">
       <ContextMenu>
         <ContextMenuTrigger className="h-full pt-2 pl-2">
-          <div className="relative h-full overflow-hidden rounded-md bg-background">
+          <div className="relative h-full overflow-hidden bg-background">
             <div className="h-full" ref={mountRef} />
             {isReady ? null : (
               <div className="absolute inset-0">
@@ -787,7 +787,7 @@ export function TerminalViewport({
         (suggestionState.completions.length > 0 ||
           suggestionState.nextCommands.length > 0) && (
           <div
-            className="absolute z-50 flex max-h-64 w-80 flex-col overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+            className="absolute z-50 flex max-h-64 w-80 flex-col overflow-hidden border border-border bg-popover text-popover-foreground shadow-lg"
             style={{
               left: suggestionPosition.left,
               top: suggestionPosition.top,
@@ -805,7 +805,7 @@ export function TerminalViewport({
                   {suggestionState.completions.map((item, index) => (
                     <div
                       className={cn(
-                        "flex items-center rounded-sm px-2 py-1.5 text-sm",
+                        "flex items-center px-2 py-1.5 text-sm",
                         suggestionState.selectedIndex === index
                           ? "bg-accent text-accent-foreground"
                           : ""
@@ -833,7 +833,7 @@ export function TerminalViewport({
                     return (
                       <div
                         className={cn(
-                          "flex items-center rounded-sm px-2 py-1.5 text-sm",
+                          "flex items-center px-2 py-1.5 text-sm",
                           suggestionState.selectedIndex === globalIndex
                             ? "bg-accent text-accent-foreground"
                             : ""

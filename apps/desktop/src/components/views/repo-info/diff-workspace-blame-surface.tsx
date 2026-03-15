@@ -228,7 +228,7 @@ export function DiffWorkspaceBlameSurface({
   if (renderError) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+        <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
           <p className="font-medium text-sm">Error loading blame</p>
           <Button
             className="h-7 px-3 text-xs"
@@ -272,7 +272,7 @@ export function DiffWorkspaceBlameSurface({
                 }}
                 type="button"
               >
-                <Avatar className="size-8 rounded-sm border border-border/60">
+                <Avatar className="size-8 border border-border/60">
                   <AvatarImage
                     alt={entry.author}
                     src={avatarSrc ?? undefined}

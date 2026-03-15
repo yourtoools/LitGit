@@ -50,7 +50,7 @@ function SavedConfirmation({
 }) {
   return (
     <div className="mx-auto w-full max-w-md space-y-6">
-      <div className="grid gap-5 rounded-xl border border-primary/30 bg-primary/5 p-6 text-center">
+      <div className="grid gap-5 border border-primary/30 bg-primary/5 p-6 text-center">
         <div className="flex justify-center">
           <CheckCircleIcon
             aria-hidden="true"
@@ -141,7 +141,7 @@ function TokenStep({
 
   return (
     <div className="mx-auto w-full max-w-md space-y-6">
-      <div className="grid gap-5 rounded-xl border border-border/60 bg-background/70 p-6">
+      <div className="grid gap-5 border border-border/60 bg-background/70 p-6">
         <div className="flex items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
             <KeyIcon
@@ -180,7 +180,7 @@ function TokenStep({
           />
         </div>
 
-        <section className="rounded-lg border border-border/50 bg-muted/30 p-3">
+        <section className="border border-border/50 bg-muted/30 p-3">
           <p className="text-muted-foreground text-xs leading-relaxed">
             This token is optional. You can add it later in{" "}
             <span className="font-medium text-foreground">
@@ -214,7 +214,7 @@ function TokenStep({
         </section>
 
         {error ? (
-          <section className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 p-3">
+          <section className="flex items-start gap-2 border border-destructive/30 bg-destructive/8 p-3">
             <WarningCircleIcon
               aria-hidden="true"
               className="mt-0.5 size-4 shrink-0 text-destructive"
@@ -417,7 +417,7 @@ export function OnboardingPage() {
     <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-300">
       <PageContainer className="relative flex w-full max-w-2xl flex-1 flex-col justify-center gap-8">
         <header className="flex w-full flex-col gap-4 text-center">
-          <div className="mx-auto inline-flex w-fit items-center gap-2 rounded-none border border-primary/25 bg-primary/10 px-3 py-1">
+          <div className="mx-auto inline-flex w-fit items-center gap-2 border border-primary/25 bg-primary/10 px-3 py-1">
             <span className="font-mono text-primary/85 text-xs uppercase tracking-[0.16em]">
               {headerBadge}
             </span>
@@ -457,7 +457,7 @@ export function OnboardingPage() {
               handleSubmit(event).catch(() => undefined);
             }}
           >
-            <div className="grid gap-5 rounded-xl border border-border/60 bg-background/70 p-6">
+            <div className="grid gap-5 border border-border/60 bg-background/70 p-6">
               <div className="flex items-center gap-3">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
                   <GitBranchIcon
@@ -549,7 +549,7 @@ export function OnboardingPage() {
                 ) : null}
               </div>
 
-              <section className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3 text-muted-foreground text-xs leading-relaxed">
+              <section className="border border-amber-500/25 bg-amber-500/8 p-3 text-muted-foreground text-xs leading-relaxed">
                 <p>
                   <span className="font-medium text-amber-600 tracking-tight dark:text-amber-300">
                     Privacy note:
@@ -570,7 +570,7 @@ export function OnboardingPage() {
               </section>
 
               {formError ? (
-                <section className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 p-3">
+                <section className="flex items-start gap-2 border border-destructive/30 bg-destructive/8 p-3">
                   <WarningCircleIcon
                     aria-hidden="true"
                     className="mt-0.5 size-4 shrink-0 text-destructive"

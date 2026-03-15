@@ -16,7 +16,7 @@ export function TerminalPlaceholder({
     <div
       aria-live="polite"
       className={cn(
-        "flex h-full flex-col items-center justify-center gap-2 rounded-md bg-background px-4 py-4",
+        "flex h-full flex-col items-center justify-center gap-2 bg-background px-4 py-4",
         className
       )}
     >
