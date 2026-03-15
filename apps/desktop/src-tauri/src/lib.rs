@@ -20,6 +20,9 @@ use tauri::State;
 use tauri::{AppHandle, Emitter};
 use ureq::Proxy;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 mod diff_preview;
 use diff_preview::{
     get_repository_commit_file_content, get_repository_commit_file_preflight,
@@ -74,9 +77,9 @@ struct RepositoryBranch {
     short_hash: String,
     last_commit_date: String,
     is_current: bool,
-    commit_count: usize,
-    ahead_count: usize,
-    behind_count: usize,
+    commit_count: Option<usize>,
+    ahead_count: Option<usize>,
+    behind_count: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -559,7 +562,8 @@ fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, String> {
 
     let key_path = ssh_dir.join(trimmed_name);
 
-    let output = Command::new("ssh-keygen")
+    let mut command = background_command("ssh-keygen");
+    let output = command
         .args([
             "-t",
             "ed25519",
@@ -587,7 +591,8 @@ fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, String> {
 fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
     let mut keys = Vec::new();
 
-    let gpg_output = Command::new("gpg")
+    let mut command = background_command("gpg");
+    let gpg_output = command
         .args([
             "--list-secret-keys",
             "--keyid-format",
@@ -1267,6 +1272,55 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    let mut current_branch_upstream: Option<String> = None;
+    for row in stdout.lines() {
+        let trimmed = row.trim_end();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut parts = trimmed.split('\t');
+        let head = parts.next().unwrap_or(" ").trim();
+        let _full_ref_name = parts.next().unwrap_or("").trim();
+        let _name = parts.next().unwrap_or("").trim();
+        let _short_hash = parts.next().unwrap_or("").trim();
+        let _last_commit_date = parts.next().unwrap_or("").trim();
+        let _full_hash = parts.next().unwrap_or("").trim();
+        let upstream_ref = parts.next().unwrap_or("").trim();
+
+        if head == "*" && !upstream_ref.is_empty() {
+            current_branch_upstream = Some(upstream_ref.to_string());
+            break;
+        }
+    }
+
+    let current_branch_sync_counts = if let Some(upstream_ref) = current_branch_upstream.as_deref() {
+        let sync_count_output = git_command()
+            .args([
+                "-C",
+                &repo_path,
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("HEAD...{upstream_ref}"),
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
+
+        if sync_count_output.status.success() {
+            let counts = String::from_utf8_lossy(&sync_count_output.stdout);
+            let mut values = counts.split_whitespace();
+            let ahead = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
+            let behind = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
+            Some((ahead, behind))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut branches = Vec::new();
 
     for row in stdout.lines() {
@@ -1282,57 +1336,16 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
         let name = parts.next().unwrap_or("").to_string();
         let short_hash = parts.next().unwrap_or("").to_string();
         let last_commit_date = parts.next().unwrap_or("").to_string();
-        let full_hash = parts.next().unwrap_or("").to_string();
+        let _full_hash = parts.next().unwrap_or("").to_string();
         let upstream_ref = parts.next().unwrap_or("").trim().to_string();
 
         if full_ref_name.starts_with("refs/remotes/") && full_ref_name.ends_with("/HEAD") {
             continue;
         }
 
-        if name.is_empty() || full_hash.is_empty() {
+        if name.is_empty() || _full_hash.is_empty() {
             continue;
         }
-
-        let commit_count_output = git_command()
-            .args(["-C", &repo_path, "rev-list", "--count", &full_hash])
-            .output()
-            .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
-
-        if !commit_count_output.status.success() {
-            continue;
-        }
-
-        let commit_count = String::from_utf8_lossy(&commit_count_output.stdout)
-            .trim()
-            .parse::<usize>()
-            .unwrap_or(0);
-
-        let (ahead_count, behind_count) = if upstream_ref.is_empty() {
-            (0, 0)
-        } else {
-            let sync_count_output = git_command()
-                .args([
-                    "-C",
-                    &repo_path,
-                    "rev-list",
-                    "--left-right",
-                    "--count",
-                    &format!("{full_hash}...{upstream_ref}"),
-                ])
-                .output()
-                .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
-
-            if !sync_count_output.status.success() {
-                (0, 0)
-            } else {
-                let counts = String::from_utf8_lossy(&sync_count_output.stdout);
-                let mut values = counts.split_whitespace();
-                let ahead = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
-                let behind = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
-
-                (ahead, behind)
-            }
-        };
 
         let ref_type = if full_ref_name.starts_with("refs/tags/") {
             "tag".to_string()
@@ -1340,6 +1353,12 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
             "branch".to_string()
         };
         let is_remote = full_ref_name.starts_with("refs/remotes/");
+        let (ahead_count, behind_count) =
+            if head == "*" && !upstream_ref.is_empty() && !is_remote {
+                current_branch_sync_counts.unwrap_or((0, 0))
+            } else {
+                (0, 0)
+            };
 
         branches.push(RepositoryBranch {
             ref_type,
@@ -1348,9 +1367,17 @@ fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, S
             short_hash,
             last_commit_date,
             is_current: head == "*",
-            commit_count,
-            ahead_count,
-            behind_count,
+            commit_count: None,
+            ahead_count: if head == "*" && !is_remote {
+                Some(ahead_count)
+            } else {
+                None
+            },
+            behind_count: if head == "*" && !is_remote {
+                Some(behind_count)
+            } else {
+                None
+            },
         });
     }
 
@@ -1771,7 +1798,8 @@ fn push_repository_branch(
             _ => "--private",
         };
 
-        let publish_output = Command::new("gh")
+        let mut command = background_command("gh");
+        let publish_output = command
             .current_dir(&repo_path)
             .env("GH_PROMPT_DISABLED", "1")
             .args([
@@ -1882,7 +1910,8 @@ fn push_repository_branch(
             ));
         }
 
-        let publish_output = Command::new("gh")
+        let mut command = background_command("gh");
+        let publish_output = command
             .current_dir(&repo_path)
             .env("GH_PROMPT_DISABLED", "1")
             .args([
@@ -3723,8 +3752,30 @@ fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
 
 // Git subprocesses are non-interactive by default so the desktop app fails
 // fast instead of hanging on hidden stdin prompts.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(windows)]
+fn background_process_creation_flags() -> u32 {
+    CREATE_NO_WINDOW
+}
+
+#[cfg(windows)]
+fn apply_background_process_flags(command: &mut Command) {
+    command.creation_flags(background_process_creation_flags());
+}
+
+#[cfg(not(windows))]
+fn apply_background_process_flags(_command: &mut Command) {}
+
+fn background_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    apply_background_process_flags(&mut command);
+    command
+}
+
 fn git_command() -> Command {
-    let mut command = Command::new("git");
+    let mut command = background_command("git");
     command.stdin(Stdio::null());
     command
 }
@@ -4727,6 +4778,12 @@ mod tests {
             ),
             "husky - pre-commit hook exited with code 1"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn uses_create_no_window_for_background_processes() {
+        assert_eq!(super::background_process_creation_flags(), 0x08000000);
     }
 
     #[test]

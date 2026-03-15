@@ -2087,9 +2087,10 @@ export function RepoInfo() {
         active: branch.isCurrent,
         isRemote: branch.isRemote,
         name: branch.name,
-        pendingPushCount: branch.aheadCount > 0 ? branch.aheadCount : undefined,
+        pendingPushCount:
+          (branch.aheadCount ?? 0) > 0 ? branch.aheadCount : undefined,
         pendingSyncCount:
-          branch.behindCount > 0 ? branch.behindCount : undefined,
+          (branch.behindCount ?? 0) > 0 ? branch.behindCount : undefined,
         searchName: branch.name.toLowerCase(),
         type: "branch",
       };
@@ -8224,7 +8225,11 @@ export function RepoInfo() {
                   isSwitchingBranch || branchComboboxOptions.length === 0
                 }
                 filter={null}
-                inputValue={branchQuery}
+                inputValue={
+                  branchQuery.length > 0
+                    ? branchQuery
+                    : (selectedBranchOption?.name ?? "")
+                }
                 items={visibleBranchComboboxOptions}
                 itemToStringLabel={(item: BranchComboboxOption) => item.name}
                 onInputValueChange={(nextInputValue) => {

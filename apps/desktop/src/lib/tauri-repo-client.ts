@@ -296,9 +296,21 @@ function parseRepositoryBranch(value: unknown): RepositoryBranch {
     typeof lastCommitDate !== "string" ||
     typeof isCurrent !== "boolean" ||
     typeof isRemote !== "boolean" ||
-    typeof commitCount !== "number" ||
-    typeof aheadCount !== "number" ||
-    typeof behindCount !== "number"
+    !(
+      typeof commitCount === "number" ||
+      typeof commitCount === "undefined" ||
+      commitCount === null
+    ) ||
+    !(
+      typeof aheadCount === "number" ||
+      typeof aheadCount === "undefined" ||
+      aheadCount === null
+    ) ||
+    !(
+      typeof behindCount === "number" ||
+      typeof behindCount === "undefined" ||
+      behindCount === null
+    )
   ) {
     throw new Error("Invalid repository branches payload");
   }
@@ -310,9 +322,9 @@ function parseRepositoryBranch(value: unknown): RepositoryBranch {
     lastCommitDate,
     isCurrent,
     isRemote,
-    commitCount,
-    aheadCount,
-    behindCount,
+    commitCount: commitCount ?? undefined,
+    aheadCount: aheadCount ?? undefined,
+    behindCount: behindCount ?? undefined,
   };
 }
 
@@ -1836,6 +1848,45 @@ export async function fetchRepoData(
     remoteNamesPayload,
     stashesError,
     stashesPayload,
+    statusError,
+    statusPayload,
+    wipItemsError,
+    wipItemsPayload,
+  };
+}
+
+export async function fetchLightRepoData(
+  id: string,
+  path: string,
+  hasStatus: boolean,
+  hasWipItems: boolean
+): Promise<RepoDataFetchResult> {
+  const [statusResult, wipItemsResult] = await Promise.allSettled([
+    hasStatus ? Promise.resolve(null) : loadWorkingTreeStatusForRepo(id, path),
+    hasWipItems ? Promise.resolve(null) : loadWorkingTreeItemsForRepo(id, path),
+  ]);
+
+  const statusPayload =
+    statusResult.status === "fulfilled" ? statusResult.value : null;
+  const wipItemsPayload =
+    wipItemsResult.status === "fulfilled" ? wipItemsResult.value : null;
+
+  const statusError =
+    statusResult.status === "rejected" ? statusResult.reason : null;
+  const wipItemsError =
+    wipItemsResult.status === "rejected" ? wipItemsResult.reason : null;
+
+  return {
+    branchesError: null,
+    branchesPayload: null,
+    historyError: null,
+    historyPayload: null,
+    remoteNamesError: null,
+    remoteNamesPayload: null,
+    repoFilesError: null,
+    repoFilesPayload: null,
+    stashesError: null,
+    stashesPayload: null,
     statusError,
     statusPayload,
     wipItemsError,

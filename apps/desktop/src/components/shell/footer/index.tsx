@@ -151,6 +151,7 @@ export default function Footer() {
     setActiveRepo(activeRepoId, {
       background: true,
       forceRefresh: true,
+      refreshMode: "full",
     }).catch((error: unknown) => {
       if (import.meta.env.DEV) {
         toast.error(

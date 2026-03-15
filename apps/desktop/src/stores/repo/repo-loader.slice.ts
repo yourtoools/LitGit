@@ -1,5 +1,9 @@
 import { toast } from "sonner";
-import { fetchRepoData, getRepoGitIdentity } from "@/lib/tauri-repo-client";
+import {
+  fetchLightRepoData,
+  fetchRepoData,
+  getRepoGitIdentity,
+} from "@/lib/tauri-repo-client";
 import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
 import type {
   RepoStoreGet,
@@ -20,6 +24,8 @@ interface RepoCacheState {
   hasStatus: boolean;
   hasWipItems: boolean;
 }
+
+type RepoRefreshMode = "full" | "light";
 
 const getRepoCacheState = (
   get: RepoStoreGet,
@@ -42,6 +48,9 @@ const hasAllRepoData = (cacheState: RepoCacheState): boolean =>
   cacheState.hasStatus &&
   cacheState.hasWipItems;
 
+const hasLightRepoData = (cacheState: RepoCacheState): boolean =>
+  cacheState.hasStatus && cacheState.hasWipItems;
+
 const setRepoLoadingFlags = (set: RepoStoreSet, cacheState: RepoCacheState) => {
   set({
     isLoadingHistory: !cacheState.hasCommits,
@@ -50,6 +59,25 @@ const setRepoLoadingFlags = (set: RepoStoreSet, cacheState: RepoCacheState) => {
     isLoadingStatus: !cacheState.hasStatus,
     isLoadingWip: !cacheState.hasWipItems,
   });
+};
+
+const setRepoLoadingFlagsForMode = (
+  set: RepoStoreSet,
+  cacheState: RepoCacheState,
+  refreshMode: RepoRefreshMode
+) => {
+  if (refreshMode === "light") {
+    set({
+      isLoadingHistory: false,
+      isLoadingBranches: false,
+      isLoadingStashes: false,
+      isLoadingStatus: !cacheState.hasStatus,
+      isLoadingWip: !cacheState.hasWipItems,
+    });
+    return;
+  }
+
+  setRepoLoadingFlags(set, cacheState);
 };
 
 const clearRepoLoadingFlags = (set: RepoStoreSet) => {
@@ -189,6 +217,38 @@ const notifyRepoLoadErrors = (result: RepoDataFetchResult) => {
   }
 };
 
+const notifyRepoLoadErrorsForMode = (
+  result: RepoDataFetchResult,
+  refreshMode: RepoRefreshMode
+) => {
+  if (refreshMode === "light") {
+    const loadErrors = [
+      {
+        error: result.statusError,
+        fallbackMessage: "Failed to load repository status",
+      },
+      {
+        error: result.wipItemsError,
+        fallbackMessage: "Failed to load repository WIP items",
+      },
+    ] as const;
+
+    for (const loadError of loadErrors) {
+      if (!loadError.error) {
+        continue;
+      }
+
+      toast.error(
+        resolveErrorMessage(loadError.error, loadError.fallbackMessage)
+      );
+    }
+
+    return;
+  }
+
+  notifyRepoLoadErrors(result);
+};
+
 export const createRepoLoaderSlice = (
   set: RepoStoreSet,
   get: RepoStoreGet
@@ -201,9 +261,13 @@ export const createRepoLoaderSlice = (
     }
 
     const forceRefresh = options?.forceRefresh ?? false;
+    const refreshMode = options?.refreshMode ?? "full";
     const hadCachedRepoData = hasAllRepoData(getRepoCacheState(get, id, false));
     const shouldRefreshInBackground =
-      (options?.background ?? false) && hadCachedRepoData;
+      (options?.background ?? false) &&
+      (refreshMode === "light"
+        ? hasLightRepoData(getRepoCacheState(get, id, false))
+        : hadCachedRepoData);
 
     set({ activeRepoId: id });
 
@@ -227,27 +291,38 @@ export const createRepoLoaderSlice = (
 
     const cacheState = getRepoCacheState(get, id, forceRefresh);
 
-    if (hasAllRepoData(cacheState)) {
+    if (
+      (refreshMode === "light" && hasLightRepoData(cacheState)) ||
+      (refreshMode === "full" && hasAllRepoData(cacheState))
+    ) {
       return;
     }
 
     if (shouldRefreshInBackground) {
       setRepoBackgroundRefreshState(set, id, true);
     } else {
-      setRepoLoadingFlags(set, cacheState);
+      setRepoLoadingFlagsForMode(set, cacheState, refreshMode);
     }
 
     try {
-      const result = await fetchRepoData(
-        id,
-        targetRepo.path,
-        cacheState.hasCommits,
-        cacheState.hasBranches,
-        cacheState.hasRemoteNames,
-        cacheState.hasStashes,
-        cacheState.hasStatus,
-        cacheState.hasWipItems
-      );
+      const result =
+        refreshMode === "light"
+          ? await fetchLightRepoData(
+              id,
+              targetRepo.path,
+              cacheState.hasStatus,
+              cacheState.hasWipItems
+            )
+          : await fetchRepoData(
+              id,
+              targetRepo.path,
+              cacheState.hasCommits,
+              cacheState.hasBranches,
+              cacheState.hasRemoteNames,
+              cacheState.hasStashes,
+              cacheState.hasStatus,
+              cacheState.hasWipItems
+            );
 
       const repoStillExists = get().openedRepos.some((repo) => repo.id === id);
 
@@ -258,7 +333,7 @@ export const createRepoLoaderSlice = (
       applyRepoPayloads(set, id, result);
 
       if (!shouldRefreshInBackground) {
-        notifyRepoLoadErrors(result);
+        notifyRepoLoadErrorsForMode(result, refreshMode);
       }
 
       markRepoLoadedAt(set, id);

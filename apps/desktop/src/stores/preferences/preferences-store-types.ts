@@ -220,7 +220,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     wordWrap: "off",
   },
   general: {
-    autoFetchIntervalMinutes: 1,
+    autoFetchIntervalMinutes: 0,
     defaultBranchName: "main",
     rememberTabs: true,
   },

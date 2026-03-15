@@ -6,6 +6,7 @@ import { useTabStore } from "@/stores/tabs/use-tab-store";
 
 const TAURI_FOCUS_REFRESH_DEBOUNCE_MS = 300;
 const TAURI_WINDOW_MOVE_SETTLE_MS = 150;
+const ACTIVE_REPO_STALE_AFTER_MS = 15_000;
 
 async function refreshActiveTab(
   setActiveRepo: ReturnType<typeof useRepoStore.getState>["setActiveRepo"],
@@ -14,7 +15,8 @@ async function refreshActiveTab(
   >["refreshOpenedRepositories"],
   setRepoGitIdentity: ReturnType<
     typeof useRepoStore.getState
-  >["setRepoGitIdentity"]
+  >["setRepoGitIdentity"],
+  isRepoRefreshAlreadyRunning: boolean
 ) {
   await refreshOpenedRepositories();
 
@@ -37,10 +39,17 @@ async function refreshActiveTab(
     return;
   }
 
-  await setActiveRepo(activeTabRepoId, {
-    background: true,
-    forceRefresh: true,
-  });
+  const repoStoreState = useRepoStore.getState();
+  const lastLoadedAt =
+    repoStoreState.repoLastLoadedAtById[activeTabRepoId] ?? 0;
+  const isStale = Date.now() - lastLoadedAt >= ACTIVE_REPO_STALE_AFTER_MS;
+
+  if (isStale && !isRepoRefreshAlreadyRunning) {
+    await setActiveRepo(activeTabRepoId, {
+      background: true,
+      refreshMode: "light",
+    });
+  }
 
   const activeRepo = useRepoStore
     .getState()
@@ -66,6 +75,12 @@ export function useTabRepoSync() {
   );
   const setRepoGitIdentity = useRepoStore((state) => state.setRepoGitIdentity);
   const setActiveRepo = useRepoStore((state) => state.setActiveRepo);
+  const repoLastLoadedAtById = useRepoStore(
+    (state) => state.repoLastLoadedAtById
+  );
+  const repoBackgroundRefreshById = useRepoStore(
+    (state) => state.repoBackgroundRefreshById
+  );
   const activeTabId = useTabStore((state) => state.activeTabId);
   const activeTabRepoId = useTabStore((state) => {
     const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId);
@@ -102,9 +117,11 @@ export function useTabRepoSync() {
       const activeRepoId = useRepoStore.getState().activeRepoId;
 
       if (didTabChange) {
+        const hasLoadedRepoBefore =
+          (repoLastLoadedAtById[activeTabRepoId] ?? 0) > 0;
         setActiveRepo(activeTabRepoId, {
           background: true,
-          forceRefresh: true,
+          refreshMode: hasLoadedRepoBefore ? "light" : "full",
         }).catch(() => undefined);
         return;
       }
@@ -126,6 +143,7 @@ export function useTabRepoSync() {
     activeTabRepoId,
     clearActiveRepo,
     refreshOpenedRepositories,
+    repoLastLoadedAtById,
     setActiveRepo,
   ]);
 
@@ -229,7 +247,10 @@ export function useTabRepoSync() {
         await refreshActiveTab(
           setActiveRepo,
           refreshOpenedRepositories,
-          setRepoGitIdentity
+          setRepoGitIdentity,
+          activeTabRepoId
+            ? (repoBackgroundRefreshById[activeTabRepoId] ?? false)
+            : false
         );
       } finally {
         refreshInFlightRef.current = false;
@@ -317,7 +338,13 @@ export function useTabRepoSync() {
       unlistenTauriFocus?.();
       unlistenTauriMoved?.();
     };
-  }, [refreshOpenedRepositories, setActiveRepo, setRepoGitIdentity]);
+  }, [
+    activeTabRepoId,
+    refreshOpenedRepositories,
+    repoBackgroundRefreshById,
+    setActiveRepo,
+    setRepoGitIdentity,
+  ]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {

@@ -90,9 +90,9 @@ export interface RepositoryCommit {
 export type RepositoryCommitSyncState = "normal" | "pullable";
 
 export interface RepositoryBranch {
-  aheadCount: number;
-  behindCount: number;
-  commitCount: number;
+  aheadCount?: number;
+  behindCount?: number;
+  commitCount?: number;
   isCurrent: boolean;
   isRemote: boolean;
   lastCommitDate: string;
@@ -466,7 +466,11 @@ export interface RepoStoreState {
   ) => Promise<boolean>;
   setActiveRepo: (
     id: string,
-    options?: { background?: boolean; forceRefresh?: boolean }
+    options?: {
+      background?: boolean;
+      forceRefresh?: boolean;
+      refreshMode?: "full" | "light";
+    }
   ) => Promise<void>;
   setBranchUpstream: (
     id: string,
