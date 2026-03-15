@@ -1,3 +1,17 @@
+import {
+  parseRepositoryCommitFileContent,
+  parseRepositoryCommitFilePreflight,
+  parseRepositoryFileContent,
+  parseRepositoryFilePreflight,
+} from "@/lib/repo-diff-preview-contract";
+import {
+  parseRepositoryCommitFileHunks,
+  parseRepositoryFileBlame,
+  parseRepositoryFileDetectedEncoding,
+  parseRepositoryFileHistory,
+  parseRepositoryFileHunks,
+  parseRepositoryFileText,
+} from "@/lib/repo-diff-workspace-contract";
 import type {
   CreateLocalRepositoryInput,
   GitIdentityStatus,
@@ -16,8 +30,16 @@ import type {
   RepositoryCommit,
   RepositoryCommitFile,
   RepositoryCommitFileDiff,
+  RepositoryCommitFileHunks,
+  RepositoryCommitFilePreflight,
+  RepositoryDiffPreviewMode,
+  RepositoryFileBlamePayload,
+  RepositoryFileDetectedEncoding,
   RepositoryFileDiff,
   RepositoryFileEntry,
+  RepositoryFileHistoryPayload,
+  RepositoryFileHunks,
+  RepositoryFilePreflight,
   RepositoryStash,
   RepositoryWorkingTreeItem,
   RepositoryWorkingTreeStatus,
@@ -1293,6 +1315,306 @@ export async function getRepoCommitFiles(
   });
 
   return parseRepositoryCommitFiles(result);
+}
+
+export async function getRepoFilePreflight(
+  path: string,
+  filePath: string,
+  mode: RepositoryDiffPreviewMode
+): Promise<RepositoryFilePreflight> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File preview works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `preflight ${mode} view for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      mode,
+    },
+    invokeCommand: "get_repository_file_preflight",
+    repoPath: path,
+  });
+
+  return parseRepositoryFilePreflight(result);
+}
+
+export async function getRepoCommitFilePreflight(
+  path: string,
+  commitHash: string,
+  filePath: string,
+  mode: RepositoryDiffPreviewMode
+): Promise<RepositoryCommitFilePreflight> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Commit preview works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `preflight ${mode} view for ${commitHash}:${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      commitHash,
+      filePath,
+      mode,
+    },
+    invokeCommand: "get_repository_commit_file_preflight",
+    repoPath: path,
+  });
+
+  return parseRepositoryCommitFilePreflight(result);
+}
+
+export async function getRepoFileContent(
+  path: string,
+  filePath: string,
+  mode: RepositoryDiffPreviewMode,
+  forceRender: boolean,
+  encoding?: string | null
+): Promise<RepositoryFileDiff> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File content preview works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `load ${mode} content for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      mode,
+      forceRender,
+      encoding: encoding ?? null,
+    },
+    invokeCommand: "get_repository_file_content",
+    repoPath: path,
+  });
+
+  return parseRepositoryFileContent(result);
+}
+
+export async function getRepoCommitFileContent(
+  path: string,
+  commitHash: string,
+  filePath: string,
+  mode: RepositoryDiffPreviewMode,
+  forceRender: boolean,
+  encoding?: string | null
+): Promise<RepositoryCommitFileDiff> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Commit content preview works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `load ${mode} content for ${commitHash}:${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      commitHash,
+      filePath,
+      mode,
+      forceRender,
+      encoding: encoding ?? null,
+    },
+    invokeCommand: "get_repository_commit_file_content",
+    repoPath: path,
+  });
+
+  return parseRepositoryCommitFileContent(result);
+}
+
+export async function getRepoFileHunks(
+  path: string,
+  filePath: string,
+  ignoreTrimWhitespace: boolean
+): Promise<RepositoryFileHunks> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File hunk preview works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `load hunks for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      ignoreTrimWhitespace,
+    },
+    invokeCommand: "get_repository_file_hunks",
+    repoPath: path,
+  });
+
+  return parseRepositoryFileHunks(result);
+}
+
+export async function getRepoCommitFileHunks(
+  path: string,
+  commitHash: string,
+  filePath: string,
+  ignoreTrimWhitespace: boolean
+): Promise<RepositoryCommitFileHunks> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Commit hunk preview works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `load commit hunks for ${commitHash}:${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      commitHash,
+      filePath,
+      ignoreTrimWhitespace,
+    },
+    invokeCommand: "get_repository_commit_file_hunks",
+    repoPath: path,
+  });
+
+  return parseRepositoryCommitFileHunks(result);
+}
+
+export async function getRepoFileHistory(
+  path: string,
+  filePath: string,
+  limit?: number
+): Promise<RepositoryFileHistoryPayload> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File history works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `load file history for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      limit: limit ?? null,
+    },
+    invokeCommand: "get_repository_file_history",
+    repoPath: path,
+  });
+
+  return parseRepositoryFileHistory(result);
+}
+
+export async function getRepoFileBlame(
+  path: string,
+  filePath: string,
+  revision?: string | null
+): Promise<RepositoryFileBlamePayload> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File blame works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `load file blame for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      revision: revision ?? null,
+    },
+    invokeCommand: "get_repository_file_blame",
+    repoPath: path,
+  });
+
+  return parseRepositoryFileBlame(result);
+}
+
+export async function getRepoFileText(
+  path: string,
+  filePath: string,
+  encoding?: string | null
+): Promise<string> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File text loading works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `load file text for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      encoding: encoding ?? null,
+    },
+    invokeCommand: "get_repository_file_text",
+    repoPath: path,
+  });
+
+  return parseRepositoryFileText(result);
+}
+
+export async function getRepoFileDetectedEncoding(
+  path: string,
+  filePath: string,
+  revision?: string | null
+): Promise<RepositoryFileDetectedEncoding> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File encoding detection works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `detect file encoding for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      revision: revision ?? null,
+    },
+    invokeCommand: "detect_repository_file_encoding",
+    repoPath: path,
+  });
+
+  return parseRepositoryFileDetectedEncoding(result);
+}
+
+export async function saveRepoFileText(
+  path: string,
+  filePath: string,
+  text: string,
+  encoding?: string | null
+): Promise<void> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("File save works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `save file text for ${filePath}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      filePath,
+      text,
+      encoding: encoding ?? null,
+    },
+    invokeCommand: "save_repository_file_text",
+    repoPath: path,
+  });
 }
 
 export async function getRepoCommitFileDiff(

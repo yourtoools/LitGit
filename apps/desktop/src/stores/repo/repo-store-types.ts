@@ -136,6 +136,36 @@ export interface RepositoryFileDiff {
   viewerKind: "image" | "text" | "unsupported";
 }
 
+export type RepositoryDiffPreviewMode = "diff" | "file";
+
+export type RepositoryDiffPreviewGate =
+  | "binary_unsupported"
+  | "diff_changed_line_limit"
+  | "diff_line_count_unavailable"
+  | "file_line_limit"
+  | "non_text_size_limit"
+  | "none";
+
+export interface RepositoryDiffPreviewGateDetails {
+  current: number | null;
+  limit: number | null;
+}
+
+export interface RepositoryFilePreflight {
+  fileSizeBytes: number | null;
+  gate: RepositoryDiffPreviewGate;
+  gateDetails: RepositoryDiffPreviewGateDetails | null;
+  isBinary: boolean;
+  lineCountChanged: number | null;
+  lineCountFile: number | null;
+  mode: RepositoryDiffPreviewMode;
+  newSideBytes: number | null;
+  oldSideBytes: number | null;
+  path: string;
+  unsupportedExtension: string | null;
+  viewerKind: "image" | "text" | "unsupported";
+}
+
 export interface RepositoryCommitFile {
   additions: number;
   deletions: number;
@@ -153,6 +183,63 @@ export interface RepositoryCommitFileDiff {
   path: string;
   unsupportedExtension: string | null;
   viewerKind: "image" | "text" | "unsupported";
+}
+
+export interface RepositoryCommitFilePreflight extends RepositoryFilePreflight {
+  commitHash: string;
+}
+
+export interface RepositoryFileHunk {
+  header: string;
+  index: number;
+  lines: string[];
+  newLines: number;
+  newStart: number;
+  oldLines: number;
+  oldStart: number;
+}
+
+export interface RepositoryFileHunks {
+  hunks: RepositoryFileHunk[];
+  path: string;
+}
+
+export interface RepositoryCommitFileHunks extends RepositoryFileHunks {
+  commitHash: string;
+}
+
+export interface RepositoryFileHistoryEntry {
+  author: string;
+  authorEmail: string;
+  commitHash: string;
+  date: string;
+  messageSummary: string;
+  shortHash: string;
+}
+
+export interface RepositoryFileHistoryPayload {
+  entries: RepositoryFileHistoryEntry[];
+  path: string;
+}
+
+export interface RepositoryFileDetectedEncoding {
+  encoding: string;
+}
+
+export interface RepositoryFileBlameLine {
+  author: string;
+  authorEmail: string;
+  authorTime: number | null;
+  commitHash: string;
+  lineNumber: number;
+  summary: string;
+  text: string;
+}
+
+export interface RepositoryFileBlamePayload {
+  lines: RepositoryFileBlameLine[];
+  path: string;
+  revision: string;
 }
 
 export type OpenRepositoryResult =
@@ -239,19 +326,76 @@ export interface RepoStoreState {
     id: string,
     instruction: string
   ) => Promise<GeneratedRepositoryCommitMessage>;
+  getCommitFileContent: (
+    id: string,
+    commitHash: string,
+    filePath: string,
+    mode: RepositoryDiffPreviewMode,
+    forceRender: boolean,
+    encoding?: string | null
+  ) => Promise<RepositoryCommitFileDiff | null>;
   getCommitFileDiff: (
     id: string,
     commitHash: string,
     filePath: string
   ) => Promise<RepositoryCommitFileDiff | null>;
+  getCommitFileHunks: (
+    id: string,
+    commitHash: string,
+    filePath: string,
+    ignoreTrimWhitespace: boolean
+  ) => Promise<RepositoryCommitFileHunks | null>;
+  getCommitFilePreflight: (
+    id: string,
+    commitHash: string,
+    filePath: string,
+    mode: RepositoryDiffPreviewMode
+  ) => Promise<RepositoryCommitFilePreflight | null>;
   getCommitFiles: (
     id: string,
     commitHash: string
   ) => Promise<RepositoryCommitFile[]>;
+  getFileBlame: (
+    id: string,
+    filePath: string,
+    revision?: string | null
+  ) => Promise<RepositoryFileBlamePayload | null>;
+  getFileContent: (
+    id: string,
+    filePath: string,
+    mode: RepositoryDiffPreviewMode,
+    forceRender: boolean,
+    encoding?: string | null
+  ) => Promise<RepositoryFileDiff | null>;
+  getFileDetectedEncoding: (
+    id: string,
+    filePath: string,
+    revision?: string | null
+  ) => Promise<RepositoryFileDetectedEncoding | null>;
   getFileDiff: (
     id: string,
     filePath: string
   ) => Promise<RepositoryFileDiff | null>;
+  getFileHistory: (
+    id: string,
+    filePath: string,
+    limit?: number
+  ) => Promise<RepositoryFileHistoryPayload | null>;
+  getFileHunks: (
+    id: string,
+    filePath: string,
+    ignoreTrimWhitespace: boolean
+  ) => Promise<RepositoryFileHunks | null>;
+  getFilePreflight: (
+    id: string,
+    filePath: string,
+    mode: RepositoryDiffPreviewMode
+  ) => Promise<RepositoryFilePreflight | null>;
+  getFileText: (
+    id: string,
+    filePath: string,
+    encoding?: string | null
+  ) => Promise<string | null>;
   getLatestCommitMessage: (
     id: string
   ) => Promise<LatestRepositoryCommitMessage | null>;
@@ -310,6 +454,12 @@ export interface RepoStoreState {
   repoUndoLabelById: Record<string, string | null>;
   repoWorkingTreeItems: Record<string, RepositoryWorkingTreeItem[]>;
   repoWorkingTreeStatuses: Record<string, RepositoryWorkingTreeStatus>;
+  saveFileText: (
+    id: string,
+    filePath: string,
+    text: string,
+    encoding?: string | null
+  ) => Promise<boolean>;
   setActiveRepo: (
     id: string,
     options?: { background?: boolean; forceRefresh?: boolean }

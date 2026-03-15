@@ -32,3 +32,13 @@
 .react-flow__handle {
   opacity: 0;
 }
+
+.monaco-editor .litgit-blame-glyph {
+  width: 100%;
+  background: transparent;
+}
+
+.monaco-editor .litgit-blame-lane {
+  box-sizing: border-box;
+  height: 100%;
+}

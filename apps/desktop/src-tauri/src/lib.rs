@@ -1,5 +1,6 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
+use encoding_rs::{Encoding, UTF_8};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,6 +19,18 @@ use tauri::Manager;
 use tauri::State;
 use tauri::{AppHandle, Emitter};
 use ureq::Proxy;
+
+mod diff_preview;
+use diff_preview::{
+    get_repository_commit_file_content, get_repository_commit_file_preflight,
+    get_repository_file_content, get_repository_file_preflight,
+};
+mod diff_workspace;
+use diff_workspace::{
+    detect_repository_file_encoding, get_repository_commit_file_hunks, get_repository_file_blame,
+    get_repository_file_history, get_repository_file_hunks, get_repository_file_text,
+    save_repository_file_text,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,7 +148,7 @@ struct DiffPreviewPayload {
     unsupported_extension: Option<String>,
 }
 
-const MAX_IMAGE_PREVIEW_BYTES: usize = 15 * 1024 * 1024;
+const MAX_IMAGE_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
 
 fn resolve_file_extension(file_path: &str) -> Option<String> {
     Path::new(file_path)
@@ -183,6 +196,53 @@ fn text_content_to_string(content: Option<&[u8]>) -> String {
     content
         .map(|bytes| String::from_utf8_lossy(bytes).to_string())
         .unwrap_or_default()
+}
+
+fn resolve_text_encoding(encoding: Option<&str>) -> Result<&'static Encoding, String> {
+    let normalized = encoding.map(str::trim).filter(|value| !value.is_empty());
+    let Some(encoding_label) = normalized else {
+        return Ok(UTF_8);
+    };
+
+    if encoding_label.eq_ignore_ascii_case("utf-8") || encoding_label.eq_ignore_ascii_case("utf8") {
+        return Ok(UTF_8);
+    }
+
+    Encoding::for_label(encoding_label.as_bytes())
+        .ok_or_else(|| format!("Unsupported encoding: {encoding_label}"))
+}
+
+fn decode_text_content_with_encoding(
+    content: Option<&[u8]>,
+    encoding: Option<&str>,
+) -> Result<String, String> {
+    let Some(bytes) = content else {
+        return Ok(String::new());
+    };
+
+    if bytes.is_empty() {
+        return Ok(String::new());
+    }
+
+    let selected_encoding = resolve_text_encoding(encoding)?;
+    let (decoded, _, had_errors) = selected_encoding.decode(bytes);
+
+    if had_errors {
+        return Err("Failed to decode file with selected encoding".to_string());
+    }
+
+    Ok(decoded.into_owned())
+}
+
+fn encode_text_with_encoding(text: &str, encoding: Option<&str>) -> Result<Vec<u8>, String> {
+    let selected_encoding = resolve_text_encoding(encoding)?;
+    let (encoded, _, had_errors) = selected_encoding.encode(text);
+
+    if had_errors {
+        return Err("Failed to encode file with selected encoding".to_string());
+    }
+
+    Ok(encoded.into_owned())
 }
 
 fn build_diff_preview_payload(
@@ -5528,8 +5588,19 @@ pub fn run() {
             discard_all_repository_changes,
             reset_repository_to_reference,
             get_repository_file_diff,
+            get_repository_file_preflight,
+            get_repository_file_content,
+            get_repository_file_hunks,
+            get_repository_file_history,
+            get_repository_file_blame,
+            get_repository_file_text,
+            detect_repository_file_encoding,
+            save_repository_file_text,
             get_repository_commit_files,
             get_repository_commit_file_diff,
+            get_repository_commit_file_preflight,
+            get_repository_commit_file_content,
+            get_repository_commit_file_hunks,
             get_repository_working_tree_status,
             get_repository_working_tree_items,
             get_repository_files,

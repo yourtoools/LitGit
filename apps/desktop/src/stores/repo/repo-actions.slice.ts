@@ -11,9 +11,19 @@ import {
   discardRepoPathChanges,
   dropRepoStash,
   getLatestRepoCommitMessage,
+  getRepoCommitFileContent,
   getRepoCommitFileDiff,
+  getRepoCommitFileHunks,
+  getRepoCommitFilePreflight,
   getRepoCommitFiles,
+  getRepoFileBlame,
+  getRepoFileContent,
+  getRepoFileDetectedEncoding,
   getRepoFileDiff,
+  getRepoFileHistory,
+  getRepoFileHunks,
+  getRepoFilePreflight,
+  getRepoFileText,
   getRepositoryFiles,
   popRepoStash,
   pushRepoBranch,
@@ -21,6 +31,7 @@ import {
   resetRepoToReference,
   runRepoMergeAction,
   runRepoPull,
+  saveRepoFileText,
   setRepoBranchUpstream,
   stageAllRepoChanges,
   stageRepoFile,
@@ -174,9 +185,19 @@ type RepoActionsSliceKeys =
   | "getRedoRepoActionLabel"
   | "getUndoRepoActionLabel"
   | "getCommitFileDiff"
+  | "getCommitFileHunks"
+  | "getCommitFileContent"
+  | "getCommitFilePreflight"
   | "getCommitFiles"
   | "getRepositoryFiles"
+  | "getFileBlame"
+  | "getFileDetectedEncoding"
   | "getFileDiff"
+  | "getFileContent"
+  | "getFileHistory"
+  | "getFileHunks"
+  | "getFilePreflight"
+  | "getFileText"
   | "getLatestCommitMessage"
   | "popStash"
   | "pullBranch"
@@ -184,6 +205,7 @@ type RepoActionsSliceKeys =
   | "pushBranch"
   | "renameBranch"
   | "setBranchUpstream"
+  | "saveFileText"
   | "redoRepoAction"
   | "stageAll"
   | "stageFile"
@@ -1076,6 +1098,77 @@ export const createRepoActionsSlice = (
       return null;
     }
   },
+  getCommitFilePreflight: async (id, commitHash, filePath, mode) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoCommitFilePreflight(
+        targetRepo.path,
+        commitHash,
+        filePath,
+        mode
+      );
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error rendering diff"));
+      return null;
+    }
+  },
+  getCommitFileContent: async (
+    id,
+    commitHash,
+    filePath,
+    mode,
+    forceRender,
+    encoding
+  ) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoCommitFileContent(
+        targetRepo.path,
+        commitHash,
+        filePath,
+        mode,
+        forceRender,
+        encoding
+      );
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error rendering diff"));
+      return null;
+    }
+  },
+  getCommitFileHunks: async (
+    id,
+    commitHash,
+    filePath,
+    ignoreTrimWhitespace
+  ) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoCommitFileHunks(
+        targetRepo.path,
+        commitHash,
+        filePath,
+        ignoreTrimWhitespace
+      );
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error rendering diff"));
+      return null;
+    }
+  },
   getFileDiff: async (id, filePath) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 
@@ -1088,6 +1181,137 @@ export const createRepoActionsSlice = (
     } catch (error) {
       toast.error(resolveErrorMessage(error, "Failed to load file diff"));
       return null;
+    }
+  },
+  getFilePreflight: async (id, filePath, mode) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoFilePreflight(targetRepo.path, filePath, mode);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error loading file"));
+      return null;
+    }
+  },
+  getFileContent: async (id, filePath, mode, forceRender, encoding) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoFileContent(
+        targetRepo.path,
+        filePath,
+        mode,
+        forceRender,
+        encoding
+      );
+    } catch (error) {
+      if (mode === "file") {
+        toast.error(resolveErrorMessage(error, "Error loading file"));
+      } else {
+        toast.error(resolveErrorMessage(error, "Error rendering diff"));
+      }
+      return null;
+    }
+  },
+  getFileHunks: async (id, filePath, ignoreTrimWhitespace) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoFileHunks(
+        targetRepo.path,
+        filePath,
+        ignoreTrimWhitespace
+      );
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error rendering diff"));
+      return null;
+    }
+  },
+  getFileHistory: async (id, filePath, limit) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoFileHistory(targetRepo.path, filePath, limit);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error loading file history"));
+      return null;
+    }
+  },
+  getFileBlame: async (id, filePath, revision) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoFileBlame(targetRepo.path, filePath, revision);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error loading blame"));
+      return null;
+    }
+  },
+  getFileDetectedEncoding: async (id, filePath, revision) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoFileDetectedEncoding(
+        targetRepo.path,
+        filePath,
+        revision
+      );
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error detecting file encoding"));
+      return null;
+    }
+  },
+  getFileText: async (id, filePath, encoding) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return null;
+    }
+
+    try {
+      return await getRepoFileText(targetRepo.path, filePath, encoding);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error loading file"));
+      return null;
+    }
+  },
+  saveFileText: async (id, filePath, text, encoding) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      return false;
+    }
+
+    try {
+      await saveRepoFileText(targetRepo.path, filePath, text, encoding);
+      return true;
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, "Error saving file"));
+      return false;
     }
   },
   getLatestCommitMessage: async (id) => {

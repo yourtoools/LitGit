@@ -79,7 +79,6 @@ import {
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
-import { DiffEditor } from "@monaco-editor/react";
 import {
   ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
@@ -113,7 +112,9 @@ import { intlFormat } from "date-fns";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { useTheme } from "next-themes";
 import {
+  lazy,
   type ReactNode,
+  Suspense,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -132,6 +133,34 @@ import {
 } from "@/components/views/git-graph-layout";
 import { GitGraphOverlay } from "@/components/views/git-graph-overlay";
 import {
+  type DiffPreviewPanelState,
+  resolveDiffPreviewUiState,
+  shouldMountMonaco,
+} from "@/components/views/repo-info/diff-preview-state";
+import { DiffPreviewSurface } from "@/components/views/repo-info/diff-preview-surface";
+import {
+  DEFAULT_DIFF_WORKSPACE_ENCODING,
+  DIFF_WORKSPACE_ENCODING_OPTIONS,
+  DIFF_WORKSPACE_GUESS_ENCODING_VALUE,
+  isDiffWorkspaceTextEncodingUnsupported,
+  resolveDiffWorkspaceEncodingValue,
+  resolveDiffWorkspaceRequestedEncoding,
+} from "@/components/views/repo-info/diff-workspace-encoding";
+import { buildMonacoModelBasePath } from "@/components/views/repo-info/diff-workspace-monaco-model";
+import {
+  resolvePresentationForViewerKind,
+  resolveToolbarControlState,
+} from "@/components/views/repo-info/diff-workspace-state";
+import { DiffWorkspaceToolbar } from "@/components/views/repo-info/diff-workspace-toolbar";
+import {
+  DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION,
+  DEFAULT_DIFF_WORKSPACE_MODE,
+  DEFAULT_DIFF_WORKSPACE_PRESENTATION,
+  type DiffWorkspaceFilePresentationMode,
+  type DiffWorkspaceMode,
+  type DiffWorkspacePresentationMode,
+} from "@/components/views/repo-info/diff-workspace-types";
+import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   normalizeComboboxQuery,
   useDebouncedValue,
@@ -149,8 +178,12 @@ import type {
   RepositoryCommit,
   RepositoryCommitFile,
   RepositoryCommitFileDiff,
+  RepositoryFileBlameLine,
   RepositoryFileDiff,
   RepositoryFileEntry,
+  RepositoryFileHistoryEntry,
+  RepositoryFileHunk,
+  RepositoryFilePreflight,
   RepositoryStash,
   RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
@@ -198,6 +231,20 @@ interface CommitFileTreeNode {
 type ChangesViewMode = "path" | "tree";
 type ChangeTreeSection = "all" | "staged" | "unstaged";
 type SidebarResizeTarget = "left" | "right";
+type DiffPreviewOpenContext =
+  | {
+      filePath: string;
+      item: RepositoryWorkingTreeItem;
+      mode: "diff" | "file";
+      source: "working";
+    }
+  | {
+      commitHash: string;
+      filePath: string;
+      mode: "diff" | "file";
+      source: "commit";
+      status: string;
+    };
 
 interface CommitDetailsResizeState {
   startHeight: number;
@@ -225,6 +272,113 @@ const COMMIT_MESSAGE_LIST_MARKER_PATTERN = /^[-*•]\s*/;
 const FILE_FILTER_DEBOUNCE_MS = 500;
 const SIDEBAR_FILTER_DEBOUNCE_MS = 500;
 const COMMIT_DIFF_CACHE_LIMIT = 32;
+const DIFF_WORKSPACE_PAYLOAD_CACHE_LIMIT = 64;
+const FILE_HISTORY_LIMIT = 200;
+const UNSUPPORTED_ENCODING_MESSAGE =
+  "Encoding not supported. Reopen with another encoding.";
+
+function readCachedValue<T>(cache: Map<string, T>, key: string): T | null {
+  return cache.get(key) ?? null;
+}
+
+function writeCachedValue<T>(
+  cache: Map<string, T>,
+  key: string,
+  value: T,
+  limit: number
+) {
+  cache.set(key, value);
+
+  if (cache.size <= limit) {
+    return;
+  }
+
+  const oldestKey = cache.keys().next().value;
+
+  if (typeof oldestKey === "string") {
+    cache.delete(oldestKey);
+  }
+}
+
+const LazyDiffPreviewMonacoSurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-preview-monaco-surface"
+  );
+
+  return {
+    default: module.DiffPreviewMonacoSurface,
+  };
+});
+
+const LazyDiffWorkspaceMonacoFileSurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-monaco-file-surface"
+  );
+
+  return {
+    default: module.DiffWorkspaceMonacoFileSurface,
+  };
+});
+
+const LazyDiffWorkspaceMonacoEditSurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-monaco-edit-surface"
+  );
+
+  return {
+    default: module.DiffWorkspaceMonacoEditSurface,
+  };
+});
+
+const LazyDiffWorkspaceHunkSurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-hunk-surface"
+  );
+
+  return {
+    default: module.DiffWorkspaceHunkSurface,
+  };
+});
+
+const LazyDiffWorkspaceHistorySurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-history-surface"
+  );
+
+  return {
+    default: module.DiffWorkspaceHistorySurface,
+  };
+});
+
+const LazyDiffWorkspaceBlameSurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-blame-surface"
+  );
+
+  return {
+    default: module.DiffWorkspaceBlameSurface,
+  };
+});
+
+const LazyDiffWorkspaceFileExplorer = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-file-explorer"
+  );
+
+  return {
+    default: module.DiffWorkspaceFileExplorer,
+  };
+});
+
+const LazyDiffWorkspaceMarkdownPreviewSurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-markdown-preview-surface"
+  );
+
+  return {
+    default: module.DiffWorkspaceMarkdownPreviewSurface,
+  };
+});
 
 const GIT_STATUS_STYLE_BY_CODE: Record<
   string,
@@ -318,6 +472,14 @@ const IMAGE_PREVIEWABLE_EXTENSIONS = new Set([
   "ico",
   "avif",
   "svg",
+]);
+const MARKDOWN_PREVIEWABLE_EXTENSIONS = new Set([
+  "markdown",
+  "md",
+  "mdown",
+  "mdx",
+  "mkd",
+  "mkdn",
 ]);
 const UNSUPPORTED_FILE_ASCII_ART = String.raw`       _____________
       /           /|
@@ -678,6 +840,21 @@ const applyDiffEditorPreferences = (
   editor.getModifiedEditor().getModel()?.setEOL(eol);
 };
 
+const applyCodeEditorPreferences = (
+  editor: MonacoEditor.IStandaloneCodeEditor,
+  lineNumbers: "on" | "off",
+  tabSize: number,
+  eolPreference: "system" | "lf" | "crlf"
+) => {
+  editor.updateOptions({
+    lineNumbers,
+    tabSize,
+  });
+
+  const eol = resolveMonacoEol(eolPreference);
+  editor.getModel()?.setEOL(eol);
+};
+
 function formatStashLabel(stash: RepositoryStash): string {
   const rawMessage = stash.message.trim();
 
@@ -754,6 +931,20 @@ function resolveFileExtension(filePath: string): string | null {
   const extension = FILE_EXTENSION_PATTERN.exec(normalizedPath)?.[1] ?? "";
 
   return extension.length > 0 ? extension : null;
+}
+
+function isMarkdownPreviewablePath(filePath: string): boolean {
+  const extension = resolveFileExtension(filePath);
+
+  if (!extension) {
+    return false;
+  }
+
+  return MARKDOWN_PREVIEWABLE_EXTENSIONS.has(extension);
+}
+
+function resolveDefaultWorkspacePreviewMode(filePath: string): "diff" | "file" {
+  return isMarkdownPreviewablePath(filePath) ? "file" : "diff";
 }
 
 function formatUnsupportedExtensionLabel(
@@ -942,7 +1133,16 @@ export function RepoInfo() {
   const unstageAll = useRepoStore((state) => state.unstageAll);
   const stageFile = useRepoStore((state) => state.stageFile);
   const unstageFile = useRepoStore((state) => state.unstageFile);
-  const getFileDiff = useRepoStore((state) => state.getFileDiff);
+  const getFilePreflight = useRepoStore((state) => state.getFilePreflight);
+  const getFileContent = useRepoStore((state) => state.getFileContent);
+  const getFileHunks = useRepoStore((state) => state.getFileHunks);
+  const getFileHistory = useRepoStore((state) => state.getFileHistory);
+  const getFileBlame = useRepoStore((state) => state.getFileBlame);
+  const getFileDetectedEncoding = useRepoStore(
+    (state) => state.getFileDetectedEncoding
+  );
+  const getFileText = useRepoStore((state) => state.getFileText);
+  const saveFileText = useRepoStore((state) => state.saveFileText);
   const getRepositoryFiles = useRepoStore((state) => state.getRepositoryFiles);
   const getLatestCommitMessage = useRepoStore(
     (state) => state.getLatestCommitMessage
@@ -951,7 +1151,13 @@ export function RepoInfo() {
     (state) => state.generateAiCommitMessage
   );
   const getCommitFiles = useRepoStore((state) => state.getCommitFiles);
-  const getCommitFileDiff = useRepoStore((state) => state.getCommitFileDiff);
+  const getCommitFilePreflight = useRepoStore(
+    (state) => state.getCommitFilePreflight
+  );
+  const getCommitFileContent = useRepoStore(
+    (state) => state.getCommitFileContent
+  );
+  const getCommitFileHunks = useRepoStore((state) => state.getCommitFileHunks);
   const discardAllChanges = useRepoStore((state) => state.discardAllChanges);
   const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
   const commitChanges = useRepoStore((state) => state.commitChanges);
@@ -977,6 +1183,7 @@ export function RepoInfo() {
     Record<string, boolean>
   >({});
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
+  const isLeftSidebarOpen = true;
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(
     LEFT_SIDEBAR_DEFAULT_WIDTH
@@ -1078,11 +1285,65 @@ export function RepoInfo() {
   const [isLoadingDiffPath, setIsLoadingDiffPath] = useState<string | null>(
     null
   );
+  const [diffPreviewPanelState, setDiffPreviewPanelState] =
+    useState<DiffPreviewPanelState>({ kind: "idle" });
+  const [workspaceMode, setWorkspaceMode] = useState<DiffWorkspaceMode>(
+    DEFAULT_DIFF_WORKSPACE_MODE
+  );
+  const [workspacePresentation, setWorkspacePresentation] =
+    useState<DiffWorkspacePresentationMode>(
+      DEFAULT_DIFF_WORKSPACE_PRESENTATION
+    );
+  const [workspaceFilePresentation, setWorkspaceFilePresentation] =
+    useState<DiffWorkspaceFilePresentationMode>(
+      DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION
+    );
+  const [ignoreTrimWhitespace, setIgnoreTrimWhitespace] = useState(false);
+  const [workspaceEncoding, setWorkspaceEncoding] = useState(
+    DEFAULT_DIFF_WORKSPACE_ENCODING
+  );
+  const [openedDiffContext, setOpenedDiffContext] =
+    useState<DiffPreviewOpenContext | null>(null);
+  const [hasRequestedDiffSurface, setHasRequestedDiffSurface] = useState(false);
+  const [isDiffEditorReady, setIsDiffEditorReady] = useState(false);
+  const [hasRequestedFileSurface, setHasRequestedFileSurface] = useState(false);
+  const [hasRequestedEditSurface, setHasRequestedEditSurface] = useState(false);
   const [openedDiff, setOpenedDiff] = useState<RepositoryFileDiff | null>(null);
   const [openedDiffPath, setOpenedDiffPath] = useState<string | null>(null);
   const [openedDiffStatusCode, setOpenedDiffStatusCode] = useState<
     string | null
   >(null);
+  const [activeHunks, setActiveHunks] = useState<RepositoryFileHunk[]>([]);
+  const [_activeHunkIndex, setActiveHunkIndex] = useState(0);
+  const [isLoadingHunks, setIsLoadingHunks] = useState(false);
+  const [hunkLoadError, setHunkLoadError] = useState<string | null>(null);
+  const [historyEntries, setHistoryEntries] = useState<
+    RepositoryFileHistoryEntry[]
+  >([]);
+  const [selectedHistoryCommitHash, setSelectedHistoryCommitHash] = useState<
+    string | null
+  >(null);
+  const [isLoadingFileHistory, setIsLoadingFileHistory] = useState(false);
+  const [fileHistoryError, setFileHistoryError] = useState<string | null>(null);
+  const [blameLines, setBlameLines] = useState<RepositoryFileBlameLine[]>([]);
+  const [isLoadingBlame, setIsLoadingBlame] = useState(false);
+  const [blameError, setBlameError] = useState<string | null>(null);
+  const [editBuffer, setEditBuffer] = useState("");
+  const [editInitialBuffer, setEditInitialBuffer] = useState("");
+  const [isLoadingEditBuffer, setIsLoadingEditBuffer] = useState(false);
+  const [isSavingEditBuffer, setIsSavingEditBuffer] = useState(false);
+  const [editLoadError, setEditLoadError] = useState<string | null>(null);
+  const [isFileExplorerOpen, setIsFileExplorerOpen] = useState(false);
+  const [pendingWorkspaceMode, setPendingWorkspaceMode] =
+    useState<DiffWorkspaceMode | null>(null);
+  const [pendingOpenDiffContext, setPendingOpenDiffContext] =
+    useState<DiffPreviewOpenContext | null>(null);
+  const [pendingExplorerPath, setPendingExplorerPath] = useState<string | null>(
+    null
+  );
+  const [pendingCloseDiffPanel, setPendingCloseDiffPanel] = useState(false);
+  const [isUnsavedEditConfirmOpen, setIsUnsavedEditConfirmOpen] =
+    useState(false);
   const [commitFilesByHash, setCommitFilesByHash] = useState<
     Record<string, RepositoryCommitFile[]>
   >({});
@@ -1171,7 +1432,27 @@ export function RepoInfo() {
   const openedDiffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
     null
   );
+  const openedFileEditorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(
+    null
+  );
+  const openedEditEditorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(
+    null
+  );
+  const previousWorkspaceEncodingRef = useRef(workspaceEncoding);
+  const resolvedWorkspaceEncoding =
+    resolveDiffWorkspaceEncodingValue(workspaceEncoding);
+  const requestedWorkspaceEncoding = resolveDiffWorkspaceRequestedEncoding(
+    resolvedWorkspaceEncoding
+  );
+  const hasUnsupportedWorkspaceTextEncoding =
+    isDiffWorkspaceTextEncodingUnsupported(resolvedWorkspaceEncoding);
   const commitDiffCacheRef = useRef<Map<string, RepositoryCommitFileDiff>>(
+    new Map()
+  );
+  const fileHistoryCacheRef = useRef<Map<string, RepositoryFileHistoryEntry[]>>(
+    new Map()
+  );
+  const fileBlameCacheRef = useRef<Map<string, RepositoryFileBlameLine[]>>(
     new Map()
   );
   const preAmendDraftRef = useRef<{
@@ -1652,6 +1933,15 @@ export function RepoInfo() {
 
     return countsByHash;
   }, [commits]);
+  const commitAvatarUrlByHash = useMemo<Record<string, string | null>>(() => {
+    const avatarByHash: Record<string, string | null> = {};
+
+    for (const commit of commits) {
+      avatarByHash[commit.hash] = commit.authorAvatarUrl ?? null;
+    }
+
+    return avatarByHash;
+  }, [commits]);
   const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
     const localEntries: SidebarEntry[] = [];
     const remoteEntries: SidebarEntry[] = [];
@@ -1753,22 +2043,51 @@ export function RepoInfo() {
 
   useEffect(() => {
     const diffEditor = openedDiffEditorRef.current;
+    const fileEditor = openedFileEditorRef.current;
+    const editEditor = openedEditEditorRef.current;
 
-    if (!diffEditor) {
-      return;
+    if (diffEditor) {
+      applyDiffEditorPreferences(
+        diffEditor,
+        editorPreferences.lineNumbers,
+        editorPreferences.tabSize,
+        editorPreferences.eol
+      );
     }
 
-    applyDiffEditorPreferences(
-      diffEditor,
-      editorPreferences.lineNumbers,
-      editorPreferences.tabSize,
-      editorPreferences.eol
-    );
+    if (fileEditor) {
+      applyCodeEditorPreferences(
+        fileEditor,
+        editorPreferences.lineNumbers,
+        editorPreferences.tabSize,
+        editorPreferences.eol
+      );
+    }
+
+    if (editEditor) {
+      applyCodeEditorPreferences(
+        editEditor,
+        editorPreferences.lineNumbers,
+        editorPreferences.tabSize,
+        editorPreferences.eol
+      );
+    }
   }, [
     editorPreferences.eol,
     editorPreferences.lineNumbers,
     editorPreferences.tabSize,
   ]);
+
+  useEffect(() => {
+    if (activeRepoId === null) {
+      fileHistoryCacheRef.current.clear();
+      fileBlameCacheRef.current.clear();
+      return;
+    }
+
+    fileHistoryCacheRef.current.clear();
+    fileBlameCacheRef.current.clear();
+  }, [activeRepoId]);
 
   const formatCommitDate = (value: string): string => {
     const parsedDate = new Date(value);
@@ -2393,6 +2712,9 @@ export function RepoInfo() {
   useEffect(() => {
     if (activeRepoId === null) {
       setIsLoadingDiffPath(null);
+      setDiffPreviewPanelState({ kind: "idle" });
+      setOpenedDiffContext(null);
+      setHasRequestedDiffSurface(false);
       setOpenedDiff(null);
       setOpenedDiffPath(null);
       setOpenedDiffStatusCode(null);
@@ -2403,6 +2725,9 @@ export function RepoInfo() {
     }
 
     setIsLoadingDiffPath(null);
+    setDiffPreviewPanelState({ kind: "idle" });
+    setOpenedDiffContext(null);
+    setHasRequestedDiffSurface(false);
     setOpenedDiff(null);
     setOpenedDiffPath(null);
     setOpenedDiffStatusCode(null);
@@ -2569,7 +2894,10 @@ export function RepoInfo() {
       setIsTimelineGraphAutoCompact((current) =>
         current === shouldAutoCompact ? current : shouldAutoCompact
       );
-      const hasRightSidebar = isRightSidebarOpen;
+      const hasRightSidebar =
+        isRightSidebarOpen &&
+        workspaceMode !== "blame" &&
+        workspaceMode !== "history";
       const leftMaxWidth = getLeftSidebarMaxWidth(
         viewportWidth,
         rightSidebarWidthRef.current,
@@ -2606,7 +2934,7 @@ export function RepoInfo() {
     return () => {
       globalThis.removeEventListener("resize", clampSidebarWidths);
     };
-  }, [isRightSidebarOpen]);
+  }, [isRightSidebarOpen, workspaceMode]);
 
   useEffect(() => {
     const handlePointerMove = (event: MouseEvent) => {
@@ -5144,11 +5472,597 @@ export function RepoInfo() {
       setIsUpdatingFilePath(null);
     }
   };
-  const closeOpenedDiff = () => {
+  const isEditDirty =
+    workspaceMode === "edit" && editBuffer !== editInitialBuffer;
+  const closeDiffPreviewPanel = useCallback(() => {
+    setDiffPreviewPanelState({ kind: "idle" });
+    setWorkspaceMode(DEFAULT_DIFF_WORKSPACE_MODE);
+    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    setWorkspaceFilePresentation(DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION);
+    setIgnoreTrimWhitespace(false);
+    setWorkspaceEncoding(DEFAULT_DIFF_WORKSPACE_ENCODING);
+    setOpenedDiffContext(null);
+    setHasRequestedDiffSurface(false);
+    setIsDiffEditorReady(false);
+    setHasRequestedFileSurface(false);
+    setHasRequestedEditSurface(false);
     setOpenedDiff(null);
     setOpenedDiffPath(null);
     setOpenedDiffStatusCode(null);
-  };
+    setActiveHunks([]);
+    setActiveHunkIndex(0);
+    setIsLoadingHunks(false);
+    setHunkLoadError(null);
+    setHistoryEntries([]);
+    setSelectedHistoryCommitHash(null);
+    setIsLoadingFileHistory(false);
+    setFileHistoryError(null);
+    setBlameLines([]);
+    setIsLoadingBlame(false);
+    setBlameError(null);
+    setEditBuffer("");
+    setEditInitialBuffer("");
+    setIsLoadingEditBuffer(false);
+    setIsSavingEditBuffer(false);
+    setEditLoadError(null);
+    setIsFileExplorerOpen(false);
+    setPendingWorkspaceMode(null);
+    setPendingOpenDiffContext(null);
+    setPendingExplorerPath(null);
+    setPendingCloseDiffPanel(false);
+    setIsUnsavedEditConfirmOpen(false);
+    setOpenedCommitDiff(null);
+    setOpenedCommitDiffStatusCode(null);
+    setIsLoadingDiffPath(null);
+    setIsLoadingCommitDiffPath(null);
+  }, []);
+
+  const openWorkingDiffContent = useCallback(
+    async (
+      context: Extract<DiffPreviewOpenContext, { source: "working" }>,
+      previewMode: "diff" | "file",
+      forceRender: boolean
+    ) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      setDiffPreviewPanelState({
+        kind: "contentLoading",
+        path: context.filePath,
+        forceRender,
+      });
+
+      const diff = await getFileContent(
+        activeRepoId,
+        context.filePath,
+        previewMode,
+        forceRender,
+        requestedWorkspaceEncoding
+      );
+
+      if (!diff) {
+        setDiffPreviewPanelState({
+          kind:
+            previewMode === "file" ? "errorLoadingFile" : "errorRenderingDiff",
+          path: context.filePath,
+        });
+        return;
+      }
+
+      setOpenedDiff(diff);
+      setOpenedDiffPath(context.filePath);
+      setOpenedDiffStatusCode(
+        resolveWorkingTreePreviewStatusCode(context.item)
+      );
+      setDiffPreviewPanelState({ kind: "ready", path: context.filePath });
+    },
+    [activeRepoId, getFileContent, requestedWorkspaceEncoding]
+  );
+
+  const openCommitDiffContent = useCallback(
+    async (
+      context: Extract<DiffPreviewOpenContext, { source: "commit" }>,
+      previewMode: "diff" | "file",
+      forceRender: boolean
+    ) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      const cacheKey = `${previewMode}:${workspaceEncoding}:${context.commitHash}:${context.filePath}`;
+
+      if (!forceRender && previewMode === "diff") {
+        const cachedDiff = commitDiffCacheRef.current.get(cacheKey);
+
+        if (cachedDiff) {
+          setOpenedCommitDiff(cachedDiff);
+          setOpenedCommitDiffStatusCode(
+            resolveCommitPreviewStatusCode(context.status)
+          );
+          setDiffPreviewPanelState({ kind: "ready", path: context.filePath });
+          return;
+        }
+      }
+
+      setDiffPreviewPanelState({
+        kind: "contentLoading",
+        path: context.filePath,
+        forceRender,
+      });
+
+      const diff = await getCommitFileContent(
+        activeRepoId,
+        context.commitHash,
+        context.filePath,
+        previewMode,
+        forceRender,
+        requestedWorkspaceEncoding
+      );
+
+      if (!diff) {
+        setDiffPreviewPanelState({
+          kind:
+            previewMode === "file" ? "errorLoadingFile" : "errorRenderingDiff",
+          path: context.filePath,
+        });
+        return;
+      }
+
+      if (previewMode === "diff") {
+        commitDiffCacheRef.current.set(cacheKey, diff);
+      }
+
+      if (commitDiffCacheRef.current.size > COMMIT_DIFF_CACHE_LIMIT) {
+        const oldestCacheKey = commitDiffCacheRef.current.keys().next().value;
+
+        if (typeof oldestCacheKey === "string") {
+          commitDiffCacheRef.current.delete(oldestCacheKey);
+        }
+      }
+
+      setOpenedCommitDiff(diff);
+      setOpenedCommitDiffStatusCode(
+        resolveCommitPreviewStatusCode(context.status)
+      );
+      setDiffPreviewPanelState({ kind: "ready", path: context.filePath });
+    },
+    [
+      activeRepoId,
+      getCommitFileContent,
+      requestedWorkspaceEncoding,
+      workspaceEncoding,
+    ]
+  );
+
+  const runDiffPreviewPreflight = useCallback(
+    async (
+      context: DiffPreviewOpenContext,
+      previewMode: "diff" | "file",
+      forceRender = false
+    ) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      if (hasUnsupportedWorkspaceTextEncoding) {
+        setDiffPreviewPanelState({
+          kind:
+            previewMode === "file" ? "errorLoadingFile" : "errorRenderingDiff",
+          message: UNSUPPORTED_ENCODING_MESSAGE,
+          path: context.filePath,
+        });
+        return;
+      }
+
+      if (context.source === "working") {
+        const preflight = await getFilePreflight(
+          activeRepoId,
+          context.filePath,
+          previewMode
+        );
+        const nextState = resolveDiffPreviewUiState(
+          preflight as RepositoryFilePreflight | null,
+          context.filePath,
+          previewMode
+        );
+        setDiffPreviewPanelState(nextState);
+
+        if (nextState.kind === "ready") {
+          await openWorkingDiffContent(context, previewMode, forceRender);
+        }
+
+        return;
+      }
+
+      const preflight = await getCommitFilePreflight(
+        activeRepoId,
+        context.commitHash,
+        context.filePath,
+        previewMode
+      );
+      const nextState = resolveDiffPreviewUiState(
+        preflight,
+        context.filePath,
+        previewMode
+      );
+      setDiffPreviewPanelState(nextState);
+
+      if (nextState.kind === "ready") {
+        await openCommitDiffContent(context, previewMode, forceRender);
+      }
+    },
+    [
+      activeRepoId,
+      getCommitFilePreflight,
+      getFilePreflight,
+      hasUnsupportedWorkspaceTextEncoding,
+      openCommitDiffContent,
+      openWorkingDiffContent,
+    ]
+  );
+
+  const detectAndApplyGuessedWorkspaceEncoding = useCallback(
+    async (context: DiffPreviewOpenContext) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      const detectedEncoding = await getFileDetectedEncoding(
+        activeRepoId,
+        context.filePath,
+        context.source === "commit" ? context.commitHash : null
+      );
+
+      const resolvedDetectedEncoding = detectedEncoding
+        ? resolveDiffWorkspaceEncodingValue(detectedEncoding.encoding)
+        : DEFAULT_DIFF_WORKSPACE_ENCODING;
+      const nextEncoding =
+        resolvedDetectedEncoding === DIFF_WORKSPACE_GUESS_ENCODING_VALUE
+          ? DEFAULT_DIFF_WORKSPACE_ENCODING
+          : resolvedDetectedEncoding;
+
+      setWorkspaceEncoding(nextEncoding);
+    },
+    [activeRepoId, getFileDetectedEncoding]
+  );
+
+  const loadDiffHunks = useCallback(
+    async (context: DiffPreviewOpenContext) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      setIsLoadingHunks(true);
+      setHunkLoadError(null);
+
+      try {
+        const payload =
+          context.source === "working"
+            ? await getFileHunks(
+                activeRepoId,
+                context.filePath,
+                ignoreTrimWhitespace
+              )
+            : await getCommitFileHunks(
+                activeRepoId,
+                context.commitHash,
+                context.filePath,
+                ignoreTrimWhitespace
+              );
+
+        if (!payload) {
+          setActiveHunks([]);
+          setHunkLoadError("Error rendering diff");
+          return;
+        }
+
+        setActiveHunks(payload.hunks);
+        setActiveHunkIndex(0);
+      } finally {
+        setIsLoadingHunks(false);
+      }
+    },
+    [activeRepoId, getCommitFileHunks, getFileHunks, ignoreTrimWhitespace]
+  );
+
+  const loadHistorySurface = useCallback(
+    async (context: DiffPreviewOpenContext) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      const cacheKey = `${activeRepoId}:history:${context.filePath}:${FILE_HISTORY_LIMIT}`;
+      const cachedEntries = readCachedValue(
+        fileHistoryCacheRef.current,
+        cacheKey
+      );
+
+      if (cachedEntries) {
+        setHistoryEntries(cachedEntries);
+        setFileHistoryError(null);
+        setIsLoadingFileHistory(false);
+
+        const nextSelectedCommitHash =
+          cachedEntries.find(
+            (entry) => entry.commitHash === selectedHistoryCommitHash
+          )?.commitHash ??
+          cachedEntries.at(0)?.commitHash ??
+          null;
+        setSelectedHistoryCommitHash(nextSelectedCommitHash);
+
+        if (nextSelectedCommitHash) {
+          const previewContext: DiffPreviewOpenContext = {
+            source: "commit",
+            mode: "diff",
+            commitHash: nextSelectedCommitHash,
+            filePath: context.filePath,
+            status: "M",
+          };
+          setOpenedDiffContext(previewContext);
+          await runDiffPreviewPreflight(previewContext, "diff");
+        } else {
+          setOpenedCommitDiff(null);
+          setOpenedCommitDiffStatusCode(null);
+          setDiffPreviewPanelState({ kind: "idle" });
+        }
+
+        return;
+      }
+
+      setIsLoadingFileHistory(true);
+      setFileHistoryError(null);
+
+      try {
+        const payload = await getFileHistory(
+          activeRepoId,
+          context.filePath,
+          FILE_HISTORY_LIMIT
+        );
+
+        if (!payload) {
+          setHistoryEntries([]);
+          setSelectedHistoryCommitHash(null);
+          setFileHistoryError("Error loading file history");
+          setOpenedCommitDiff(null);
+          setOpenedCommitDiffStatusCode(null);
+          setDiffPreviewPanelState({ kind: "idle" });
+          return;
+        }
+
+        setHistoryEntries(payload.entries);
+        writeCachedValue(
+          fileHistoryCacheRef.current,
+          cacheKey,
+          payload.entries,
+          DIFF_WORKSPACE_PAYLOAD_CACHE_LIMIT
+        );
+
+        const nextSelectedCommitHash =
+          payload.entries.find(
+            (entry) => entry.commitHash === selectedHistoryCommitHash
+          )?.commitHash ??
+          payload.entries.at(0)?.commitHash ??
+          null;
+        setSelectedHistoryCommitHash(nextSelectedCommitHash);
+
+        if (nextSelectedCommitHash) {
+          const previewContext: DiffPreviewOpenContext = {
+            source: "commit",
+            mode: "diff",
+            commitHash: nextSelectedCommitHash,
+            filePath: context.filePath,
+            status: "M",
+          };
+          setOpenedDiffContext(previewContext);
+          await runDiffPreviewPreflight(previewContext, "diff");
+        } else {
+          setOpenedCommitDiff(null);
+          setOpenedCommitDiffStatusCode(null);
+          setDiffPreviewPanelState({ kind: "idle" });
+        }
+      } finally {
+        setIsLoadingFileHistory(false);
+      }
+    },
+    [
+      activeRepoId,
+      getFileHistory,
+      runDiffPreviewPreflight,
+      selectedHistoryCommitHash,
+    ]
+  );
+
+  const loadBlameSurface = useCallback(
+    async (context: DiffPreviewOpenContext) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      const resolvedRevision =
+        context.source === "commit" ? context.commitHash : "HEAD";
+      const cacheKey = `${activeRepoId}:blame:${context.filePath}:${resolvedRevision}`;
+      const cachedLines = readCachedValue(fileBlameCacheRef.current, cacheKey);
+
+      if (cachedLines) {
+        setBlameLines(cachedLines);
+        setBlameError(null);
+        setIsLoadingBlame(false);
+        return;
+      }
+
+      setIsLoadingBlame(true);
+      setBlameError(null);
+
+      try {
+        const payload = await getFileBlame(
+          activeRepoId,
+          context.filePath,
+          context.source === "commit" ? context.commitHash : null
+        );
+
+        if (!payload) {
+          setBlameLines([]);
+          setBlameError("Error loading blame");
+          return;
+        }
+
+        setBlameLines(payload.lines);
+        writeCachedValue(
+          fileBlameCacheRef.current,
+          cacheKey,
+          payload.lines,
+          DIFF_WORKSPACE_PAYLOAD_CACHE_LIMIT
+        );
+      } finally {
+        setIsLoadingBlame(false);
+      }
+    },
+    [activeRepoId, getFileBlame]
+  );
+
+  const loadEditSurface = useCallback(
+    async (context: DiffPreviewOpenContext) => {
+      if (!activeRepoId) {
+        return;
+      }
+
+      setIsLoadingEditBuffer(true);
+      setEditLoadError(null);
+      setIsFileExplorerOpen(false);
+
+      if (hasUnsupportedWorkspaceTextEncoding) {
+        setEditBuffer("");
+        setEditInitialBuffer("");
+        setEditLoadError(UNSUPPORTED_ENCODING_MESSAGE);
+        setIsLoadingEditBuffer(false);
+        return;
+      }
+
+      try {
+        const text = await getFileText(
+          activeRepoId,
+          context.filePath,
+          requestedWorkspaceEncoding
+        );
+
+        if (text === null) {
+          setEditBuffer("");
+          setEditInitialBuffer("");
+          setEditLoadError("Error loading file");
+          return;
+        }
+
+        setEditBuffer(text);
+        setEditInitialBuffer(text);
+      } finally {
+        setIsLoadingEditBuffer(false);
+      }
+    },
+    [
+      activeRepoId,
+      getFileText,
+      hasUnsupportedWorkspaceTextEncoding,
+      requestedWorkspaceEncoding,
+    ]
+  );
+
+  const loadWorkspaceMode = useCallback(
+    async (context: DiffPreviewOpenContext, mode: DiffWorkspaceMode) => {
+      if (mode === "diff" || mode === "file") {
+        await runDiffPreviewPreflight(context, mode);
+        return;
+      }
+
+      if (mode === "history") {
+        await loadHistorySurface(context);
+        return;
+      }
+
+      if (mode === "blame") {
+        await loadBlameSurface(context);
+        return;
+      }
+
+      await loadEditSurface(context);
+    },
+    [
+      loadBlameSurface,
+      loadEditSurface,
+      loadHistorySurface,
+      runDiffPreviewPreflight,
+    ]
+  );
+
+  const applyWorkspaceModeChange = useCallback(
+    async (nextMode: DiffWorkspaceMode) => {
+      if (!openedDiffContext) {
+        return;
+      }
+
+      setWorkspaceMode(nextMode);
+      await loadWorkspaceMode(openedDiffContext, nextMode);
+    },
+    [loadWorkspaceMode, openedDiffContext]
+  );
+
+  const requestWorkspaceModeChange = useCallback(
+    async (nextMode: DiffWorkspaceMode) => {
+      if (nextMode === workspaceMode) {
+        return;
+      }
+
+      if (isEditDirty) {
+        setPendingWorkspaceMode(nextMode);
+        setPendingOpenDiffContext(null);
+        setPendingExplorerPath(null);
+        setPendingCloseDiffPanel(false);
+        setIsUnsavedEditConfirmOpen(true);
+        return;
+      }
+
+      await applyWorkspaceModeChange(nextMode);
+    },
+    [applyWorkspaceModeChange, isEditDirty, workspaceMode]
+  );
+
+  const handleSaveEditedFile = useCallback(async () => {
+    if (!(activeRepoId && openedDiffContext) || isSavingEditBuffer) {
+      return;
+    }
+
+    setIsSavingEditBuffer(true);
+
+    try {
+      const didSave = await saveFileText(
+        activeRepoId,
+        openedDiffContext.filePath,
+        editBuffer,
+        requestedWorkspaceEncoding
+      );
+
+      if (!didSave) {
+        return;
+      }
+
+      setEditInitialBuffer(editBuffer);
+      await runDiffPreviewPreflight(
+        openedDiffContext,
+        workspaceMode === "file" ? "file" : "diff"
+      );
+    } finally {
+      setIsSavingEditBuffer(false);
+    }
+  }, [
+    activeRepoId,
+    editBuffer,
+    isSavingEditBuffer,
+    openedDiffContext,
+    runDiffPreviewPreflight,
+    saveFileText,
+    requestedWorkspaceEncoding,
+    workspaceMode,
+  ]);
 
   const handleOpenFileDiff = async (item: RepositoryWorkingTreeItem) => {
     if (!activeRepoId || isLoadingDiffPath !== null) {
@@ -5156,29 +6070,65 @@ export function RepoInfo() {
     }
 
     const filePath = item.path;
-    setOpenedCommitDiff(null);
-    setOpenedCommitDiffStatusCode(null);
-
+    const initialMode = resolveDefaultWorkspacePreviewMode(filePath);
     const isTogglingCurrentDiff =
-      openedDiffPath === filePath && openedDiff !== null;
+      openedDiffContext !== null &&
+      openedDiffContext.source === "working" &&
+      openedDiffContext.filePath === filePath &&
+      diffPreviewPanelState.kind !== "idle";
 
     if (isTogglingCurrentDiff) {
-      closeOpenedDiff();
+      closeDiffPreviewPanel();
       return;
     }
 
+    if (isEditDirty) {
+      setPendingWorkspaceMode(initialMode);
+      setPendingOpenDiffContext({
+        source: "working",
+        mode: initialMode,
+        filePath,
+        item,
+      });
+      setPendingExplorerPath(null);
+      setPendingCloseDiffPanel(false);
+      setIsUnsavedEditConfirmOpen(true);
+      return;
+    }
+
+    setWorkspaceMode(initialMode);
+    setWorkspaceFilePresentation(
+      initialMode === "file" ? DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION : "code"
+    );
+    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    setIgnoreTrimWhitespace(false);
+    setOpenedCommitDiff(null);
+    setOpenedCommitDiffStatusCode(null);
+    setOpenedDiff(null);
+    setOpenedDiffPath(null);
+    setOpenedDiffStatusCode(null);
+    setActiveHunks([]);
+    setActiveHunkIndex(0);
+    setHistoryEntries([]);
+    setSelectedHistoryCommitHash(null);
+    setBlameLines([]);
+    setEditBuffer("");
+    setEditInitialBuffer("");
+    setEditLoadError(null);
+    setPendingOpenDiffContext(null);
+
+    const nextContext: DiffPreviewOpenContext = {
+      source: "working",
+      mode: initialMode,
+      filePath,
+      item,
+    };
+    setOpenedDiffContext(nextContext);
+    setDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
     setIsLoadingDiffPath(filePath);
 
     try {
-      const diff = await getFileDiff(activeRepoId, filePath);
-
-      if (!diff) {
-        return;
-      }
-
-      setOpenedDiff(diff);
-      setOpenedDiffPath(filePath);
-      setOpenedDiffStatusCode(resolveWorkingTreePreviewStatusCode(item));
+      await loadWorkspaceMode(nextContext, initialMode);
     } finally {
       setIsLoadingDiffPath(null);
     }
@@ -5210,14 +6160,72 @@ export function RepoInfo() {
       return null;
     }
 
-    return openedDiffActionMode === "stage" ? "Stage" : "Unstage";
+    return openedDiffActionMode === "stage" ? "Stage File" : "Unstage File";
   }, [openedDiffActionMode]);
-  const activeDiff = openedDiff ?? openedCommitDiff;
-  const activeDiffPath = activeDiff?.path ?? "";
-  const activeDiffStatusCode = openedDiff
-    ? openedDiffStatusCode
-    : openedCommitDiffStatusCode;
-  const activeDiffViewerKind = activeDiff?.viewerKind ?? "text";
+  const openedDiffStageBadgeLabel = useMemo(() => {
+    if (openedDiffActionMode === null) {
+      return null;
+    }
+
+    return openedDiffActionMode === "stage" ? "Unstaged" : "Staged";
+  }, [openedDiffActionMode]);
+  const activeDiff =
+    openedDiffContext?.source === "commit"
+      ? openedCommitDiff
+      : (openedDiff ?? openedCommitDiff);
+  const activeDiffPath = activeDiff?.path ?? openedDiffContext?.filePath ?? "";
+  const monacoModelBasePath = useMemo(() => {
+    if (openedDiffContext === null) {
+      return null;
+    }
+
+    if (openedDiffContext.source === "commit") {
+      return buildMonacoModelBasePath({
+        commitHash: openedDiffContext.commitHash,
+        filePath: activeDiffPath,
+        source: "commit",
+      });
+    }
+
+    return buildMonacoModelBasePath({
+      filePath: activeDiffPath,
+      source: "working",
+    });
+  }, [activeDiffPath, openedDiffContext]);
+  const diffMonacoModelBasePath =
+    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=diff`;
+  const hunkMonacoModelBasePath =
+    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=hunk`;
+  const fileMonacoModelPath =
+    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=file`;
+  const editMonacoModelPath =
+    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=edit`;
+  const blameMonacoModelPath =
+    monacoModelBasePath === null
+      ? null
+      : `${monacoModelBasePath}?surface=blame`;
+  const isWorkspaceAttributionMode =
+    openedDiffContext !== null &&
+    (workspaceMode === "blame" || workspaceMode === "history");
+  const isLeftSidebarVisible = isLeftSidebarOpen && !isWorkspaceAttributionMode;
+  const isRightSidebarVisible =
+    isRightSidebarOpen && !isWorkspaceAttributionMode;
+  const activeDiffStatusCode =
+    openedDiffContext?.source === "commit"
+      ? openedCommitDiffStatusCode
+      : (openedDiffStatusCode ?? openedCommitDiffStatusCode);
+  const activeDiffViewerKind = activeDiff?.viewerKind ?? "unsupported";
+  const isMarkdownPreviewableFile =
+    activeDiffViewerKind === "text" &&
+    isMarkdownPreviewablePath(activeDiffPath);
+  const isMarkdownFileWorkspaceMode =
+    workspaceMode === "file" && isMarkdownPreviewableFile;
+  const shouldShowMarkdownPreviewSurface =
+    isMarkdownFileWorkspaceMode && workspaceFilePresentation === "preview";
+  const resolvedPresentation = resolvePresentationForViewerKind(
+    workspacePresentation,
+    activeDiffViewerKind
+  );
   const activeDiffOldImageDataUrl = activeDiff?.oldImageDataUrl ?? null;
   const activeDiffNewImageDataUrl = activeDiff?.newImageDataUrl ?? null;
   const shouldForceSingleImageView =
@@ -5256,14 +6264,147 @@ export function RepoInfo() {
       )
     : "This file type is not previewable in File View.";
   const unsupportedDescription = isUnsupportedImagePreview
-    ? "Image preview could not be generated. File may be larger than 15 MB."
+    ? "Image preview could not be generated."
     : unsupportedDiffLabel;
+  const shouldMountDiffMonacoSurface =
+    workspaceMode === "diff" &&
+    resolvedPresentation !== "hunk" &&
+    shouldMountMonaco(diffPreviewPanelState, activeDiffViewerKind);
+  const shouldMountFileMonacoSurface =
+    workspaceMode === "file" &&
+    diffPreviewPanelState.kind === "ready" &&
+    activeDiffViewerKind === "text" &&
+    !shouldShowMarkdownPreviewSurface;
+  const shouldMountAttributionMonacoSurface =
+    workspaceMode === "history" || workspaceMode === "blame";
+  const shouldMountEditMonacoSurface =
+    workspaceMode === "edit" &&
+    openedDiffContext !== null &&
+    !isLoadingEditBuffer &&
+    editLoadError === null;
+  const isDiffPanelOpen =
+    openedDiffContext !== null ||
+    diffPreviewPanelState.kind !== "idle" ||
+    openedDiff !== null ||
+    openedCommitDiff !== null;
 
   useEffect(() => {
-    if (activeDiffViewerKind !== "text") {
-      openedDiffEditorRef.current = null;
+    if (isMarkdownPreviewableFile) {
+      setWorkspaceFilePresentation(DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION);
+      return;
     }
-  }, [activeDiffViewerKind]);
+
+    setWorkspaceFilePresentation("code");
+  }, [isMarkdownPreviewableFile]);
+
+  useEffect(() => {
+    if (!shouldMountDiffMonacoSurface) {
+      openedDiffEditorRef.current = null;
+      setIsDiffEditorReady(false);
+    }
+  }, [shouldMountDiffMonacoSurface]);
+
+  useEffect(() => {
+    if (
+      !(shouldMountFileMonacoSurface || shouldMountAttributionMonacoSurface)
+    ) {
+      openedFileEditorRef.current = null;
+    }
+  }, [shouldMountAttributionMonacoSurface, shouldMountFileMonacoSurface]);
+
+  useEffect(() => {
+    if (!shouldMountEditMonacoSurface) {
+      openedEditEditorRef.current = null;
+    }
+  }, [shouldMountEditMonacoSurface]);
+
+  useEffect(() => {
+    if (shouldMountDiffMonacoSurface) {
+      setHasRequestedDiffSurface(true);
+    }
+  }, [shouldMountDiffMonacoSurface]);
+
+  useEffect(() => {
+    if (shouldMountFileMonacoSurface) {
+      setHasRequestedFileSurface(true);
+    }
+  }, [shouldMountFileMonacoSurface]);
+
+  useEffect(() => {
+    if (shouldMountEditMonacoSurface) {
+      setHasRequestedEditSurface(true);
+    }
+  }, [shouldMountEditMonacoSurface]);
+
+  useEffect(() => {
+    if (
+      workspaceMode !== "diff" ||
+      resolvedPresentation !== "hunk" ||
+      openedDiffContext === null
+    ) {
+      return;
+    }
+
+    loadDiffHunks(openedDiffContext).catch(() => undefined);
+  }, [loadDiffHunks, openedDiffContext, resolvedPresentation, workspaceMode]);
+
+  useEffect(() => {
+    if (resolvedPresentation === workspacePresentation) {
+      return;
+    }
+
+    setWorkspacePresentation(resolvedPresentation);
+  }, [resolvedPresentation, workspacePresentation]);
+
+  useEffect(() => {
+    if (
+      workspaceEncoding !== DIFF_WORKSPACE_GUESS_ENCODING_VALUE ||
+      !openedDiffContext
+    ) {
+      return;
+    }
+
+    detectAndApplyGuessedWorkspaceEncoding(openedDiffContext).catch(() => {
+      setWorkspaceEncoding(DEFAULT_DIFF_WORKSPACE_ENCODING);
+    });
+  }, [
+    detectAndApplyGuessedWorkspaceEncoding,
+    openedDiffContext,
+    workspaceEncoding,
+  ]);
+
+  useEffect(() => {
+    if (previousWorkspaceEncodingRef.current === workspaceEncoding) {
+      return;
+    }
+
+    previousWorkspaceEncodingRef.current = workspaceEncoding;
+
+    if (!openedDiffContext) {
+      return;
+    }
+
+    if (workspaceEncoding === DIFF_WORKSPACE_GUESS_ENCODING_VALUE) {
+      return;
+    }
+
+    if (workspaceMode === "diff" || workspaceMode === "file") {
+      runDiffPreviewPreflight(openedDiffContext, workspaceMode).catch(
+        () => undefined
+      );
+      return;
+    }
+
+    if (workspaceMode === "edit") {
+      loadEditSurface(openedDiffContext).catch(() => undefined);
+    }
+  }, [
+    loadEditSurface,
+    openedDiffContext,
+    runDiffPreviewPreflight,
+    workspaceEncoding,
+    workspaceMode,
+  ]);
 
   const handleOpenedDiffShortcutAction = async () => {
     if (openedDiffPath === null || openedDiffActionMode === null) {
@@ -5273,9 +6414,253 @@ export function RepoInfo() {
     await handleFileStageToggle(openedDiffPath, openedDiffActionMode);
   };
 
-  const closeOpenedCommitDiff = () => {
-    setOpenedCommitDiff(null);
-    setOpenedCommitDiffStatusCode(null);
+  const handleRetryDiffPreview = async () => {
+    if (!openedDiffContext) {
+      return;
+    }
+
+    if (workspaceMode === "file" || workspaceMode === "diff") {
+      setDiffPreviewPanelState({
+        kind: "preflightLoading",
+        path: openedDiffContext.filePath,
+      });
+      await runDiffPreviewPreflight(openedDiffContext, workspaceMode);
+      return;
+    }
+
+    if (workspaceMode === "history") {
+      await loadHistorySurface(openedDiffContext);
+      return;
+    }
+
+    if (workspaceMode === "blame") {
+      await loadBlameSurface(openedDiffContext);
+      return;
+    }
+
+    await loadEditSurface(openedDiffContext);
+  };
+
+  const handleRenderDiffPreviewAnyway = async () => {
+    if (!openedDiffContext) {
+      return;
+    }
+
+    if (workspaceMode !== "diff" && workspaceMode !== "file") {
+      return;
+    }
+
+    if (openedDiffContext.source === "working") {
+      await openWorkingDiffContent(openedDiffContext, workspaceMode, true);
+      return;
+    }
+
+    await openCommitDiffContent(openedDiffContext, workspaceMode, true);
+  };
+
+  const handlePreviousChange = () => {
+    if (workspaceMode !== "diff") {
+      return;
+    }
+
+    if (resolvedPresentation === "hunk") {
+      setActiveHunkIndex((current) => {
+        if (activeHunks.length === 0) {
+          return 0;
+        }
+
+        if (current <= 0) {
+          return activeHunks.length - 1;
+        }
+
+        return current - 1;
+      });
+    }
+
+    openedDiffEditorRef.current?.goToDiff("previous");
+  };
+
+  const handleNextChange = () => {
+    if (workspaceMode !== "diff") {
+      return;
+    }
+
+    if (resolvedPresentation === "hunk") {
+      setActiveHunkIndex((current) => {
+        if (activeHunks.length === 0) {
+          return 0;
+        }
+
+        if (current >= activeHunks.length - 1) {
+          return 0;
+        }
+
+        return current + 1;
+      });
+    }
+
+    openedDiffEditorRef.current?.goToDiff("next");
+  };
+
+  const handleOpenHistoryEntry = async (entry: RepositoryFileHistoryEntry) => {
+    if (!openedDiffContext) {
+      return;
+    }
+
+    const nextContext: DiffPreviewOpenContext = {
+      source: "commit",
+      mode: "diff",
+      commitHash: entry.commitHash,
+      filePath: openedDiffContext.filePath,
+      status: "M",
+    };
+
+    setOpenedDiffContext(nextContext);
+    setSelectedHistoryCommitHash(entry.commitHash);
+    setDiffPreviewPanelState({
+      kind: "preflightLoading",
+      path: nextContext.filePath,
+    });
+    await runDiffPreviewPreflight(nextContext, "diff");
+  };
+
+  const handleWorkspaceCloseRequest = useCallback(() => {
+    if (isEditDirty) {
+      setPendingWorkspaceMode(null);
+      setPendingOpenDiffContext(null);
+      setPendingExplorerPath(null);
+      setPendingCloseDiffPanel(true);
+      setIsUnsavedEditConfirmOpen(true);
+      return;
+    }
+
+    closeDiffPreviewPanel();
+  }, [closeDiffPreviewPanel, isEditDirty]);
+
+  const handleExplorerPathSelection = async (nextPath: string) => {
+    if (!openedDiffContext) {
+      return;
+    }
+
+    if (openedDiffContext.filePath === nextPath) {
+      return;
+    }
+
+    if (isEditDirty) {
+      setPendingWorkspaceMode(null);
+      setPendingOpenDiffContext(null);
+      setPendingExplorerPath(nextPath);
+      setPendingCloseDiffPanel(false);
+      setIsUnsavedEditConfirmOpen(true);
+      return;
+    }
+
+    const nextContext: DiffPreviewOpenContext = {
+      source: "working",
+      mode: "diff",
+      filePath: nextPath,
+      item: workingTreeItemByPath.get(nextPath) ?? {
+        isUntracked: false,
+        path: nextPath,
+        stagedStatus: " ",
+        unstagedStatus: " ",
+      },
+    };
+
+    setOpenedDiffContext(nextContext);
+    setDiffPreviewPanelState({ kind: "preflightLoading", path: nextPath });
+    setWorkspaceMode("diff");
+    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    await runDiffPreviewPreflight(nextContext, "diff");
+    setWorkspaceMode("edit");
+    await loadEditSurface(nextContext);
+  };
+
+  const toolbarControls = resolveToolbarControlState({
+    hasDiffEditor: isDiffEditorReady,
+    hasHunks: activeHunks.length > 0,
+    isWorkingTreeSource: openedDiffContext?.source === "working",
+    mode: workspaceMode,
+    presentation: resolvedPresentation,
+    viewerKind: activeDiffViewerKind,
+  });
+  const editButtonLabel =
+    openedDiffContext?.source === "working"
+      ? "Edit This File"
+      : "Edit in Working Directory";
+  const stageActionLabel =
+    openedDiffContext?.source === "working" ? openedDiffActionLabel : null;
+  const isStageActionDisabled =
+    openedDiffActionMode === null || isUpdatingFilePath !== null;
+  let activeToolbarPrimaryMode: "diff" | "file" = "diff";
+
+  if (isWorkspaceAttributionMode) {
+    activeToolbarPrimaryMode = workspaceMode === "blame" ? "file" : "diff";
+  } else if (workspaceMode === "file") {
+    activeToolbarPrimaryMode = "file";
+  }
+
+  const handleDiscardUnsavedEditChanges = async () => {
+    setIsUnsavedEditConfirmOpen(false);
+
+    if (pendingCloseDiffPanel) {
+      closeDiffPreviewPanel();
+      return;
+    }
+
+    if (pendingOpenDiffContext) {
+      const nextContext = pendingOpenDiffContext;
+      setPendingOpenDiffContext(null);
+      setPendingWorkspaceMode(null);
+      setPendingExplorerPath(null);
+      setWorkspaceMode(nextContext.mode);
+      setWorkspaceFilePresentation(
+        nextContext.mode === "file"
+          ? DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION
+          : "code"
+      );
+      setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+      setOpenedDiffContext(nextContext);
+      setDiffPreviewPanelState({
+        kind: "preflightLoading",
+        path: nextContext.filePath,
+      });
+      await runDiffPreviewPreflight(nextContext, nextContext.mode);
+      return;
+    }
+
+    if (pendingExplorerPath && openedDiffContext) {
+      const nextContext: DiffPreviewOpenContext = {
+        source: "working",
+        mode: "diff",
+        filePath: pendingExplorerPath,
+        item: workingTreeItemByPath.get(pendingExplorerPath) ?? {
+          isUntracked: false,
+          path: pendingExplorerPath,
+          stagedStatus: " ",
+          unstagedStatus: " ",
+        },
+      };
+
+      setPendingExplorerPath(null);
+      setOpenedDiffContext(nextContext);
+      setDiffPreviewPanelState({
+        kind: "preflightLoading",
+        path: pendingExplorerPath,
+      });
+      setWorkspaceMode("diff");
+      setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+      await runDiffPreviewPreflight(nextContext, "diff");
+      setWorkspaceMode("edit");
+      await loadEditSurface(nextContext);
+      return;
+    }
+
+    if (pendingWorkspaceMode) {
+      const nextMode = pendingWorkspaceMode;
+      setPendingWorkspaceMode(null);
+      await applyWorkspaceModeChange(nextMode);
+    }
   };
 
   const handleOpenCommitFileDiff = async (
@@ -5287,53 +6672,117 @@ export function RepoInfo() {
       return;
     }
 
+    const initialMode = resolveDefaultWorkspacePreviewMode(filePath);
+    const isTogglingCurrentDiff =
+      openedDiffContext !== null &&
+      openedDiffContext.source === "commit" &&
+      openedDiffContext.commitHash === commitHash &&
+      openedDiffContext.filePath === filePath &&
+      diffPreviewPanelState.kind !== "idle";
+
+    if (isTogglingCurrentDiff) {
+      closeDiffPreviewPanel();
+      return;
+    }
+
+    if (isEditDirty) {
+      setPendingWorkspaceMode(initialMode);
+      setPendingOpenDiffContext({
+        source: "commit",
+        mode: initialMode,
+        commitHash,
+        filePath,
+        status,
+      });
+      setPendingExplorerPath(null);
+      setPendingCloseDiffPanel(false);
+      setIsUnsavedEditConfirmOpen(true);
+      return;
+    }
+
+    setWorkspaceMode(initialMode);
+    setWorkspaceFilePresentation(
+      initialMode === "file" ? DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION : "code"
+    );
+    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    setIgnoreTrimWhitespace(false);
     setOpenedDiff(null);
     setOpenedDiffPath(null);
     setOpenedDiffStatusCode(null);
+    setOpenedCommitDiff(null);
+    setOpenedCommitDiffStatusCode(null);
+    setActiveHunks([]);
+    setActiveHunkIndex(0);
+    setHistoryEntries([]);
+    setSelectedHistoryCommitHash(null);
+    setBlameLines([]);
+    setEditBuffer("");
+    setEditInitialBuffer("");
+    setEditLoadError(null);
+    setPendingOpenDiffContext(null);
 
-    const isTogglingCurrentDiff =
-      openedCommitDiff !== null &&
-      openedCommitDiff.commitHash === commitHash &&
-      openedCommitDiff.path === filePath;
-
-    if (isTogglingCurrentDiff) {
-      closeOpenedCommitDiff();
-      return;
-    }
-
-    const cacheKey = `${commitHash}:${filePath}`;
-    const cachedDiff = commitDiffCacheRef.current.get(cacheKey);
-
-    if (cachedDiff) {
-      setOpenedCommitDiff(cachedDiff);
-      setOpenedCommitDiffStatusCode(resolveCommitPreviewStatusCode(status));
-      return;
-    }
+    const nextContext: DiffPreviewOpenContext = {
+      source: "commit",
+      mode: initialMode,
+      commitHash,
+      filePath,
+      status,
+    };
+    setOpenedDiffContext(nextContext);
+    setDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
 
     setIsLoadingCommitDiffPath(`${commitHash}:${filePath}`);
 
     try {
-      const diff = await getCommitFileDiff(activeRepoId, commitHash, filePath);
-
-      if (!diff) {
-        return;
-      }
-
-      commitDiffCacheRef.current.set(cacheKey, diff);
-
-      if (commitDiffCacheRef.current.size > COMMIT_DIFF_CACHE_LIMIT) {
-        const oldestCacheKey = commitDiffCacheRef.current.keys().next().value;
-
-        if (typeof oldestCacheKey === "string") {
-          commitDiffCacheRef.current.delete(oldestCacheKey);
-        }
-      }
-
-      setOpenedCommitDiff(diff);
-      setOpenedCommitDiffStatusCode(resolveCommitPreviewStatusCode(status));
+      await loadWorkspaceMode(nextContext, initialMode);
     } finally {
       setIsLoadingCommitDiffPath(null);
     }
+  };
+
+  const openWorkingPathWorkspaceMode = async (
+    filePath: string,
+    mode: DiffWorkspaceMode
+  ) => {
+    const context: DiffPreviewOpenContext = {
+      source: "working",
+      mode: "diff",
+      filePath,
+      item: workingTreeItemByPath.get(filePath) ?? {
+        isUntracked: false,
+        path: filePath,
+        stagedStatus: " ",
+        unstagedStatus: " ",
+      },
+    };
+
+    setOpenedDiff(null);
+    setOpenedCommitDiff(null);
+    setOpenedDiffPath(null);
+    setOpenedDiffStatusCode(null);
+    setOpenedCommitDiffStatusCode(null);
+    setActiveHunks([]);
+    setHistoryEntries([]);
+    setSelectedHistoryCommitHash(null);
+    setBlameLines([]);
+    setEditBuffer("");
+    setEditInitialBuffer("");
+    setEditLoadError(null);
+    setPendingWorkspaceMode(null);
+    setPendingOpenDiffContext(null);
+    setPendingExplorerPath(null);
+    setPendingCloseDiffPanel(false);
+    setOpenedDiffContext(context);
+    setWorkspaceMode(mode);
+    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    setDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
+
+    if (mode === "diff" || mode === "file") {
+      await runDiffPreviewPreflight(context, mode);
+      return;
+    }
+
+    await loadWorkspaceMode(context, mode);
   };
 
   const getCommitTreeNodeStateKey = (commitHash: string, nodePath: string) =>
@@ -5591,7 +7040,7 @@ export function RepoInfo() {
   };
 
   useEffect(() => {
-    if (openedDiff === null && openedCommitDiff === null) {
+    if (!isDiffPanelOpen) {
       return;
     }
 
@@ -5600,16 +7049,7 @@ export function RepoInfo() {
         return;
       }
 
-      if (openedDiff !== null) {
-        setOpenedDiff(null);
-        setOpenedDiffPath(null);
-        setOpenedDiffStatusCode(null);
-      }
-
-      if (openedCommitDiff !== null) {
-        setOpenedCommitDiff(null);
-        setOpenedCommitDiffStatusCode(null);
-      }
+      handleWorkspaceCloseRequest();
     };
 
     globalThis.addEventListener("keydown", handleEscapeToCloseDiff);
@@ -5617,7 +7057,7 @@ export function RepoInfo() {
     return () => {
       globalThis.removeEventListener("keydown", handleEscapeToCloseDiff);
     };
-  }, [openedCommitDiff, openedDiff]);
+  }, [handleWorkspaceCloseRequest, isDiffPanelOpen]);
   const renderChangeContextMenuContent = (
     targetPath: string,
     section: "staged" | "unstaged",
@@ -5710,10 +7150,24 @@ export function RepoInfo() {
           {/* TODO: Implement this action */}
           <ContextMenuItem disabled>{stashLabel}</ContextMenuItem>
           <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>File History</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>File Blame</ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              openWorkingPathWorkspaceMode(targetPath, "history").catch(
+                () => undefined
+              );
+            }}
+          >
+            File History
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              openWorkingPathWorkspaceMode(targetPath, "blame").catch(
+                () => undefined
+              );
+            }}
+          >
+            File Blame
+          </ContextMenuItem>
           <ContextMenuSeparator />
           {/* TODO: Implement this action */}
           <ContextMenuItem disabled>Open in external diff tool</ContextMenuItem>
@@ -5731,8 +7185,15 @@ export function RepoInfo() {
           {/* TODO: Implement this action */}
           <ContextMenuItem disabled>{patchLabel}</ContextMenuItem>
           <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Edit file</ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              openWorkingPathWorkspaceMode(targetPath, "edit").catch(
+                () => undefined
+              );
+            }}
+          >
+            Edit file
+          </ContextMenuItem>
           {/* TODO: Implement this action */}
           <ContextMenuItem disabled>Delete file</ContextMenuItem>
         </ContextMenuContent>
@@ -6059,25 +7520,29 @@ export function RepoInfo() {
 
     const isSameRow = selectedCommitId === WORKING_TREE_ROW_ID;
 
-    if (isSameRow && isRightSidebarOpen) {
+    if (isSameRow && isRightSidebarVisible) {
       setIsRightSidebarOpen(false);
       return;
     }
 
     setSelectedCommitId(WORKING_TREE_ROW_ID);
-    setIsRightSidebarOpen(true);
+    if (!isWorkspaceAttributionMode) {
+      setIsRightSidebarOpen(true);
+    }
   };
 
   const handleCommitRowClick = (commitHash: string) => {
     const isSameCommit = selectedCommitId === commitHash;
 
-    if (isSameCommit && isRightSidebarOpen) {
+    if (isSameCommit && isRightSidebarVisible) {
       setIsRightSidebarOpen(false);
       return;
     }
 
     setSelectedCommitId(commitHash);
-    setIsRightSidebarOpen(true);
+    if (!isWorkspaceAttributionMode) {
+      setIsRightSidebarOpen(true);
+    }
   };
 
   const openForcePushConfirm = (
@@ -6284,211 +7749,223 @@ export function RepoInfo() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Sidebar
-          className="shrink-0"
-          style={{ width: `${leftSidebarWidth}px` }}
-        >
-          <SidebarHeader>
-            <p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.16em]">
-              Repository
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <GithubLogoIcon className="size-4 text-muted-foreground" />
-              <p className="truncate font-semibold text-sm">
-                {activeRepo.name}
-              </p>
-            </div>
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center justify-between text-muted-foreground text-xs">
-                <span>Viewing {filteredSidebarEntryCount}</span>
-              </div>
-              <InputGroup>
-                <Input
-                  className="h-8 border-0 bg-transparent pr-0 shadow-none focus-visible:ring-0"
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setSidebarFilterInputValue(nextValue);
-                    scheduleSidebarFilterUpdate(nextValue);
-                  }}
-                  placeholder="Filter (Ctrl + Alt + f)"
-                  ref={sidebarFilterInputRef}
-                  value={sidebarFilterInputValue}
-                />
-                {sidebarFilterInputValue.length > 0 ? (
-                  <InputGroupAddon>
-                    <Button
-                      aria-label="Clear filter"
-                      className="rounded-l-none border-0 border-input border-l"
-                      onClick={clearSidebarFilter}
-                      size="icon-sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <XIcon className="size-3.5" />
-                    </Button>
-                  </InputGroupAddon>
-                ) : null}
-              </InputGroup>
-            </div>
-          </SidebarHeader>
+        {isLeftSidebarVisible ? (
+          <>
+            <Sidebar
+              className="shrink-0"
+              style={{ width: `${leftSidebarWidth}px` }}
+            >
+              <SidebarHeader>
+                <p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.16em]">
+                  Repository
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <GithubLogoIcon className="size-4 text-muted-foreground" />
+                  <p className="truncate font-semibold text-sm">
+                    {activeRepo.name}
+                  </p>
+                </div>
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center justify-between text-muted-foreground text-xs">
+                    <span>Viewing {filteredSidebarEntryCount}</span>
+                  </div>
+                  <InputGroup>
+                    <Input
+                      className="h-8 border-0 bg-transparent pr-0 shadow-none focus-visible:ring-0"
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setSidebarFilterInputValue(nextValue);
+                        scheduleSidebarFilterUpdate(nextValue);
+                      }}
+                      placeholder="Filter (Ctrl + Alt + f)"
+                      ref={sidebarFilterInputRef}
+                      value={sidebarFilterInputValue}
+                    />
+                    {sidebarFilterInputValue.length > 0 ? (
+                      <InputGroupAddon>
+                        <Button
+                          aria-label="Clear filter"
+                          className="rounded-l-none border-0 border-input border-l"
+                          onClick={clearSidebarFilter}
+                          size="icon-sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <XIcon className="size-3.5" />
+                        </Button>
+                      </InputGroupAddon>
+                    ) : null}
+                  </InputGroup>
+                </div>
+              </SidebarHeader>
 
-          <SidebarContent>
-            {filteredSidebarGroups.map((group) => (
-              <SidebarGroup key={group.key}>
-                <SidebarGroupLabel className="px-0 py-0">
-                  <button
-                    className="flex w-full items-center justify-between px-2 py-1"
-                    onClick={() =>
-                      setCollapsedGroupKeys((current) => ({
-                        ...current,
-                        [group.key]: !current[group.key],
-                      }))
-                    }
-                    type="button"
-                  >
-                    <span className="inline-flex items-center gap-1.5 text-[0.68rem] text-muted-foreground uppercase tracking-[0.13em]">
-                      {collapsedGroupKeys[group.key] ? (
-                        <CaretRightIcon className="size-3" />
-                      ) : (
-                        <CaretDownIcon className="size-3" />
-                      )}
-                      {group.name}
-                    </span>
-                    <span className="font-medium text-[0.68rem] text-muted-foreground">
-                      {group.count}
-                    </span>
-                  </button>
-                </SidebarGroupLabel>
+              <SidebarContent>
+                {filteredSidebarGroups.map((group) => (
+                  <SidebarGroup key={group.key}>
+                    <SidebarGroupLabel className="px-0 py-0">
+                      <button
+                        className="flex w-full items-center justify-between px-2 py-1"
+                        onClick={() =>
+                          setCollapsedGroupKeys((current) => ({
+                            ...current,
+                            [group.key]: !current[group.key],
+                          }))
+                        }
+                        type="button"
+                      >
+                        <span className="inline-flex items-center gap-1.5 text-[0.68rem] text-muted-foreground uppercase tracking-[0.13em]">
+                          {collapsedGroupKeys[group.key] ? (
+                            <CaretRightIcon className="size-3" />
+                          ) : (
+                            <CaretDownIcon className="size-3" />
+                          )}
+                          {group.name}
+                        </span>
+                        <span className="font-medium text-[0.68rem] text-muted-foreground">
+                          {group.count}
+                        </span>
+                      </button>
+                    </SidebarGroupLabel>
 
-                {!collapsedGroupKeys[group.key] && (
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {group.entries.map((entry) => {
-                        const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
-                        const isEntryMenuOpen =
-                          openEntryContextMenuKey === entryMenuKey ||
-                          openEntryDropdownMenuKey === entryMenuKey;
-                        const isEntryContextMenuOpen =
-                          openEntryContextMenuKey === entryMenuKey;
-                        const isEntryDropdownMenuOpen =
-                          openEntryDropdownMenuKey === entryMenuKey;
+                    {!collapsedGroupKeys[group.key] && (
+                      <SidebarGroupContent>
+                        <SidebarMenu>
+                          {group.entries.map((entry) => {
+                            const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
+                            const isEntryMenuOpen =
+                              openEntryContextMenuKey === entryMenuKey ||
+                              openEntryDropdownMenuKey === entryMenuKey;
+                            const isEntryContextMenuOpen =
+                              openEntryContextMenuKey === entryMenuKey;
+                            const isEntryDropdownMenuOpen =
+                              openEntryDropdownMenuKey === entryMenuKey;
 
-                        return (
-                          <SidebarMenuItem key={entryMenuKey}>
-                            <ContextMenu
-                              onOpenChange={(open) => {
-                                handleEntryContextMenuOpenChange(
-                                  entryMenuKey,
-                                  open
-                                );
-                              }}
-                              open={isEntryContextMenuOpen}
-                            >
-                              <ContextMenuTrigger>
-                                <SidebarMenuButton
-                                  aria-label={entry.name}
-                                  className={cn(
-                                    "group",
-                                    entry.active || isEntryMenuOpen
-                                      ? "bg-accent text-accent-foreground"
-                                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                                  )}
-                                  disabled={
-                                    entry.type !== "stash" && isSwitchingBranch
-                                  }
-                                  onClick={() => {
-                                    handleCheckoutBranch(entry).catch(
-                                      () => undefined
+                            return (
+                              <SidebarMenuItem key={entryMenuKey}>
+                                <ContextMenu
+                                  onOpenChange={(open) => {
+                                    handleEntryContextMenuOpenChange(
+                                      entryMenuKey,
+                                      open
                                     );
                                   }}
+                                  open={isEntryContextMenuOpen}
                                 >
-                                  {renderEntryIcon(entry)}
-                                  <Tooltip>
-                                    <TooltipTrigger
-                                      render={
-                                        <span className="min-w-0 flex-1 truncate" />
+                                  <ContextMenuTrigger>
+                                    <SidebarMenuButton
+                                      aria-label={entry.name}
+                                      className={cn(
+                                        "group",
+                                        entry.active || isEntryMenuOpen
+                                          ? "bg-accent text-accent-foreground"
+                                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                      )}
+                                      disabled={
+                                        entry.type !== "stash" &&
+                                        isSwitchingBranch
                                       }
+                                      onClick={() => {
+                                        handleCheckoutBranch(entry).catch(
+                                          () => undefined
+                                        );
+                                      }}
                                     >
-                                      {renderHighlightedEntryName(entry.name)}
-                                    </TooltipTrigger>
-                                    <TooltipContent
-                                      align="end"
-                                      side="right"
-                                      sideOffset={6}
-                                    >
-                                      {entry.name}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                  {entry.type === "branch" &&
-                                  typeof entry.pendingSyncCount === "number" &&
-                                  entry.pendingSyncCount > 0 ? (
-                                    <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
-                                      <ArrowDownIcon className="size-3" />
-                                      {entry.pendingSyncCount}
-                                    </span>
-                                  ) : null}
-                                  {entry.type === "branch" &&
-                                  typeof entry.pendingPushCount === "number" &&
-                                  entry.pendingPushCount > 0 ? (
-                                    <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
-                                      <ArrowUpIcon className="size-3" />
-                                      {entry.pendingPushCount}
-                                    </span>
-                                  ) : null}
-                                  <DropdownMenu
-                                    onOpenChange={(open) => {
-                                      handleEntryDropdownMenuOpenChange(
-                                        entryMenuKey,
-                                        open
-                                      );
-                                    }}
-                                    open={isEntryDropdownMenuOpen}
-                                  >
-                                    <DropdownMenuTrigger
-                                      render={
-                                        <button
-                                          aria-label={`More options for ${entry.name}`}
-                                          className={cn(
-                                            "ml-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
-                                            isEntryMenuOpen && "opacity-100",
-                                            entry.active &&
-                                              "hover:bg-accent-foreground/10"
-                                          )}
-                                          onClick={(event) =>
-                                            event.stopPropagation()
+                                      {renderEntryIcon(entry)}
+                                      <Tooltip>
+                                        <TooltipTrigger
+                                          render={
+                                            <span className="min-w-0 flex-1 truncate" />
                                           }
-                                          type="button"
-                                        />
-                                      }
-                                    >
-                                      <DotsThreeVerticalIcon className="size-3.5" />
-                                    </DropdownMenuTrigger>
-                                    {isEntryDropdownMenuOpen
-                                      ? renderEntryDropdownMenuContent(entry)
-                                      : null}
-                                  </DropdownMenu>
-                                </SidebarMenuButton>
-                              </ContextMenuTrigger>
-                              {isEntryContextMenuOpen
-                                ? renderEntryContextMenuContent(entry)
-                                : null}
-                            </ContextMenu>
-                          </SidebarMenuItem>
-                        );
-                      })}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                )}
-              </SidebarGroup>
-            ))}
-          </SidebarContent>
-        </Sidebar>
-        <button
-          aria-label="Resize left sidebar"
-          className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent hover:bg-accent/30"
-          onMouseDown={startSidebarResize("left")}
-          type="button"
-        />
+                                        >
+                                          {renderHighlightedEntryName(
+                                            entry.name
+                                          )}
+                                        </TooltipTrigger>
+                                        <TooltipContent
+                                          align="end"
+                                          side="right"
+                                          sideOffset={6}
+                                        >
+                                          {entry.name}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      {entry.type === "branch" &&
+                                      typeof entry.pendingSyncCount ===
+                                        "number" &&
+                                      entry.pendingSyncCount > 0 ? (
+                                        <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
+                                          <ArrowDownIcon className="size-3" />
+                                          {entry.pendingSyncCount}
+                                        </span>
+                                      ) : null}
+                                      {entry.type === "branch" &&
+                                      typeof entry.pendingPushCount ===
+                                        "number" &&
+                                      entry.pendingPushCount > 0 ? (
+                                        <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
+                                          <ArrowUpIcon className="size-3" />
+                                          {entry.pendingPushCount}
+                                        </span>
+                                      ) : null}
+                                      <DropdownMenu
+                                        onOpenChange={(open) => {
+                                          handleEntryDropdownMenuOpenChange(
+                                            entryMenuKey,
+                                            open
+                                          );
+                                        }}
+                                        open={isEntryDropdownMenuOpen}
+                                      >
+                                        <DropdownMenuTrigger
+                                          render={
+                                            <button
+                                              aria-label={`More options for ${entry.name}`}
+                                              className={cn(
+                                                "ml-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
+                                                isEntryMenuOpen &&
+                                                  "opacity-100",
+                                                entry.active &&
+                                                  "hover:bg-accent-foreground/10"
+                                              )}
+                                              onClick={(event) =>
+                                                event.stopPropagation()
+                                              }
+                                              type="button"
+                                            />
+                                          }
+                                        >
+                                          <DotsThreeVerticalIcon className="size-3.5" />
+                                        </DropdownMenuTrigger>
+                                        {isEntryDropdownMenuOpen
+                                          ? renderEntryDropdownMenuContent(
+                                              entry
+                                            )
+                                          : null}
+                                      </DropdownMenu>
+                                    </SidebarMenuButton>
+                                  </ContextMenuTrigger>
+                                  {isEntryContextMenuOpen
+                                    ? renderEntryContextMenuContent(entry)
+                                    : null}
+                                </ContextMenu>
+                              </SidebarMenuItem>
+                            );
+                          })}
+                        </SidebarMenu>
+                      </SidebarGroupContent>
+                    )}
+                  </SidebarGroup>
+                ))}
+              </SidebarContent>
+            </Sidebar>
+            <button
+              aria-label="Resize left sidebar"
+              className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-r bg-transparent hover:bg-accent/30"
+              onMouseDown={startSidebarResize("left")}
+              type="button"
+            />
+          </>
+        ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="grid w-full grid-cols-[minmax(0,14rem)_minmax(0,1fr)] items-center gap-2 border-border/60 border-b bg-background px-3 py-1.5 text-foreground">
@@ -7168,181 +8645,688 @@ export function RepoInfo() {
                 contextKey={`${activeTabIdFromUrl}:${activeRepoId ?? "repo:none"}`}
                 cwd={activeRepo?.path ?? ""}
               />
-              {openedDiff || openedCommitDiff ? (
+              {isDiffPanelOpen ? (
                 <div className="absolute inset-0 z-20 flex flex-col bg-background">
-                  <div className="flex items-center gap-2 border-border/70 border-b px-3 py-2">
-                    <p className="min-w-0 flex-1 truncate font-medium text-sm">
-                      {activeDiffPath}
-                    </p>
-                    {openedDiff ? (
-                      <Button
-                        className="h-7 px-2 text-xs"
-                        disabled={
-                          openedDiffActionMode === null ||
-                          isUpdatingFilePath !== null
-                        }
-                        onClick={() => {
-                          handleOpenedDiffShortcutAction().catch(
+                  <DiffWorkspaceToolbar
+                    activePath={activeDiffPath}
+                    activePrimaryMode={activeToolbarPrimaryMode}
+                    controls={toolbarControls}
+                    editLabel={editButtonLabel}
+                    encoding={resolvedWorkspaceEncoding}
+                    encodingOptions={DIFF_WORKSPACE_ENCODING_OPTIONS}
+                    isCompactImageToolbar={activeDiffViewerKind === "image"}
+                    isIgnoreTrimWhitespace={ignoreTrimWhitespace}
+                    isMarkdownFileView={isMarkdownFileWorkspaceMode}
+                    isStageActionDisabled={isStageActionDisabled}
+                    markdownFilePresentation={workspaceFilePresentation}
+                    mode={workspaceMode}
+                    onClose={handleWorkspaceCloseRequest}
+                    onEdit={() => {
+                      requestWorkspaceModeChange("edit").catch(() => undefined);
+                    }}
+                    onEncodingChange={(encoding) => {
+                      setWorkspaceEncoding(
+                        resolveDiffWorkspaceEncodingValue(encoding)
+                      );
+                    }}
+                    onMarkdownFilePresentationChange={(mode) => {
+                      setWorkspaceFilePresentation(mode);
+                    }}
+                    onModeChange={(mode) => {
+                      requestWorkspaceModeChange(mode).catch(() => undefined);
+                    }}
+                    onNextChange={handleNextChange}
+                    onPresentationChange={(mode) => {
+                      if (
+                        workspaceMode !== "diff" &&
+                        workspaceMode !== "history"
+                      ) {
+                        return;
+                      }
+
+                      setWorkspacePresentation(mode);
+                    }}
+                    onPreviousChange={handlePreviousChange}
+                    onPrimaryModeChange={(primaryMode) => {
+                      let nextMode: DiffWorkspaceMode = primaryMode;
+
+                      if (
+                        workspaceMode === "history" ||
+                        workspaceMode === "blame"
+                      ) {
+                        nextMode = primaryMode === "file" ? "blame" : "history";
+                      }
+
+                      if (
+                        nextMode === "file" &&
+                        isMarkdownPreviewablePath(activeDiffPath)
+                      ) {
+                        setWorkspaceFilePresentation(
+                          DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION
+                        );
+                      }
+
+                      requestWorkspaceModeChange(nextMode).catch(
+                        () => undefined
+                      );
+                    }}
+                    onStageAction={() => {
+                      handleOpenedDiffShortcutAction().catch(() => undefined);
+                    }}
+                    onToggleWhitespace={() => {
+                      setIgnoreTrimWhitespace((current) => !current);
+                    }}
+                    presentation={resolvedPresentation}
+                    stageActionLabel={stageActionLabel}
+                    stageBadgeLabel={
+                      openedDiffContext?.source === "working"
+                        ? openedDiffStageBadgeLabel
+                        : null
+                    }
+                  />
+                  <div className="relative min-h-0 flex-1">
+                    {(workspaceMode === "diff" || workspaceMode === "file") &&
+                    (diffPreviewPanelState.kind !== "ready" || !activeDiff) ? (
+                      <DiffPreviewSurface
+                        onCancel={handleWorkspaceCloseRequest}
+                        onRenderAnyway={() => {
+                          handleRenderDiffPreviewAnyway().catch(
                             () => undefined
                           );
                         }}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        {openedDiffActionLabel ?? "Action"}
-                      </Button>
-                    ) : null}
-                    <Button
-                      aria-label="Close diff editor"
-                      className="h-7 w-7 p-0"
-                      onClick={() => {
-                        closeOpenedDiff();
-                        closeOpenedCommitDiff();
-                      }}
-                      size="icon-sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <XIcon className="size-3.5" />
-                    </Button>
-                  </div>
-                  <div className="min-h-0 flex-1">
-                    {activeDiffViewerKind === "text" ? (
-                      <DiffEditor
-                        height="100%"
-                        keepCurrentModifiedModel={false}
-                        keepCurrentOriginalModel={false}
-                        language={
-                          editorPreferences.syntaxHighlighting
-                            ? resolveMonacoLanguage(activeDiffPath)
-                            : "plaintext"
-                        }
-                        modified={activeDiff?.newText ?? ""}
-                        onMount={(editor) => {
-                          openedDiffEditorRef.current = editor;
-                          applyDiffEditorPreferences(
-                            editor,
-                            editorPreferences.lineNumbers,
-                            editorPreferences.tabSize,
-                            editorPreferences.eol
-                          );
+                        onRetry={() => {
+                          handleRetryDiffPreview().catch(() => undefined);
                         }}
-                        options={{
-                          automaticLayout: true,
-                          experimentalWhitespaceRendering: "svg",
-                          fontFamily: editorPreferences.fontFamily,
-                          fontSize: editorPreferences.fontSize,
-                          lineNumbers: editorPreferences.lineNumbers,
-                          minimap: { enabled: false },
-                          readOnly: true,
-                          renderSideBySide: true,
-                          scrollBeyondLastLine: false,
-                          // handled in onMount/updateOptions because the wrapper
-                          // typing omits this diff-editor option
-                          wordSeparators: editorPreferences.syntaxHighlighting
-                            ? undefined
-                            : "",
-                          wordWrap: editorPreferences.wordWrap,
-                        }}
-                        original={activeDiff?.oldText ?? ""}
-                        originalModelPath={undefined}
-                        theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
+                        state={diffPreviewPanelState}
                       />
                     ) : null}
-                    {activeDiffViewerKind === "image" ? (
-                      <div className="h-full overflow-auto p-3">
-                        {useImageSplitView ? (
-                          <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
-                              <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
-                                Original
-                              </p>
-                              <div className="flex min-h-55 flex-1 items-center justify-center p-3">
-                                {activeDiffOldImageDataUrl ? (
-                                  <img
-                                    alt={`Original version of ${activeDiffPath}`}
-                                    className="max-h-full max-w-full rounded-md object-contain"
-                                    height={800}
-                                    src={activeDiffOldImageDataUrl}
-                                    width={1200}
-                                  />
-                                ) : (
-                                  <p className="text-center text-muted-foreground text-xs">
-                                    No image in the previous revision.
-                                  </p>
-                                )}
+                    {workspaceMode === "diff" &&
+                    diffPreviewPanelState.kind === "ready" &&
+                    activeDiff ? (
+                      <>
+                        {resolvedPresentation === "hunk" &&
+                        activeDiffViewerKind === "text" ? (
+                          <Suspense
+                            fallback={
+                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                                Loading hunk surface...
                               </div>
-                            </div>
-                            <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
-                              <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
-                                Modified
-                              </p>
-                              <div className="flex min-h-55 flex-1 items-center justify-center p-3">
-                                {activeDiffNewImageDataUrl ? (
-                                  <img
-                                    alt={`Modified version of ${activeDiffPath}`}
-                                    className="max-h-full max-w-full rounded-md object-contain"
-                                    height={800}
-                                    src={activeDiffNewImageDataUrl}
-                                    width={1200}
-                                  />
-                                ) : (
-                                  <p className="text-center text-muted-foreground text-xs">
-                                    No image in the current revision.
-                                  </p>
-                                )}
+                            }
+                          >
+                            <LazyDiffWorkspaceHunkSurface
+                              fontFamily={editorPreferences.fontFamily}
+                              fontSize={editorPreferences.fontSize}
+                              hunks={activeHunks}
+                              ignoreTrimWhitespace={ignoreTrimWhitespace}
+                              isLoading={isLoadingHunks}
+                              language={
+                                editorPreferences.syntaxHighlighting
+                                  ? resolveMonacoLanguage(activeDiffPath)
+                                  : "plaintext"
+                              }
+                              lineNumbers={editorPreferences.lineNumbers}
+                              modelPathBase={
+                                hunkMonacoModelBasePath ??
+                                "inmemory://litgit/unknown?hunk"
+                              }
+                              modified={activeDiff.newText}
+                              onMount={(editor) => {
+                                openedDiffEditorRef.current = editor;
+                                setIsDiffEditorReady(true);
+                                applyDiffEditorPreferences(
+                                  editor,
+                                  editorPreferences.lineNumbers,
+                                  editorPreferences.tabSize,
+                                  editorPreferences.eol
+                                );
+                              }}
+                              onRetry={() => {
+                                handleRetryDiffPreview().catch(() => undefined);
+                              }}
+                              original={activeDiff.oldText}
+                              renderError={hunkLoadError}
+                              syntaxHighlighting={
+                                editorPreferences.syntaxHighlighting
+                              }
+                              theme={
+                                resolvedTheme === "light" ? "vs" : "vs-dark"
+                              }
+                              wordWrap={editorPreferences.wordWrap}
+                            />
+                          </Suspense>
+                        ) : null}
+                        {resolvedPresentation !== "hunk" &&
+                        shouldMountDiffMonacoSurface &&
+                        hasRequestedDiffSurface ? (
+                          <Suspense
+                            fallback={
+                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                                Loading diff surface...
                               </div>
-                            </div>
+                            }
+                          >
+                            <LazyDiffPreviewMonacoSurface
+                              fontFamily={editorPreferences.fontFamily}
+                              fontSize={editorPreferences.fontSize}
+                              ignoreTrimWhitespace={ignoreTrimWhitespace}
+                              language={
+                                editorPreferences.syntaxHighlighting
+                                  ? resolveMonacoLanguage(activeDiffPath)
+                                  : "plaintext"
+                              }
+                              lineNumbers={editorPreferences.lineNumbers}
+                              modelPathBase={
+                                diffMonacoModelBasePath ??
+                                "inmemory://litgit/unknown?diff"
+                              }
+                              modified={activeDiff.newText}
+                              onMount={(editor) => {
+                                openedDiffEditorRef.current = editor;
+                                setIsDiffEditorReady(true);
+                                applyDiffEditorPreferences(
+                                  editor,
+                                  editorPreferences.lineNumbers,
+                                  editorPreferences.tabSize,
+                                  editorPreferences.eol
+                                );
+                              }}
+                              original={activeDiff.oldText}
+                              renderSideBySide={
+                                resolvedPresentation === "split"
+                              }
+                              syntaxHighlighting={
+                                editorPreferences.syntaxHighlighting
+                              }
+                              theme={
+                                resolvedTheme === "light" ? "vs" : "vs-dark"
+                              }
+                              wordWrap={editorPreferences.wordWrap}
+                            />
+                          </Suspense>
+                        ) : null}
+                        {resolvedPresentation !== "hunk" &&
+                        shouldMountDiffMonacoSurface &&
+                        !hasRequestedDiffSurface ? (
+                          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                            <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                            Preparing diff surface...
                           </div>
-                        ) : (
-                          <div className="flex min-h-full items-center justify-center rounded-md border border-border/70 bg-background p-3">
-                            {centeredImageDataUrl ? (
-                              <img
-                                alt={activeDiffPath}
-                                className="max-h-full max-w-full rounded-md object-contain"
-                                height={800}
-                                src={centeredImageDataUrl}
-                                width={1200}
-                              />
+                        ) : null}
+                        {activeDiffViewerKind === "image" ? (
+                          <div className="h-full overflow-auto p-3">
+                            {useImageSplitView ? (
+                              <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2">
+                                <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                                  <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
+                                    Original
+                                  </p>
+                                  <div className="flex min-h-55 flex-1 items-center justify-center p-3">
+                                    {activeDiffOldImageDataUrl ? (
+                                      <img
+                                        alt={`Original version of ${activeDiffPath}`}
+                                        className="max-h-full max-w-full rounded-md object-contain"
+                                        height={800}
+                                        src={activeDiffOldImageDataUrl}
+                                        width={1200}
+                                      />
+                                    ) : (
+                                      <p className="text-center text-muted-foreground text-xs">
+                                        No image in the previous revision.
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex min-h-0 flex-col rounded-md border border-border/70 bg-background">
+                                  <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
+                                    Modified
+                                  </p>
+                                  <div className="flex min-h-55 flex-1 items-center justify-center p-3">
+                                    {activeDiffNewImageDataUrl ? (
+                                      <img
+                                        alt={`Modified version of ${activeDiffPath}`}
+                                        className="max-h-full max-w-full rounded-md object-contain"
+                                        height={800}
+                                        src={activeDiffNewImageDataUrl}
+                                        width={1200}
+                                      />
+                                    ) : (
+                                      <p className="text-center text-muted-foreground text-xs">
+                                        No image in the current revision.
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
                             ) : (
-                              <p className="text-center text-muted-foreground text-xs">
-                                No preview available for this image revision.
-                              </p>
+                              <div className="flex min-h-full items-center justify-center rounded-md border border-border/70 bg-background p-3">
+                                {centeredImageDataUrl ? (
+                                  <img
+                                    alt={activeDiffPath}
+                                    className="max-h-full max-w-full rounded-md object-contain"
+                                    height={800}
+                                    src={centeredImageDataUrl}
+                                    width={1200}
+                                  />
+                                ) : (
+                                  <p className="text-center text-muted-foreground text-xs">
+                                    No preview available for this image
+                                    revision.
+                                  </p>
+                                )}
+                              </div>
                             )}
                           </div>
-                        )}
-                      </div>
+                        ) : null}
+                        {activeDiffViewerKind === "unsupported" ? (
+                          <div className="flex h-full items-center justify-center px-6">
+                            <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+                              <pre
+                                aria-hidden="true"
+                                className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
+                              >
+                                {unsupportedAsciiArt}
+                              </pre>
+                              <p className="font-medium text-sm">
+                                {unsupportedTitle}
+                              </p>
+                              <p className="text-muted-foreground text-xs">
+                                {unsupportedDescription}
+                              </p>
+                              {unsupportedExtension ? (
+                                <p className="text-muted-foreground/80 text-xs">
+                                  Detected extension: .{unsupportedExtension}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
                     ) : null}
-                    {activeDiffViewerKind === "unsupported" ? (
-                      <div className="flex h-full items-center justify-center px-6">
-                        <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
-                          <pre
-                            aria-hidden="true"
-                            className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
+                    {workspaceMode === "file" &&
+                    diffPreviewPanelState.kind === "ready" &&
+                    activeDiff ? (
+                      <>
+                        {shouldShowMarkdownPreviewSurface ? (
+                          <Suspense
+                            fallback={
+                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                                Loading markdown preview...
+                              </div>
+                            }
                           >
-                            {unsupportedAsciiArt}
-                          </pre>
-                          <p className="font-medium text-sm">
-                            {unsupportedTitle}
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            {unsupportedDescription}
-                          </p>
-                          {unsupportedExtension ? (
-                            <p className="text-muted-foreground/80 text-xs">
-                              Detected extension: .{unsupportedExtension}
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
+                            <LazyDiffWorkspaceMarkdownPreviewSurface
+                              markdown={activeDiff.newText}
+                            />
+                          </Suspense>
+                        ) : null}
+                        {!shouldShowMarkdownPreviewSurface &&
+                        shouldMountFileMonacoSurface &&
+                        hasRequestedFileSurface ? (
+                          <Suspense
+                            fallback={
+                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                                Loading file view...
+                              </div>
+                            }
+                          >
+                            <LazyDiffWorkspaceMonacoFileSurface
+                              fontFamily={editorPreferences.fontFamily}
+                              fontSize={editorPreferences.fontSize}
+                              language={
+                                editorPreferences.syntaxHighlighting
+                                  ? resolveMonacoLanguage(activeDiffPath)
+                                  : "plaintext"
+                              }
+                              lineNumbers={editorPreferences.lineNumbers}
+                              modelPath={
+                                fileMonacoModelPath ??
+                                "inmemory://litgit/unknown?file"
+                              }
+                              onMount={(editor) => {
+                                openedFileEditorRef.current = editor;
+                                applyCodeEditorPreferences(
+                                  editor,
+                                  editorPreferences.lineNumbers,
+                                  editorPreferences.tabSize,
+                                  editorPreferences.eol
+                                );
+                              }}
+                              syntaxHighlighting={
+                                editorPreferences.syntaxHighlighting
+                              }
+                              theme={
+                                resolvedTheme === "light" ? "vs" : "vs-dark"
+                              }
+                              value={activeDiff.newText}
+                              wordWrap={editorPreferences.wordWrap}
+                            />
+                          </Suspense>
+                        ) : null}
+                        {!shouldShowMarkdownPreviewSurface &&
+                        shouldMountFileMonacoSurface &&
+                        !hasRequestedFileSurface ? (
+                          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                            <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                            Preparing file view...
+                          </div>
+                        ) : null}
+                        {activeDiffViewerKind === "image" ? (
+                          <div className="h-full overflow-auto p-3">
+                            <div className="flex min-h-full items-center justify-center rounded-md border border-border/70 bg-background p-3">
+                              {centeredImageDataUrl ? (
+                                <img
+                                  alt={activeDiffPath}
+                                  className="max-h-full max-w-full rounded-md object-contain"
+                                  height={800}
+                                  src={centeredImageDataUrl}
+                                  width={1200}
+                                />
+                              ) : (
+                                <p className="text-center text-muted-foreground text-xs">
+                                  No preview available for this image revision.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                        {activeDiffViewerKind === "unsupported" ? (
+                          <div className="flex h-full items-center justify-center px-6">
+                            <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+                              <pre
+                                aria-hidden="true"
+                                className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
+                              >
+                                {unsupportedAsciiArt}
+                              </pre>
+                              <p className="font-medium text-sm">
+                                {unsupportedTitle}
+                              </p>
+                              <p className="text-muted-foreground text-xs">
+                                {unsupportedDescription}
+                              </p>
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {workspaceMode === "history" ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                            <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                            Loading history surface...
+                          </div>
+                        }
+                      >
+                        <LazyDiffWorkspaceHistorySurface
+                          avatarUrlByCommitHash={commitAvatarUrlByHash}
+                          diff={
+                            activeDiff && openedDiffContext?.source === "commit"
+                              ? {
+                                  commitHash: openedDiffContext.commitHash,
+                                  newImageDataUrl: activeDiff.newImageDataUrl,
+                                  newText: activeDiff.newText,
+                                  oldImageDataUrl: activeDiff.oldImageDataUrl,
+                                  oldText: activeDiff.oldText,
+                                  path: activeDiff.path,
+                                  unsupportedExtension:
+                                    activeDiff.unsupportedExtension,
+                                  viewerKind: activeDiff.viewerKind,
+                                }
+                              : null
+                          }
+                          diffModelPathBase={
+                            monacoModelBasePath ??
+                            "inmemory://litgit/unknown?history-diff"
+                          }
+                          diffState={diffPreviewPanelState}
+                          entries={historyEntries}
+                          fontFamily={editorPreferences.fontFamily}
+                          fontSize={editorPreferences.fontSize}
+                          ignoreTrimWhitespace={ignoreTrimWhitespace}
+                          isLoading={isLoadingFileHistory}
+                          language={
+                            editorPreferences.syntaxHighlighting
+                              ? resolveMonacoLanguage(activeDiffPath)
+                              : "plaintext"
+                          }
+                          lineNumbers={editorPreferences.lineNumbers}
+                          onCancelDiff={handleWorkspaceCloseRequest}
+                          onDiffEditorMount={(editor) => {
+                            applyDiffEditorPreferences(
+                              editor,
+                              editorPreferences.lineNumbers,
+                              editorPreferences.tabSize,
+                              editorPreferences.eol
+                            );
+                          }}
+                          onRenderDiffAnyway={() => {
+                            handleRenderDiffPreviewAnyway().catch(
+                              () => undefined
+                            );
+                          }}
+                          onRetry={() => {
+                            handleRetryDiffPreview().catch(() => undefined);
+                          }}
+                          onRetryDiff={() => {
+                            if (!openedDiffContext) {
+                              return;
+                            }
+
+                            runDiffPreviewPreflight(
+                              openedDiffContext,
+                              "diff"
+                            ).catch(() => undefined);
+                          }}
+                          onSelectEntry={(entry) => {
+                            handleOpenHistoryEntry(entry).catch(
+                              () => undefined
+                            );
+                          }}
+                          renderError={fileHistoryError}
+                          renderSideBySide={resolvedPresentation === "split"}
+                          selectedCommitHash={selectedHistoryCommitHash}
+                          syntaxHighlighting={
+                            editorPreferences.syntaxHighlighting
+                          }
+                          theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
+                          wordWrap={editorPreferences.wordWrap}
+                        />
+                      </Suspense>
+                    ) : null}
+                    {workspaceMode === "blame" ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                            <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                            Loading blame surface...
+                          </div>
+                        }
+                      >
+                        <LazyDiffWorkspaceBlameSurface
+                          avatarUrlByCommitHash={commitAvatarUrlByHash}
+                          fontFamily={editorPreferences.fontFamily}
+                          fontSize={editorPreferences.fontSize}
+                          isLoading={isLoadingBlame}
+                          language={
+                            editorPreferences.syntaxHighlighting
+                              ? resolveMonacoLanguage(activeDiffPath)
+                              : "plaintext"
+                          }
+                          lineNumbers={editorPreferences.lineNumbers}
+                          lines={blameLines}
+                          modelPath={
+                            blameMonacoModelPath ??
+                            "inmemory://litgit/unknown?blame"
+                          }
+                          onPreviewEditorMount={(editor) => {
+                            openedFileEditorRef.current = editor;
+                            applyCodeEditorPreferences(
+                              editor,
+                              editorPreferences.lineNumbers,
+                              editorPreferences.tabSize,
+                              editorPreferences.eol
+                            );
+                          }}
+                          onRetry={() => {
+                            handleRetryDiffPreview().catch(() => undefined);
+                          }}
+                          renderError={blameError}
+                          syntaxHighlighting={
+                            editorPreferences.syntaxHighlighting
+                          }
+                          theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
+                          wordWrap={editorPreferences.wordWrap}
+                        />
+                      </Suspense>
+                    ) : null}
+                    {workspaceMode === "edit" ? (
+                      <>
+                        {isLoadingEditBuffer ? (
+                          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                            <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                            Loading file...
+                          </div>
+                        ) : null}
+                        {editLoadError ? (
+                          <div className="flex h-full items-center justify-center px-6">
+                            <div className="space-y-3 rounded-md border border-border/70 bg-background px-4 py-4 text-center">
+                              <p className="font-medium text-sm">
+                                Error loading file
+                              </p>
+                              <p className="text-muted-foreground text-xs">
+                                {editLoadError}
+                              </p>
+                              <Button
+                                className="h-7 px-3 text-xs"
+                                onClick={() => {
+                                  handleRetryDiffPreview().catch(
+                                    () => undefined
+                                  );
+                                }}
+                                size="sm"
+                                type="button"
+                              >
+                                Retry
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                        {isLoadingEditBuffer || editLoadError ? null : (
+                          <>
+                            {hasRequestedEditSurface ? (
+                              <Suspense
+                                fallback={
+                                  <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                                    <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                                    Loading editor...
+                                  </div>
+                                }
+                              >
+                                <LazyDiffWorkspaceMonacoEditSurface
+                                  fontFamily={editorPreferences.fontFamily}
+                                  fontSize={editorPreferences.fontSize}
+                                  language={
+                                    editorPreferences.syntaxHighlighting
+                                      ? resolveMonacoLanguage(activeDiffPath)
+                                      : "plaintext"
+                                  }
+                                  lineNumbers={editorPreferences.lineNumbers}
+                                  modelPath={
+                                    editMonacoModelPath ??
+                                    "inmemory://litgit/unknown?edit"
+                                  }
+                                  onChange={setEditBuffer}
+                                  onMount={(editor) => {
+                                    openedEditEditorRef.current = editor;
+                                    applyCodeEditorPreferences(
+                                      editor,
+                                      editorPreferences.lineNumbers,
+                                      editorPreferences.tabSize,
+                                      editorPreferences.eol
+                                    );
+                                  }}
+                                  onSave={() => {
+                                    handleSaveEditedFile().catch(
+                                      () => undefined
+                                    );
+                                  }}
+                                  syntaxHighlighting={
+                                    editorPreferences.syntaxHighlighting
+                                  }
+                                  theme={
+                                    resolvedTheme === "light" ? "vs" : "vs-dark"
+                                  }
+                                  value={editBuffer}
+                                  wordWrap={editorPreferences.wordWrap}
+                                />
+                              </Suspense>
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
+                                Preparing editor...
+                              </div>
+                            )}
+                            <div className="absolute top-2 right-2 z-20 flex items-center gap-2">
+                              <Button
+                                className="h-7 px-2 text-xs"
+                                disabled={isSavingEditBuffer || !isEditDirty}
+                                onClick={() => {
+                                  handleSaveEditedFile().catch(() => undefined);
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="secondary"
+                              >
+                                {isSavingEditBuffer ? "Saving..." : "Save"}
+                              </Button>
+                              <Button
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  setIsFileExplorerOpen((current) => !current);
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                Explorer
+                              </Button>
+                            </div>
+                            {isFileExplorerOpen ? (
+                              <Suspense
+                                fallback={
+                                  <div className="absolute top-2 right-2 z-30 rounded-md border border-border/70 bg-background px-3 py-2 text-muted-foreground text-xs">
+                                    Loading explorer...
+                                  </div>
+                                }
+                              >
+                                <LazyDiffWorkspaceFileExplorer
+                                  activePath={
+                                    openedDiffContext?.filePath ?? null
+                                  }
+                                  files={allRepositoryFiles}
+                                  onSelectPath={(path) => {
+                                    handleExplorerPathSelection(path).catch(
+                                      () => undefined
+                                    );
+                                  }}
+                                />
+                              </Suspense>
+                            ) : null}
+                          </>
+                        )}
+                      </>
                     ) : null}
                   </div>
                 </div>
               ) : null}
             </section>
 
-            {isRightSidebarOpen ? (
+            {isRightSidebarVisible ? (
               <button
                 aria-label="Resize right sidebar"
                 className="h-full w-1.5 shrink-0 cursor-col-resize border-border/70 border-l bg-transparent hover:bg-accent/30"
@@ -7354,7 +9338,7 @@ export function RepoInfo() {
             <aside
               className={cn(
                 "flex h-full shrink-0 flex-col overflow-hidden border-border/70 border-l bg-muted/20",
-                !isRightSidebarOpen && "hidden"
+                !isRightSidebarVisible && "hidden"
               )}
               style={{ width: `${rightSidebarWidth}px` }}
             >
@@ -8362,6 +10346,40 @@ export function RepoInfo() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        onOpenChange={(open) => {
+          setIsUnsavedEditConfirmOpen(open);
+
+          if (!open) {
+            setPendingWorkspaceMode(null);
+            setPendingOpenDiffContext(null);
+            setPendingExplorerPath(null);
+            setPendingCloseDiffPanel(false);
+          }
+        }}
+        open={isUnsavedEditConfirmOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes in edit mode. Discard them and continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                handleDiscardUnsavedEditChanges().catch(() => undefined);
+              }}
+              size="sm"
+              variant="destructive"
+            >
+              Discard changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         onOpenChange={(open) => {
           if (isDiscardingAllChanges && !open) {
