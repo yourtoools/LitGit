@@ -1767,6 +1767,13 @@ export function RepoInfo() {
   );
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
+  const currentBranchLaneColor = useMemo(
+    () =>
+      localHeadCommit?.hash
+        ? getCommitLaneColor(commits, localHeadCommit.hash)
+        : getCommitLaneColor(commits, ""),
+    [commits, localHeadCommit?.hash]
+  );
   const currentLocalBranch = useMemo(
     () =>
       branches.find(
@@ -8883,44 +8890,74 @@ export function RepoInfo() {
               >
                 {isBranchCreateInputOpen ? (
                   <div
-                    className="grid items-center border-border/35 border-b px-2 py-1.5"
+                    className="grid items-center border-border/35 border-b bg-muted/[0.16] px-2 py-1.5"
                     style={{ gridTemplateColumns: timelineGridTemplateColumns }}
                   >
                     <div className="min-w-0 truncate">
-                      <span className="inline-flex items-center gap-1 border border-border/70 bg-accent/20 px-2 py-0.5 text-xs">
+                      <span
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-[0.7rem] leading-none shadow-sm"
+                        style={{
+                          backgroundColor:
+                            "color-mix(in srgb, canvas 90%, transparent)",
+                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          className="size-1.5 rounded-full"
+                          style={{ backgroundColor: currentBranchLaneColor }}
+                        />
                         {currentBranch}
                       </span>
                     </div>
                     <div className="flex items-center justify-center">
-                      <CircleIcon className="size-3 text-muted-foreground" />
+                      <span
+                        aria-hidden
+                        className="flex size-7 items-center justify-center rounded-full bg-background/95"
+                        style={{
+                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
+                        }}
+                      >
+                        <CircleIcon
+                          className="size-2.5"
+                          style={{ color: currentBranchLaneColor }}
+                        />
+                      </span>
                     </div>
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <Input
-                        className="h-7 w-full max-w-64"
-                        disabled={isCreatingBranch}
-                        onChange={(event) =>
-                          setNewBranchName(event.target.value)
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === "Escape") {
-                            event.preventDefault();
-                            closeBranchCreateInput();
-                            return;
-                          }
-
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            handleCreateBranchFromToolbar().catch(
-                              () => undefined
-                            );
-                          }
+                      <div
+                        className="flex h-8 w-full max-w-72 items-center bg-background/95 pr-1 shadow-sm transition-shadow focus-within:shadow-md"
+                        style={{
+                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
                         }}
-                        placeholder="enter branch name"
-                        ref={branchCreateInputRef}
-                        value={newBranchName}
-                      />
+                      >
+                        <Input
+                          className="h-full border-0 bg-transparent px-3 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                          disabled={isCreatingBranch}
+                          onChange={(event) =>
+                            setNewBranchName(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              closeBranchCreateInput();
+                              return;
+                            }
+
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              handleCreateBranchFromToolbar().catch(
+                                () => undefined
+                              );
+                            }
+                          }}
+                          placeholder="enter branch name"
+                          ref={branchCreateInputRef}
+                          value={newBranchName}
+                        />
+                      </div>
                       <Button
-                        className="h-6 px-2"
+                        className="h-7 px-3 shadow-sm"
                         disabled={
                           isCreatingBranch || newBranchName.trim().length === 0
                         }
@@ -8930,13 +8967,17 @@ export function RepoInfo() {
                           );
                         }}
                         size="sm"
+                        style={{
+                          borderColor: `${currentBranchLaneColor}66`,
+                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}22`,
+                        }}
                         type="button"
-                        variant="ghost"
+                        variant="outline"
                       >
                         {isCreatingBranch ? "Creating..." : "Create"}
                       </Button>
                       <Button
-                        className="h-6 px-2"
+                        className="h-7 px-3"
                         disabled={isCreatingBranch}
                         onClick={closeBranchCreateInput}
                         size="sm"
