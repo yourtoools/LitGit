@@ -75,6 +75,7 @@ struct RepositoryBranch {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepositoryStash {
+    anchor_commit_hash: String,
     message: String,
     r#ref: String,
     short_hash: String,
@@ -2096,7 +2097,7 @@ fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, Str
             &repo_path,
             "stash",
             "list",
-            "--format=%gd%x1f%gs%x1f%h%x1e",
+            "--format=%gd%x1f%gs%x1f%h%x1f%H%x1e",
         ])
         .output()
         .map_err(|error| format!("Failed to run git stash list: {error}"))?;
@@ -2123,12 +2124,31 @@ fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, Str
             let stash_ref = parts.next().unwrap_or("").trim().to_string();
             let message = parts.next().unwrap_or("").trim().to_string();
             let short_hash = parts.next().unwrap_or("").trim().to_string();
+            let stash_hash = parts.next().unwrap_or("").trim().to_string();
 
-            if stash_ref.is_empty() {
+            if stash_ref.is_empty() || stash_hash.is_empty() {
+                return None;
+            }
+
+            let anchor_commit_output = git_command()
+                .args(["-C", &repo_path, "rev-parse", &format!("{stash_hash}^1")])
+                .output()
+                .ok()?;
+
+            if !anchor_commit_output.status.success() {
+                return None;
+            }
+
+            let anchor_commit_hash = String::from_utf8_lossy(&anchor_commit_output.stdout)
+                .trim()
+                .to_string();
+
+            if anchor_commit_hash.is_empty() {
                 return None;
             }
 
             Some(RepositoryStash {
+                anchor_commit_hash,
                 message,
                 r#ref: stash_ref,
                 short_hash,

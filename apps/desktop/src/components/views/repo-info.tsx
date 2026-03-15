@@ -209,6 +209,13 @@ interface SidebarGroupItem {
   name: string;
 }
 
+interface TimelineReferenceRowData {
+  anchorCommitHash: string;
+  id: string;
+  label: string;
+  type: "stash" | "tag";
+}
+
 interface BranchComboboxOption {
   isRemote: boolean;
   name: string;
@@ -447,6 +454,16 @@ function normalizeCommitRefLabel(rawReference: string): string | null {
   }
 
   return trimmedReference;
+}
+
+function resolveTagNameFromCommitRef(rawReference: string): string | null {
+  const trimmedReference = rawReference.trim();
+
+  if (!trimmedReference.startsWith("tag: ")) {
+    return null;
+  }
+
+  return normalizeCommitRefLabel(trimmedReference);
 }
 
 const TREE_STATUS_SUMMARY_ORDER = ["M", "A", "D", "R", "C", "U", "T", "?"];
@@ -1173,6 +1190,9 @@ export function RepoInfo() {
     Record<string, boolean>
   >({});
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
+  const [selectedTimelineRowId, setSelectedTimelineRowId] = useState<
+    string | null
+  >(null);
   const isLeftSidebarOpen = true;
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(
@@ -1374,6 +1394,9 @@ export function RepoInfo() {
   const commitSummaryInputRef = useRef<HTMLInputElement | null>(null);
   const commitDetailsLayoutRef = useRef<HTMLDivElement | null>(null);
   const mainScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const timelineRowElementsRef = useRef(
+    new Map<string, HTMLButtonElement | null>()
+  );
   const sidebarFilterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -1704,7 +1727,7 @@ export function RepoInfo() {
       ) ?? null,
     [branches]
   );
-  const isWorkingTreeSelection = selectedCommitId === WORKING_TREE_ROW_ID;
+  const isWorkingTreeSelection = selectedTimelineRowId === WORKING_TREE_ROW_ID;
   const selectedCommit = useMemo(
     () => commits.find((item) => item.hash === selectedCommitId) ?? null,
     [commits, selectedCommitId]
@@ -1866,6 +1889,63 @@ export function RepoInfo() {
       ? filteredOptions
       : [selectedBranchOption, ...filteredOptions];
   }, [branchComboboxOptions, normalizedBranchQuery, selectedBranchOption]);
+  const timelineReferenceRowsByCommitHash = useMemo(() => {
+    const rowsByCommitHash = new Map<string, TimelineReferenceRowData[]>();
+    const commitHashSet = new Set(commits.map((commit) => commit.hash));
+    const seenStashRefs = new Set<string>();
+    const seenTagNames = new Set<string>();
+
+    for (const stash of stashes) {
+      if (
+        seenStashRefs.has(stash.ref) ||
+        !commitHashSet.has(stash.anchorCommitHash)
+      ) {
+        continue;
+      }
+
+      seenStashRefs.add(stash.ref);
+      const existingRows = rowsByCommitHash.get(stash.anchorCommitHash) ?? [];
+      existingRows.push({
+        anchorCommitHash: stash.anchorCommitHash,
+        id: `stash:${stash.ref}`,
+        label: formatStashLabel(stash),
+        type: "stash",
+      });
+      rowsByCommitHash.set(stash.anchorCommitHash, existingRows);
+    }
+
+    for (const commit of commits) {
+      const tagNames = new Set<string>();
+
+      for (const rawReference of commit.refs) {
+        const tagName = resolveTagNameFromCommitRef(rawReference);
+
+        if (!tagName) {
+          continue;
+        }
+
+        tagNames.add(tagName);
+      }
+
+      for (const tagName of tagNames) {
+        if (seenTagNames.has(tagName)) {
+          continue;
+        }
+
+        seenTagNames.add(tagName);
+        const existingRows = rowsByCommitHash.get(commit.hash) ?? [];
+        existingRows.push({
+          anchorCommitHash: commit.hash,
+          id: `tag:${tagName}`,
+          label: tagName,
+          type: "tag",
+        });
+        rowsByCommitHash.set(commit.hash, existingRows);
+      }
+    }
+
+    return rowsByCommitHash;
+  }, [commits, stashes]);
   const timelineRows = useMemo<GitTimelineRow[]>(() => {
     const rows: GitTimelineRow[] = [];
 
@@ -1880,6 +1960,18 @@ export function RepoInfo() {
     }
 
     for (const commit of commits) {
+      const referenceRows =
+        timelineReferenceRowsByCommitHash.get(commit.hash) ?? [];
+
+      for (const referenceRow of referenceRows) {
+        rows.push({
+          anchorCommitHash: referenceRow.anchorCommitHash,
+          id: referenceRow.id,
+          label: referenceRow.label,
+          type: referenceRow.type,
+        });
+      }
+
       rows.push({
         commitHash: commit.hash,
         id: commit.hash,
@@ -1888,11 +1980,37 @@ export function RepoInfo() {
     }
 
     return rows;
-  }, [commits, hasAnyWorkingTreeChanges, wipAuthorAvatarUrl, wipAuthorName]);
-  const selectedTimelineRowId =
-    selectedCommitId === WORKING_TREE_ROW_ID
-      ? WORKING_TREE_ROW_ID
-      : selectedCommitId;
+  }, [
+    commits,
+    hasAnyWorkingTreeChanges,
+    timelineReferenceRowsByCommitHash,
+    wipAuthorAvatarUrl,
+    wipAuthorName,
+  ]);
+  const timelineRowById = useMemo(
+    () => new Map(timelineRows.map((row) => [row.id, row])),
+    [timelineRows]
+  );
+  const timelineRowIdByStashRef = useMemo(() => {
+    const rowIds = new Map<string, string>();
+
+    for (const stash of stashes) {
+      rowIds.set(stash.ref, `stash:${stash.ref}`);
+    }
+
+    return rowIds;
+  }, [stashes]);
+  const timelineRowIdByTagName = useMemo(() => {
+    const rowIds = new Map<string, string>();
+
+    for (const row of timelineRows) {
+      if (row.type === "tag" && row.label) {
+        rowIds.set(row.label, row.id);
+      }
+    }
+
+    return rowIds;
+  }, [timelineRows]);
   const resolvedTimelineGraphColumnWidth = useMemo(
     () => resolveGitGraphColumnWidth(commits),
     [commits]
@@ -2644,26 +2762,79 @@ export function RepoInfo() {
   }, [isBranchCreateInputOpen]);
 
   useEffect(() => {
-    if (selectedCommitId === WORKING_TREE_ROW_ID && hasAnyWorkingTreeChanges) {
+    if (
+      selectedTimelineRowId === WORKING_TREE_ROW_ID &&
+      hasAnyWorkingTreeChanges
+    ) {
+      if (selectedCommitId !== WORKING_TREE_ROW_ID) {
+        setSelectedCommitId(WORKING_TREE_ROW_ID);
+      }
       return;
     }
 
     if (commits.length === 0) {
-      setSelectedCommitId(
-        hasAnyWorkingTreeChanges ? WORKING_TREE_ROW_ID : null
-      );
+      const fallbackRowId = hasAnyWorkingTreeChanges
+        ? WORKING_TREE_ROW_ID
+        : null;
+
+      if (selectedTimelineRowId !== fallbackRowId) {
+        setSelectedTimelineRowId(fallbackRowId);
+      }
+
+      if (selectedCommitId !== fallbackRowId) {
+        setSelectedCommitId(fallbackRowId);
+      }
       return;
     }
 
-    if (
-      !(
-        selectedCommitId &&
-        commits.some((commit) => commit.hash === selectedCommitId)
-      )
-    ) {
-      setSelectedCommitId(commits[0].hash);
+    const selectedTimelineRow = selectedTimelineRowId
+      ? (timelineRowById.get(selectedTimelineRowId) ?? null)
+      : null;
+
+    if (selectedTimelineRow) {
+      const resolvedCommitHash =
+        selectedTimelineRow.type === "commit"
+          ? selectedTimelineRow.commitHash
+          : selectedTimelineRow.anchorCommitHash;
+
+      if (
+        resolvedCommitHash &&
+        commits.some((commit) => commit.hash === resolvedCommitHash)
+      ) {
+        if (selectedCommitId !== resolvedCommitHash) {
+          setSelectedCommitId(resolvedCommitHash);
+        }
+
+        return;
+      }
     }
-  }, [commits, hasAnyWorkingTreeChanges, selectedCommitId]);
+
+    if (
+      selectedCommitId &&
+      commits.some((commit) => commit.hash === selectedCommitId)
+    ) {
+      if (selectedTimelineRowId !== selectedCommitId) {
+        setSelectedTimelineRowId(selectedCommitId);
+      }
+      return;
+    }
+
+    const fallbackCommitHash = commits[0]?.hash ?? null;
+
+    if (selectedTimelineRowId !== fallbackCommitHash) {
+      setSelectedTimelineRowId(fallbackCommitHash);
+    }
+
+    if (selectedCommitId !== fallbackCommitHash) {
+      setSelectedCommitId(fallbackCommitHash);
+    }
+  }, [
+    commits,
+    hasAnyWorkingTreeChanges,
+    selectedCommitId,
+    selectedTimelineRowId,
+    timelineRowById,
+  ]);
 
   useEffect(() => {
     if (activeRepoId === null) {
@@ -3270,6 +3441,7 @@ export function RepoInfo() {
       await applyStash(activeRepoId, entry.stashRef);
       setDraftCommitSummary(stashDraft.summary);
       setDraftCommitDescription(stashDraft.description);
+      setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
       setSelectedCommitId(WORKING_TREE_ROW_ID);
       setIsRightSidebarOpen(true);
       focusCommitSummaryInput();
@@ -3310,6 +3482,7 @@ export function RepoInfo() {
       await popStash(activeRepoId, entry.stashRef);
       setDraftCommitSummary(stashDraft.summary);
       setDraftCommitDescription(stashDraft.description);
+      setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
       setSelectedCommitId(WORKING_TREE_ROW_ID);
       setIsRightSidebarOpen(true);
       focusCommitSummaryInput();
@@ -3371,6 +3544,7 @@ export function RepoInfo() {
       await popStash(activeRepoId, "stash@{0}");
       setDraftCommitSummary(stashDraft.summary);
       setDraftCommitDescription(stashDraft.description);
+      setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
       setSelectedCommitId(WORKING_TREE_ROW_ID);
       setIsRightSidebarOpen(true);
       focusCommitSummaryInput();
@@ -3857,6 +4031,13 @@ export function RepoInfo() {
 
   const getCommitHashForEntry = useCallback(
     (entry: SidebarEntry): string | null => {
+      if (entry.type === "stash") {
+        const matchingStash = stashes.find(
+          (stash) => stash.ref === entry.stashRef
+        );
+        return matchingStash?.anchorCommitHash ?? null;
+      }
+
       if (!(entry.type === "branch" || entry.type === "tag")) {
         return null;
       }
@@ -3873,7 +4054,94 @@ export function RepoInfo() {
 
       return null;
     },
-    [commits]
+    [commits, stashes]
+  );
+
+  const getTimelineRowIdForEntry = useCallback(
+    (entry: SidebarEntry): string | null => {
+      if (entry.type === "stash") {
+        return entry.stashRef
+          ? (timelineRowIdByStashRef.get(entry.stashRef) ?? null)
+          : null;
+      }
+
+      if (entry.type === "tag") {
+        return timelineRowIdByTagName.get(entry.name) ?? null;
+      }
+
+      if (entry.type === "branch") {
+        return getCommitHashForEntry(entry);
+      }
+
+      return null;
+    },
+    [getCommitHashForEntry, timelineRowIdByStashRef, timelineRowIdByTagName]
+  );
+
+  const scrollTimelineRowIntoView = useCallback((rowId: string) => {
+    globalThis.requestAnimationFrame(() => {
+      timelineRowElementsRef.current.get(rowId)?.scrollIntoView({
+        block: "center",
+      });
+    });
+  }, []);
+
+  const setTimelineRowElement = useCallback(
+    (rowId: string, element: HTMLButtonElement | null) => {
+      if (element) {
+        timelineRowElementsRef.current.set(rowId, element);
+        return;
+      }
+
+      timelineRowElementsRef.current.delete(rowId);
+    },
+    []
+  );
+
+  const isSidebarEntrySelected = useCallback(
+    (entry: SidebarEntry): boolean => {
+      if (entry.type === "branch") {
+        return entry.active ?? false;
+      }
+
+      const rowId = getTimelineRowIdForEntry(entry);
+      return rowId !== null && rowId === selectedTimelineRowId;
+    },
+    [getTimelineRowIdForEntry, selectedTimelineRowId]
+  );
+
+  const getSidebarEntryForTimelineRow = useCallback(
+    (row: GitTimelineRow): SidebarEntry | null => {
+      if (row.type === "stash") {
+        const stashRef = row.id.slice("stash:".length);
+        const stash = stashes.find((item) => item.ref === stashRef);
+
+        if (!stash) {
+          return null;
+        }
+
+        const label = formatStashLabel(stash);
+        return {
+          name: label,
+          searchName: label.toLowerCase(),
+          stashMessage: stash.message,
+          stashRef: stash.ref,
+          type: "stash",
+        };
+      }
+
+      if (row.type === "tag" && row.label) {
+        return {
+          active: false,
+          name: row.label,
+          searchName: row.label.toLowerCase(),
+          type: "tag",
+        };
+      }
+
+      return null;
+    },
+    [stashes]
   );
 
   const renderEntryDropdownMenuContent = (entry: SidebarEntry) => {
@@ -7429,13 +7697,14 @@ export function RepoInfo() {
       return;
     }
 
-    const isSameRow = selectedCommitId === WORKING_TREE_ROW_ID;
+    const isSameRow = selectedTimelineRowId === WORKING_TREE_ROW_ID;
 
     if (isSameRow && isRightSidebarVisible) {
       setIsRightSidebarOpen(false);
       return;
     }
 
+    setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
     setSelectedCommitId(WORKING_TREE_ROW_ID);
     if (!isWorkspaceAttributionMode) {
       setIsRightSidebarOpen(true);
@@ -7443,17 +7712,70 @@ export function RepoInfo() {
   };
 
   const handleCommitRowClick = (commitHash: string) => {
-    const isSameCommit = selectedCommitId === commitHash;
+    const isSameCommit = selectedTimelineRowId === commitHash;
 
     if (isSameCommit && isRightSidebarVisible) {
       setIsRightSidebarOpen(false);
       return;
     }
 
+    setSelectedTimelineRowId(commitHash);
     setSelectedCommitId(commitHash);
     if (!isWorkspaceAttributionMode) {
       setIsRightSidebarOpen(true);
     }
+  };
+
+  const selectTimelineReferenceRow = useCallback(
+    (rowId: string, anchorCommitHash: string, shouldScroll: boolean) => {
+      const isSameRow = selectedTimelineRowId === rowId;
+
+      if (isSameRow && isRightSidebarVisible) {
+        setIsRightSidebarOpen(false);
+        return;
+      }
+
+      setSelectedTimelineRowId(rowId);
+      setSelectedCommitId(anchorCommitHash);
+      if (!isWorkspaceAttributionMode) {
+        setIsRightSidebarOpen(true);
+      }
+      if (shouldScroll) {
+        scrollTimelineRowIntoView(rowId);
+      }
+    },
+    [
+      isRightSidebarVisible,
+      isWorkspaceAttributionMode,
+      scrollTimelineRowIntoView,
+      selectedTimelineRowId,
+    ]
+  );
+
+  const handleSidebarEntryClick = async (entry: SidebarEntry) => {
+    if (entry.type === "branch") {
+      await handleCheckoutBranch(entry);
+      return;
+    }
+
+    const rowId = getTimelineRowIdForEntry(entry);
+    const anchorCommitHash = getCommitHashForEntry(entry);
+
+    if (!(rowId && anchorCommitHash)) {
+      return;
+    }
+
+    selectTimelineReferenceRow(rowId, anchorCommitHash, true);
+  };
+
+  const handleTimelineReferenceRowClick = (row: GitTimelineRow) => {
+    if (
+      !((row.type === "stash" || row.type === "tag") && row.anchorCommitHash)
+    ) {
+      return;
+    }
+
+    selectTimelineReferenceRow(row.id, row.anchorCommitHash, false);
   };
 
   const openForcePushConfirm = (
@@ -7767,7 +8089,8 @@ export function RepoInfo() {
                                       aria-label={entry.name}
                                       className={cn(
                                         "group",
-                                        entry.active || isEntryMenuOpen
+                                        isSidebarEntrySelected(entry) ||
+                                          isEntryMenuOpen
                                           ? "bg-accent text-accent-foreground"
                                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                                       )}
@@ -7776,7 +8099,7 @@ export function RepoInfo() {
                                         isSwitchingBranch
                                       }
                                       onClick={() => {
-                                        handleCheckoutBranch(entry).catch(
+                                        handleSidebarEntryClick(entry).catch(
                                           () => undefined
                                         );
                                       }}
@@ -8349,7 +8672,7 @@ export function RepoInfo() {
                     <button
                       className={cn(
                         "group relative z-10 grid h-12 w-full cursor-pointer items-center border-border/35 border-b px-3 text-left transition-colors",
-                        selectedCommitId === WORKING_TREE_ROW_ID
+                        selectedTimelineRowId === WORKING_TREE_ROW_ID
                           ? "bg-muted"
                           : "hover:bg-muted/35"
                       )}
@@ -8401,145 +8724,256 @@ export function RepoInfo() {
                     </button>
                   ) : null}
 
-                  {commits.map((item) => {
-                    const commitMessageSummary = (
-                      item.messageSummary ?? ""
-                    ).trim();
-                    const commitTitle =
-                      commitMessageSummary.length > 0
-                        ? commitMessageSummary
-                        : (item.message ?? "");
-                    const commitDescription = (
-                      item.messageDescription ?? ""
-                    ).trim();
-                    const laneColor = getCommitLaneColor(commits, item.hash);
-                    const commitRefs = item.refs
-                      .map((ref) => normalizeCommitRefLabel(ref) ?? ref.trim())
-                      .filter((ref) => ref.length > 0);
-                    const visibleRefCount = commitRefs.length > 2 ? 1 : 2;
-                    const visibleCommitRefs = commitRefs.slice(
-                      0,
-                      visibleRefCount
-                    );
-                    const hiddenCommitRefs = commitRefs.slice(visibleRefCount);
-                    const hiddenCommitRefCount = Math.max(
-                      0,
-                      commitRefs.length - visibleCommitRefs.length
-                    );
+                  {timelineRows
+                    .filter((row) => row.type !== "wip")
+                    .map((row) => {
+                      if (row.type === "commit" && row.commitHash) {
+                        const item = commits.find(
+                          (commit) => commit.hash === row.commitHash
+                        );
 
-                    return (
-                      <ContextMenu
-                        key={item.hash}
-                        onOpenChange={(open) => {
-                          handleCommitMenuOpenChange(item.hash, open);
-                        }}
-                      >
-                        <ContextMenuTrigger>
-                          <button
-                            className={cn(
-                              "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
-                              selectedCommitId === item.hash ||
-                                openCommitMenuHash === item.hash
-                                ? "bg-muted hover:bg-muted"
-                                : "hover:bg-muted/35"
-                            )}
-                            onClick={() => {
-                              handleCommitRowClick(item.hash);
+                        if (!item) {
+                          return null;
+                        }
+
+                        const commitMessageSummary = (
+                          item.messageSummary ?? ""
+                        ).trim();
+                        const commitTitle =
+                          commitMessageSummary.length > 0
+                            ? commitMessageSummary
+                            : (item.message ?? "");
+                        const commitDescription = (
+                          item.messageDescription ?? ""
+                        ).trim();
+                        const laneColor = getCommitLaneColor(
+                          commits,
+                          item.hash
+                        );
+                        const commitRefs = item.refs
+                          .map(
+                            (ref) => normalizeCommitRefLabel(ref) ?? ref.trim()
+                          )
+                          .filter((ref) => ref.length > 0);
+                        const visibleRefCount = commitRefs.length > 2 ? 1 : 2;
+                        const visibleCommitRefs = commitRefs.slice(
+                          0,
+                          visibleRefCount
+                        );
+                        const hiddenCommitRefs =
+                          commitRefs.slice(visibleRefCount);
+                        const hiddenCommitRefCount = Math.max(
+                          0,
+                          commitRefs.length - visibleCommitRefs.length
+                        );
+
+                        return (
+                          <ContextMenu
+                            key={item.hash}
+                            onOpenChange={(open) => {
+                              handleCommitMenuOpenChange(item.hash, open);
                             }}
-                            style={{
-                              gridTemplateColumns: timelineGridTemplateColumns,
-                            }}
-                            type="button"
                           >
-                            <div className="min-w-0 truncate pr-2">
-                              {visibleCommitRefs.length > 0 ? (
-                                <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                                  {visibleCommitRefs.map((ref, index) => (
-                                    <Tooltip key={ref}>
-                                      <TooltipTrigger
-                                        render={
-                                          <span
-                                            className={cn(
-                                              "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-[0.65rem] leading-none",
-                                              index === 0
-                                                ? "max-w-24"
-                                                : "max-w-16"
-                                            )}
-                                            style={{
-                                              borderColor: `${laneColor}80`,
-                                            }}
-                                          />
-                                        }
-                                      >
-                                        <span className="truncate">{ref}</span>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="bottom">
-                                        {ref}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ))}
-                                  {hiddenCommitRefCount > 0 ? (
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <span
-                                            className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-[0.62rem] leading-none"
-                                            style={{
-                                              borderColor: `${laneColor}66`,
-                                            }}
-                                          />
-                                        }
-                                      >
-                                        +{hiddenCommitRefCount}
-                                      </TooltipTrigger>
-                                      <TooltipContent side="bottom">
-                                        {hiddenCommitRefs.join(", ")}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ) : null}
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground/70 text-xs">
-                                  <span className="sr-only">No refs</span>
-                                </span>
-                              )}
-                            </div>
-                            <div className="h-full" />
-                            <div className="relative min-w-0 self-stretch">
-                              <div
-                                className="absolute top-0 bottom-0 left-0 rounded-full"
-                                style={{
-                                  backgroundColor: laneColor,
-                                  width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                            <ContextMenuTrigger>
+                              <button
+                                className={cn(
+                                  "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
+                                  selectedTimelineRowId === item.hash ||
+                                    openCommitMenuHash === item.hash
+                                    ? "bg-muted hover:bg-muted"
+                                    : "hover:bg-muted/35"
+                                )}
+                                onClick={() => {
+                                  handleCommitRowClick(item.hash);
                                 }}
-                              />
-                              <div
-                                className="flex h-full min-w-0 items-center gap-2"
                                 style={{
-                                  paddingLeft:
-                                    TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
-                                    TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                                  gridTemplateColumns:
+                                    timelineGridTemplateColumns,
                                 }}
+                                type="button"
                               >
-                                <p className="min-w-0 flex-1 truncate pr-2 text-sm">
-                                  <span>{commitTitle}</span>
-                                  {commitDescription.length > 0 ? (
-                                    <span className="text-muted-foreground/80">
-                                      {" "}
-                                      {commitDescription}
+                                <div className="min-w-0 truncate pr-2">
+                                  {visibleCommitRefs.length > 0 ? (
+                                    <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                      {visibleCommitRefs.map((ref, index) => (
+                                        <Tooltip key={ref}>
+                                          <TooltipTrigger
+                                            render={
+                                              <span
+                                                className={cn(
+                                                  "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-[0.65rem] leading-none",
+                                                  index === 0
+                                                    ? "max-w-24"
+                                                    : "max-w-16"
+                                                )}
+                                                style={{
+                                                  borderColor: `${laneColor}80`,
+                                                }}
+                                              />
+                                            }
+                                          >
+                                            <span className="truncate">
+                                              {ref}
+                                            </span>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="bottom">
+                                            {ref}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ))}
+                                      {hiddenCommitRefCount > 0 ? (
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <span
+                                                className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-[0.62rem] leading-none"
+                                                style={{
+                                                  borderColor: `${laneColor}66`,
+                                                }}
+                                              />
+                                            }
+                                          >
+                                            +{hiddenCommitRefCount}
+                                          </TooltipTrigger>
+                                          <TooltipContent side="bottom">
+                                            {hiddenCommitRefs.join(", ")}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground/70 text-xs">
+                                      <span className="sr-only">No refs</span>
                                     </span>
-                                  ) : null}
-                                </p>
-                              </div>
+                                  )}
+                                </div>
+                                <div className="h-full" />
+                                <div className="relative min-w-0 self-stretch">
+                                  <div
+                                    className="absolute top-0 bottom-0 left-0 rounded-full"
+                                    style={{
+                                      backgroundColor: laneColor,
+                                      width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                                    }}
+                                  />
+                                  <div
+                                    className="flex h-full min-w-0 items-center gap-2"
+                                    style={{
+                                      paddingLeft:
+                                        TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                        TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                                    }}
+                                  >
+                                    <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                                      <span>{commitTitle}</span>
+                                      {commitDescription.length > 0 ? (
+                                        <span className="text-muted-foreground/80">
+                                          {" "}
+                                          {commitDescription}
+                                        </span>
+                                      ) : null}
+                                    </p>
+                                  </div>
+                                </div>
+                              </button>
+                            </ContextMenuTrigger>
+                            {openCommitMenuHash === item.hash
+                              ? renderCommitRowContextMenuContent(item)
+                              : null}
+                          </ContextMenu>
+                        );
+                      }
+
+                      if (!(row.type === "stash" || row.type === "tag")) {
+                        return null;
+                      }
+
+                      const laneColor = getCommitLaneColor(
+                        commits,
+                        row.anchorCommitHash ?? ""
+                      );
+                      const timelineEntry = getSidebarEntryForTimelineRow(row);
+                      const rowLabel = row.label ?? "";
+                      const rowKindLabel =
+                        row.type === "stash"
+                          ? "Stash snapshot"
+                          : "Tag reference";
+
+                      const rowButton = (
+                        <button
+                          className={cn(
+                            "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
+                            selectedTimelineRowId === row.id
+                              ? "bg-muted"
+                              : "hover:bg-muted/35"
+                          )}
+                          key={row.id}
+                          onClick={() => {
+                            handleTimelineReferenceRowClick(row);
+                          }}
+                          ref={(element) => {
+                            setTimelineRowElement(row.id, element);
+                          }}
+                          style={{
+                            gridTemplateColumns: timelineGridTemplateColumns,
+                          }}
+                          type="button"
+                        >
+                          <div className="min-w-0 truncate pr-2">
+                            <span
+                              className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-[0.65rem] leading-none"
+                              style={{
+                                borderColor: `${laneColor}80`,
+                              }}
+                            >
+                              {row.type === "stash" ? (
+                                <StackSimpleIcon className="size-2.5 shrink-0" />
+                              ) : (
+                                <TagIcon className="size-2.5 shrink-0" />
+                              )}
+                              <span className="truncate">{rowLabel}</span>
+                            </span>
+                          </div>
+                          <div className="h-full" />
+                          <div className="relative min-w-0 self-stretch">
+                            <div
+                              className="absolute top-0 bottom-0 left-0 rounded-full"
+                              style={{
+                                backgroundColor: laneColor,
+                                width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                              }}
+                            />
+                            <div
+                              className="flex h-full min-w-0 items-center gap-2"
+                              style={{
+                                paddingLeft:
+                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                  TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                              }}
+                            >
+                              <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                                <span>{rowLabel}</span>
+                                <span className="text-muted-foreground/80">
+                                  {" "}
+                                  {rowKindLabel}
+                                </span>
+                              </p>
                             </div>
-                          </button>
-                        </ContextMenuTrigger>
-                        {openCommitMenuHash === item.hash
-                          ? renderCommitRowContextMenuContent(item)
-                          : null}
-                      </ContextMenu>
-                    );
-                  })}
+                          </div>
+                        </button>
+                      );
+
+                      if (!timelineEntry) {
+                        return rowButton;
+                      }
+
+                      return (
+                        <ContextMenu key={row.id}>
+                          <ContextMenuTrigger>{rowButton}</ContextMenuTrigger>
+                          {renderEntryContextMenuContent(timelineEntry)}
+                        </ContextMenu>
+                      );
+                    })}
                 </div>
                 {commits.length === 0 && !isLoadingHistory ? (
                   <div className="px-3 py-4 text-muted-foreground text-sm">

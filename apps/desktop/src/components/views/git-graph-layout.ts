@@ -9,6 +9,7 @@ export interface GitTimelineRow {
   authorAvatarUrl?: string | null;
   commitHash?: string;
   id: string;
+  label?: string;
   type: GitTimelineRowType;
 }
 
@@ -37,7 +38,7 @@ const LANE_OFFSET_X = 8;
 const LANE_SPACING_X = 16;
 const GIT_NODE_SIZE_BY_TYPE: Record<GitTimelineRowType, number> = {
   commit: 28,
-  stash: 24,
+  stash: 28,
   tag: 28,
   wip: 28,
 };
@@ -45,6 +46,7 @@ const MAX_NODE_SIZE = 28;
 const DEFAULT_ROW_HEIGHT = 48;
 const NODE_OPTICAL_VERTICAL_OFFSET = -1;
 const DEFAULT_DASH_PATTERN = "4 3";
+const REF_ROW_LANE_OFFSET = 2;
 
 export function resolveGitTimelineNodeSize(type: GitTimelineRowType): number {
   return GIT_NODE_SIZE_BY_TYPE[type];
@@ -107,7 +109,8 @@ export function resolveGitGraphColumnWidth(
   const laneByHash = buildCommitLaneMap(commits);
   const lanes = [...laneByHash.values()];
   const maxLane = lanes.length === 0 ? 0 : Math.max(...lanes);
-  const maxLaneCenterOffset = LANE_OFFSET_X + maxLane * LANE_SPACING_X;
+  const maxLaneCenterOffset =
+    LANE_OFFSET_X + (maxLane + REF_ROW_LANE_OFFSET) * LANE_SPACING_X;
   const horizontalSafetyMargin = 18;
   const graphWidth =
     maxLaneCenterOffset + MAX_NODE_SIZE + horizontalSafetyMargin;
@@ -174,7 +177,8 @@ function createEdge(
   targetId: string,
   color: string,
   isDashed: boolean,
-  dashedStrokePattern?: string
+  dashedStrokePattern?: string,
+  edgeType: Edge["type"] = "default"
 ): Edge {
   return {
     animated: false,
@@ -191,7 +195,7 @@ function createEdge(
       strokeWidth: 2,
     },
     target: targetId,
-    type: "default",
+    type: edgeType,
   };
 }
 
@@ -210,6 +214,7 @@ export function buildGitGraphLayout(
   const rowIndexByCommitHash = new Map<string, number>();
   const nodeIdByRowId = new Map<string, string>();
   const laneByHash = buildCommitLaneMap(commits);
+  const rowLaneById = new Map<string, number>();
   const baseGraphWidth = resolveGitGraphColumnWidth(commits);
   const targetGraphWidth = graphColumnWidth ?? baseGraphWidth;
   const graphScaleX =
@@ -238,13 +243,18 @@ export function buildGitGraphLayout(
 
     const lane = laneByHash.get(rowCommitHash) ?? 0;
     const color = getLaneColor(lane);
-    const positionedLane = isCompactGraph ? compactAnchorLane : lane;
+    const isReferenceRow = row.type === "stash" || row.type === "tag";
+    const referenceLaneOffset = isReferenceRow ? REF_ROW_LANE_OFFSET : 0;
+    const positionedLane = isCompactGraph
+      ? compactAnchorLane
+      : lane + referenceLaneOffset;
     const nodeId = `graph-node:${row.id}`;
     const commit = commitByHash.get(rowCommitHash);
     const nodeAuthor = row.author ?? commit?.author ?? "";
     const nodeAuthorAvatarUrl =
       row.authorAvatarUrl ?? commit?.authorAvatarUrl ?? null;
     nodeIdByRowId.set(row.id, nodeId);
+    rowLaneById.set(row.id, positionedLane);
     nodes.push(
       createNode(
         nodeId,
@@ -340,6 +350,8 @@ export function buildGitGraphLayout(
     }
 
     const lane = laneByHash.get(row.anchorCommitHash) ?? 0;
+    const sourceLane = rowLaneById.get(row.id) ?? lane;
+    const targetLane = rowLaneById.get(targetRow.id) ?? lane;
     edges.push(
       createEdge(
         `graph-edge:${row.id}:${targetRow.id}`,
@@ -347,7 +359,8 @@ export function buildGitGraphLayout(
         targetNodeId,
         getLaneColor(lane),
         true,
-        dashedStrokePattern
+        dashedStrokePattern,
+        sourceLane === targetLane ? "default" : "smoothstep"
       )
     );
   }
@@ -379,6 +392,8 @@ export function buildGitGraphLayout(
     }
 
     const lane = laneByHash.get(row.anchorCommitHash) ?? 0;
+    const sourceLane = rowLaneById.get(row.id) ?? lane;
+    const targetLane = rowLaneById.get(targetRow.id) ?? lane;
     edges.push(
       createEdge(
         `graph-edge:${row.id}:${targetRow.id}`,
@@ -386,7 +401,8 @@ export function buildGitGraphLayout(
         targetNodeId,
         getLaneColor(lane),
         true,
-        dashedStrokePattern
+        dashedStrokePattern,
+        sourceLane === targetLane ? "default" : "smoothstep"
       )
     );
   }

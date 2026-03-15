@@ -320,9 +320,10 @@ function parseRepositoryStash(value: unknown): RepositoryStash {
     throw new Error("Invalid repository stashes payload");
   }
 
-  const { message, ref, shortHash } = value;
+  const { anchorCommitHash, message, ref, shortHash } = value;
 
   if (
+    typeof anchorCommitHash !== "string" ||
     typeof message !== "string" ||
     typeof ref !== "string" ||
     typeof shortHash !== "string"
@@ -331,6 +332,7 @@ function parseRepositoryStash(value: unknown): RepositoryStash {
   }
 
   return {
+    anchorCommitHash,
     message,
     ref,
     shortHash,

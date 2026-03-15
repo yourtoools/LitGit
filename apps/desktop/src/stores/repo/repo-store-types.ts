@@ -99,6 +99,7 @@ export interface RepositoryBranch {
 }
 
 export interface RepositoryStash {
+  anchorCommitHash: string;
   message: string;
   ref: string;
   shortHash: string;

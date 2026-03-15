@@ -25,7 +25,9 @@ export function GitNode({ data }: NodeProps) {
   const nodeData = data as unknown as GitNodeData;
   const size = resolveGitTimelineNodeSize(nodeData.type);
   const isWipNode = nodeData.type === "wip";
-  const dashPattern = isWipNode ? nodeData.dashedStrokePattern : undefined;
+  const isStashNode = nodeData.type === "stash";
+  const dashPattern =
+    isWipNode || isStashNode ? nodeData.dashedStrokePattern : undefined;
   const initials = nodeData.author
     .split(WHITESPACE_SPLIT_PATTERN)
     .map((w: string) => w[0])
@@ -35,10 +37,11 @@ export function GitNode({ data }: NodeProps) {
 
   return (
     <div
-      className="relative flex items-center justify-center rounded-full"
+      className="relative flex items-center justify-center"
       style={{
         boxShadow: `0 0 0 1px ${nodeData.color}55`,
         backgroundColor: "#ffffff",
+        borderRadius: isStashNode ? 8 : 999,
         height: size,
         width: size,
       }}
@@ -50,15 +53,30 @@ export function GitNode({ data }: NodeProps) {
         width={size}
       >
         <title>Timeline node border</title>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          fill="none"
-          r={(size - 2) / 2}
-          stroke={nodeData.color}
-          strokeDasharray={dashPattern}
-          strokeWidth={2}
-        />
+        {isStashNode ? (
+          <rect
+            fill="none"
+            height={size - 2}
+            rx={8}
+            ry={8}
+            stroke={nodeData.color}
+            strokeDasharray={dashPattern}
+            strokeWidth={2}
+            width={size - 2}
+            x={1}
+            y={1}
+          />
+        ) : (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            fill="none"
+            r={(size - 2) / 2}
+            stroke={nodeData.color}
+            strokeDasharray={dashPattern}
+            strokeWidth={2}
+          />
+        )}
       </svg>
       <Handle
         className="!border-none !bg-transparent"
@@ -72,7 +90,14 @@ export function GitNode({ data }: NodeProps) {
         style={{ bottom: -0.5, height: 1, left: "50%", width: 1 }}
         type="source"
       />
-      <Avatar style={{ height: size - 4, width: size - 4, zIndex: 30 }}>
+      <Avatar
+        style={{
+          borderRadius: isStashNode ? 6 : 999,
+          height: size - 4,
+          width: size - 4,
+          zIndex: 30,
+        }}
+      >
         <AvatarImage
           alt={nodeData.author}
           height={size - 4}
@@ -80,7 +105,7 @@ export function GitNode({ data }: NodeProps) {
           width={size - 4}
         />
         <AvatarFallback
-          className="rounded-full"
+          className={isStashNode ? "rounded-md" : "rounded-full"}
           style={{
             fontSize: size * 0.35,
             fontWeight: 600,
