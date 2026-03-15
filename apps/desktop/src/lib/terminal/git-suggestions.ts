@@ -348,7 +348,7 @@ export function getGitSuggestions(
   if (tokens.length === 1) {
     if (currentWord !== "git" && "git".startsWith(currentWord)) {
       completions.push({
-        description: "The stupid content tracker",
+        description: "The Git version control system",
         type: "command",
         value: "git",
       });
