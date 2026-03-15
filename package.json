@@ -1,5 +1,5 @@
 {
-  "name": "LitGit",
+  "name": "litgit",
   "private": true,
   "workspaces": {
     "packages": [
@@ -7,9 +7,20 @@
       "packages/*"
     ],
     "catalog": {
-      "dotenv": "^17.2.2",
-      "zod": "^4.1.13",
-      "typescript": "^5"
+      "@mantine/hooks": "^7.17.5",
+      "@phosphor-icons/react": "^2.1.10",
+      "@types/node": "^25.3.3",
+      "@types/react": "19.2.14",
+      "@types/react-dom": "19.2.3",
+      "date-fns": "4.1.0",
+      "dotenv": "^17.3.1",
+      "next-themes": "^0.4.6",
+      "react": "19.2.4",
+      "react-dom": "19.2.4",
+      "sonner": "^2.0.7",
+      "tailwindcss": "^4.2.1",
+      "typescript": "^5.9.3",
+      "zod": "^4.3.6"
     }
   },
   "type": "module",
@@ -18,25 +29,25 @@
     "build:desktop": "turbo run build -F desktop",
     "build:desktop-web": "turbo run build:desktop-web -F desktop",
     "check": "ultracite check",
-    "check-types": "turbo check-types",
+    "check-types": "bun x turbo run check-types --dangerously-disable-package-manager-check",
     "dev": "turbo dev",
     "dev:desktop": "turbo run dev -F desktop",
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",
-    "dev:native": "turbo -F native dev",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "gen:gitignore-templates": "turbo run gen:gitignore-templates -F desktop"
   },
   "dependencies": {
-    "@LitGit/env": "workspace:*",
+    "@litgit/env": "workspace:*",
     "dotenv": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@LitGit/config": "workspace:*",
     "@biomejs/biome": "2.4.5",
-    "lefthook": "latest",
+    "@litgit/config": "workspace:*",
+    "lefthook": "2.1.2",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
-    "ultracite": "7.2.5"
+    "ultracite": "7.2.4"
   },
   "packageManager": "bun@1.3.10"
 }

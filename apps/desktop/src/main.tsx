@@ -1,8 +1,8 @@
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 
-import Loader from "./components/loader";
-import { routeTree } from "./routeTree.gen";
+import Loader from "@/components/shared/loader";
+import { routeTree } from "@/routeTree.gen";
 
 const router = createRouter({
   routeTree,
@@ -21,6 +21,12 @@ const rootElement = document.getElementById("app");
 
 if (!rootElement) {
   throw new Error("Root element not found");
+}
+
+if (import.meta.env.PROD) {
+  window.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+  });
 }
 
 if (!rootElement.innerHTML) {

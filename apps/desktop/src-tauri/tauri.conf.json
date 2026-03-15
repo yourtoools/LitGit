@@ -2,21 +2,25 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LitGit Desktop",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.yourtoools.litgit",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3001",
-    "beforeDevCommand": "cd .. && bun run desktop-web",
+    "beforeDevCommand": "cd .. && bun run dev:desktop-web",
     "beforeBuildCommand": "cd .. && bun run build:desktop-web"
   },
   "app": {
     "windows": [
       {
         "title": "LitGit Desktop",
-        "width": 800,
-        "height": 600,
+        "width": 1100,
+        "height": 720,
+        "center": true,
+        "decorations": false,
+        "shadow": true,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "maximized": true
       }
     ],
     "security": {

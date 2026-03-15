@@ -25,6 +25,12 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**"]
+    },
+    "gen:gitignore-templates": {
+      "outputs": ["src/lib/generated/gitignore-templates.ts"]
+    },
+    "generate:lucide-icons": {
+      "outputs": ["src/icons/LucideIcons.ts"]
     }
   }
 }

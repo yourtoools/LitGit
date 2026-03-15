@@ -1,0 +1,367 @@
+import { Button } from "@litgit/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@litgit/ui/components/dialog";
+import { Input } from "@litgit/ui/components/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@litgit/ui/components/tooltip";
+import { useWindowEvent } from "@mantine/hooks";
+import { KeyboardIcon, XIcon } from "@phosphor-icons/react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  getChangeRepositoryShortcutKeys,
+  getCloseTabShortcutLabel,
+  getKeyboardShortcutsShortcutLabel,
+  getNewTabShortcutLabel,
+  getNextTabShortcutLabel,
+  getOpenRepositoryShortcutLabel,
+  getPreviousTabShortcutLabel,
+  getPrimaryModifierAriaKey,
+  getReopenClosedTabShortcutLabel,
+  getResetZoomShortcutLabel,
+  getSearchTabsShortcutLabel,
+  getToggleTerminalShortcutLabel,
+  getZoomInShortcutLabel,
+  getZoomOutShortcutLabel,
+  isEditableTarget,
+  isShortcutHelpShortcut,
+} from "@/lib/keyboard-shortcuts";
+
+interface ShortcutEntry {
+  description: string;
+  group: string;
+  id: string;
+  keys: string[];
+  keywords: string[];
+  label: string;
+}
+
+const ShortcutKeys = ({ keys }: { keys: string[] }) => {
+  return (
+    <span className="flex items-center gap-1 font-medium text-foreground/90 text-xs">
+      {keys.map((key) => (
+        <kbd
+          className="min-w-6 border border-border/70 bg-background/90 px-1.5 py-0.5 text-center font-mono text-xs uppercase tracking-[0.16em] shadow-[inset_0_1px_0_rgb(255_255_255/0.3)]"
+          key={key}
+        >
+          {key}
+        </kbd>
+      ))}
+    </span>
+  );
+};
+
+const shortcutLabelToKeys = (label: string) => {
+  return label.split(" + ");
+};
+
+export function KeyboardShortcutsDialog() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [shortcutQuery, setShortcutQuery] = useState("");
+  const shortcutHelpId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      const timeout = setTimeout(() => setShortcutQuery(""), 200);
+      return () => clearTimeout(timeout);
+    }
+  }, [isOpen]);
+
+  const shortcuts = useMemo<ShortcutEntry[]>(() => {
+    return [
+      {
+        description:
+          "Open the repository picker from anywhere in the workspace.",
+        group: "Workspace",
+        id: "open-repository",
+        keywords: ["repository", "repo", "open", "picker", "workspace"],
+        keys: shortcutLabelToKeys(getOpenRepositoryShortcutLabel()),
+        label: "Open Repository",
+      },
+      {
+        description:
+          "Start the command-style chord to switch repositories without leaving your keyboard.",
+        group: "Workspace",
+        id: "change-repository",
+        keywords: ["repository", "repo", "change", "switch", "chord"],
+        keys: getChangeRepositoryShortcutKeys(),
+        label: "Change Repository",
+      },
+      {
+        description: "Create a fresh tab without leaving the current context.",
+        group: "Tabs",
+        id: "new-tab",
+        keywords: ["tab", "create", "new", "workspace"],
+        keys: shortcutLabelToKeys(getNewTabShortcutLabel()),
+        label: "New Tab",
+      },
+      {
+        description:
+          "Close the active tab while keeping the rest of the workspace open.",
+        group: "Tabs",
+        id: "close-tab",
+        keywords: ["tab", "close", "active", "remove"],
+        keys: shortcutLabelToKeys(getCloseTabShortcutLabel()),
+        label: "Close Tab",
+      },
+      {
+        description: "Move to the next open tab in the current strip.",
+        group: "Tabs",
+        id: "next-tab",
+        keywords: ["tab", "next", "switch", "cycle", "forward"],
+        keys: shortcutLabelToKeys(getNextTabShortcutLabel()),
+        label: "Next Tab",
+      },
+      {
+        description: "Move to the previous open tab in the current strip.",
+        group: "Tabs",
+        id: "previous-tab",
+        keywords: ["tab", "previous", "switch", "cycle", "backward"],
+        keys: shortcutLabelToKeys(getPreviousTabShortcutLabel()),
+        label: "Previous Tab",
+      },
+      {
+        description: "Restore the most recently closed tab.",
+        group: "Tabs",
+        id: "reopen-tab",
+        keywords: ["tab", "reopen", "restore", "closed", "history"],
+        keys: shortcutLabelToKeys(getReopenClosedTabShortcutLabel()),
+        label: "Reopen Closed Tab",
+      },
+      {
+        description: "Search and jump to any open or recently closed tab.",
+        group: "Tabs",
+        id: "search-tabs",
+        keywords: ["tab", "search", "find", "jump", "switch"],
+        keys: shortcutLabelToKeys(getSearchTabsShortcutLabel()),
+        label: "Search Tabs",
+      },
+      {
+        description: "Increase interface zoom in 10% steps up to 130%.",
+        group: "View",
+        id: "zoom-in",
+        keywords: ["zoom", "view", "increase", "plus", "scale"],
+        keys: shortcutLabelToKeys(getZoomInShortcutLabel()),
+        label: "Zoom In",
+      },
+      {
+        description: "Decrease interface zoom in 10% steps down to 80%.",
+        group: "View",
+        id: "zoom-out",
+        keywords: ["zoom", "view", "decrease", "minus", "scale"],
+        keys: shortcutLabelToKeys(getZoomOutShortcutLabel()),
+        label: "Zoom Out",
+      },
+      {
+        description: "Reset interface zoom back to the default 100% scale.",
+        group: "View",
+        id: "zoom-reset",
+        keywords: ["zoom", "view", "reset", "default", "100%"],
+        keys: shortcutLabelToKeys(getResetZoomShortcutLabel()),
+        label: "Reset Zoom",
+      },
+      {
+        description: "Toggle the integrated terminal panel.",
+        group: "View",
+        id: "toggle-terminal",
+        keywords: ["terminal", "toggle", "console", "footer"],
+        keys: shortcutLabelToKeys(getToggleTerminalShortcutLabel()),
+        label: "Toggle Terminal",
+      },
+      {
+        description: "Open this shortcuts panel from anywhere in the app.",
+        group: "Help",
+        id: "keyboard-shortcuts",
+        keywords: ["keyboard", "shortcuts", "help", "command", "palette"],
+        keys: shortcutLabelToKeys(getKeyboardShortcutsShortcutLabel()),
+        label: "Keyboard Shortcuts",
+      },
+      {
+        description: "Move between visible shortcut rows inside the dialog.",
+        group: "Dialog Navigation",
+        id: "dialog-navigation",
+        keywords: ["up", "down", "arrow", "navigate", "dialog", "home", "end"],
+        keys: ["Up", "Down", "Home", "End"],
+        label: "Navigate Shortcuts",
+      },
+      {
+        description:
+          "Close the dialog and return focus to the previous trigger.",
+        group: "Dialog Navigation",
+        id: "dialog-close",
+        keywords: ["escape", "close", "dismiss", "dialog"],
+        keys: ["Esc"],
+        label: "Close Dialog",
+      },
+    ];
+  }, []);
+
+  const visibleShortcuts = useMemo(() => {
+    const normalizedQuery = shortcutQuery.trim().toLowerCase();
+
+    if (normalizedQuery.length === 0) {
+      return shortcuts;
+    }
+
+    return shortcuts.filter((shortcut) => {
+      const haystack = [
+        shortcut.group,
+        shortcut.label,
+        shortcut.description,
+        ...shortcut.keywords,
+        ...shortcut.keys,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    });
+  }, [shortcutQuery, shortcuts]);
+
+  const shortcutGroups = useMemo(() => {
+    return Array.from(
+      new Set(visibleShortcuts.map((shortcut) => shortcut.group))
+    );
+  }, [visibleShortcuts]);
+
+  useWindowEvent("keydown", (event) => {
+    if (event.repeat) {
+      return;
+    }
+
+    if (!isShortcutHelpShortcut(event)) {
+      return;
+    }
+
+    if (isEditableTarget(event.target)) {
+      return;
+    }
+
+    event.preventDefault();
+    setIsOpen(true);
+  });
+
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              aria-haspopup="dialog"
+              aria-keyshortcuts={`${getPrimaryModifierAriaKey()}+/`}
+              aria-label={`Keyboard shortcuts (${getKeyboardShortcutsShortcutLabel()})`}
+              className="focus-visible:desktop-focus hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
+              onClick={() => setIsOpen(true)}
+              size="icon-sm"
+              variant="ghost"
+            >
+              <KeyboardIcon />
+            </Button>
+          }
+        />
+        <TooltipContent side="top">
+          Keyboard Shortcuts ({getKeyboardShortcutsShortcutLabel()})
+        </TooltipContent>
+      </Tooltip>
+
+      <Dialog onOpenChange={setIsOpen} open={isOpen}>
+        <DialogContent
+          className="max-w-[min(96vw,30rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,30rem)]"
+          showCloseButton={false}
+        >
+          <DialogHeader className="border-border/60 border-b px-5 py-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <DialogTitle>Keyboard Shortcuts</DialogTitle>
+                <DialogDescription className="mt-2 text-sm leading-relaxed">
+                  Search commands, actions, or keys. The list keeps a visible
+                  scrollbar when it grows longer.
+                </DialogDescription>
+              </div>
+              <div className="flex items-center gap-3">
+                <ShortcutKeys
+                  keys={shortcutLabelToKeys(
+                    getKeyboardShortcutsShortcutLabel()
+                  )}
+                />
+                <Button
+                  aria-label="Close keyboard shortcuts"
+                  className="focus-visible:desktop-focus-strong -mt-1 -mr-2 hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
+                  onClick={() => setIsOpen(false)}
+                  size="icon-sm"
+                  variant="ghost"
+                >
+                  <XIcon />
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="border-border/60 border-b px-4 py-4">
+            <Input
+              aria-describedby={shortcutHelpId}
+              autoFocus
+              onChange={(event) => setShortcutQuery(event.target.value)}
+              placeholder="Filter shortcuts"
+              ref={inputRef}
+              value={shortcutQuery}
+            />
+            <p className="sr-only" id={shortcutHelpId}>
+              This dialog lists available keyboard shortcuts. Use the filter
+              field to narrow the list and press Escape to close the dialog.
+            </p>
+          </div>
+
+          <div className="max-h-96 overflow-y-auto px-4 py-4 [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
+            {shortcutGroups.length === 0 ? (
+              <div className="py-8 text-left">
+                <p className="font-medium text-foreground text-sm">
+                  No shortcuts found
+                </p>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  Try searching for tab, repository, zoom, or escape.
+                </p>
+              </div>
+            ) : (
+              shortcutGroups.map((group) => (
+                <section className="mb-6 last:mb-0" key={group}>
+                  <div className="mb-2 px-3 font-semibold text-foreground text-sm">
+                    {group}
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {visibleShortcuts
+                      .filter((shortcut) => shortcut.group === group)
+                      .map((shortcut) => (
+                        <div
+                          className="group flex flex-col gap-1.5 px-3 py-3 hover:bg-muted/50"
+                          key={shortcut.id}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-foreground text-sm">
+                              {shortcut.label}
+                            </span>
+                            <ShortcutKeys keys={shortcut.keys} />
+                          </div>
+                          <p className="text-muted-foreground text-sm leading-relaxed">
+                            {shortcut.description}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                </section>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

@@ -1,4 +1,95 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": ["ultracite/biome/core", "ultracite/biome/react"]
+  "extends": ["ultracite/biome/core", "ultracite/biome/react"],
+  "files": {
+    "includes": ["!**/scripts", "!**/generated"]
+  },
+  "overrides": [
+    {
+      "includes": ["**/*.tsx", "**/*.ts"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noLabelWithoutControl": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/**/*.js",
+        "apps/**/*.jsx",
+        "apps/**/*.mjs",
+        "apps/**/*.cjs",
+        "apps/**/*.ts",
+        "apps/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["./**", "../**"],
+                    "message": "Use @/... alias imports instead of relative paths in apps/*."
+                  }
+                ]
+              }
+            }
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "off",
+              "options": {
+                "maxAllowedComplexity": 25
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/*/src/routes/**/*.ts", "apps/*/src/routes/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/**/*.js",
+        "packages/**/*.jsx",
+        "packages/**/*.mjs",
+        "packages/**/*.cjs",
+        "packages/**/*.ts",
+        "packages/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["./**", "../**"],
+                    "message": "Use package self-alias imports (e.g. @litgit/<pkg>/...) in packages/*."
+                  },
+                  {
+                    "group": ["@/**"],
+                    "message": "Do not use app-local @/... aliases inside packages/*; use the package self-alias instead."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

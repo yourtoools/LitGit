@@ -1,5 +1,5 @@
 {
-  "extends": "@LitGit/config/tsconfig.base.json",
+  "extends": "@litgit/config/tsconfig.base.json",
   "compilerOptions": {
     "strictNullChecks": true
   }

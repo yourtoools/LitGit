@@ -1,0 +1,42 @@
+{
+  "sort": {
+    "order": "DESC",
+    "on_property": "mergedAt"
+  },
+  "ignore_labels": [
+    "skip-changelog",
+    "duplicate",
+    "invalid",
+    "question",
+    "wontfix"
+  ],
+  "template": "### Release Snapshot\n- Cross-platform desktop bundles for macOS, Windows, and Linux\n- Verified with repo checks before packaging\n- Detailed changelog generated automatically from merged work\n- Full diff: #{{RELEASE_DIFF}}\n\n### Metrics\n- #{{COMMITS}} commits across #{{CHANGED_FILES}} files\n- #{{ADDITIONS}} additions and #{{DELETIONS}} deletions\n- Contributors: #{{CONTRIBUTORS}}\n\n#{{CHANGELOG}}\n\n## Other Changes\n#{{UNCATEGORIZED}}",
+  "pr_template": "- #{{TITLE}} by @#{{AUTHOR}} in [##{{NUMBER}}](#{{URL}})",
+  "empty_template": "### Release Snapshot\n- No user-facing changes were detected for this release.\n",
+  "categories": [
+    {
+      "title": "## Breaking Changes",
+      "labels": ["breaking-change", "semver-major"]
+    },
+    {
+      "title": "## Features",
+      "labels": ["feature", "enhancement"]
+    },
+    {
+      "title": "## Fixes",
+      "labels": ["fix", "bug", "bugfix"]
+    },
+    {
+      "title": "## UI and UX",
+      "labels": ["ui", "ux", "design"]
+    },
+    {
+      "title": "## Performance",
+      "labels": ["performance", "perf"]
+    },
+    {
+      "title": "## Internal",
+      "labels": ["chore", "refactor", "maintenance", "dependencies", "ci"]
+    }
+  ]
+}

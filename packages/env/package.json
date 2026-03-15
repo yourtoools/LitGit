@@ -1,10 +1,10 @@
 {
-  "name": "@LitGit/env",
+  "name": "@litgit/env",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    "./web": "./src/web.ts"
+    "./desktop": "./src/desktop.ts"
   },
   "dependencies": {
     "@t3-oss/env-core": "^0.13.1",
@@ -12,7 +12,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@LitGit/config": "workspace:*",
+    "@litgit/config": "workspace:*",
     "typescript": "catalog:"
   }
 }
