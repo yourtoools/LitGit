@@ -29,7 +29,7 @@
     "build:desktop": "turbo run build -F desktop",
     "build:desktop-web": "turbo run build:desktop-web -F desktop",
     "check": "ultracite check",
-    "check-types": "turbo check-types",
+    "check-types": "bun x turbo run check-types --dangerously-disable-package-manager-check",
     "dev": "turbo dev",
     "dev:desktop": "turbo run dev -F desktop",
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",

@@ -12,6 +12,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { format } from "date-fns";
 import {
   lazy,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   Suspense,
   useEffect,
@@ -58,17 +59,43 @@ const formatLogTimestamp = (timestampMs: number): string => {
 };
 
 const formatSystemLogLine = (entry: OperationLogEntry) => {
+  const detail = getSystemLogDetail(entry);
+
   if (entry.command) {
     const durationLabel =
       typeof entry.durationMs === "number" ? ` [${entry.durationMs}ms]` : "";
-    return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] > ${entry.command}${durationLabel}`;
+    const header = `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] > ${entry.command}${durationLabel}`;
+
+    return detail ? `${header}\n${detail}` : header;
   }
 
   return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] ${entry.message}`;
 };
 
+const getSystemLogDetail = (entry: OperationLogEntry): string | null => {
+  const trimmedMessage = entry.message.trim();
+
+  if (trimmedMessage.length === 0 || trimmedMessage === "Command completed") {
+    return null;
+  }
+
+  return trimmedMessage;
+};
+
 const formatActivityLogLine = (entry: OperationLogEntry) => {
   return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] ${entry.message}`;
+};
+
+const getLogLevelClassName = (level: OperationLogEntry["level"]): string => {
+  if (level === "error") {
+    return "text-red-400";
+  }
+
+  if (level === "warn") {
+    return "text-amber-400";
+  }
+
+  return "text-foreground/85";
 };
 
 const getSelectedTextInContainer = (container: HTMLElement | null): string => {
@@ -353,16 +380,43 @@ export function IntegratedTerminalPanel({
             <ContextMenu>
               <ContextMenuTrigger className="h-full w-full select-text">
                 {renderedSystemLogs.length > 0 ? (
-                  <div className="space-y-1 text-foreground/85">
+                  <div className="space-y-2">
                     {hiddenSystemLogCount > 0 ? (
                       <p className="text-muted-foreground">
                         Showing latest {renderedSystemLogs.length} logs (
                         {hiddenSystemLogCount} older logs hidden)
                       </p>
                     ) : null}
-                    {renderedSystemLogs.map((entry) => (
-                      <p key={entry.id}>{formatSystemLogLine(entry)}</p>
-                    ))}
+                    {renderedSystemLogs.map((entry) => {
+                      const detail = getSystemLogDetail(entry);
+                      let detailContent: ReactNode = null;
+
+                      if (detail) {
+                        detailContent = <p>{detail}</p>;
+                      } else if (!entry.command) {
+                        detailContent = <p>{entry.message}</p>;
+                      }
+
+                      return (
+                        <div
+                          className={cn(
+                            "whitespace-pre-wrap break-words",
+                            getLogLevelClassName(entry.level)
+                          )}
+                          key={entry.id}
+                        >
+                          <p>
+                            {formatLogTimestamp(entry.timestampMs)} [
+                            {entry.level}]
+                          </p>
+                          {entry.command ? <p>{`> ${entry.command}`}</p> : null}
+                          {typeof entry.durationMs === "number" ? (
+                            <p className="text-[0.7rem] opacity-80">{`[${entry.durationMs}ms]`}</p>
+                          ) : null}
+                          {detailContent}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-muted-foreground">No system output yet.</p>

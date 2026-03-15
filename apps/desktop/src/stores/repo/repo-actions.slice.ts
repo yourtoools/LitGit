@@ -30,7 +30,10 @@ import {
 } from "@/lib/tauri-repo-client";
 import { generateRepositoryCommitMessage } from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
-import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
+import {
+  resolveErrorMessage,
+  resolveErrorSummary,
+} from "@/stores/repo/repo-store.helpers";
 import type {
   RepoStoreGet,
   RepoStoreSet,
@@ -712,7 +715,6 @@ export const createRepoActionsSlice = (
   ) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
     const headBeforeCommit = get().repoCommits[id]?.[0]?.hash ?? null;
-    const startedAt = performance.now();
 
     if (!targetRepo) {
       return;
@@ -760,12 +762,6 @@ export const createRepoActionsSlice = (
         });
       }
       setRepoHistoryRewriteHint(set, id, false);
-      useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
-        command: amend ? "git commit --amend" : "git commit",
-        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
-        level: "info",
-        message: "Command completed",
-      });
       toast.success("Commit created");
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "info",
@@ -780,16 +776,12 @@ export const createRepoActionsSlice = (
         detailedMessage = error;
       }
 
-      useOperationLogStore.getState().appendSystemLog(targetRepo.path, {
-        command: amend ? "git commit --amend" : "git commit",
-        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
-        level: "error",
-        message: detailedMessage,
+      toast.error("Commit failed", {
+        description: resolveErrorSummary(error, "Failed to commit changes"),
       });
-      toast.error("Failed to commit changes");
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
-        message: "Failed to commit changes",
+        message: detailedMessage,
       });
       throw error;
     }
