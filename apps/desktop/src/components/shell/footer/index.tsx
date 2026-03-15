@@ -165,7 +165,7 @@ export default function Footer() {
   return (
     <PageShell
       as="footer"
-      className="relative z-50 flex shrink-0 select-none items-center justify-between border-primary/20 border-t bg-primary/10 py-1.5 font-medium text-muted-foreground text-xs"
+      className="relative z-50 flex h-8 shrink-0 select-none items-center justify-between border-border/80 border-t bg-background/95 font-medium text-muted-foreground text-xs backdrop-blur supports-backdrop-filter:bg-background/80"
     >
       <div className="flex items-center gap-3">
         {activeRepoId ? (

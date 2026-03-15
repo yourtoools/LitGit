@@ -33,6 +33,16 @@
   opacity: 0;
 }
 
+[data-tauri-drag-region] {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.tauri-no-drag {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
 .monaco-editor .litgit-blame-glyph {
   width: 100%;
   background: transparent;

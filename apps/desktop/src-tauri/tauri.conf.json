@@ -16,6 +16,8 @@
         "width": 1100,
         "height": 720,
         "center": true,
+        "decorations": false,
+        "shadow": true,
         "resizable": true,
         "fullscreen": false,
         "maximized": true

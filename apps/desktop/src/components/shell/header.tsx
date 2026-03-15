@@ -10,6 +10,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/page-shell";
 import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
+import { WindowTitlebar } from "@/components/shell/window-titlebar";
 import { TabBar } from "@/components/tabs/tab-bar";
 import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
 import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
@@ -253,8 +254,9 @@ export default function Header() {
   ]);
 
   return (
-    <header className="border-border/80 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
-      <PageShell className="flex h-14 w-full min-w-0 items-center gap-2">
+    <header className="bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
+      <WindowTitlebar />
+      <PageShell className="flex h-10 w-full min-w-0 items-center gap-2 border-border/80 border-b">
         <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-hidden md:flex">
           <TabBar />
         </div>
