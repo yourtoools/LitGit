@@ -263,6 +263,20 @@ interface CommitDetailsResizeState {
   startY: number;
 }
 
+interface ChangesSectionsResizeState {
+  maxHeight: number;
+  minHeight: number;
+  startHeight: number;
+  startY: number;
+}
+
+interface WorkingTreeFilesPanelResizeState {
+  maxHeight: number;
+  minHeight: number;
+  startHeight: number;
+  startY: number;
+}
+
 interface SidebarResizeState {
   startWidth: number;
   startX: number;
@@ -278,6 +292,10 @@ const RIGHT_SIDEBAR_DEFAULT_WIDTH = 320;
 const COMMIT_DETAILS_PANEL_MIN_HEIGHT = 96;
 const COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT = 96;
 const COMMIT_DETAILS_PANEL_MAX_HEIGHT = 160;
+const CHANGES_SECTIONS_MIN_HEIGHT = 64;
+const CHANGES_SECTIONS_DEFAULT_HEIGHT = 144;
+const WORKING_TREE_FILES_PANEL_MIN_HEIGHT = 120;
+const WORKING_TREE_FILES_PANEL_RESIZE_HANDLE_HEIGHT = 6;
 const HORIZONTAL_RESIZE_HANDLE_WIDTH = 6;
 const MIN_TIMELINE_CONTENT_WIDTH = 560;
 const COMMIT_MESSAGE_LIST_MARKER_PATTERN = /^[-*•]\s*/;
@@ -1287,6 +1305,11 @@ export function RepoInfo() {
   const [commitDetailsPanelHeight, setCommitDetailsPanelHeight] = useState(
     COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT
   );
+  const [workingTreeFilesPanelHeight, setWorkingTreeFilesPanelHeight] =
+    useState<number | null>(null);
+  const [unstagedSectionHeight, setUnstagedSectionHeight] = useState(
+    CHANGES_SECTIONS_DEFAULT_HEIGHT
+  );
   const [commitFileFilterInputValue, setCommitFileFilterInputValue] =
     useState("");
   const debouncedCommitFileFilterInputValue = useDebouncedValue(
@@ -1417,11 +1440,21 @@ export function RepoInfo() {
   const commitDetailsResizeStateRef = useRef<CommitDetailsResizeState | null>(
     null
   );
+  const changesSectionsResizeStateRef =
+    useRef<ChangesSectionsResizeState | null>(null);
+  const workingTreeFilesPanelResizeStateRef =
+    useRef<WorkingTreeFilesPanelResizeState | null>(null);
   const leftSidebarWidthRef = useRef(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const rightSidebarWidthRef = useRef(RIGHT_SIDEBAR_DEFAULT_WIDTH);
   const commitDetailsPanelHeightRef = useRef(
     COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT
   );
+  const workingTreeFilesPanelHeightRef = useRef<number | null>(null);
+  const unstagedSectionHeightRef = useRef(CHANGES_SECTIONS_DEFAULT_HEIGHT);
+  const workingTreeFilesPanelLayoutRef = useRef<HTMLDivElement | null>(null);
+  const workingTreeFilesPanelRef = useRef<HTMLDivElement | null>(null);
+  const commitComposerFormRef = useRef<HTMLFormElement | null>(null);
+  const changesSectionsLayoutRef = useRef<HTMLDivElement | null>(null);
   const isRightSidebarOpenRef = useRef(true);
   const [, startSidebarFilterTransition] = useTransition();
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
@@ -1485,6 +1518,8 @@ export function RepoInfo() {
   leftSidebarWidthRef.current = leftSidebarWidth;
   rightSidebarWidthRef.current = rightSidebarWidth;
   commitDetailsPanelHeightRef.current = commitDetailsPanelHeight;
+  workingTreeFilesPanelHeightRef.current = workingTreeFilesPanelHeight;
+  unstagedSectionHeightRef.current = unstagedSectionHeight;
   isRightSidebarOpenRef.current = isRightSidebarOpen;
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
@@ -1632,6 +1667,11 @@ export function RepoInfo() {
   );
   const hasUnstagedChanges = unstagedItems.length > 0;
   const hasStagedChanges = stagedItems.length > 0;
+  const isChangesSectionsResizable = !(
+    showAllFiles ||
+    isUnstagedSectionCollapsed ||
+    isStagedSectionCollapsed
+  );
   const hasAnyWorkingTreeChanges = workingTreeItems.length > 0;
   const canCreateStash = hasAnyWorkingTreeChanges;
   const canPopCurrentStash = stashes.length > 0;
@@ -3204,6 +3244,164 @@ export function RepoInfo() {
     };
   }, []);
 
+  useEffect(() => {
+    const handlePointerMove = (event: MouseEvent) => {
+      const resizeState = changesSectionsResizeStateRef.current;
+
+      if (!resizeState) {
+        return;
+      }
+
+      setUnstagedSectionHeight(
+        clampWidth(
+          resizeState.startHeight + (event.clientY - resizeState.startY),
+          resizeState.minHeight,
+          resizeState.maxHeight
+        )
+      );
+    };
+
+    const resetChangesSectionsResizeState = () => {
+      if (!changesSectionsResizeStateRef.current) {
+        return;
+      }
+
+      changesSectionsResizeStateRef.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+
+    globalThis.addEventListener("mousemove", handlePointerMove);
+    globalThis.addEventListener("mouseup", resetChangesSectionsResizeState);
+
+    return () => {
+      globalThis.removeEventListener("mousemove", handlePointerMove);
+      globalThis.removeEventListener(
+        "mouseup",
+        resetChangesSectionsResizeState
+      );
+      resetChangesSectionsResizeState();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isChangesSectionsResizable) {
+      return;
+    }
+
+    const clampUnstagedSectionHeight = () => {
+      const layoutHeight =
+        changesSectionsLayoutRef.current?.getBoundingClientRect().height ?? 0;
+
+      if (layoutHeight <= CHANGES_SECTIONS_MIN_HEIGHT * 2) {
+        return;
+      }
+
+      setUnstagedSectionHeight((current) =>
+        clampWidth(
+          current,
+          CHANGES_SECTIONS_MIN_HEIGHT,
+          layoutHeight - CHANGES_SECTIONS_MIN_HEIGHT
+        )
+      );
+    };
+
+    clampUnstagedSectionHeight();
+    globalThis.addEventListener("resize", clampUnstagedSectionHeight);
+
+    return () => {
+      globalThis.removeEventListener("resize", clampUnstagedSectionHeight);
+    };
+  }, [isChangesSectionsResizable]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: MouseEvent) => {
+      const resizeState = workingTreeFilesPanelResizeStateRef.current;
+
+      if (!resizeState) {
+        return;
+      }
+
+      setWorkingTreeFilesPanelHeight(
+        clampWidth(
+          resizeState.startHeight + (event.clientY - resizeState.startY),
+          resizeState.minHeight,
+          resizeState.maxHeight
+        )
+      );
+    };
+
+    const resetWorkingTreeFilesPanelResizeState = () => {
+      if (!workingTreeFilesPanelResizeStateRef.current) {
+        return;
+      }
+
+      workingTreeFilesPanelResizeStateRef.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+
+    globalThis.addEventListener("mousemove", handlePointerMove);
+    globalThis.addEventListener(
+      "mouseup",
+      resetWorkingTreeFilesPanelResizeState
+    );
+
+    return () => {
+      globalThis.removeEventListener("mousemove", handlePointerMove);
+      globalThis.removeEventListener(
+        "mouseup",
+        resetWorkingTreeFilesPanelResizeState
+      );
+      resetWorkingTreeFilesPanelResizeState();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isWorkingTreeSelection) {
+      return;
+    }
+
+    const clampWorkingTreeFilesPanelHeight = () => {
+      const currentHeight = workingTreeFilesPanelHeightRef.current;
+
+      if (currentHeight === null) {
+        return;
+      }
+
+      const layoutHeight =
+        workingTreeFilesPanelLayoutRef.current?.getBoundingClientRect()
+          .height ?? 0;
+      const commitFormHeight =
+        commitComposerFormRef.current?.getBoundingClientRect().height ?? 0;
+      const maxHeight =
+        layoutHeight -
+        commitFormHeight -
+        WORKING_TREE_FILES_PANEL_RESIZE_HANDLE_HEIGHT;
+
+      if (maxHeight <= WORKING_TREE_FILES_PANEL_MIN_HEIGHT) {
+        setWorkingTreeFilesPanelHeight(WORKING_TREE_FILES_PANEL_MIN_HEIGHT);
+        return;
+      }
+
+      setWorkingTreeFilesPanelHeight((value) =>
+        value === null
+          ? value
+          : clampWidth(value, WORKING_TREE_FILES_PANEL_MIN_HEIGHT, maxHeight)
+      );
+    };
+
+    clampWorkingTreeFilesPanelHeight();
+    globalThis.addEventListener("resize", clampWorkingTreeFilesPanelHeight);
+
+    return () => {
+      globalThis.removeEventListener(
+        "resize",
+        clampWorkingTreeFilesPanelHeight
+      );
+    };
+  }, [isWorkingTreeSelection]);
+
   const scheduleSidebarFilterUpdate = (nextValue: string) => {
     if (sidebarFilterDebounceRef.current !== null) {
       globalThis.clearTimeout(sidebarFilterDebounceRef.current);
@@ -3251,6 +3449,72 @@ export function RepoInfo() {
 
     commitDetailsResizeStateRef.current = {
       startHeight: commitDetailsPanelHeightRef.current,
+      startY: event.clientY,
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+  };
+
+  const startChangesSectionsResize = (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const layoutHeight =
+      changesSectionsLayoutRef.current?.getBoundingClientRect().height ?? 0;
+
+    if (layoutHeight <= CHANGES_SECTIONS_MIN_HEIGHT * 2) {
+      return;
+    }
+
+    changesSectionsResizeStateRef.current = {
+      maxHeight: layoutHeight - CHANGES_SECTIONS_MIN_HEIGHT,
+      minHeight: CHANGES_SECTIONS_MIN_HEIGHT,
+      startHeight: unstagedSectionHeightRef.current,
+      startY: event.clientY,
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+  };
+
+  const startWorkingTreeFilesPanelResize = (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const layoutHeight =
+      workingTreeFilesPanelLayoutRef.current?.getBoundingClientRect().height ??
+      0;
+    const commitFormHeight =
+      commitComposerFormRef.current?.getBoundingClientRect().height ?? 0;
+    const panelHeight =
+      workingTreeFilesPanelRef.current?.getBoundingClientRect().height ?? 0;
+    const maxHeight =
+      layoutHeight -
+      commitFormHeight -
+      WORKING_TREE_FILES_PANEL_RESIZE_HANDLE_HEIGHT;
+
+    if (maxHeight <= WORKING_TREE_FILES_PANEL_MIN_HEIGHT) {
+      return;
+    }
+
+    const initialPanelHeight =
+      panelHeight > 0
+        ? panelHeight
+        : (workingTreeFilesPanelHeightRef.current ?? maxHeight);
+
+    workingTreeFilesPanelResizeStateRef.current = {
+      maxHeight,
+      minHeight: WORKING_TREE_FILES_PANEL_MIN_HEIGHT,
+      startHeight: clampWidth(
+        initialPanelHeight,
+        WORKING_TREE_FILES_PANEL_MIN_HEIGHT,
+        maxHeight
+      ),
       startY: event.clientY,
     };
 
@@ -9830,11 +10094,11 @@ export function RepoInfo() {
                               order
                             </TooltipContent>
                           </Tooltip>
-                          <div className="inline-flex border border-border/80 bg-background/70 p-0.5">
+                          <div className="inline-flex h-7 border border-border/80 bg-background/70 p-0.5">
                             {showAllCommitFiles ? null : (
                               <button
                                 className={cn(
-                                  "px-2.5 py-0.5 font-medium text-xs transition-colors",
+                                  "h-full px-2.5 font-medium text-xs transition-colors",
                                   commitDetailsViewMode === "path"
                                     ? "bg-accent text-accent-foreground"
                                     : "text-muted-foreground hover:text-foreground"
@@ -9847,7 +10111,7 @@ export function RepoInfo() {
                             )}
                             <button
                               className={cn(
-                                "px-2.5 py-0.5 font-medium text-xs transition-colors",
+                                "h-full px-2.5 font-medium text-xs transition-colors",
                                 commitDetailsViewMode === "tree"
                                   ? "bg-accent text-accent-foreground"
                                   : "text-muted-foreground hover:text-foreground"
@@ -10041,10 +10305,10 @@ export function RepoInfo() {
                               : "ascending"}
                           </TooltipContent>
                         </Tooltip>
-                        <div className="inline-flex border border-border/80 bg-background/70 p-0.5">
+                        <div className="inline-flex h-7 border border-border/80 bg-background/70 p-0.5">
                           <button
                             className={cn(
-                              "px-2.5 py-0.5 font-medium text-xs transition-colors",
+                              "h-full px-2.5 font-medium text-xs transition-colors",
                               changesViewMode === "path"
                                 ? "bg-accent text-accent-foreground"
                                 : "text-muted-foreground hover:text-foreground",
@@ -10058,7 +10322,7 @@ export function RepoInfo() {
                           </button>
                           <button
                             className={cn(
-                              "px-2.5 py-0.5 font-medium text-xs transition-colors",
+                              "h-full px-2.5 font-medium text-xs transition-colors",
                               changesViewMode === "tree"
                                 ? "bg-accent text-accent-foreground"
                                 : "text-muted-foreground hover:text-foreground"
@@ -10073,347 +10337,397 @@ export function RepoInfo() {
                     </div>
                   </header>
 
-                  <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-2.5">
-                    <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
-                      {showAllFiles ? (
-                        <section className="flex min-h-0 flex-1 flex-col">
-                          <div className="border-border/70 border-b px-2 py-2">
-                            <Input
-                              className="h-7"
-                              onChange={(event) => {
-                                setRepositoryFileFilterInputValue(
-                                  event.target.value
-                                );
-                              }}
-                              placeholder="Filter files..."
-                              value={repositoryFileFilterInputValue}
-                            />
+                  <div
+                    className="flex min-h-0 flex-1 flex-col"
+                    ref={workingTreeFilesPanelLayoutRef}
+                  >
+                    <div
+                      className={cn(
+                        "min-h-0 overflow-hidden px-2.5 py-2.5",
+                        workingTreeFilesPanelHeight === null
+                          ? "flex-1"
+                          : "shrink-0"
+                      )}
+                      ref={workingTreeFilesPanelRef}
+                      style={
+                        workingTreeFilesPanelHeight === null
+                          ? undefined
+                          : { height: `${workingTreeFilesPanelHeight}px` }
+                      }
+                    >
+                      <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
+                        {showAllFiles ? (
+                          <section className="flex min-h-0 flex-1 flex-col">
+                            <div className="border-border/70 border-b px-2 py-2">
+                              <Input
+                                className="h-7"
+                                onChange={(event) => {
+                                  setRepositoryFileFilterInputValue(
+                                    event.target.value
+                                  );
+                                }}
+                                placeholder="Filter files..."
+                                value={repositoryFileFilterInputValue}
+                              />
+                            </div>
+                            {filteredRepositoryFiles.length > 0 ? (
+                              <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
+                                {(() => {
+                                  const expandableNodeState =
+                                    collectExpandableTreeKeys(
+                                      allFilesTree,
+                                      "all"
+                                    );
+                                  const expandableNodeKeys =
+                                    Object.keys(expandableNodeState);
+                                  const isAllFilesTreeFullyExpanded =
+                                    expandableNodeKeys.length > 0 &&
+                                    expandableNodeKeys.every(
+                                      (key) =>
+                                        expandedTreeNodePaths[key] === true
+                                    );
+
+                                  return (
+                                    <Button
+                                      className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                      onClick={() => {
+                                        if (isAllFilesTreeFullyExpanded) {
+                                          setExpandedTreeNodePaths(
+                                            (current) => {
+                                              const nextEntries =
+                                                Object.entries(current).filter(
+                                                  ([key]) =>
+                                                    !key.startsWith("all:")
+                                                );
+
+                                              return Object.fromEntries(
+                                                nextEntries
+                                              );
+                                            }
+                                          );
+                                          return;
+                                        }
+
+                                        setExpandedTreeNodePaths((current) => ({
+                                          ...current,
+                                          ...expandableNodeState,
+                                        }));
+                                      }}
+                                      size="sm"
+                                      type="button"
+                                      variant="ghost"
+                                    >
+                                      {isAllFilesTreeFullyExpanded
+                                        ? "Collapse All"
+                                        : "Expand All"}
+                                    </Button>
+                                  );
+                                })()}
+                              </div>
+                            ) : null}
+                            <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                              {renderAllFilesSectionContent()}
+                            </div>
+                          </section>
+                        ) : (
+                          <div
+                            className="flex min-h-0 flex-1 flex-col"
+                            ref={changesSectionsLayoutRef}
+                          >
+                            <section
+                              className={cn(
+                                "flex min-h-0 flex-col",
+                                isUnstagedSectionCollapsed ||
+                                  isChangesSectionsResizable
+                                  ? "shrink-0"
+                                  : "flex-1"
+                              )}
+                              style={
+                                isChangesSectionsResizable
+                                  ? { height: `${unstagedSectionHeight}px` }
+                                  : undefined
+                              }
+                            >
+                              <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
+                                <button
+                                  className="inline-flex items-center gap-1 text-left font-medium text-xs"
+                                  onClick={() =>
+                                    setIsUnstagedSectionCollapsed(
+                                      (current) => !current
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {isUnstagedSectionCollapsed ? (
+                                    <CaretRightIcon className="size-3" />
+                                  ) : (
+                                    <CaretDownIcon className="size-3" />
+                                  )}
+                                  Unstaged Files ({unstagedItems.length})
+                                </button>
+                                <Button
+                                  className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                  disabled={!hasUnstagedChanges || isStagingAll}
+                                  onClick={() => {
+                                    handleStageAll().catch(() => undefined);
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {isStagingAll
+                                    ? "Staging..."
+                                    : "Stage All Changes"}
+                                </Button>
+                              </div>
+
+                              {isUnstagedSectionCollapsed ? null : (
+                                <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                                  {renderChangesSectionContent(
+                                    unstagedItems,
+                                    unstagedTree,
+                                    "unstaged"
+                                  )}
+                                </div>
+                              )}
+                            </section>
+
+                            {isChangesSectionsResizable ? (
+                              <button
+                                aria-label="Resize unstaged and staged sections"
+                                className="h-2 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                                onMouseDown={startChangesSectionsResize}
+                                type="button"
+                              />
+                            ) : null}
+
+                            <section
+                              className={cn(
+                                "flex min-h-0 flex-col border-border/70",
+                                !isChangesSectionsResizable && "border-t",
+                                isStagedSectionCollapsed
+                                  ? "mt-auto shrink-0"
+                                  : "flex-1"
+                              )}
+                            >
+                              <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
+                                <button
+                                  className="inline-flex items-center gap-1 text-left font-medium text-xs"
+                                  onClick={() =>
+                                    setIsStagedSectionCollapsed(
+                                      (current) => !current
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {isStagedSectionCollapsed ? (
+                                    <CaretRightIcon className="size-3" />
+                                  ) : (
+                                    <CaretDownIcon className="size-3" />
+                                  )}
+                                  Staged Files ({stagedItems.length})
+                                </button>
+                                <Button
+                                  className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                  disabled={!hasStagedChanges || isUnstagingAll}
+                                  onClick={() => {
+                                    handleUnstageAll().catch(() => undefined);
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {isUnstagingAll
+                                    ? "Unstaging..."
+                                    : "Unstage All Changes"}
+                                </Button>
+                              </div>
+
+                              {isStagedSectionCollapsed ? null : (
+                                <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                                  {renderChangesSectionContent(
+                                    stagedItems,
+                                    stagedTree,
+                                    "staged"
+                                  )}
+                                </div>
+                              )}
+                            </section>
                           </div>
-                          {filteredRepositoryFiles.length > 0 ? (
-                            <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
-                              {(() => {
-                                const expandableNodeState =
-                                  collectExpandableTreeKeys(
-                                    allFilesTree,
-                                    "all"
-                                  );
-                                const expandableNodeKeys =
-                                  Object.keys(expandableNodeState);
-                                const isAllFilesTreeFullyExpanded =
-                                  expandableNodeKeys.length > 0 &&
-                                  expandableNodeKeys.every(
-                                    (key) => expandedTreeNodePaths[key] === true
-                                  );
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      aria-label="Resize changed files section"
+                      className="h-1.5 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                      onMouseDown={startWorkingTreeFilesPanelResize}
+                      type="button"
+                    />
+                    <form
+                      className="shrink-0 border-border/70 border-t px-3 py-3"
+                      ref={commitComposerFormRef}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label className="text-xs" htmlFor="commit-summary">
+                            Title
+                          </Label>
+                          <Button
+                            className="h-6 px-2 text-xs"
+                            disabled={
+                              isGeneratingAiCommitMessage ||
+                              aiSelectedModel.trim().length === 0 ||
+                              !hasStagedChanges
+                            }
+                            onClick={() => {
+                              handleGenerateAiCommitMessage().catch(
+                                () => undefined
+                              );
+                            }}
+                            size="xs"
+                            type="button"
+                            variant="outline"
+                          >
+                            <SparkleIcon className="size-3" />
+                            {isGeneratingAiCommitMessage
+                              ? "Generating..."
+                              : "Generate with AI"}
+                          </Button>
+                        </div>
+                        <Input
+                          className="h-7 text-xs"
+                          id="commit-summary"
+                          onChange={(event) =>
+                            setDraftCommitSummary(event.target.value)
+                          }
+                          placeholder="Describe your changes"
+                          ref={commitSummaryInputRef}
+                          value={draftCommitSummary}
+                        />
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <Label className="text-xs" htmlFor="commit-description">
+                          Description
+                        </Label>
+                        <textarea
+                          className="h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                          id="commit-description"
+                          onChange={(event) =>
+                            setDraftCommitDescription(event.target.value)
+                          }
+                          placeholder="Optional details..."
+                          value={draftCommitDescription}
+                        />
+                      </div>
+                      <div className="mt-3 border border-border/70 px-3 py-2">
+                        <button
+                          className="inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
+                          onClick={() =>
+                            setIsCommitOptionsCollapsed((current) => !current)
+                          }
+                          type="button"
+                        >
+                          {isCommitOptionsCollapsed ? (
+                            <CaretRightIcon className="size-3" />
+                          ) : (
+                            <CaretDownIcon className="size-3" />
+                          )}
+                          Commit options
+                        </button>
+                        {isCommitOptionsCollapsed ? null : (
+                          <div className="mt-2 space-y-2">
+                            <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                              <Checkbox
+                                checked={amendPreviousCommit}
+                                className="shrink-0"
+                                onCheckedChange={(checked) => {
+                                  const shouldAmend = checked === true;
+                                  setAmendPreviousCommit(shouldAmend);
 
-                                return (
-                                  <Button
-                                    className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
-                                    onClick={() => {
-                                      if (isAllFilesTreeFullyExpanded) {
-                                        setExpandedTreeNodePaths((current) => {
-                                          const nextEntries = Object.entries(
-                                            current
-                                          ).filter(
-                                            ([key]) => !key.startsWith("all:")
-                                          );
+                                  if (!shouldAmend) {
+                                    const previousDraft =
+                                      preAmendDraftRef.current;
 
-                                          return Object.fromEntries(
-                                            nextEntries
-                                          );
-                                        });
+                                    if (previousDraft) {
+                                      setDraftCommitSummary(
+                                        previousDraft.summary
+                                      );
+                                      setDraftCommitDescription(
+                                        previousDraft.description
+                                      );
+                                    } else {
+                                      setDraftCommitSummary("");
+                                      setDraftCommitDescription("");
+                                    }
+
+                                    preAmendDraftRef.current = null;
+                                    return;
+                                  }
+
+                                  if (!activeRepoId) {
+                                    return;
+                                  }
+
+                                  preAmendDraftRef.current = {
+                                    description: draftCommitDescription,
+                                    summary: draftCommitSummary,
+                                  };
+
+                                  getLatestCommitMessage(activeRepoId)
+                                    .then((latestCommitMessage) => {
+                                      if (!latestCommitMessage) {
                                         return;
                                       }
 
-                                      setExpandedTreeNodePaths((current) => ({
-                                        ...current,
-                                        ...expandableNodeState,
-                                      }));
-                                    }}
-                                    size="sm"
-                                    type="button"
-                                    variant="ghost"
-                                  >
-                                    {isAllFilesTreeFullyExpanded
-                                      ? "Collapse All"
-                                      : "Expand All"}
-                                  </Button>
-                                );
-                              })()}
+                                      setDraftCommitSummary(
+                                        latestCommitMessage.summary
+                                      );
+                                      setDraftCommitDescription(
+                                        latestCommitMessage.description
+                                      );
+                                    })
+                                    .catch(() => undefined);
+                                }}
+                              />
+                              Amend previous commit
+                            </label>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                              <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                                <Checkbox
+                                  checked={pushAfterCommit}
+                                  className="shrink-0"
+                                  onCheckedChange={(checked) =>
+                                    setPushAfterCommit(checked === true)
+                                  }
+                                />
+                                Push after committing
+                              </label>
+                              <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                                <Checkbox
+                                  checked={skipCommitHooks}
+                                  className="shrink-0"
+                                  onCheckedChange={(checked) =>
+                                    setSkipCommitHooks(checked === true)
+                                  }
+                                />
+                                Skip Git hooks
+                              </label>
                             </div>
-                          ) : null}
-                          <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-                            {renderAllFilesSectionContent()}
                           </div>
-                        </section>
-                      ) : (
-                        <>
-                          <section
-                            className={cn(
-                              "flex min-h-0 flex-col",
-                              isUnstagedSectionCollapsed ? "shrink-0" : "flex-1"
-                            )}
-                          >
-                            <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
-                              <button
-                                className="inline-flex items-center gap-1 text-left font-medium text-xs"
-                                onClick={() =>
-                                  setIsUnstagedSectionCollapsed(
-                                    (current) => !current
-                                  )
-                                }
-                                type="button"
-                              >
-                                {isUnstagedSectionCollapsed ? (
-                                  <CaretRightIcon className="size-3" />
-                                ) : (
-                                  <CaretDownIcon className="size-3" />
-                                )}
-                                Unstaged Files ({unstagedItems.length})
-                              </button>
-                              <Button
-                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
-                                disabled={!hasUnstagedChanges || isStagingAll}
-                                onClick={() => {
-                                  handleStageAll().catch(() => undefined);
-                                }}
-                                size="sm"
-                                type="button"
-                                variant="ghost"
-                              >
-                                {isStagingAll
-                                  ? "Staging..."
-                                  : "Stage All Changes"}
-                              </Button>
-                            </div>
-
-                            {isUnstagedSectionCollapsed ? null : (
-                              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                                {renderChangesSectionContent(
-                                  unstagedItems,
-                                  unstagedTree,
-                                  "unstaged"
-                                )}
-                              </div>
-                            )}
-                          </section>
-
-                          <section
-                            className={cn(
-                              "flex min-h-0 flex-col border-border/70 border-t",
-                              isStagedSectionCollapsed
-                                ? "mt-auto shrink-0"
-                                : "flex-1"
-                            )}
-                          >
-                            <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
-                              <button
-                                className="inline-flex items-center gap-1 text-left font-medium text-xs"
-                                onClick={() =>
-                                  setIsStagedSectionCollapsed(
-                                    (current) => !current
-                                  )
-                                }
-                                type="button"
-                              >
-                                {isStagedSectionCollapsed ? (
-                                  <CaretRightIcon className="size-3" />
-                                ) : (
-                                  <CaretDownIcon className="size-3" />
-                                )}
-                                Staged Files ({stagedItems.length})
-                              </button>
-                              <Button
-                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
-                                disabled={!hasStagedChanges || isUnstagingAll}
-                                onClick={() => {
-                                  handleUnstageAll().catch(() => undefined);
-                                }}
-                                size="sm"
-                                type="button"
-                                variant="ghost"
-                              >
-                                {isUnstagingAll
-                                  ? "Unstaging..."
-                                  : "Unstage All Changes"}
-                              </Button>
-                            </div>
-
-                            {isStagedSectionCollapsed ? null : (
-                              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                                {renderChangesSectionContent(
-                                  stagedItems,
-                                  stagedTree,
-                                  "staged"
-                                )}
-                              </div>
-                            )}
-                          </section>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <form className="shrink-0 border-border/70 border-t px-3 py-3">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label className="text-xs" htmlFor="commit-summary">
-                          Title
-                        </Label>
-                        <Button
-                          className="h-6 px-2 text-xs"
-                          disabled={
-                            isGeneratingAiCommitMessage ||
-                            aiSelectedModel.trim().length === 0 ||
-                            !hasStagedChanges
-                          }
-                          onClick={() => {
-                            handleGenerateAiCommitMessage().catch(
-                              () => undefined
-                            );
-                          }}
-                          size="xs"
-                          type="button"
-                          variant="outline"
-                        >
-                          <SparkleIcon className="size-3" />
-                          {isGeneratingAiCommitMessage
-                            ? "Generating..."
-                            : "Generate with AI"}
-                        </Button>
+                        )}
                       </div>
-                      <Input
-                        className="h-7 text-xs"
-                        id="commit-summary"
-                        onChange={(event) =>
-                          setDraftCommitSummary(event.target.value)
-                        }
-                        placeholder="Describe your changes"
-                        ref={commitSummaryInputRef}
-                        value={draftCommitSummary}
-                      />
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      <Label className="text-xs" htmlFor="commit-description">
-                        Description
-                      </Label>
-                      <textarea
-                        className="h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                        id="commit-description"
-                        onChange={(event) =>
-                          setDraftCommitDescription(event.target.value)
-                        }
-                        placeholder="Optional details..."
-                        value={draftCommitDescription}
-                      />
-                    </div>
-                    <div className="mt-3 border border-border/70 px-3 py-2">
-                      <button
-                        className="inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
-                        onClick={() =>
-                          setIsCommitOptionsCollapsed((current) => !current)
-                        }
+                      <Button
+                        className="mt-3 h-7 w-full text-xs"
+                        disabled={isCommitting || !canCommit}
+                        onClick={handleCommit}
+                        size="sm"
                         type="button"
                       >
-                        {isCommitOptionsCollapsed ? (
-                          <CaretRightIcon className="size-3" />
-                        ) : (
-                          <CaretDownIcon className="size-3" />
-                        )}
-                        Commit options
-                      </button>
-                      {isCommitOptionsCollapsed ? null : (
-                        <div className="mt-2 space-y-2">
-                          <label className="inline-flex min-h-5 items-center gap-2 text-xs">
-                            <Checkbox
-                              checked={amendPreviousCommit}
-                              className="shrink-0"
-                              onCheckedChange={(checked) => {
-                                const shouldAmend = checked === true;
-                                setAmendPreviousCommit(shouldAmend);
-
-                                if (!shouldAmend) {
-                                  const previousDraft =
-                                    preAmendDraftRef.current;
-
-                                  if (previousDraft) {
-                                    setDraftCommitSummary(
-                                      previousDraft.summary
-                                    );
-                                    setDraftCommitDescription(
-                                      previousDraft.description
-                                    );
-                                  } else {
-                                    setDraftCommitSummary("");
-                                    setDraftCommitDescription("");
-                                  }
-
-                                  preAmendDraftRef.current = null;
-                                  return;
-                                }
-
-                                if (!activeRepoId) {
-                                  return;
-                                }
-
-                                preAmendDraftRef.current = {
-                                  description: draftCommitDescription,
-                                  summary: draftCommitSummary,
-                                };
-
-                                getLatestCommitMessage(activeRepoId)
-                                  .then((latestCommitMessage) => {
-                                    if (!latestCommitMessage) {
-                                      return;
-                                    }
-
-                                    setDraftCommitSummary(
-                                      latestCommitMessage.summary
-                                    );
-                                    setDraftCommitDescription(
-                                      latestCommitMessage.description
-                                    );
-                                  })
-                                  .catch(() => undefined);
-                              }}
-                            />
-                            Amend previous commit
-                          </label>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                            <label className="inline-flex min-h-5 items-center gap-2 text-xs">
-                              <Checkbox
-                                checked={pushAfterCommit}
-                                className="shrink-0"
-                                onCheckedChange={(checked) =>
-                                  setPushAfterCommit(checked === true)
-                                }
-                              />
-                              Push after committing
-                            </label>
-                            <label className="inline-flex min-h-5 items-center gap-2 text-xs">
-                              <Checkbox
-                                checked={skipCommitHooks}
-                                className="shrink-0"
-                                onCheckedChange={(checked) =>
-                                  setSkipCommitHooks(checked === true)
-                                }
-                              />
-                              Skip Git hooks
-                            </label>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <Button
-                      className="mt-3 h-7 w-full text-xs"
-                      disabled={isCommitting || !canCommit}
-                      onClick={handleCommit}
-                      size="sm"
-                      type="button"
-                    >
-                      <DotOutlineIcon className="size-3.5" />
-                      Commit staged changes
-                    </Button>
-                  </form>
+                        <DotOutlineIcon className="size-3.5" />
+                        Commit staged changes
+                      </Button>
+                    </form>
+                  </div>
                 </>
               )}
             </aside>
