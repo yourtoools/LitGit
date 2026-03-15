@@ -2048,6 +2048,159 @@ export function RepoInfo() {
     () => new Map(timelineRows.map((row) => [row.id, row])),
     [timelineRows]
   );
+  const selectedTimelineRow = useMemo(
+    () =>
+      selectedTimelineRowId
+        ? (timelineRowById.get(selectedTimelineRowId) ?? null)
+        : null,
+    [selectedTimelineRowId, timelineRowById]
+  );
+  const isSelectedCommitRow = selectedTimelineRow?.type === "commit";
+  const isSelectedReferenceRow =
+    selectedTimelineRow?.type === "stash" ||
+    selectedTimelineRow?.type === "tag";
+  const selectedReferenceCommit = useMemo(() => {
+    if (
+      !(
+        selectedTimelineRow &&
+        "anchorCommitHash" in selectedTimelineRow &&
+        selectedTimelineRow.anchorCommitHash
+      )
+    ) {
+      return null;
+    }
+
+    return (
+      commits.find(
+        (item) => item.hash === selectedTimelineRow.anchorCommitHash
+      ) ?? null
+    );
+  }, [commits, selectedTimelineRow]);
+  const selectedStash = useMemo(() => {
+    if (selectedTimelineRow?.type !== "stash") {
+      return null;
+    }
+
+    const stashRef = selectedTimelineRow.id.slice("stash:".length);
+    return stashes.find((item) => item.ref === stashRef) ?? null;
+  }, [selectedTimelineRow, stashes]);
+  const selectedStashDraft = useMemo(
+    () => (selectedStash ? parseStashDraft(selectedStash.message) : null),
+    [selectedStash]
+  );
+  const selectedReferenceBadgeLabel = useMemo(() => {
+    if (selectedTimelineRow?.type === "stash") {
+      return selectedStash?.shortHash ?? selectedStash?.ref ?? "";
+    }
+
+    if (selectedReferenceCommit?.shortHash) {
+      return `commit ${selectedReferenceCommit.shortHash}`;
+    }
+
+    return "reference";
+  }, [selectedReferenceCommit?.shortHash, selectedStash, selectedTimelineRow]);
+  const selectedReferenceRevision = useMemo(() => {
+    if (selectedTimelineRow?.type === "stash") {
+      return selectedStash?.ref ?? null;
+    }
+
+    if (selectedTimelineRow?.type === "tag") {
+      return selectedTimelineRow.label ?? null;
+    }
+
+    return null;
+  }, [selectedStash?.ref, selectedTimelineRow]);
+  const selectedReferenceFiles = useMemo<RepositoryCommitFile[]>(
+    () =>
+      selectedReferenceRevision
+        ? (commitFilesByHash[selectedReferenceRevision] ?? [])
+        : ([] as RepositoryCommitFile[]),
+    [commitFilesByHash, selectedReferenceRevision]
+  );
+  const selectedReferenceFileByPath = useMemo(
+    () => new Map(selectedReferenceFiles.map((file) => [file.path, file])),
+    [selectedReferenceFiles]
+  );
+  const referenceViewFiles = useMemo<RepositoryCommitFile[]>(() => {
+    if (!showAllCommitFiles) {
+      return selectedReferenceFiles;
+    }
+
+    return allRepositoryFiles.map((file) => {
+      const matchingReferenceFile = selectedReferenceFileByPath.get(file.path);
+
+      if (matchingReferenceFile) {
+        return matchingReferenceFile;
+      }
+
+      return {
+        additions: 0,
+        deletions: 0,
+        path: file.path,
+        previousPath: null,
+        status: " ",
+      };
+    });
+  }, [
+    allRepositoryFiles,
+    selectedReferenceFileByPath,
+    selectedReferenceFiles,
+    showAllCommitFiles,
+  ]);
+  const filteredReferenceFiles = useMemo(() => {
+    if (!showAllCommitFiles) {
+      return referenceViewFiles;
+    }
+
+    return normalizedCommitFileFilter.length === 0
+      ? referenceViewFiles
+      : referenceViewFiles.filter((file) =>
+          file.path.toLowerCase().includes(normalizedCommitFileFilter)
+        );
+  }, [normalizedCommitFileFilter, referenceViewFiles, showAllCommitFiles]);
+  const selectedReferenceFileSummary = useMemo(() => {
+    let addedCount = 0;
+    let modifiedCount = 0;
+    let removedCount = 0;
+
+    for (const file of selectedReferenceFiles) {
+      const status = file.status.charAt(0);
+
+      if (status === "A") {
+        addedCount += 1;
+        continue;
+      }
+
+      if (status === "D") {
+        removedCount += 1;
+        continue;
+      }
+
+      modifiedCount += 1;
+    }
+
+    return {
+      addedCount,
+      modifiedCount,
+      removedCount,
+      totalCount: selectedReferenceFiles.length,
+    };
+  }, [selectedReferenceFiles]);
+  const sortedSelectedReferencePathRows = useMemo(() => {
+    const nextFiles = [...filteredReferenceFiles];
+
+    nextFiles.sort((left, right) => {
+      const comparison = left.path.localeCompare(right.path);
+
+      return commitFileSortOrder === "asc" ? comparison : comparison * -1;
+    });
+
+    return nextFiles;
+  }, [commitFileSortOrder, filteredReferenceFiles]);
+  const selectedReferenceTree = useMemo(
+    () => buildCommitFileTree(filteredReferenceFiles, commitFileSortOrder),
+    [commitFileSortOrder, filteredReferenceFiles]
+  );
   const timelineRowIdByStashRef = useMemo(() => {
     const rowIds = new Map<string, string>();
 
@@ -2973,7 +3126,13 @@ export function RepoInfo() {
   ]);
 
   useEffect(() => {
-    if (!selectedCommit) {
+    if (
+      isWorkingTreeSelection ||
+      !(
+        (selectedCommit && isSelectedCommitRow) ||
+        (selectedReferenceRevision && isSelectedReferenceRow)
+      )
+    ) {
       return;
     }
 
@@ -2981,10 +3140,21 @@ export function RepoInfo() {
     setCommitFileFilterInputValue("");
     setCommitFileSortOrder("asc");
     setExpandedCommitTreeNodePaths({});
-  }, [selectedCommit]);
+  }, [
+    isSelectedCommitRow,
+    isSelectedReferenceRow,
+    isWorkingTreeSelection,
+    selectedCommit,
+    selectedReferenceRevision,
+  ]);
 
   useEffect(() => {
-    if (!activeRepoId || isWorkingTreeSelection || !selectedCommit) {
+    if (
+      !activeRepoId ||
+      isWorkingTreeSelection ||
+      !selectedCommit ||
+      !isSelectedCommitRow
+    ) {
       setOpenedCommitDiff(null);
       setOpenedCommitDiffStatusCode(null);
       setIsLoadingCommitFilesHash(null);
@@ -3026,8 +3196,58 @@ export function RepoInfo() {
     activeRepoId,
     commitFilesByHash,
     getCommitFiles,
+    isSelectedCommitRow,
     isWorkingTreeSelection,
     selectedCommit,
+  ]);
+  useEffect(() => {
+    if (
+      !activeRepoId ||
+      isWorkingTreeSelection ||
+      !isSelectedReferenceRow ||
+      !selectedReferenceRevision
+    ) {
+      return;
+    }
+
+    if (commitFilesByHash[selectedReferenceRevision]) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingCommitFilesHash(selectedReferenceRevision);
+
+    getCommitFiles(activeRepoId, selectedReferenceRevision)
+      .then((files) => {
+        if (cancelled) {
+          return;
+        }
+
+        setCommitFilesByHash((current) => ({
+          ...current,
+          [selectedReferenceRevision]: files,
+        }));
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setIsLoadingCommitFilesHash((current) =>
+          current === selectedReferenceRevision ? null : current
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeRepoId,
+    commitFilesByHash,
+    getCommitFiles,
+    isSelectedReferenceRow,
+    isWorkingTreeSelection,
+    selectedReferenceRevision,
   ]);
 
   useEffect(() => {
@@ -4364,8 +4584,27 @@ export function RepoInfo() {
 
   const scrollTimelineRowIntoView = useCallback((rowId: string) => {
     globalThis.requestAnimationFrame(() => {
-      timelineRowElementsRef.current.get(rowId)?.scrollIntoView({
-        block: "center",
+      const rowElement = timelineRowElementsRef.current.get(rowId);
+      const scroller = mainScrollContainerRef.current;
+
+      if (!(rowElement && scroller)) {
+        return;
+      }
+
+      const rowTop = rowElement.offsetTop;
+      const rowBottom = rowTop + rowElement.offsetHeight;
+      const visibleTop = scroller.scrollTop;
+      const visibleBottom = visibleTop + scroller.clientHeight;
+
+      if (rowTop >= visibleTop && rowBottom <= visibleBottom) {
+        return;
+      }
+
+      const targetScrollTop =
+        rowTop - (scroller.clientHeight - rowElement.offsetHeight) / 2;
+
+      scroller.scrollTo({
+        top: Math.max(0, targetScrollTop),
       });
     });
   }, []);
@@ -10002,463 +10241,663 @@ export function RepoInfo() {
               )}
               style={{ width: `${rightSidebarWidth}px` }}
             >
-              {!isWorkingTreeSelection && selectedCommit ? (
-                <>
-                  <header className="border-border/70 border-b px-2.5 py-2">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <p className="font-medium text-sm">
-                        Commit {selectedCommit.shortHash}
-                      </p>
-                      <span className="truncate text-muted-foreground text-xs">
-                        parent:{" "}
-                        {selectedCommit.parentHashes.at(0)?.slice(0, 7) ??
-                          "none"}
-                      </span>
-                    </div>
-                  </header>
+              {(() => {
+                if (
+                  !isWorkingTreeSelection &&
+                  isSelectedCommitRow &&
+                  selectedCommit
+                ) {
+                  return (
+                    <>
+                      <header className="border-border/70 border-b px-2.5 py-2">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <p className="font-medium text-sm">
+                            Commit {selectedCommit.shortHash}
+                          </p>
+                          <span className="truncate text-muted-foreground text-xs">
+                            parent:{" "}
+                            {selectedCommit.parentHashes.at(0)?.slice(0, 7) ??
+                              "none"}
+                          </span>
+                        </div>
+                      </header>
 
-                  <div className="flex min-h-0 flex-1 flex-col">
-                    <div className="space-y-2.5 border-border/70 border-b px-2.5 py-2.5 text-sm">
-                      <div className="border border-border/70 bg-background/70">
-                        <div
-                          className="overflow-y-auto px-2.5 pt-2.5"
-                          ref={commitDetailsLayoutRef}
-                          style={{ height: `${commitDetailsPanelHeight}px` }}
-                        >
-                          <div className="space-y-2">
-                            <p className="font-medium leading-snug">
-                              {selectedCommitMessageSections.summary}
-                            </p>
-                            {selectedCommitMessageSections.detailLines.length >
-                            0 ? (
-                              <ul className="space-y-1.5 pb-1 text-muted-foreground text-sm">
-                                {selectedCommitMessageSections.detailLines.map(
-                                  (line) => (
-                                    <li className="leading-snug" key={line}>
-                                      - {line}
-                                    </li>
-                                  )
-                                )}
-                              </ul>
-                            ) : null}
-                          </div>
-                        </div>
-                        <button
-                          aria-label="Resize commit message"
-                          className="h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
-                          onMouseDown={startCommitDetailsResize}
-                          type="button"
-                        />
-                      </div>
-                      <div className="border border-border/70 bg-background/50 p-2">
-                        <div className="flex items-start gap-2">
-                          <Avatar className="size-8 shrink-0">
-                            <AvatarImage
-                              alt={selectedCommit.author}
-                              src={selectedCommit.authorAvatarUrl ?? undefined}
-                            />
-                            <AvatarFallback className="text-xs">
-                              {selectedCommit.author
-                                .split(" ")
-                                .map((part) => part[0])
-                                .join("")
-                                .slice(0, 2)
-                                .toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1 space-y-0.5 text-xs">
-                            <div className="flex items-center justify-between gap-1.5">
-                              <span className="truncate font-medium text-foreground text-sm">
-                                {selectedCommit.author}
-                              </span>
-                              <span className="shrink-0 truncate text-muted-foreground">
-                                parent:{" "}
-                                {selectedCommit.parentHashes
-                                  .at(0)
-                                  ?.slice(0, 7) ?? "none"}
-                              </span>
-                            </div>
-                            <p className="text-muted-foreground">
-                              authored {formatCommitDate(selectedCommit.date)}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        {selectedCommitFileSummary.modifiedCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
-                            <PencilSimpleIcon className="size-3" />
-                            {selectedCommitFileSummary.modifiedCount} modified
-                          </span>
-                        ) : null}
-                        {selectedCommitFileSummary.addedCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
-                            + {selectedCommitFileSummary.addedCount} added
-                          </span>
-                        ) : null}
-                        {selectedCommitFileSummary.removedCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300">
-                            - {selectedCommitFileSummary.removedCount} deleted
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
-                                  className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                                  onClick={() => {
-                                    setCommitFileSortOrder((current) =>
-                                      current === "asc" ? "desc" : "asc"
-                                    );
-                                  }}
-                                  size="icon-sm"
-                                  type="button"
-                                  variant="ghost"
-                                />
-                              }
+                      <div className="flex min-h-0 flex-1 flex-col">
+                        <div className="space-y-2.5 border-border/70 border-b px-2.5 py-2.5 text-sm">
+                          <div className="border border-border/70 bg-background/70">
+                            <div
+                              className="overflow-y-auto px-2.5 pt-2.5"
+                              ref={commitDetailsLayoutRef}
+                              style={{
+                                height: `${commitDetailsPanelHeight}px`,
+                              }}
                             >
-                              {commitFileSortOrder === "asc" ? (
-                                <SortDescendingIcon className="size-3.5" />
-                              ) : (
-                                <SortAscendingIcon className="size-3.5" />
-                              )}
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              Sort filenames in{" "}
-                              {commitFileSortOrder === "asc"
-                                ? "descending"
-                                : "ascending"}{" "}
-                              order
-                            </TooltipContent>
-                          </Tooltip>
-                          <div className="inline-flex h-7 border border-border/80 bg-background/70 p-0.5">
-                            {showAllCommitFiles ? null : (
-                              <button
-                                className={cn(
-                                  "h-full px-2.5 font-medium text-xs transition-colors",
-                                  commitDetailsViewMode === "path"
-                                    ? "bg-accent text-accent-foreground"
-                                    : "text-muted-foreground hover:text-foreground"
-                                )}
-                                onClick={() => setCommitDetailsViewMode("path")}
-                                type="button"
-                              >
-                                Path
-                              </button>
-                            )}
-                            <button
-                              className={cn(
-                                "h-full px-2.5 font-medium text-xs transition-colors",
-                                commitDetailsViewMode === "tree"
-                                  ? "bg-accent text-accent-foreground"
-                                  : "text-muted-foreground hover:text-foreground"
-                              )}
-                              onClick={() => setCommitDetailsViewMode("tree")}
-                              type="button"
-                            >
-                              Tree
-                            </button>
-                          </div>
-                        </div>
-                        <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
-                          <Checkbox
-                            checked={showAllCommitFiles}
-                            className="shrink-0"
-                            onCheckedChange={(checked) => {
-                              setShowAllCommitFilesState(checked === true);
-                            }}
-                          />
-                          View all files
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="min-h-0 flex-1 overflow-hidden">
-                      {(() => {
-                        if (isLoadingCommitFilesHash === selectedCommit.hash) {
-                          return (
-                            <div className="px-2.5 py-3 text-muted-foreground text-xs">
-                              Loading changed files...
-                            </div>
-                          );
-                        }
-
-                        if (selectedCommitFiles.length === 0) {
-                          return (
-                            <div className="px-2.5 py-3 text-muted-foreground text-xs">
-                              No changed files for this commit.
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div className="h-full overflow-hidden px-1.5 py-1.5">
-                            <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
-                              {showAllCommitFiles ? (
-                                <div className="border-border/70 border-b px-2 py-2">
-                                  <Input
-                                    className="h-7"
-                                    onChange={(event) => {
-                                      setCommitFileFilterInputValue(
-                                        event.target.value
-                                      );
-                                    }}
-                                    placeholder="Filter files..."
-                                    value={commitFileFilterInputValue}
-                                  />
-                                </div>
-                              ) : null}
-                              {commitDetailsViewMode === "tree" &&
-                              filteredCommitFiles.length > 0 ? (
-                                <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
-                                  {(() => {
-                                    const expandableNodeKeys = Object.keys(
-                                      collectExpandableCommitTreeKeys(
-                                        selectedCommitTree,
-                                        selectedCommit.hash
+                              <div className="space-y-2">
+                                <p className="font-medium leading-snug">
+                                  {selectedCommitMessageSections.summary}
+                                </p>
+                                {selectedCommitMessageSections.detailLines
+                                  .length > 0 ? (
+                                  <ul className="space-y-1.5 pb-1 text-muted-foreground text-sm">
+                                    {selectedCommitMessageSections.detailLines.map(
+                                      (line) => (
+                                        <li className="leading-snug" key={line}>
+                                          - {line}
+                                        </li>
                                       )
-                                    );
-                                    const isCommitTreeFullyExpanded =
-                                      expandableNodeKeys.length > 0 &&
-                                      expandableNodeKeys.every(
-                                        (key) =>
-                                          expandedCommitTreeNodePaths[key] ===
-                                          true
-                                      );
-
-                                    return (
-                                      <Button
-                                        className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
-                                        onClick={() => {
-                                          if (isCommitTreeFullyExpanded) {
-                                            collapseCommitTree(
-                                              selectedCommit.hash
-                                            );
-                                            return;
-                                          }
-
-                                          expandCommitTree(
-                                            selectedCommit.hash,
-                                            selectedCommitTree
-                                          );
-                                        }}
-                                        size="sm"
-                                        type="button"
-                                        variant="ghost"
-                                      >
-                                        {isCommitTreeFullyExpanded
-                                          ? "Collapse All"
-                                          : "Expand All"}
-                                      </Button>
-                                    );
-                                  })()}
+                                    )}
+                                  </ul>
+                                ) : null}
+                              </div>
+                            </div>
+                            <button
+                              aria-label="Resize commit message"
+                              className="h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                              onMouseDown={startCommitDetailsResize}
+                              type="button"
+                            />
+                          </div>
+                          <div className="border border-border/70 bg-background/50 p-2">
+                            <div className="flex items-start gap-2">
+                              <Avatar className="size-8 shrink-0">
+                                <AvatarImage
+                                  alt={selectedCommit.author}
+                                  src={
+                                    selectedCommit.authorAvatarUrl ?? undefined
+                                  }
+                                />
+                                <AvatarFallback className="text-xs">
+                                  {selectedCommit.author
+                                    .split(" ")
+                                    .map((part) => part[0])
+                                    .join("")
+                                    .slice(0, 2)
+                                    .toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1 space-y-0.5 text-xs">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate font-medium text-foreground text-sm">
+                                    {selectedCommit.author}
+                                  </span>
+                                  <span className="shrink-0 truncate text-muted-foreground">
+                                    parent:{" "}
+                                    {selectedCommit.parentHashes
+                                      .at(0)
+                                      ?.slice(0, 7) ?? "none"}
+                                  </span>
                                 </div>
-                              ) : null}
-                              <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-                                {(() => {
-                                  if (filteredCommitFiles.length === 0) {
-                                    return (
-                                      <p className="px-2 py-1.5 text-muted-foreground text-xs">
-                                        No files match this filter.
-                                      </p>
-                                    );
-                                  }
-
-                                  if (commitDetailsViewMode === "tree") {
-                                    return renderCommitTreeNodes(
-                                      selectedCommitTree,
-                                      selectedCommit.hash
-                                    );
-                                  }
-
-                                  return renderCommitPathRows(
-                                    sortedCommitPathRows,
-                                    selectedCommit.hash
-                                  );
-                                })()}
+                                <p className="text-muted-foreground">
+                                  authored{" "}
+                                  {formatCommitDate(selectedCommit.date)}
+                                </p>
                               </div>
                             </div>
                           </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <header className="shrink-0 space-y-2.5 border-border/70 border-b px-2.5 py-2.5">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <Button
-                        aria-label="Discard all changes"
-                        className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                        disabled={
-                          !hasAnyWorkingTreeChanges || isDiscardingAllChanges
-                        }
-                        onClick={() => setIsDiscardAllConfirmOpen(true)}
-                        size="icon-sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <TrashIcon className="size-4" />
-                      </Button>
-                      <p className="truncate text-xs">
-                        <span className="font-medium">
-                          {showAllFiles
-                            ? `${allRepositoryFiles.length} repository files`
-                            : `${workingTreeItems.length} file changes`}
-                        </span>{" "}
-                        on{" "}
-                        <span className="bg-accent px-1.5 py-0.5 font-medium text-accent-foreground text-xs">
-                          {currentBranch}
-                        </span>
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                aria-label={`Sort by filename ${fileTreeSortOrder === "asc" ? "descending" : "ascending"}`}
-                                className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-                                onClick={toggleFileTreeSortOrder}
-                                size="icon-sm"
-                                type="button"
-                                variant="ghost"
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            {selectedCommitFileSummary.modifiedCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                                <PencilSimpleIcon className="size-3" />
+                                {selectedCommitFileSummary.modifiedCount}{" "}
+                                modified
+                              </span>
+                            ) : null}
+                            {selectedCommitFileSummary.addedCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
+                                + {selectedCommitFileSummary.addedCount} added
+                              </span>
+                            ) : null}
+                            {selectedCommitFileSummary.removedCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300">
+                                - {selectedCommitFileSummary.removedCount}{" "}
+                                deleted
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <Button
+                                      aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
+                                      className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                      onClick={() => {
+                                        setCommitFileSortOrder((current) =>
+                                          current === "asc" ? "desc" : "asc"
+                                        );
+                                      }}
+                                      size="icon-sm"
+                                      type="button"
+                                      variant="ghost"
+                                    />
+                                  }
+                                >
+                                  {commitFileSortOrder === "asc" ? (
+                                    <SortDescendingIcon className="size-3.5" />
+                                  ) : (
+                                    <SortAscendingIcon className="size-3.5" />
+                                  )}
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                  Sort filenames in{" "}
+                                  {commitFileSortOrder === "asc"
+                                    ? "descending"
+                                    : "ascending"}{" "}
+                                  order
+                                </TooltipContent>
+                              </Tooltip>
+                              <div className="inline-flex h-7 border border-border/80 bg-background/70 p-0.5">
+                                {showAllCommitFiles ? null : (
+                                  <button
+                                    className={cn(
+                                      "h-full px-2.5 font-medium text-xs transition-colors",
+                                      commitDetailsViewMode === "path"
+                                        ? "bg-accent text-accent-foreground"
+                                        : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                    onClick={() =>
+                                      setCommitDetailsViewMode("path")
+                                    }
+                                    type="button"
+                                  >
+                                    Path
+                                  </button>
+                                )}
+                                <button
+                                  className={cn(
+                                    "h-full px-2.5 font-medium text-xs transition-colors",
+                                    commitDetailsViewMode === "tree"
+                                      ? "bg-accent text-accent-foreground"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  )}
+                                  onClick={() =>
+                                    setCommitDetailsViewMode("tree")
+                                  }
+                                  type="button"
+                                >
+                                  Tree
+                                </button>
+                              </div>
+                            </div>
+                            <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+                              <Checkbox
+                                checked={showAllCommitFiles}
+                                className="shrink-0"
+                                onCheckedChange={(checked) => {
+                                  setShowAllCommitFilesState(checked === true);
+                                }}
                               />
+                              View all files
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-hidden">
+                          {(() => {
+                            if (
+                              isLoadingCommitFilesHash === selectedCommit.hash
+                            ) {
+                              return (
+                                <div className="px-2.5 py-3 text-muted-foreground text-xs">
+                                  Loading changed files...
+                                </div>
+                              );
                             }
-                          >
-                            {fileTreeSortOrder === "asc" ? (
-                              <SortDescendingIcon className="size-3.5" />
-                            ) : (
-                              <SortAscendingIcon className="size-3.5" />
-                            )}
-                          </TooltipTrigger>
-                          <TooltipContent side="top">
-                            Sort as{" "}
-                            {fileTreeSortOrder === "asc"
-                              ? "descending"
-                              : "ascending"}
-                          </TooltipContent>
-                        </Tooltip>
-                        <div className="inline-flex h-7 border border-border/80 bg-background/70 p-0.5">
-                          <button
-                            className={cn(
-                              "h-full px-2.5 font-medium text-xs transition-colors",
-                              changesViewMode === "path"
-                                ? "bg-accent text-accent-foreground"
-                                : "text-muted-foreground hover:text-foreground",
-                              showAllFiles && "pointer-events-none opacity-50"
-                            )}
-                            disabled={showAllFiles}
-                            onClick={() => setChangesViewMode("path")}
-                            type="button"
-                          >
-                            Path
-                          </button>
-                          <button
-                            className={cn(
-                              "h-full px-2.5 font-medium text-xs transition-colors",
-                              changesViewMode === "tree"
-                                ? "bg-accent text-accent-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                            onClick={() => setChangesViewMode("tree")}
-                            type="button"
-                          >
-                            Tree
-                          </button>
+
+                            if (selectedCommitFiles.length === 0) {
+                              return (
+                                <div className="px-2.5 py-3 text-muted-foreground text-xs">
+                                  No changed files for this commit.
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="h-full overflow-hidden px-1.5 py-1.5">
+                                <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
+                                  {showAllCommitFiles ? (
+                                    <div className="border-border/70 border-b px-2 py-2">
+                                      <Input
+                                        className="h-7"
+                                        onChange={(event) => {
+                                          setCommitFileFilterInputValue(
+                                            event.target.value
+                                          );
+                                        }}
+                                        placeholder="Filter files..."
+                                        value={commitFileFilterInputValue}
+                                      />
+                                    </div>
+                                  ) : null}
+                                  {commitDetailsViewMode === "tree" &&
+                                  filteredCommitFiles.length > 0 ? (
+                                    <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
+                                      {(() => {
+                                        const expandableNodeKeys = Object.keys(
+                                          collectExpandableCommitTreeKeys(
+                                            selectedCommitTree,
+                                            selectedCommit.hash
+                                          )
+                                        );
+                                        const isCommitTreeFullyExpanded =
+                                          expandableNodeKeys.length > 0 &&
+                                          expandableNodeKeys.every(
+                                            (key) =>
+                                              expandedCommitTreeNodePaths[
+                                                key
+                                              ] === true
+                                          );
+
+                                        return (
+                                          <Button
+                                            className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                            onClick={() => {
+                                              if (isCommitTreeFullyExpanded) {
+                                                collapseCommitTree(
+                                                  selectedCommit.hash
+                                                );
+                                                return;
+                                              }
+
+                                              expandCommitTree(
+                                                selectedCommit.hash,
+                                                selectedCommitTree
+                                              );
+                                            }}
+                                            size="sm"
+                                            type="button"
+                                            variant="ghost"
+                                          >
+                                            {isCommitTreeFullyExpanded
+                                              ? "Collapse All"
+                                              : "Expand All"}
+                                          </Button>
+                                        );
+                                      })()}
+                                    </div>
+                                  ) : null}
+                                  <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                                    {(() => {
+                                      if (filteredCommitFiles.length === 0) {
+                                        return (
+                                          <p className="px-2 py-1.5 text-muted-foreground text-xs">
+                                            No files match this filter.
+                                          </p>
+                                        );
+                                      }
+
+                                      if (commitDetailsViewMode === "tree") {
+                                        return renderCommitTreeNodes(
+                                          selectedCommitTree,
+                                          selectedCommit.hash
+                                        );
+                                      }
+
+                                      return renderCommitPathRows(
+                                        sortedCommitPathRows,
+                                        selectedCommit.hash
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
-                    </div>
-                  </header>
+                    </>
+                  );
+                }
 
-                  <div
-                    className="flex min-h-0 flex-1 flex-col"
-                    ref={workingTreeFilesPanelLayoutRef}
-                  >
-                    <div
-                      className={cn(
-                        "min-h-0 overflow-hidden px-2.5 py-2.5",
-                        workingTreeFilesPanelHeight === null
-                          ? "flex-1"
-                          : "shrink-0"
-                      )}
-                      ref={workingTreeFilesPanelRef}
-                      style={
-                        workingTreeFilesPanelHeight === null
-                          ? undefined
-                          : { height: `${workingTreeFilesPanelHeight}px` }
-                      }
-                    >
-                      <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
-                        {showAllFiles ? (
-                          <section className="flex min-h-0 flex-1 flex-col">
-                            <div className="border-border/70 border-b px-2 py-2">
-                              <Input
-                                className="h-7"
-                                onChange={(event) => {
-                                  setRepositoryFileFilterInputValue(
-                                    event.target.value
-                                  );
-                                }}
-                                placeholder="Filter files..."
-                                value={repositoryFileFilterInputValue}
-                              />
+                if (isSelectedReferenceRow && selectedTimelineRow) {
+                  return (
+                    <>
+                      <header className="border-border/70 border-b px-2.5 py-2">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <p className="font-medium text-sm">
+                            {selectedTimelineRow.type === "stash"
+                              ? "Stash"
+                              : "Tag"}{" "}
+                            {selectedTimelineRow.label ?? ""}
+                          </p>
+                          <span className="truncate text-muted-foreground text-xs">
+                            {selectedReferenceBadgeLabel}
+                          </span>
+                        </div>
+                      </header>
+
+                      <div className="flex min-h-0 flex-1 flex-col">
+                        <div className="space-y-2.5 border-border/70 border-b px-2.5 py-2.5 text-sm">
+                          <div className="border border-border/70 bg-background/70">
+                            <div
+                              className="overflow-y-auto px-2.5 pt-2.5"
+                              ref={commitDetailsLayoutRef}
+                              style={{
+                                height: `${commitDetailsPanelHeight}px`,
+                              }}
+                            >
+                              {selectedTimelineRow.type === "stash" ? (
+                                <div className="space-y-2">
+                                  <p className="font-medium leading-snug">
+                                    {selectedStashDraft?.summary ||
+                                      (selectedStash
+                                        ? formatStashLabel(selectedStash)
+                                        : null) ||
+                                      selectedTimelineRow.label}
+                                  </p>
+                                  {selectedStashDraft?.description ? (
+                                    <p className="whitespace-pre-wrap text-muted-foreground text-sm leading-snug">
+                                      {selectedStashDraft.description}
+                                    </p>
+                                  ) : null}
+                                  <div className="space-y-1 pb-1 text-muted-foreground text-xs">
+                                    <p>
+                                      ref: {selectedStash?.ref ?? "unknown"}
+                                    </p>
+                                    <p>
+                                      based on commit:{" "}
+                                      {selectedReferenceCommit?.shortHash ??
+                                        selectedReferenceCommit?.hash.slice(
+                                          0,
+                                          7
+                                        ) ??
+                                        "unknown"}
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  <p className="font-medium leading-snug">
+                                    {selectedTimelineRow.label}
+                                  </p>
+                                  <div className="space-y-1 pb-1 text-muted-foreground text-xs">
+                                    <p>type: lightweight tag reference</p>
+                                    <p>
+                                      points to commit:{" "}
+                                      {selectedReferenceCommit?.shortHash ??
+                                        selectedReferenceCommit?.hash.slice(
+                                          0,
+                                          7
+                                        ) ??
+                                        "unknown"}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            {filteredRepositoryFiles.length > 0 ? (
+                            <button
+                              aria-label="Resize commit message"
+                              className="h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                              onMouseDown={startCommitDetailsResize}
+                              type="button"
+                            />
+                          </div>
+                          {selectedReferenceCommit ? (
+                            <div className="border border-border/70 bg-background/50 p-2">
+                              <div className="flex items-start gap-2">
+                                <Avatar className="size-8 shrink-0">
+                                  <AvatarImage
+                                    alt={selectedReferenceCommit.author}
+                                    src={
+                                      selectedReferenceCommit.authorAvatarUrl ??
+                                      undefined
+                                    }
+                                  />
+                                  <AvatarFallback className="text-xs">
+                                    {selectedReferenceCommit.author
+                                      .split(" ")
+                                      .map((part) => part[0])
+                                      .join("")
+                                      .slice(0, 2)
+                                      .toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1 space-y-0.5 text-xs">
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <span className="truncate font-medium text-foreground text-sm">
+                                      {selectedReferenceCommit.author}
+                                    </span>
+                                    <span className="shrink-0 truncate text-muted-foreground">
+                                      commit {selectedReferenceCommit.shortHash}
+                                    </span>
+                                  </div>
+                                  <p className="text-muted-foreground">
+                                    authored{" "}
+                                    {formatCommitDate(
+                                      selectedReferenceCommit.date
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                          {selectedTimelineRow.type === "stash" &&
+                          selectedStash ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                className="h-7"
+                                disabled={isApplyingStash}
+                                onClick={() => {
+                                  handleApplyStash({
+                                    name: formatStashLabel(selectedStash),
+                                    searchName:
+                                      formatStashLabel(
+                                        selectedStash
+                                      ).toLowerCase(),
+                                    stashMessage: selectedStash.message,
+                                    stashRef: selectedStash.ref,
+                                    type: "stash",
+                                  }).catch(() => undefined);
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                Apply
+                              </Button>
+                              <Button
+                                className="h-7"
+                                disabled={isPoppingStash}
+                                onClick={() => {
+                                  handlePopStash({
+                                    name: formatStashLabel(selectedStash),
+                                    searchName:
+                                      formatStashLabel(
+                                        selectedStash
+                                      ).toLowerCase(),
+                                    stashMessage: selectedStash.message,
+                                    stashRef: selectedStash.ref,
+                                    type: "stash",
+                                  }).catch(() => undefined);
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                Pop
+                              </Button>
+                              <Button
+                                className="h-7"
+                                disabled={isDroppingStash}
+                                onClick={() => {
+                                  handleDropStash({
+                                    name: formatStashLabel(selectedStash),
+                                    searchName:
+                                      formatStashLabel(
+                                        selectedStash
+                                      ).toLowerCase(),
+                                    stashMessage: selectedStash.message,
+                                    stashRef: selectedStash.ref,
+                                    type: "stash",
+                                  }).catch(() => undefined);
+                                }}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          ) : null}
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            {selectedReferenceFileSummary.modifiedCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                                <PencilSimpleIcon className="size-3" />
+                                {selectedReferenceFileSummary.modifiedCount}{" "}
+                                modified
+                              </span>
+                            ) : null}
+                            {selectedReferenceFileSummary.addedCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
+                                + {selectedReferenceFileSummary.addedCount}{" "}
+                                added
+                              </span>
+                            ) : null}
+                            {selectedReferenceFileSummary.removedCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300">
+                                - {selectedReferenceFileSummary.removedCount}{" "}
+                                deleted
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-hidden px-1.5 py-1.5">
+                          <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-border/70 border-b px-2 py-2">
+                              <div className="flex items-center gap-1.5">
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
+                                        className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                        onClick={() => {
+                                          setCommitFileSortOrder((current) =>
+                                            current === "asc" ? "desc" : "asc"
+                                          );
+                                        }}
+                                        size="icon-sm"
+                                        type="button"
+                                        variant="ghost"
+                                      />
+                                    }
+                                  >
+                                    {commitFileSortOrder === "asc" ? (
+                                      <SortDescendingIcon className="size-3.5" />
+                                    ) : (
+                                      <SortAscendingIcon className="size-3.5" />
+                                    )}
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">
+                                    Sort filenames in{" "}
+                                    {commitFileSortOrder === "asc"
+                                      ? "descending"
+                                      : "ascending"}{" "}
+                                    order
+                                  </TooltipContent>
+                                </Tooltip>
+                                <div className="inline-flex h-7 border border-border/80 bg-background/70 p-0.5">
+                                  {showAllCommitFiles ? null : (
+                                    <button
+                                      className={cn(
+                                        "h-full px-2.5 font-medium text-xs transition-colors",
+                                        commitDetailsViewMode === "path"
+                                          ? "bg-accent text-accent-foreground"
+                                          : "text-muted-foreground hover:text-foreground"
+                                      )}
+                                      onClick={() =>
+                                        setCommitDetailsViewMode("path")
+                                      }
+                                      type="button"
+                                    >
+                                      Path
+                                    </button>
+                                  )}
+                                  <button
+                                    className={cn(
+                                      "h-full px-2.5 font-medium text-xs transition-colors",
+                                      commitDetailsViewMode === "tree"
+                                        ? "bg-accent text-accent-foreground"
+                                        : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                    onClick={() =>
+                                      setCommitDetailsViewMode("tree")
+                                    }
+                                    type="button"
+                                  >
+                                    Tree
+                                  </button>
+                                </div>
+                              </div>
+                              <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+                                <Checkbox
+                                  checked={showAllCommitFiles}
+                                  className="shrink-0"
+                                  onCheckedChange={(checked) => {
+                                    setShowAllCommitFilesState(
+                                      checked === true
+                                    );
+                                  }}
+                                />
+                                View all files
+                              </label>
+                            </div>
+                            {showAllCommitFiles ? (
+                              <div className="border-border/70 border-b px-2 py-2">
+                                <Input
+                                  className="h-7"
+                                  onChange={(event) => {
+                                    setCommitFileFilterInputValue(
+                                      event.target.value
+                                    );
+                                  }}
+                                  placeholder="Filter files..."
+                                  value={commitFileFilterInputValue}
+                                />
+                              </div>
+                            ) : null}
+                            {commitDetailsViewMode === "tree" &&
+                            filteredReferenceFiles.length > 0 &&
+                            selectedReferenceRevision ? (
                               <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
                                 {(() => {
-                                  const expandableNodeState =
-                                    collectExpandableTreeKeys(
-                                      allFilesTree,
-                                      "all"
-                                    );
-                                  const expandableNodeKeys =
-                                    Object.keys(expandableNodeState);
-                                  const isAllFilesTreeFullyExpanded =
+                                  const expandableNodeKeys = Object.keys(
+                                    collectExpandableCommitTreeKeys(
+                                      selectedReferenceTree,
+                                      selectedReferenceRevision
+                                    )
+                                  );
+                                  const isReferenceTreeFullyExpanded =
                                     expandableNodeKeys.length > 0 &&
                                     expandableNodeKeys.every(
                                       (key) =>
-                                        expandedTreeNodePaths[key] === true
+                                        expandedCommitTreeNodePaths[key] ===
+                                        true
                                     );
 
                                   return (
                                     <Button
                                       className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
                                       onClick={() => {
-                                        if (isAllFilesTreeFullyExpanded) {
-                                          setExpandedTreeNodePaths(
-                                            (current) => {
-                                              const nextEntries =
-                                                Object.entries(current).filter(
-                                                  ([key]) =>
-                                                    !key.startsWith("all:")
-                                                );
-
-                                              return Object.fromEntries(
-                                                nextEntries
-                                              );
-                                            }
+                                        if (isReferenceTreeFullyExpanded) {
+                                          collapseCommitTree(
+                                            selectedReferenceRevision
                                           );
                                           return;
                                         }
 
-                                        setExpandedTreeNodePaths((current) => ({
-                                          ...current,
-                                          ...expandableNodeState,
-                                        }));
+                                        expandCommitTree(
+                                          selectedReferenceRevision,
+                                          selectedReferenceTree
+                                        );
                                       }}
                                       size="sm"
                                       type="button"
                                       variant="ghost"
                                     >
-                                      {isAllFilesTreeFullyExpanded
+                                      {isReferenceTreeFullyExpanded
                                         ? "Collapse All"
                                         : "Expand All"}
                                     </Button>
@@ -10467,310 +10906,566 @@ export function RepoInfo() {
                               </div>
                             ) : null}
                             <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-                              {renderAllFilesSectionContent()}
+                              {(() => {
+                                if (
+                                  selectedReferenceRevision &&
+                                  isLoadingCommitFilesHash ===
+                                    selectedReferenceRevision
+                                ) {
+                                  return (
+                                    <div className="px-2 py-1.5 text-muted-foreground text-xs">
+                                      Loading changed files...
+                                    </div>
+                                  );
+                                }
+
+                                if (!selectedReferenceRevision) {
+                                  return (
+                                    <div className="px-2 py-1.5 text-muted-foreground text-xs">
+                                      No changed files found for this{" "}
+                                      {selectedTimelineRow.type === "stash"
+                                        ? "stash"
+                                        : "tag"}
+                                      .
+                                    </div>
+                                  );
+                                }
+
+                                if (selectedReferenceFiles.length === 0) {
+                                  return (
+                                    <div className="px-2 py-1.5 text-muted-foreground text-xs">
+                                      No changed files found for this{" "}
+                                      {selectedTimelineRow.type === "stash"
+                                        ? "stash"
+                                        : "tag"}
+                                      .
+                                    </div>
+                                  );
+                                }
+
+                                if (filteredReferenceFiles.length === 0) {
+                                  return (
+                                    <p className="px-2 py-1.5 text-muted-foreground text-xs">
+                                      No files match this filter.
+                                    </p>
+                                  );
+                                }
+
+                                if (commitDetailsViewMode === "tree") {
+                                  return renderCommitTreeNodes(
+                                    selectedReferenceTree,
+                                    selectedReferenceRevision
+                                  );
+                                }
+
+                                return renderCommitPathRows(
+                                  sortedSelectedReferencePathRows,
+                                  selectedReferenceRevision
+                                );
+                              })()}
                             </div>
-                          </section>
-                        ) : (
-                          <div
-                            className="flex min-h-0 flex-1 flex-col"
-                            ref={changesSectionsLayoutRef}
-                          >
-                            <section
-                              className={cn(
-                                "flex min-h-0 flex-col",
-                                isUnstagedSectionCollapsed ||
-                                  isChangesSectionsResizable
-                                  ? "shrink-0"
-                                  : "flex-1"
-                              )}
-                              style={
-                                isChangesSectionsResizable
-                                  ? { height: `${unstagedSectionHeight}px` }
-                                  : undefined
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                }
+
+                return (
+                  <>
+                    <header className="shrink-0 space-y-2.5 border-border/70 border-b px-2.5 py-2.5">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <Button
+                          aria-label="Discard all changes"
+                          className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                          disabled={
+                            !hasAnyWorkingTreeChanges || isDiscardingAllChanges
+                          }
+                          onClick={() => setIsDiscardAllConfirmOpen(true)}
+                          size="icon-sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <TrashIcon className="size-4" />
+                        </Button>
+                        <p className="truncate text-xs">
+                          <span className="font-medium">
+                            {showAllFiles
+                              ? `${allRepositoryFiles.length} repository files`
+                              : `${workingTreeItems.length} file changes`}
+                          </span>{" "}
+                          on{" "}
+                          <span className="bg-accent px-1.5 py-0.5 font-medium text-accent-foreground text-xs">
+                            {currentBranch}
+                          </span>
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  aria-label={`Sort by filename ${fileTreeSortOrder === "asc" ? "descending" : "ascending"}`}
+                                  className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                                  onClick={toggleFileTreeSortOrder}
+                                  size="icon-sm"
+                                  type="button"
+                                  variant="ghost"
+                                />
                               }
                             >
-                              <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
-                                <button
-                                  className="inline-flex items-center gap-1 text-left font-medium text-xs"
-                                  onClick={() =>
-                                    setIsUnstagedSectionCollapsed(
-                                      (current) => !current
-                                    )
-                                  }
-                                  type="button"
-                                >
-                                  {isUnstagedSectionCollapsed ? (
-                                    <CaretRightIcon className="size-3" />
-                                  ) : (
-                                    <CaretDownIcon className="size-3" />
-                                  )}
-                                  Unstaged Files ({unstagedItems.length})
-                                </button>
-                                <Button
-                                  className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
-                                  disabled={!hasUnstagedChanges || isStagingAll}
-                                  onClick={() => {
-                                    handleStageAll().catch(() => undefined);
-                                  }}
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                >
-                                  {isStagingAll
-                                    ? "Staging..."
-                                    : "Stage All Changes"}
-                                </Button>
-                              </div>
-
-                              {isUnstagedSectionCollapsed ? null : (
-                                <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                                  {renderChangesSectionContent(
-                                    unstagedItems,
-                                    unstagedTree,
-                                    "unstaged"
-                                  )}
-                                </div>
+                              {fileTreeSortOrder === "asc" ? (
+                                <SortDescendingIcon className="size-3.5" />
+                              ) : (
+                                <SortAscendingIcon className="size-3.5" />
                               )}
-                            </section>
-
-                            {isChangesSectionsResizable ? (
-                              <button
-                                aria-label="Resize unstaged and staged sections"
-                                className="h-2 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
-                                onMouseDown={startChangesSectionsResize}
-                                type="button"
-                              />
-                            ) : null}
-
-                            <section
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              Sort as{" "}
+                              {fileTreeSortOrder === "asc"
+                                ? "descending"
+                                : "ascending"}
+                            </TooltipContent>
+                          </Tooltip>
+                          <div className="inline-flex h-7 border border-border/80 bg-background/70 p-0.5">
+                            <button
                               className={cn(
-                                "flex min-h-0 flex-col border-border/70",
-                                !isChangesSectionsResizable && "border-t",
-                                isStagedSectionCollapsed
-                                  ? "mt-auto shrink-0"
-                                  : "flex-1"
+                                "h-full px-2.5 font-medium text-xs transition-colors",
+                                changesViewMode === "path"
+                                  ? "bg-accent text-accent-foreground"
+                                  : "text-muted-foreground hover:text-foreground",
+                                showAllFiles && "pointer-events-none opacity-50"
                               )}
+                              disabled={showAllFiles}
+                              onClick={() => setChangesViewMode("path")}
+                              type="button"
                             >
-                              <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
-                                <button
-                                  className="inline-flex items-center gap-1 text-left font-medium text-xs"
-                                  onClick={() =>
-                                    setIsStagedSectionCollapsed(
-                                      (current) => !current
-                                    )
-                                  }
-                                  type="button"
-                                >
-                                  {isStagedSectionCollapsed ? (
-                                    <CaretRightIcon className="size-3" />
-                                  ) : (
-                                    <CaretDownIcon className="size-3" />
-                                  )}
-                                  Staged Files ({stagedItems.length})
-                                </button>
-                                <Button
-                                  className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
-                                  disabled={!hasStagedChanges || isUnstagingAll}
-                                  onClick={() => {
-                                    handleUnstageAll().catch(() => undefined);
-                                  }}
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                >
-                                  {isUnstagingAll
-                                    ? "Unstaging..."
-                                    : "Unstage All Changes"}
-                                </Button>
-                              </div>
-
-                              {isStagedSectionCollapsed ? null : (
-                                <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                                  {renderChangesSectionContent(
-                                    stagedItems,
-                                    stagedTree,
-                                    "staged"
-                                  )}
-                                </div>
+                              Path
+                            </button>
+                            <button
+                              className={cn(
+                                "h-full px-2.5 font-medium text-xs transition-colors",
+                                changesViewMode === "tree"
+                                  ? "bg-accent text-accent-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
                               )}
-                            </section>
+                              onClick={() => setChangesViewMode("tree")}
+                              type="button"
+                            >
+                              Tree
+                            </button>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      aria-label="Resize changed files section"
-                      className="h-1.5 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
-                      onMouseDown={startWorkingTreeFilesPanelResize}
-                      type="button"
-                    />
-                    <form
-                      className="shrink-0 border-border/70 border-t px-3 py-3"
-                      ref={commitComposerFormRef}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label className="text-xs" htmlFor="commit-summary">
-                            Title
-                          </Label>
-                          <Button
-                            className="h-6 px-2 text-xs"
-                            disabled={
-                              isGeneratingAiCommitMessage ||
-                              aiSelectedModel.trim().length === 0 ||
-                              !hasStagedChanges
-                            }
-                            onClick={() => {
-                              handleGenerateAiCommitMessage().catch(
-                                () => undefined
-                              );
-                            }}
-                            size="xs"
-                            type="button"
-                            variant="outline"
-                          >
-                            <SparkleIcon className="size-3" />
-                            {isGeneratingAiCommitMessage
-                              ? "Generating..."
-                              : "Generate with AI"}
-                          </Button>
                         </div>
-                        <Input
-                          className="h-7 text-xs"
-                          id="commit-summary"
-                          onChange={(event) =>
-                            setDraftCommitSummary(event.target.value)
-                          }
-                          placeholder="Describe your changes"
-                          ref={commitSummaryInputRef}
-                          value={draftCommitSummary}
-                        />
                       </div>
-                      <div className="mt-3 space-y-2">
-                        <Label className="text-xs" htmlFor="commit-description">
-                          Description
-                        </Label>
-                        <textarea
-                          className="h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                          id="commit-description"
-                          onChange={(event) =>
-                            setDraftCommitDescription(event.target.value)
-                          }
-                          placeholder="Optional details..."
-                          value={draftCommitDescription}
-                        />
-                      </div>
-                      <div className="mt-3 border border-border/70 px-3 py-2">
-                        <button
-                          className="inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
-                          onClick={() =>
-                            setIsCommitOptionsCollapsed((current) => !current)
-                          }
-                          type="button"
-                        >
-                          {isCommitOptionsCollapsed ? (
-                            <CaretRightIcon className="size-3" />
+                    </header>
+
+                    <div
+                      className="flex min-h-0 flex-1 flex-col"
+                      ref={workingTreeFilesPanelLayoutRef}
+                    >
+                      <div
+                        className={cn(
+                          "min-h-0 overflow-hidden px-2.5 py-2.5",
+                          workingTreeFilesPanelHeight === null
+                            ? "flex-1"
+                            : "shrink-0"
+                        )}
+                        ref={workingTreeFilesPanelRef}
+                        style={
+                          workingTreeFilesPanelHeight === null
+                            ? undefined
+                            : { height: `${workingTreeFilesPanelHeight}px` }
+                        }
+                      >
+                        <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
+                          {showAllFiles ? (
+                            <section className="flex min-h-0 flex-1 flex-col">
+                              <div className="border-border/70 border-b px-2 py-2">
+                                <Input
+                                  className="h-7"
+                                  onChange={(event) => {
+                                    setRepositoryFileFilterInputValue(
+                                      event.target.value
+                                    );
+                                  }}
+                                  placeholder="Filter files..."
+                                  value={repositoryFileFilterInputValue}
+                                />
+                              </div>
+                              {filteredRepositoryFiles.length > 0 ? (
+                                <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
+                                  {(() => {
+                                    const expandableNodeState =
+                                      collectExpandableTreeKeys(
+                                        allFilesTree,
+                                        "all"
+                                      );
+                                    const expandableNodeKeys =
+                                      Object.keys(expandableNodeState);
+                                    const isAllFilesTreeFullyExpanded =
+                                      expandableNodeKeys.length > 0 &&
+                                      expandableNodeKeys.every(
+                                        (key) =>
+                                          expandedTreeNodePaths[key] === true
+                                      );
+
+                                    return (
+                                      <Button
+                                        className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                        onClick={() => {
+                                          if (isAllFilesTreeFullyExpanded) {
+                                            setExpandedTreeNodePaths(
+                                              (current) => {
+                                                const nextEntries =
+                                                  Object.entries(
+                                                    current
+                                                  ).filter(
+                                                    ([key]) =>
+                                                      !key.startsWith("all:")
+                                                  );
+
+                                                return Object.fromEntries(
+                                                  nextEntries
+                                                );
+                                              }
+                                            );
+                                            return;
+                                          }
+
+                                          setExpandedTreeNodePaths(
+                                            (current) => ({
+                                              ...current,
+                                              ...expandableNodeState,
+                                            })
+                                          );
+                                        }}
+                                        size="sm"
+                                        type="button"
+                                        variant="ghost"
+                                      >
+                                        {isAllFilesTreeFullyExpanded
+                                          ? "Collapse All"
+                                          : "Expand All"}
+                                      </Button>
+                                    );
+                                  })()}
+                                </div>
+                              ) : null}
+                              <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+                                {renderAllFilesSectionContent()}
+                              </div>
+                            </section>
                           ) : (
-                            <CaretDownIcon className="size-3" />
-                          )}
-                          Commit options
-                        </button>
-                        {isCommitOptionsCollapsed ? null : (
-                          <div className="mt-2 space-y-2">
-                            <label className="inline-flex min-h-5 items-center gap-2 text-xs">
-                              <Checkbox
-                                checked={amendPreviousCommit}
-                                className="shrink-0"
-                                onCheckedChange={(checked) => {
-                                  const shouldAmend = checked === true;
-                                  setAmendPreviousCommit(shouldAmend);
-
-                                  if (!shouldAmend) {
-                                    const previousDraft =
-                                      preAmendDraftRef.current;
-
-                                    if (previousDraft) {
-                                      setDraftCommitSummary(
-                                        previousDraft.summary
-                                      );
-                                      setDraftCommitDescription(
-                                        previousDraft.description
-                                      );
-                                    } else {
-                                      setDraftCommitSummary("");
-                                      setDraftCommitDescription("");
+                            <div
+                              className="flex min-h-0 flex-1 flex-col"
+                              ref={changesSectionsLayoutRef}
+                            >
+                              <section
+                                className={cn(
+                                  "flex min-h-0 flex-col",
+                                  isUnstagedSectionCollapsed ||
+                                    isChangesSectionsResizable
+                                    ? "shrink-0"
+                                    : "flex-1"
+                                )}
+                                style={
+                                  isChangesSectionsResizable
+                                    ? { height: `${unstagedSectionHeight}px` }
+                                    : undefined
+                                }
+                              >
+                                <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
+                                  <button
+                                    className="inline-flex items-center gap-1 text-left font-medium text-xs"
+                                    onClick={() =>
+                                      setIsUnstagedSectionCollapsed(
+                                        (current) => !current
+                                      )
                                     }
+                                    type="button"
+                                  >
+                                    {isUnstagedSectionCollapsed ? (
+                                      <CaretRightIcon className="size-3" />
+                                    ) : (
+                                      <CaretDownIcon className="size-3" />
+                                    )}
+                                    Unstaged Files ({unstagedItems.length})
+                                  </button>
+                                  <Button
+                                    className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                    disabled={
+                                      !hasUnstagedChanges || isStagingAll
+                                    }
+                                    onClick={() => {
+                                      handleStageAll().catch(() => undefined);
+                                    }}
+                                    size="sm"
+                                    type="button"
+                                    variant="ghost"
+                                  >
+                                    {isStagingAll
+                                      ? "Staging..."
+                                      : "Stage All Changes"}
+                                  </Button>
+                                </div>
 
-                                    preAmendDraftRef.current = null;
-                                    return;
-                                  }
+                                {isUnstagedSectionCollapsed ? null : (
+                                  <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                                    {renderChangesSectionContent(
+                                      unstagedItems,
+                                      unstagedTree,
+                                      "unstaged"
+                                    )}
+                                  </div>
+                                )}
+                              </section>
 
-                                  if (!activeRepoId) {
-                                    return;
-                                  }
+                              {isChangesSectionsResizable ? (
+                                <button
+                                  aria-label="Resize unstaged and staged sections"
+                                  className="h-2 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                                  onMouseDown={startChangesSectionsResize}
+                                  type="button"
+                                />
+                              ) : null}
 
-                                  preAmendDraftRef.current = {
-                                    description: draftCommitDescription,
-                                    summary: draftCommitSummary,
-                                  };
+                              <section
+                                className={cn(
+                                  "flex min-h-0 flex-col border-border/70",
+                                  !isChangesSectionsResizable && "border-t",
+                                  isStagedSectionCollapsed
+                                    ? "mt-auto shrink-0"
+                                    : "flex-1"
+                                )}
+                              >
+                                <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
+                                  <button
+                                    className="inline-flex items-center gap-1 text-left font-medium text-xs"
+                                    onClick={() =>
+                                      setIsStagedSectionCollapsed(
+                                        (current) => !current
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {isStagedSectionCollapsed ? (
+                                      <CaretRightIcon className="size-3" />
+                                    ) : (
+                                      <CaretDownIcon className="size-3" />
+                                    )}
+                                    Staged Files ({stagedItems.length})
+                                  </button>
+                                  <Button
+                                    className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
+                                    disabled={
+                                      !hasStagedChanges || isUnstagingAll
+                                    }
+                                    onClick={() => {
+                                      handleUnstageAll().catch(() => undefined);
+                                    }}
+                                    size="sm"
+                                    type="button"
+                                    variant="ghost"
+                                  >
+                                    {isUnstagingAll
+                                      ? "Unstaging..."
+                                      : "Unstage All Changes"}
+                                  </Button>
+                                </div>
 
-                                  getLatestCommitMessage(activeRepoId)
-                                    .then((latestCommitMessage) => {
-                                      if (!latestCommitMessage) {
-                                        return;
+                                {isStagedSectionCollapsed ? null : (
+                                  <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+                                    {renderChangesSectionContent(
+                                      stagedItems,
+                                      stagedTree,
+                                      "staged"
+                                    )}
+                                  </div>
+                                )}
+                              </section>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        aria-label="Resize changed files section"
+                        className="h-1.5 w-full shrink-0 cursor-row-resize border-border/70 border-t bg-transparent hover:bg-accent/30"
+                        onMouseDown={startWorkingTreeFilesPanelResize}
+                        type="button"
+                      />
+                      <form
+                        className="shrink-0 border-border/70 border-t px-3 py-3"
+                        ref={commitComposerFormRef}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label className="text-xs" htmlFor="commit-summary">
+                              Title
+                            </Label>
+                            <Button
+                              className="h-6 px-2 text-xs"
+                              disabled={
+                                isGeneratingAiCommitMessage ||
+                                aiSelectedModel.trim().length === 0 ||
+                                !hasStagedChanges
+                              }
+                              onClick={() => {
+                                handleGenerateAiCommitMessage().catch(
+                                  () => undefined
+                                );
+                              }}
+                              size="xs"
+                              type="button"
+                              variant="outline"
+                            >
+                              <SparkleIcon className="size-3" />
+                              {isGeneratingAiCommitMessage
+                                ? "Generating..."
+                                : "Generate with AI"}
+                            </Button>
+                          </div>
+                          <Input
+                            className="h-7 text-xs"
+                            id="commit-summary"
+                            onChange={(event) =>
+                              setDraftCommitSummary(event.target.value)
+                            }
+                            placeholder="Describe your changes"
+                            ref={commitSummaryInputRef}
+                            value={draftCommitSummary}
+                          />
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          <Label
+                            className="text-xs"
+                            htmlFor="commit-description"
+                          >
+                            Description
+                          </Label>
+                          <textarea
+                            className="h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                            id="commit-description"
+                            onChange={(event) =>
+                              setDraftCommitDescription(event.target.value)
+                            }
+                            placeholder="Optional details..."
+                            value={draftCommitDescription}
+                          />
+                        </div>
+                        <div className="mt-3 border border-border/70 px-3 py-2">
+                          <button
+                            className="inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
+                            onClick={() =>
+                              setIsCommitOptionsCollapsed((current) => !current)
+                            }
+                            type="button"
+                          >
+                            {isCommitOptionsCollapsed ? (
+                              <CaretRightIcon className="size-3" />
+                            ) : (
+                              <CaretDownIcon className="size-3" />
+                            )}
+                            Commit options
+                          </button>
+                          {isCommitOptionsCollapsed ? null : (
+                            <div className="mt-2 space-y-2">
+                              <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                                <Checkbox
+                                  checked={amendPreviousCommit}
+                                  className="shrink-0"
+                                  onCheckedChange={(checked) => {
+                                    const shouldAmend = checked === true;
+                                    setAmendPreviousCommit(shouldAmend);
+
+                                    if (!shouldAmend) {
+                                      const previousDraft =
+                                        preAmendDraftRef.current;
+
+                                      if (previousDraft) {
+                                        setDraftCommitSummary(
+                                          previousDraft.summary
+                                        );
+                                        setDraftCommitDescription(
+                                          previousDraft.description
+                                        );
+                                      } else {
+                                        setDraftCommitSummary("");
+                                        setDraftCommitDescription("");
                                       }
 
-                                      setDraftCommitSummary(
-                                        latestCommitMessage.summary
-                                      );
-                                      setDraftCommitDescription(
-                                        latestCommitMessage.description
-                                      );
-                                    })
-                                    .catch(() => undefined);
-                                }}
-                              />
-                              Amend previous commit
-                            </label>
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                              <label className="inline-flex min-h-5 items-center gap-2 text-xs">
-                                <Checkbox
-                                  checked={pushAfterCommit}
-                                  className="shrink-0"
-                                  onCheckedChange={(checked) =>
-                                    setPushAfterCommit(checked === true)
-                                  }
+                                      preAmendDraftRef.current = null;
+                                      return;
+                                    }
+
+                                    if (!activeRepoId) {
+                                      return;
+                                    }
+
+                                    preAmendDraftRef.current = {
+                                      description: draftCommitDescription,
+                                      summary: draftCommitSummary,
+                                    };
+
+                                    getLatestCommitMessage(activeRepoId)
+                                      .then((latestCommitMessage) => {
+                                        if (!latestCommitMessage) {
+                                          return;
+                                        }
+
+                                        setDraftCommitSummary(
+                                          latestCommitMessage.summary
+                                        );
+                                        setDraftCommitDescription(
+                                          latestCommitMessage.description
+                                        );
+                                      })
+                                      .catch(() => undefined);
+                                  }}
                                 />
-                                Push after committing
+                                Amend previous commit
                               </label>
-                              <label className="inline-flex min-h-5 items-center gap-2 text-xs">
-                                <Checkbox
-                                  checked={skipCommitHooks}
-                                  className="shrink-0"
-                                  onCheckedChange={(checked) =>
-                                    setSkipCommitHooks(checked === true)
-                                  }
-                                />
-                                Skip Git hooks
-                              </label>
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                                  <Checkbox
+                                    checked={pushAfterCommit}
+                                    className="shrink-0"
+                                    onCheckedChange={(checked) =>
+                                      setPushAfterCommit(checked === true)
+                                    }
+                                  />
+                                  Push after committing
+                                </label>
+                                <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                                  <Checkbox
+                                    checked={skipCommitHooks}
+                                    className="shrink-0"
+                                    onCheckedChange={(checked) =>
+                                      setSkipCommitHooks(checked === true)
+                                    }
+                                  />
+                                  Skip Git hooks
+                                </label>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                      <Button
-                        className="mt-3 h-7 w-full text-xs"
-                        disabled={isCommitting || !canCommit}
-                        onClick={handleCommit}
-                        size="sm"
-                        type="button"
-                      >
-                        <DotOutlineIcon className="size-3.5" />
-                        Commit staged changes
-                      </Button>
-                    </form>
-                  </div>
-                </>
-              )}
+                          )}
+                        </div>
+                        <Button
+                          className="mt-3 h-7 w-full text-xs"
+                          disabled={isCommitting || !canCommit}
+                          onClick={handleCommit}
+                          size="sm"
+                          type="button"
+                        >
+                          <DotOutlineIcon className="size-3.5" />
+                          Commit staged changes
+                        </Button>
+                      </form>
+                    </div>
+                  </>
+                );
+              })()}
             </aside>
           </div>
         </div>
