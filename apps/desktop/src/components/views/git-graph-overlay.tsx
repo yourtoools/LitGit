@@ -18,6 +18,7 @@ const DEFAULT_EDGE_OPTIONS = {
     strokeDasharray: "4 3",
   },
 } as const;
+const DOTTED_EDGE_PATTERN = "1 5";
 
 interface GitGraphOverlayProps {
   commits: RepositoryCommit[];
@@ -44,7 +45,8 @@ export function GitGraphOverlay({
         selectedRowId,
         rowHeight,
         graphColumnWidth,
-        dashedStrokePattern
+        dashedStrokePattern,
+        DOTTED_EDGE_PATTERN
       ),
     [
       commits,

@@ -84,7 +84,10 @@ export interface RepositoryCommit {
   parentHashes: string[];
   refs: string[];
   shortHash: string;
+  syncState?: RepositoryCommitSyncState;
 }
+
+export type RepositoryCommitSyncState = "normal" | "pullable";
 
 export interface RepositoryBranch {
   aheadCount: number;
@@ -484,7 +487,7 @@ export interface RepoDataFetchResult {
   branchesError: unknown;
   branchesPayload: { branches: RepositoryBranch[]; id: string } | null;
   historyError: unknown;
-  historyPayload: { commits: RepositoryCommit[]; id: string } | null;
+  historyPayload: RepositoryHistoryPayload | null;
   remoteNamesError: unknown;
   remoteNamesPayload: { id: string; remoteNames: string[] } | null;
   repoFilesError: unknown;
@@ -495,4 +498,9 @@ export interface RepoDataFetchResult {
   statusPayload: { id: string; status: RepositoryWorkingTreeStatus } | null;
   wipItemsError: unknown;
   wipItemsPayload: { id: string; items: RepositoryWorkingTreeItem[] } | null;
+}
+
+export interface RepositoryHistoryPayload {
+  commits: RepositoryCommit[];
+  id: string;
 }

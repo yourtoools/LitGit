@@ -1,5 +1,8 @@
 import { type Edge, type Node, Position } from "@xyflow/react";
-import type { RepositoryCommit } from "@/stores/repo/repo-store-types";
+import type {
+  RepositoryCommit,
+  RepositoryCommitSyncState,
+} from "@/stores/repo/repo-store-types";
 
 export type GitTimelineRowType = "commit" | "stash" | "tag" | "wip";
 
@@ -10,6 +13,7 @@ export interface GitTimelineRow {
   commitHash?: string;
   id: string;
   label?: string;
+  syncState?: RepositoryCommitSyncState;
   type: GitTimelineRowType;
 }
 
@@ -137,11 +141,21 @@ function createNode(
   color: string,
   isSelected: boolean,
   type: GitTimelineRowType,
+  syncState: RepositoryCommitSyncState | undefined,
   author: string,
   authorAvatarUrl: string | null,
-  dashedStrokePattern?: string
+  dashedStrokePattern?: string,
+  dottedStrokePattern?: string
 ): Node {
   const size = resolveGitTimelineNodeSize(type);
+  let nodeStrokePattern: string | undefined;
+
+  if (type === "wip") {
+    nodeStrokePattern = dashedStrokePattern;
+  } else if (syncState === "pullable") {
+    nodeStrokePattern = dottedStrokePattern;
+  }
+
   const baseCenterX =
     GRAPH_COLUMN_START_X + LANE_OFFSET_X + lane * LANE_SPACING_X;
   const centerX =
@@ -154,9 +168,10 @@ function createNode(
       author,
       authorAvatarUrl,
       color,
-      dashedStrokePattern: type === "wip" ? dashedStrokePattern : undefined,
+      dashedStrokePattern: nodeStrokePattern,
       isCompact,
       isSelected,
+      syncState,
       type,
     },
     draggable: false,
@@ -205,7 +220,8 @@ export function buildGitGraphLayout(
   selectedRowId: string | null,
   rowHeight: number = DEFAULT_ROW_HEIGHT,
   graphColumnWidth?: number,
-  dashedStrokePattern?: string
+  dashedStrokePattern?: string,
+  dottedStrokePattern?: string
 ): GitGraphLayoutResult {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -266,9 +282,11 @@ export function buildGitGraphLayout(
         color,
         selectedRowId === row.id,
         row.type,
+        row.syncState,
         nodeAuthor,
         nodeAuthorAvatarUrl,
-        dashedStrokePattern
+        dashedStrokePattern,
+        dottedStrokePattern
       )
     );
   }
@@ -312,14 +330,18 @@ export function buildGitGraphLayout(
 
       const parentLane = laneByHash.get(parentHash) ?? sourceLane;
       const color = getLaneColor(parentLane);
+      const targetCommit = commitByHash.get(parentHash);
+      const shouldUseDottedConnector =
+        sourceCommit.syncState === "pullable" ||
+        targetCommit?.syncState === "pullable";
       edges.push(
         createEdge(
           `graph-edge:${row.id}:${targetRow.id}`,
           sourceNodeId,
           targetNodeId,
           color,
-          false,
-          dashedStrokePattern
+          shouldUseDottedConnector,
+          shouldUseDottedConnector ? dottedStrokePattern : dashedStrokePattern
         )
       );
     }

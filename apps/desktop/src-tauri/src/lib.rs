@@ -56,6 +56,13 @@ struct RepositoryCommit {
     author_avatar_url: Option<String>,
     date: String,
     refs: Vec<String>,
+    sync_state: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryHistoryPayload {
+    commits: Vec<RepositoryCommit>,
 }
 
 #[derive(Serialize)]
@@ -1019,23 +1026,27 @@ fn create_repository_initial_commit(
     Ok(())
 }
 
-#[tauri::command]
-fn get_repository_history(
-    repo_path: String,
-    state: State<'_, SettingsState>,
+fn load_repository_history_segment(
+    repo_path: &str,
+    state: &SettingsState,
+    commit_identity_cache: &mut HashMap<String, GitHubIdentity>,
+    sync_state: &str,
+    revision_args: &[&str],
 ) -> Result<Vec<RepositoryCommit>, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    let mut command = git_command();
+    command.args([
+        "-C",
+        repo_path,
+        "log",
+        "--decorate=short",
+        "--date=iso-strict",
+        "--topo-order",
+        "--max-count=150",
+        "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%b%x1f%B%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
+    ]);
+    command.args(revision_args);
 
-    let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "log",
-            "--decorate=short",
-            "--date=iso-strict",
-            "--max-count=150",
-            "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%b%x1f%B%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
-        ])
+    let output = command
         .output()
         .map_err(|error| format!("Failed to run git log: {error}"))?;
 
@@ -1049,9 +1060,8 @@ fn get_repository_history(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut commit_identity_cache = HashMap::new();
 
-    let commits = stdout
+    Ok(stdout
         .split('\x1e')
         .filter_map(|row| {
             let trimmed = row.trim();
@@ -1078,13 +1088,13 @@ fn get_repository_history(
             let github_identity = match author_email.as_deref() {
                 Some(email) => commit_identity_cache
                     .entry(email.to_string())
-                    .or_insert_with(|| resolve_commit_identity(&state, email, &author))
+                    .or_insert_with(|| resolve_commit_identity(state, email, &author))
                     .clone(),
                 None => {
                     if !author.trim().is_empty() {
                         commit_identity_cache
                             .entry(author.clone())
-                            .or_insert_with(|| resolve_commit_identity(&state, "", &author))
+                            .or_insert_with(|| resolve_commit_identity(state, "", &author))
                             .clone()
                     } else {
                         GitHubIdentity::default()
@@ -1122,11 +1132,76 @@ fn get_repository_history(
                 author_avatar_url: github_identity.avatar_url,
                 date,
                 refs,
+                sync_state: sync_state.to_string(),
             })
         })
-        .collect();
+        .collect())
+}
 
-    Ok(commits)
+fn resolve_repository_upstream_ref(repo_path: &str) -> Result<Option<String>, String> {
+    let output = git_command()
+        .args([
+            "-C",
+            repo_path,
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ])
+        .output()
+        .map_err(|error| format!("Failed to resolve branch upstream: {error}"))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let upstream_ref = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if upstream_ref.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(upstream_ref))
+}
+
+#[tauri::command]
+fn get_repository_history(
+    repo_path: String,
+    state: State<'_, SettingsState>,
+) -> Result<RepositoryHistoryPayload, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let mut commit_identity_cache = HashMap::new();
+    let local_commits = load_repository_history_segment(
+        &repo_path,
+        &state,
+        &mut commit_identity_cache,
+        "normal",
+        &["HEAD"],
+    )?;
+    let pullable_commits = if let Some(upstream_ref) = resolve_repository_upstream_ref(&repo_path)? {
+        load_repository_history_segment(
+            &repo_path,
+            &state,
+            &mut commit_identity_cache,
+            "pullable",
+            &[upstream_ref.as_str(), "--not", "HEAD"],
+        )?
+    } else {
+        Vec::new()
+    };
+    let mut seen_hashes = HashSet::new();
+    let mut commits = Vec::with_capacity(pullable_commits.len() + local_commits.len());
+
+    for commit in pullable_commits.into_iter().chain(local_commits) {
+        if !seen_hashes.insert(commit.hash.clone()) {
+            continue;
+        }
+
+        commits.push(commit);
+    }
+
+    Ok(RepositoryHistoryPayload { commits })
 }
 
 #[tauri::command]

@@ -39,6 +39,7 @@ import {
 } from "@/lib/keyboard-shortcuts";
 import { getRepoGitIdentity } from "@/lib/tauri-repo-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import { resolveHeadCommit } from "@/stores/repo/repo-store.helpers";
 import type {
   GitIdentityStatus,
   GitIdentityWriteInput,
@@ -405,7 +406,7 @@ export function NewTabContent() {
 
   const getLastCommitLabel = useCallback(
     (repoId: string) => {
-      const message = repoCommits[repoId]?.[0]?.message;
+      const message = resolveHeadCommit(repoCommits[repoId] ?? [])?.message;
       return message ?? "No commits yet";
     },
     [repoCommits]

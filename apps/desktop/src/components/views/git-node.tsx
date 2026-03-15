@@ -8,6 +8,7 @@ import {
   type GitTimelineRowType,
   resolveGitTimelineNodeSize,
 } from "@/components/views/git-graph-layout";
+import type { RepositoryCommitSyncState } from "@/stores/repo/repo-store-types";
 
 interface GitNodeData {
   author: string;
@@ -16,6 +17,7 @@ interface GitNodeData {
   dashedStrokePattern?: string;
   isCompact: boolean;
   isSelected: boolean;
+  syncState?: RepositoryCommitSyncState;
   type: GitTimelineRowType;
 }
 
@@ -26,8 +28,11 @@ export function GitNode({ data }: NodeProps) {
   const size = resolveGitTimelineNodeSize(nodeData.type);
   const isWipNode = nodeData.type === "wip";
   const isStashNode = nodeData.type === "stash";
+  const isPullableCommit = nodeData.syncState === "pullable";
   const dashPattern =
-    isWipNode || isStashNode ? nodeData.dashedStrokePattern : undefined;
+    isWipNode || isStashNode || isPullableCommit
+      ? nodeData.dashedStrokePattern
+      : undefined;
   const initials = nodeData.author
     .split(WHITESPACE_SPLIT_PATTERN)
     .map((w: string) => w[0])

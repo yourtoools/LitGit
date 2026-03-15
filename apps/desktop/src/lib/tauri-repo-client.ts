@@ -32,6 +32,7 @@ import type {
   RepositoryCommitFileDiff,
   RepositoryCommitFileHunks,
   RepositoryCommitFilePreflight,
+  RepositoryCommitSyncState,
   RepositoryDiffPreviewMode,
   RepositoryFileBlamePayload,
   RepositoryFileDetectedEncoding,
@@ -40,6 +41,7 @@ import type {
   RepositoryFileHistoryPayload,
   RepositoryFileHunks,
   RepositoryFilePreflight,
+  RepositoryHistoryPayload,
   RepositoryStash,
   RepositoryWorkingTreeItem,
   RepositoryWorkingTreeStatus,
@@ -209,6 +211,7 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     authorAvatarUrl,
     date,
     refs,
+    syncState,
   } = value;
 
   if (
@@ -229,7 +232,12 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     !(typeof authorEmail === "string" || authorEmail === null) ||
     !(typeof authorUsername === "string" || authorUsername === null) ||
     !(typeof authorAvatarUrl === "string" || authorAvatarUrl === null) ||
-    typeof date !== "string"
+    typeof date !== "string" ||
+    !(
+      syncState === "normal" ||
+      syncState === "pullable" ||
+      typeof syncState === "undefined"
+    )
   ) {
     throw new Error("Invalid repository history payload");
   }
@@ -260,6 +268,7 @@ function parseRepositoryCommit(value: unknown): RepositoryCommit {
     authorAvatarUrl,
     date,
     refs: parsedRefs,
+    syncState: (syncState ?? "normal") as RepositoryCommitSyncState,
   };
 }
 
@@ -409,12 +418,18 @@ function parseRepositoryWorkingTreeItems(
   return value.map(parseRepositoryWorkingTreeItem);
 }
 
-function parseRepositoryHistory(value: unknown): RepositoryCommit[] {
-  if (!Array.isArray(value)) {
+function parseRepositoryHistoryPayload(value: unknown): RepositoryCommit[] {
+  if (!isRecord(value)) {
     throw new Error("Invalid repository history payload");
   }
 
-  return value.map(parseRepositoryCommit);
+  const { commits } = value;
+
+  if (!Array.isArray(commits)) {
+    throw new Error("Invalid repository history payload");
+  }
+
+  return commits.map(parseRepositoryCommit);
 }
 
 function parseRepositoryCommitFile(value: unknown): RepositoryCommitFile {
@@ -521,7 +536,10 @@ const invokeRepoCommandWithSystemLog = async <T>(params: {
   }
 };
 
-async function loadHistoryForRepo(id: string, path: string) {
+async function loadHistoryForRepo(
+  id: string,
+  path: string
+): Promise<RepositoryHistoryPayload | null> {
   const invoke = getTauriInvoke();
 
   if (!invoke) {
@@ -535,7 +553,7 @@ async function loadHistoryForRepo(id: string, path: string) {
     invokeCommand: "get_repository_history",
     repoPath: path,
   });
-  const commits = parseRepositoryHistory(result);
+  const commits = parseRepositoryHistoryPayload(result);
 
   return { commits, id };
 }

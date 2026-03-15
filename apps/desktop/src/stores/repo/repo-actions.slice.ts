@@ -44,6 +44,7 @@ import { usePreferencesStore } from "@/stores/preferences/use-preferences-store"
 import {
   resolveErrorMessage,
   resolveErrorSummary,
+  resolveHeadCommit,
 } from "@/stores/repo/repo-store.helpers";
 import type {
   RepoStoreGet,
@@ -736,7 +737,8 @@ export const createRepoActionsSlice = (
     skipHooks
   ) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
-    const headBeforeCommit = get().repoCommits[id]?.[0]?.hash ?? null;
+    const headBeforeCommit =
+      resolveHeadCommit(get().repoCommits[id] ?? [])?.hash ?? null;
 
     if (!targetRepo) {
       return;
@@ -758,7 +760,8 @@ export const createRepoActionsSlice = (
         getRepoCommandPreferences()
       );
       await get().setActiveRepo(id, { forceRefresh: true });
-      const headAfterCommit = get().repoCommits[id]?.[0]?.hash ?? null;
+      const headAfterCommit =
+        resolveHeadCommit(get().repoCommits[id] ?? [])?.hash ?? null;
 
       if (headAfterCommit && headAfterCommit !== headBeforeCommit) {
         const undoTarget = headBeforeCommit ?? `${headAfterCommit}^`;

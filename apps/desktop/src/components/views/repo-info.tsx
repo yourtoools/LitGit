@@ -171,6 +171,7 @@ import {
   type RepoFileBrowserSortOrder,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import { resolveHeadCommit } from "@/stores/repo/repo-store.helpers";
 import type {
   MergeActionMode,
   PublishRepositoryOptions,
@@ -1487,6 +1488,7 @@ export function RepoInfo() {
     () => (activeRepoId ? (repoCommits[activeRepoId] ?? []) : []),
     [activeRepoId, repoCommits]
   );
+  const localHeadCommit = useMemo(() => resolveHeadCommit(commits), [commits]);
   const activeRepoIdentity = activeRepoId
     ? (repoGitIdentities[activeRepoId] ?? null)
     : null;
@@ -1497,7 +1499,9 @@ export function RepoInfo() {
   const preferredWipRawName = preferredWipIdentity?.name ?? null;
   const preferredWipName = preferredWipRawName?.trim() ?? "";
   const wipAuthorName =
-    preferredWipName.length > 0 ? preferredWipName : (commits[0]?.author ?? "");
+    preferredWipName.length > 0
+      ? preferredWipName
+      : (localHeadCommit?.author ?? "");
   const wipAuthorAvatarUrl = useMemo(
     () =>
       resolveWipAuthorAvatarUrl(
@@ -1951,7 +1955,7 @@ export function RepoInfo() {
 
     if (hasAnyWorkingTreeChanges) {
       rows.push({
-        anchorCommitHash: commits[0]?.hash,
+        anchorCommitHash: localHeadCommit?.hash,
         author: wipAuthorName,
         authorAvatarUrl: wipAuthorAvatarUrl,
         id: WORKING_TREE_ROW_ID,
@@ -1975,17 +1979,19 @@ export function RepoInfo() {
       rows.push({
         commitHash: commit.hash,
         id: commit.hash,
+        syncState: commit.syncState,
         type: "commit",
       });
     }
 
     return rows;
   }, [
-    commits,
     hasAnyWorkingTreeChanges,
+    localHeadCommit?.hash,
     timelineReferenceRowsByCommitHash,
     wipAuthorAvatarUrl,
     wipAuthorName,
+    commits,
   ]);
   const timelineRowById = useMemo(
     () => new Map(timelineRows.map((row) => [row.id, row])),
@@ -2819,7 +2825,8 @@ export function RepoInfo() {
       return;
     }
 
-    const fallbackCommitHash = commits[0]?.hash ?? null;
+    const fallbackCommitHash =
+      localHeadCommit?.hash ?? commits[0]?.hash ?? null;
 
     if (selectedTimelineRowId !== fallbackCommitHash) {
       setSelectedTimelineRowId(fallbackCommitHash);
@@ -2831,6 +2838,7 @@ export function RepoInfo() {
   }, [
     commits,
     hasAnyWorkingTreeChanges,
+    localHeadCommit,
     selectedCommitId,
     selectedTimelineRowId,
     timelineRowById,
@@ -8750,6 +8758,7 @@ export function RepoInfo() {
                           commits,
                           item.hash
                         );
+                        const isPullableCommit = item.syncState === "pullable";
                         const commitRefs = item.refs
                           .map(
                             (ref) => normalizeCommitRefLabel(ref) ?? ref.trim()
@@ -8795,6 +8804,21 @@ export function RepoInfo() {
                                 <div className="min-w-0 truncate pr-2">
                                   {visibleCommitRefs.length > 0 ? (
                                     <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                      {isPullableCommit ? (
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.62rem] text-sky-700 leading-none dark:text-sky-300" />
+                                            }
+                                          >
+                                            <ArrowDownIcon className="size-3" />
+                                            Pull
+                                          </TooltipTrigger>
+                                          <TooltipContent side="bottom">
+                                            Commit available from upstream
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ) : null}
                                       {visibleCommitRefs.map((ref, index) => (
                                         <Tooltip key={ref}>
                                           <TooltipTrigger
@@ -8852,7 +8876,9 @@ export function RepoInfo() {
                                   <div
                                     className="absolute top-0 bottom-0 left-0 rounded-full"
                                     style={{
-                                      backgroundColor: laneColor,
+                                      background: isPullableCommit
+                                        ? `repeating-linear-gradient(to bottom, ${laneColor} 0 2px, transparent 2px 6px)`
+                                        : laneColor,
                                       width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
                                     }}
                                   />
