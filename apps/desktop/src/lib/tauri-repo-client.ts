@@ -4,6 +4,8 @@ import type {
   GitIdentityValue,
   GitIdentityWriteInput,
   LatestRepositoryCommitMessage,
+  MergeActionMode,
+  MergeActionResult,
   PickedRepositorySelection,
   PublishRepositoryOptions,
   PullActionMode,
@@ -800,6 +802,46 @@ export async function pushRepoBranch(
     invokeCommand: "push_repository_branch",
     repoPath: path,
   });
+}
+
+export async function runRepoMergeAction(
+  path: string,
+  targetRef: string,
+  mode: MergeActionMode,
+  preferences?: RepoCommandPreferences
+): Promise<MergeActionResult> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Merge works in Tauri desktop app only");
+  }
+
+  const commandByMode: Record<MergeActionMode, string> = {
+    "ff-only": `git merge --ff-only ${targetRef}`,
+    merge: `git merge ${targetRef}`,
+    rebase: `git rebase ${targetRef}`,
+  };
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: commandByMode[mode],
+    invoke,
+    invokeArgs: {
+      mode,
+      preferences,
+      repoPath: path,
+      targetRef,
+    },
+    invokeCommand: "run_repository_merge_action",
+    repoPath: path,
+  });
+
+  if (!isRecord(result) || typeof result.headChanged !== "boolean") {
+    throw new Error("Invalid merge action payload");
+  }
+
+  return {
+    headChanged: result.headChanged,
+  };
 }
 
 export async function applyRepoStash(path: string, stashRef: string) {

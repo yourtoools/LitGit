@@ -250,6 +250,12 @@ struct PullActionResult {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct MergeActionResult {
+    head_changed: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LatestRepositoryCommitMessage {
     summary: String,
     description: String,
@@ -1899,6 +1905,109 @@ fn pull_repository_action(
     let head_after = resolve_head_hash(&repo_path)?;
 
     Ok(PullActionResult {
+        head_changed: head_before != head_after,
+    })
+}
+
+#[tauri::command]
+fn run_repository_merge_action(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    mode: String,
+    target_ref: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<MergeActionResult, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_target_ref = target_ref.trim();
+
+    if trimmed_target_ref.is_empty() {
+        return Err("A target reference is required".to_string());
+    }
+
+    let target_resolution = format!("{trimmed_target_ref}^{{commit}}");
+    let target_exists = git_command()
+        .args([
+            "-C",
+            &repo_path,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &target_resolution,
+        ])
+        .status()
+        .map_err(|error| format!("Failed to resolve target reference: {error}"))?
+        .success();
+
+    if !target_exists {
+        return Err(format!(
+            "The target reference '{trimmed_target_ref}' could not be resolved"
+        ));
+    }
+
+    let current_branch_output = git_command()
+        .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .map_err(|error| format!("Failed to inspect current branch: {error}"))?;
+
+    if !current_branch_output.status.success() {
+        return Err(git_error_message(
+            &current_branch_output.stderr,
+            "Failed to inspect current branch",
+        ));
+    }
+
+    let current_branch_name = String::from_utf8_lossy(&current_branch_output.stdout)
+        .trim()
+        .to_string();
+
+    if current_branch_name == "HEAD" {
+        return Err(
+            "This action requires a checked out branch. Exit detached HEAD and try again."
+                .to_string(),
+        );
+    }
+
+    let command_preferences = preferences.unwrap_or_default();
+    let head_before = resolve_head_hash(&repo_path)?;
+
+    let mut command = git_command();
+    command.args(["-C", &repo_path]);
+    apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+
+    match mode.as_str() {
+        "ff-only" => {
+            command.args(["merge", "--ff-only", trimmed_target_ref]);
+        }
+        "merge" => {
+            command.args(["merge", trimmed_target_ref]);
+        }
+        "rebase" => {
+            command.args(["rebase", trimmed_target_ref]);
+        }
+        _ => {
+            return Err("Unsupported merge action mode".to_string());
+        }
+    }
+
+    let output = command
+        .output()
+        .map_err(|error| format!("Failed to run merge action: {error}"))?;
+
+    if !output.status.success() {
+        let fallback_message = match mode.as_str() {
+            "ff-only" => "Failed to fast-forward branch",
+            "merge" => "Failed to merge branch",
+            "rebase" => "Failed to rebase branch",
+            _ => "Failed to run merge action",
+        };
+
+        return Err(git_error_message(&output.stderr, fallback_message));
+    }
+
+    let head_after = resolve_head_hash(&repo_path)?;
+
+    Ok(MergeActionResult {
         head_changed: head_before != head_after,
     })
 }
@@ -4948,6 +5057,7 @@ pub fn run() {
             set_repository_branch_upstream,
             switch_repository_branch,
             pull_repository_action,
+            run_repository_merge_action,
             push_repository_branch,
             create_repository_stash,
             apply_repository_stash,

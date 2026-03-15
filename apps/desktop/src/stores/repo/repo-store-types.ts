@@ -176,6 +176,12 @@ export interface PullActionResult {
   headChanged: boolean;
 }
 
+export type MergeActionMode = "ff-only" | "merge" | "rebase";
+
+export interface MergeActionResult {
+  headChanged: boolean;
+}
+
 export interface LatestRepositoryCommitMessage {
   description: string;
   summary: string;
@@ -255,6 +261,11 @@ export interface RepoStoreState {
   isLoadingWip: boolean;
   isPickingRepo: boolean;
   isRefreshingOpenedRepos: boolean;
+  mergeReference: (
+    id: string,
+    targetRef: string,
+    mode: MergeActionMode
+  ) => Promise<MergeActionResult>;
   openedRepos: OpenedRepository[];
   openRepository: () => Promise<OpenRepositoryResult>;
   popStash: (id: string, stashRef: string) => Promise<void>;

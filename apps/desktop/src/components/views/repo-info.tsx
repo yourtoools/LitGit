@@ -142,6 +142,7 @@ import {
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import type {
+  MergeActionMode,
   PublishRepositoryOptions,
   PullActionMode,
   RepositoryCommit,
@@ -951,6 +952,7 @@ export function RepoInfo() {
   const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
   const commitChanges = useRepoStore((state) => state.commitChanges);
   const pullBranch = useRepoStore((state) => state.pullBranch);
+  const mergeReference = useRepoStore((state) => state.mergeReference);
   const pushBranch = useRepoStore((state) => state.pushBranch);
   const undoRepoAction = useRepoStore((state) => state.undoRepoAction);
   const redoRepoAction = useRepoStore((state) => state.redoRepoAction);
@@ -1037,6 +1039,7 @@ export function RepoInfo() {
     "commit" | "push"
   >("push");
   const [isPulling, setIsPulling] = useState(false);
+  const [isRunningMergeAction, setIsRunningMergeAction] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [isUndoRedoBusy, setIsUndoRedoBusy] = useState(false);
   const [isApplyingStash, setIsApplyingStash] = useState(false);
@@ -1104,6 +1107,11 @@ export function RepoInfo() {
     "pull-ff-only": "Pull (fast-forward only)",
     "pull-ff-possible": "Pull (fast-forward if possible)",
     "pull-rebase": "Pull (rebase)",
+  };
+  const mergeActionLabelByMode: Record<MergeActionMode, string> = {
+    "ff-only": "Fast-forward",
+    merge: "Merge",
+    rebase: "Rebase",
   };
   const selectedPullActionLabel = pullActionLabelByMode[pullActionMode];
   const [sidebarFilterInputValue, setSidebarFilterInputValue] = useState("");
@@ -1957,6 +1965,64 @@ export function RepoInfo() {
     }
 
     return `Git could not set upstream: ${rawMessage}`;
+  };
+
+  const getMergeFailureReason = (
+    error: unknown,
+    mode: MergeActionMode
+  ): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("rebase in progress") ||
+      normalized.includes("merge in progress") ||
+      normalized.includes("cherry-pick in progress")
+    ) {
+      return "Another Git operation is in progress. Finish or abort it, then try again.";
+    }
+
+    if (normalized.includes("detached head")) {
+      return "This action requires a checked out branch. Exit detached HEAD and try again.";
+    }
+
+    if (
+      normalized.includes("could not be resolved") ||
+      normalized.includes("unknown revision") ||
+      normalized.includes("bad revision")
+    ) {
+      return "The selected target could not be resolved. Refresh repository data and try again.";
+    }
+
+    if (
+      normalized.includes("local changes") &&
+      normalized.includes("would be overwritten")
+    ) {
+      return "You have uncommitted changes that block this action. Commit, stash, or discard them first.";
+    }
+
+    if (
+      mode === "ff-only" &&
+      normalized.includes("not possible to fast-forward")
+    ) {
+      return "Fast-forward is not possible because histories have diverged. Use Merge or Rebase instead.";
+    }
+
+    if (
+      normalized.includes("conflict") ||
+      normalized.includes("resolve all conflicts")
+    ) {
+      return "Git found conflicts. Resolve conflicts, then continue or abort the operation from your terminal.";
+    }
+
+    if (
+      normalized.includes("already up to date") ||
+      normalized.includes("current branch")
+    ) {
+      return "No changes were required because branches are already aligned.";
+    }
+
+    return `Git could not ${mergeActionLabelByMode[mode].toLowerCase()}: ${rawMessage}`;
   };
 
   const openBranchCreateInput = () => {
@@ -3185,6 +3251,55 @@ export function RepoInfo() {
     }
   };
 
+  const handleMergeAction = async (
+    targetRef: string,
+    targetLabel: string,
+    mode: MergeActionMode
+  ) => {
+    if (
+      !activeRepoId ||
+      targetRef.trim().length === 0 ||
+      isRunningMergeAction ||
+      isPulling ||
+      isPushing ||
+      isSwitchingBranch
+    ) {
+      return;
+    }
+
+    setIsRunningMergeAction(true);
+
+    try {
+      const result = await mergeReference(activeRepoId, targetRef, mode);
+      if (result.headChanged) {
+        toast.success(`${mergeActionLabelByMode[mode]} completed`, {
+          description: `${currentBranch} <- ${targetLabel}`,
+        });
+      } else {
+        toast.success("Already up to date", {
+          description: `${currentBranch} <- ${targetLabel}`,
+        });
+      }
+    } catch (error) {
+      toast.error(`${mergeActionLabelByMode[mode]} failed`, {
+        description: getMergeFailureReason(error, mode),
+      });
+    } finally {
+      setIsRunningMergeAction(false);
+    }
+  };
+
+  const handleMergeActionForEntry = async (
+    entry: SidebarEntry,
+    mode: MergeActionMode
+  ) => {
+    if (entry.type === "stash") {
+      return;
+    }
+
+    await handleMergeAction(entry.name, entry.name, mode);
+  };
+
   const handlePushAction = async () => {
     if (!activeRepoId || isPushing) {
       return;
@@ -3451,16 +3566,45 @@ export function RepoInfo() {
           side="right"
           sideOffset={6}
         >
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Fast-forward {entry.name} to {currentBranch}
+          <DropdownMenuItem
+            disabled={
+              isRunningMergeAction ||
+              isPulling ||
+              isPushing ||
+              isSwitchingBranch
+            }
+            onClick={() => {
+              handleMergeActionForEntry(entry, "ff-only").catch(
+                () => undefined
+              );
+            }}
+          >
+            Fast-forward {currentBranch} to {entry.name}
           </DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Merge {currentBranch} into {entry.name}
+          <DropdownMenuItem
+            disabled={
+              isRunningMergeAction ||
+              isPulling ||
+              isPushing ||
+              isSwitchingBranch
+            }
+            onClick={() => {
+              handleMergeActionForEntry(entry, "merge").catch(() => undefined);
+            }}
+          >
+            Merge {entry.name} into {currentBranch}
           </DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
+          <DropdownMenuItem
+            disabled={
+              isRunningMergeAction ||
+              isPulling ||
+              isPushing ||
+              isSwitchingBranch
+            }
+            onClick={() => {
+              handleMergeActionForEntry(entry, "rebase").catch(() => undefined);
+            }}
+          >
             Rebase {currentBranch} onto {entry.name}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -3580,6 +3724,7 @@ export function RepoInfo() {
 
     return (() => {
       const entryCommitHash = getCommitHashForEntry(entry);
+      const canShowMergeActions = !entry.active;
 
       return (
         <DropdownMenuContent
@@ -3617,19 +3762,56 @@ export function RepoInfo() {
             Set Upstream
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Fast-forward {entry.name} to {currentBranch}
-          </DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Merge {currentBranch} into {entry.name}
-          </DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Rebase {currentBranch} onto {entry.name}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {canShowMergeActions ? (
+            <>
+              <DropdownMenuItem
+                disabled={
+                  isRunningMergeAction ||
+                  isPulling ||
+                  isPushing ||
+                  isSwitchingBranch
+                }
+                onClick={() => {
+                  handleMergeActionForEntry(entry, "ff-only").catch(
+                    () => undefined
+                  );
+                }}
+              >
+                Fast-forward {currentBranch} to {entry.name}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={
+                  isRunningMergeAction ||
+                  isPulling ||
+                  isPushing ||
+                  isSwitchingBranch
+                }
+                onClick={() => {
+                  handleMergeActionForEntry(entry, "merge").catch(
+                    () => undefined
+                  );
+                }}
+              >
+                Merge {entry.name} into {currentBranch}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={
+                  isRunningMergeAction ||
+                  isPulling ||
+                  isPushing ||
+                  isSwitchingBranch
+                }
+                onClick={() => {
+                  handleMergeActionForEntry(entry, "rebase").catch(
+                    () => undefined
+                  );
+                }}
+              >
+                Rebase {currentBranch} onto {entry.name}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem
             disabled={entry.active || isSwitchingBranch}
             onClick={() => {
@@ -3755,16 +3937,45 @@ export function RepoInfo() {
           onClick={preventLeftClickInMenus}
           onMouseDown={preventLeftClickInMenus}
         >
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Fast-forward {entry.name} to {currentBranch}
+          <ContextMenuItem
+            disabled={
+              isRunningMergeAction ||
+              isPulling ||
+              isPushing ||
+              isSwitchingBranch
+            }
+            onClick={() => {
+              handleMergeActionForEntry(entry, "ff-only").catch(
+                () => undefined
+              );
+            }}
+          >
+            Fast-forward {currentBranch} to {entry.name}
           </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Merge {currentBranch} into {entry.name}
+          <ContextMenuItem
+            disabled={
+              isRunningMergeAction ||
+              isPulling ||
+              isPushing ||
+              isSwitchingBranch
+            }
+            onClick={() => {
+              handleMergeActionForEntry(entry, "merge").catch(() => undefined);
+            }}
+          >
+            Merge {entry.name} into {currentBranch}
           </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
+          <ContextMenuItem
+            disabled={
+              isRunningMergeAction ||
+              isPulling ||
+              isPushing ||
+              isSwitchingBranch
+            }
+            onClick={() => {
+              handleMergeActionForEntry(entry, "rebase").catch(() => undefined);
+            }}
+          >
             Rebase {currentBranch} onto {entry.name}
           </ContextMenuItem>
           <ContextMenuSeparator />
@@ -3879,6 +4090,7 @@ export function RepoInfo() {
 
     return (() => {
       const entryCommitHash = getCommitHashForEntry(entry);
+      const canShowMergeActions = !entry.active;
 
       return (
         <ContextMenuContent
@@ -3913,19 +4125,56 @@ export function RepoInfo() {
             Set Upstream
           </ContextMenuItem>
           <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Fast-forward {entry.name} to {currentBranch}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Merge {currentBranch} into {entry.name}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Rebase {currentBranch} onto {entry.name}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
+          {canShowMergeActions ? (
+            <>
+              <ContextMenuItem
+                disabled={
+                  isRunningMergeAction ||
+                  isPulling ||
+                  isPushing ||
+                  isSwitchingBranch
+                }
+                onClick={() => {
+                  handleMergeActionForEntry(entry, "ff-only").catch(
+                    () => undefined
+                  );
+                }}
+              >
+                Fast-forward {currentBranch} to {entry.name}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={
+                  isRunningMergeAction ||
+                  isPulling ||
+                  isPushing ||
+                  isSwitchingBranch
+                }
+                onClick={() => {
+                  handleMergeActionForEntry(entry, "merge").catch(
+                    () => undefined
+                  );
+                }}
+              >
+                Merge {entry.name} into {currentBranch}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={
+                  isRunningMergeAction ||
+                  isPulling ||
+                  isPushing ||
+                  isSwitchingBranch
+                }
+                onClick={() => {
+                  handleMergeActionForEntry(entry, "rebase").catch(
+                    () => undefined
+                  );
+                }}
+              >
+                Rebase {currentBranch} onto {entry.name}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          ) : null}
           <ContextMenuItem
             disabled={entry.active || isSwitchingBranch}
             onClick={() => {
@@ -4268,7 +4517,9 @@ export function RepoInfo() {
       ) ??
       commitRefEntries.find((entry) => entry.name !== currentBranch) ??
       null;
-    const mergeTargetLabel = mergeTargetEntry?.name ?? "this commit";
+    const mergeTargetRef = mergeTargetEntry?.name ?? commit.hash;
+    const mergeTargetLabel =
+      mergeTargetEntry?.name ?? `commit ${commit.shortHash}`;
     let mergeTargetRemoteLabel = "origin/main";
     const regularTargetEntry =
       commitRefEntries.find(
@@ -4515,16 +4766,42 @@ export function RepoInfo() {
         {/* TODO: Implement this action */}
         <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
         <ContextMenuSeparator />
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
+        <ContextMenuItem
+          disabled={
+            isRunningMergeAction || isPulling || isPushing || isSwitchingBranch
+          }
+          onClick={() => {
+            handleMergeAction(
+              mergeTargetRef,
+              mergeTargetLabel,
+              "ff-only"
+            ).catch(() => undefined);
+          }}
+        >
           Fast-forward {currentBranch} to {mergeTargetLabel}
         </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
+        <ContextMenuItem
+          disabled={
+            isRunningMergeAction || isPulling || isPushing || isSwitchingBranch
+          }
+          onClick={() => {
+            handleMergeAction(mergeTargetRef, mergeTargetLabel, "merge").catch(
+              () => undefined
+            );
+          }}
+        >
           Merge {mergeTargetLabel} into {currentBranch}
         </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
+        <ContextMenuItem
+          disabled={
+            isRunningMergeAction || isPulling || isPushing || isSwitchingBranch
+          }
+          onClick={() => {
+            handleMergeAction(mergeTargetRef, mergeTargetLabel, "rebase").catch(
+              () => undefined
+            );
+          }}
+        >
           Rebase {currentBranch} onto {mergeTargetLabel}
         </ContextMenuItem>
         <ContextMenuSeparator />

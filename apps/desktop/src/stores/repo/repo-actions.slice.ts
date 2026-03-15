@@ -19,6 +19,7 @@ import {
   pushRepoBranch,
   renameRepoBranch,
   resetRepoToReference,
+  runRepoMergeAction,
   runRepoPull,
   setRepoBranchUpstream,
   stageAllRepoChanges,
@@ -173,6 +174,7 @@ type RepoActionsSliceKeys =
   | "getLatestCommitMessage"
   | "popStash"
   | "pullBranch"
+  | "mergeReference"
   | "pushBranch"
   | "renameBranch"
   | "setBranchUpstream"
@@ -545,6 +547,43 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to pull changes"),
+      });
+      throw error;
+    }
+  },
+  mergeReference: async (id, targetRef, mode) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested ${mode} using target: ${targetRef}`,
+    });
+
+    try {
+      const result = await runRepoMergeAction(
+        targetRepo.path,
+        targetRef,
+        mode,
+        getRepoCommandPreferences()
+      );
+      await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, false);
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: result.headChanged
+          ? `${mode} completed with updates from ${targetRef}`
+          : `${mode} completed with no updates from ${targetRef}`,
+      });
+      return result;
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, `Failed to run ${mode}`));
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, `Failed to run ${mode}`),
       });
       throw error;
     }
