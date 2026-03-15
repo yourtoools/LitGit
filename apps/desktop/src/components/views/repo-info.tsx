@@ -2259,17 +2259,27 @@ export function RepoInfo() {
   const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
     const localEntries: SidebarEntry[] = [];
     const remoteEntries: SidebarEntry[] = [];
-    const stashEntries: SidebarEntry[] = stashes.map((stash) => {
-      const label = formatStashLabel(stash);
+    const stashByRef = new Map(stashes.map((stash) => [stash.ref, stash]));
+    const stashEntries: SidebarEntry[] = timelineRows
+      .filter((row) => row.type === "stash")
+      .flatMap((row) => {
+        const stashRef = row.id.slice("stash:".length);
+        const stash = stashByRef.get(stashRef);
 
-      return {
-        name: label,
-        searchName: label.toLowerCase(),
-        stashMessage: stash.message,
-        stashRef: stash.ref,
-        type: "stash",
-      };
-    });
+        if (!stash) {
+          return [];
+        }
+
+        const label = formatStashLabel(stash);
+
+        return {
+          name: label,
+          searchName: label.toLowerCase(),
+          stashMessage: stash.message,
+          stashRef: stash.ref,
+          type: "stash",
+        };
+      });
     const tagEntries: SidebarEntry[] = [];
 
     for (const branch of branches) {
@@ -2329,7 +2339,7 @@ export function RepoInfo() {
         name: "TAGS",
       },
     ];
-  }, [branches, stashes]);
+  }, [branches, stashes, timelineRows]);
   const normalizedSidebarFilter = deferredSidebarFilterQuery
     .trim()
     .toLowerCase();
