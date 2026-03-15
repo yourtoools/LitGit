@@ -53,7 +53,11 @@ import {
   DropdownMenuTrigger,
 } from "@litgit/ui/components/dropdown-menu";
 import { Input } from "@litgit/ui/components/input";
-import { InputGroup, InputGroupAddon } from "@litgit/ui/components/input-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@litgit/ui/components/input-group";
 import { Label } from "@litgit/ui/components/label";
 import {
   Select,
@@ -773,7 +777,7 @@ const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const WORKING_TREE_ROW_ID = "__working_tree__";
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
-const TIMELINE_ROW_HEIGHT = 48;
+const TIMELINE_ROW_HEIGHT = 44;
 const TIMELINE_GRAPH_COLUMN_MIN_WIDTH = 60;
 const TIMELINE_GRAPH_COLUMN_MAX_WIDTH = 320;
 const TIMELINE_COMMIT_MESSAGE_BAR_WIDTH = 3;
@@ -3327,14 +3331,14 @@ export function RepoInfo() {
 
   const renderEntryIcon = (entry: SidebarEntry) => {
     if (entry.type === "stash") {
-      return <StackSimpleIcon className="size-3.5 shrink-0" />;
+      return <StackSimpleIcon className="size-3 shrink-0" />;
     }
 
     if (entry.type === "tag") {
-      return <TagIcon className="size-3.5 shrink-0" />;
+      return <TagIcon className="size-3 shrink-0" />;
     }
 
-    return <GitBranchIcon className="size-3.5 shrink-0" />;
+    return <GitBranchIcon className="size-3 shrink-0" />;
   };
 
   const renderHighlightedEntryName = (name: string) => {
@@ -7076,7 +7080,7 @@ export function RepoInfo() {
         return (
           <button
             className={cn(
-              "flex w-full items-center gap-2 px-2 py-1 text-left text-sm transition-colors",
+              "flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
               !canOpenDiff && "cursor-default opacity-80",
               diffRowStateClassName
             )}
@@ -7098,7 +7102,7 @@ export function RepoInfo() {
           >
             <span className="w-4" />
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
-            <span className="inline-flex items-center gap-1 text-[0.72rem] text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-muted-foreground text-xs">
               {file.additions > 0 ? (
                 <span className="text-emerald-700 dark:text-emerald-300">
                   +{file.additions}
@@ -7122,7 +7126,7 @@ export function RepoInfo() {
       return (
         <div key={`${commitHash}-${node.fullPath}`}>
           <button
-            className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+            className="flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
             onClick={() => toggleCommitTreeNode(commitHash, node.fullPath)}
             style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
             type="button"
@@ -7134,7 +7138,7 @@ export function RepoInfo() {
             )}
             <span className="min-w-0 truncate">{node.name}</span>
             {collapsedChangeSummary ? (
-              <span className="ml-auto inline-flex items-center gap-2 text-[0.72rem] leading-none">
+              <span className="ml-auto inline-flex items-center gap-2 text-xs leading-none">
                 {collapsedChangeSummary.modifiedCount > 0 ? (
                   <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
                     <PencilSimpleIcon className="size-2.5" />
@@ -7186,7 +7190,7 @@ export function RepoInfo() {
       return (
         <button
           className={cn(
-            "flex w-full items-center gap-2 px-2 py-1 text-left text-sm transition-colors",
+            "flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
             !canOpenDiff && "cursor-default opacity-80",
             diffRowStateClassName
           )}
@@ -7204,7 +7208,7 @@ export function RepoInfo() {
           type="button"
         >
           <span className="min-w-0 flex-1 truncate">{file.path}</span>
-          <span className="inline-flex items-center gap-1 text-[0.72rem] text-muted-foreground">
+          <span className="inline-flex items-center gap-1 text-muted-foreground text-xs">
             {file.additions > 0 ? (
               <span className="text-emerald-700 dark:text-emerald-300">
                 +{file.additions}
@@ -7460,7 +7464,7 @@ export function RepoInfo() {
             <ContextMenuTrigger>
               <div
                 className={cn(
-                  "group relative flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/20",
+                  "group relative flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/20",
                   isDiffOpened && "bg-accent/30"
                 )}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
@@ -7484,7 +7488,7 @@ export function RepoInfo() {
                 {canToggleStage ? (
                   <Button
                     className={cn(
-                      "relative z-10 h-6 px-2 text-[0.65rem] transition-opacity",
+                      "relative z-10 h-6 px-2 text-xs transition-opacity",
                       isBusy
                         ? "opacity-100"
                         : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
@@ -7520,7 +7524,7 @@ export function RepoInfo() {
           <ContextMenu>
             <ContextMenuTrigger>
               <button
-                className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+                className="flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
                 onClick={() => toggleTreeNode(section, node.fullPath)}
                 style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
                 type="button"
@@ -7612,7 +7616,7 @@ export function RepoInfo() {
           <ContextMenuTrigger>
             <div
               className={cn(
-                "group relative flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/20",
+                "group relative flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/20",
                 isDiffOpened && "bg-accent/30"
               )}
             >
@@ -7632,7 +7636,7 @@ export function RepoInfo() {
               </p>
               <Button
                 className={cn(
-                  "relative z-10 h-6 px-2 text-[0.65rem] transition-opacity",
+                  "relative z-10 h-6 px-2 text-xs transition-opacity",
                   isBusy
                     ? "opacity-100"
                     : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
@@ -7996,56 +8000,58 @@ export function RepoInfo() {
               className="shrink-0"
               style={{ width: `${leftSidebarWidth}px` }}
             >
-              <SidebarHeader>
-                <p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.16em]">
-                  Repository
-                </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <GithubLogoIcon className="size-4 text-muted-foreground" />
-                  <p className="truncate font-semibold text-sm">
-                    {activeRepo.name}
+              <SidebarHeader className="border-border/70 border-b px-2 py-2">
+                <div className="space-y-1 px-2">
+                  <p className="text-muted-foreground text-xs uppercase tracking-wider">
+                    Repository
                   </p>
-                </div>
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center justify-between text-muted-foreground text-xs">
-                    <span>Viewing {filteredSidebarEntryCount}</span>
+                  <div className="flex items-center gap-1.5">
+                    <GithubLogoIcon className="size-3.5 text-muted-foreground" />
+                    <p className="truncate font-semibold text-sm">
+                      {activeRepo.name}
+                    </p>
                   </div>
-                  <InputGroup>
-                    <Input
-                      className="h-8 border-0 bg-transparent pr-0 shadow-none focus-visible:ring-0"
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        setSidebarFilterInputValue(nextValue);
-                        scheduleSidebarFilterUpdate(nextValue);
-                      }}
-                      placeholder="Filter (Ctrl + Alt + f)"
-                      ref={sidebarFilterInputRef}
-                      value={sidebarFilterInputValue}
-                    />
-                    {sidebarFilterInputValue.length > 0 ? (
-                      <InputGroupAddon>
-                        <Button
-                          aria-label="Clear filter"
-                          className="border-0 border-input border-l"
-                          onClick={clearSidebarFilter}
-                          size="icon-sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <XIcon className="size-3.5" />
-                        </Button>
-                      </InputGroupAddon>
-                    ) : null}
-                  </InputGroup>
+                </div>
+                <div className="-mx-2 mt-1.5 border-border/60 border-b" />
+                <div className="mt-2 flex items-center justify-between px-2 text-xs">
+                  <span className="text-muted-foreground">Viewing</span>
+                  <span className="font-medium text-foreground/90">
+                    {filteredSidebarEntryCount}
+                  </span>
+                </div>
+                <div className="relative mt-1.5">
+                  <Input
+                    className="h-7 pr-7 text-xs"
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setSidebarFilterInputValue(nextValue);
+                      scheduleSidebarFilterUpdate(nextValue);
+                    }}
+                    placeholder="Filter (Ctrl + Alt + f)"
+                    ref={sidebarFilterInputRef}
+                    value={sidebarFilterInputValue}
+                  />
+                  {sidebarFilterInputValue.length > 0 ? (
+                    <Button
+                      aria-label="Clear filter"
+                      className="absolute top-0.5 right-0.5"
+                      onClick={clearSidebarFilter}
+                      size="icon-xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <XIcon className="size-3" />
+                    </Button>
+                  ) : null}
                 </div>
               </SidebarHeader>
 
-              <SidebarContent>
+              <SidebarContent className="py-2">
                 {filteredSidebarGroups.map((group) => (
                   <SidebarGroup key={group.key}>
                     <SidebarGroupLabel className="px-0 py-0">
                       <button
-                        className="flex w-full items-center justify-between px-2 py-1"
+                        className="flex w-full items-center justify-between px-2 py-0.5"
                         onClick={() =>
                           setCollapsedGroupKeys((current) => ({
                             ...current,
@@ -8054,7 +8060,7 @@ export function RepoInfo() {
                         }
                         type="button"
                       >
-                        <span className="inline-flex items-center gap-1.5 text-[0.68rem] text-muted-foreground uppercase tracking-[0.13em]">
+                        <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wider">
                           {collapsedGroupKeys[group.key] ? (
                             <CaretRightIcon className="size-3" />
                           ) : (
@@ -8062,7 +8068,7 @@ export function RepoInfo() {
                           )}
                           {group.name}
                         </span>
-                        <span className="font-medium text-[0.68rem] text-muted-foreground">
+                        <span className="font-medium text-muted-foreground text-xs">
                           {group.count}
                         </span>
                       </button>
@@ -8096,7 +8102,7 @@ export function RepoInfo() {
                                     <SidebarMenuButton
                                       aria-label={entry.name}
                                       className={cn(
-                                        "group",
+                                        "group gap-1.5 rounded-none py-1 text-xs",
                                         isSidebarEntrySelected(entry) ||
                                           isEntryMenuOpen
                                           ? "bg-accent text-accent-foreground"
@@ -8135,7 +8141,7 @@ export function RepoInfo() {
                                       typeof entry.pendingSyncCount ===
                                         "number" &&
                                       entry.pendingSyncCount > 0 ? (
-                                        <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
+                                        <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
                                           <ArrowDownIcon className="size-3" />
                                           {entry.pendingSyncCount}
                                         </span>
@@ -8144,7 +8150,7 @@ export function RepoInfo() {
                                       typeof entry.pendingPushCount ===
                                         "number" &&
                                       entry.pendingPushCount > 0 ? (
-                                        <span className="inline-flex shrink-0 items-center gap-1 text-[0.7rem] opacity-90">
+                                        <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
                                           <ArrowUpIcon className="size-3" />
                                           {entry.pendingPushCount}
                                         </span>
@@ -8163,7 +8169,7 @@ export function RepoInfo() {
                                             <button
                                               aria-label={`More options for ${entry.name}`}
                                               className={cn(
-                                                "ml-0.5 inline-flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
+                                                "ml-0.5 inline-flex size-4 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
                                                 isEntryMenuOpen &&
                                                   "opacity-100",
                                                 entry.active &&
@@ -8210,7 +8216,7 @@ export function RepoInfo() {
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="grid w-full grid-cols-[minmax(0,14rem)_minmax(0,1fr)] items-center gap-2 border-border/60 border-b bg-background px-3 py-1.5 text-foreground">
+          <div className="grid w-full grid-cols-[minmax(0,14rem)_minmax(0,1fr)] items-center gap-1.5 border-border/60 border-b bg-background px-2 py-1 text-foreground">
             <div className="flex min-w-0 items-center justify-start gap-1">
               <Combobox
                 autoHighlight
@@ -8231,8 +8237,11 @@ export function RepoInfo() {
                 value={selectedBranchOption}
               >
                 <ComboboxInput
-                  className="w-56"
+                  className="h-7 w-56"
                   placeholder="Find branch..."
+                  render={
+                    <InputGroupInput className="h-7 text-xs placeholder:text-xs" />
+                  }
                   showClear={false}
                 />
                 <ComboboxContent>
@@ -8240,7 +8249,7 @@ export function RepoInfo() {
                   <ComboboxList>
                     {(option: BranchComboboxOption) => (
                       <ComboboxItem key={option.name} value={option}>
-                        <div className="flex min-w-0 flex-1 items-center gap-2 pr-6">
+                        <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-6">
                           <GitBranchIcon className="size-3.5 text-muted-foreground" />
                           <span className="truncate">{option.name}</span>
                           {option.isRemote ? (
@@ -8266,7 +8275,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleUndoAction().catch(() => undefined);
                         }}
-                        size="default"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -8291,7 +8300,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleRedoAction().catch(() => undefined);
                         }}
-                        size="default"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -8311,7 +8320,7 @@ export function RepoInfo() {
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <InputGroup className="h-8 w-auto border-border/60 bg-transparent">
+                        <InputGroup className="h-7 w-auto border-border/60 bg-transparent">
                           <Button
                             aria-label={`Run ${selectedPullActionLabel}`}
                             className="h-7 border-0 px-2"
@@ -8364,7 +8373,7 @@ export function RepoInfo() {
                   >
                     <DropdownMenuItem
                       className={cn(
-                        "gap-2",
+                        "gap-1.5",
                         pullActionMode === "fetch-all" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
@@ -8375,7 +8384,7 @@ export function RepoInfo() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className={cn(
-                        "gap-2",
+                        "gap-1.5",
                         pullActionMode === "pull-ff-possible" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
@@ -8386,7 +8395,7 @@ export function RepoInfo() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className={cn(
-                        "gap-2",
+                        "gap-1.5",
                         pullActionMode === "pull-ff-only" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
@@ -8397,7 +8406,7 @@ export function RepoInfo() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className={cn(
-                        "gap-2",
+                        "gap-1.5",
                         pullActionMode === "pull-rebase" &&
                           "bg-emerald-600/25 focus:bg-emerald-600/30"
                       )}
@@ -8417,7 +8426,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePushAction().catch(() => undefined);
                         }}
-                        size="default"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -8446,7 +8455,7 @@ export function RepoInfo() {
                           !activeRepoId || isCreatingBranch || isSwitchingBranch
                         }
                         onClick={openBranchCreateInput}
-                        size="default"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -8473,7 +8482,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleCreateStash().catch(() => undefined);
                         }}
-                        size="default"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -8504,7 +8513,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePopCurrentStash().catch(() => undefined);
                         }}
-                        size="default"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -8530,7 +8539,7 @@ export function RepoInfo() {
                       <Button
                         aria-label="Terminal"
                         onClick={toggleTerminalPanel}
-                        size="default"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -8555,24 +8564,26 @@ export function RepoInfo() {
           <div className="flex min-h-0 flex-1">
             <section className="relative flex min-w-0 flex-1 flex-col">
               <div
-                className="grid border-border/60 border-b px-3 py-2 text-[0.68rem] text-muted-foreground uppercase tracking-[0.14em]"
+                className="grid border-border/60 border-b px-2 py-1 text-muted-foreground text-xs/3 uppercase tracking-wide"
                 style={{ gridTemplateColumns: timelineGridTemplateColumns }}
               >
-                <span>Branch / Tag</span>
+                <span className="flex items-center justify-center">
+                  Branch / Tag
+                </span>
                 <span className="flex items-center justify-center">Graph</span>
-                <span className="flex items-center justify-between gap-2">
+                <span className="relative flex items-center justify-center">
                   <span>Commit Message</span>
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={
                         <button
                           aria-label="Timeline settings"
-                          className="inline-flex size-6 shrink-0 items-center justify-center transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
+                          className="absolute right-0 inline-flex size-5 shrink-0 items-center justify-center transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
                           type="button"
                         />
                       }
                     >
-                      <GearIcon className="size-3.5" />
+                      <GearIcon className="size-3" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                       align="end"
@@ -8603,7 +8614,7 @@ export function RepoInfo() {
               >
                 {isBranchCreateInputOpen ? (
                   <div
-                    className="grid items-center border-border/35 border-b px-3 py-2"
+                    className="grid items-center border-border/35 border-b px-2 py-1.5"
                     style={{ gridTemplateColumns: timelineGridTemplateColumns }}
                   >
                     <div className="min-w-0 truncate">
@@ -8614,7 +8625,7 @@ export function RepoInfo() {
                     <div className="flex items-center justify-center">
                       <CircleIcon className="size-3 text-muted-foreground" />
                     </div>
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <Input
                         className="h-7 w-full max-w-64"
                         disabled={isCreatingBranch}
@@ -8640,7 +8651,7 @@ export function RepoInfo() {
                         value={newBranchName}
                       />
                       <Button
-                        className="h-7 px-2"
+                        className="h-6 px-2"
                         disabled={
                           isCreatingBranch || newBranchName.trim().length === 0
                         }
@@ -8656,7 +8667,7 @@ export function RepoInfo() {
                         {isCreatingBranch ? "Creating..." : "Create"}
                       </Button>
                       <Button
-                        className="h-7 px-2"
+                        className="h-6 px-2"
                         disabled={isCreatingBranch}
                         onClick={closeBranchCreateInput}
                         size="sm"
@@ -8679,7 +8690,7 @@ export function RepoInfo() {
                   {hasAnyWorkingTreeChanges ? (
                     <button
                       className={cn(
-                        "group relative z-10 grid h-12 w-full cursor-pointer items-center border-border/35 border-b px-3 text-left transition-colors",
+                        "group relative z-10 grid h-11 w-full cursor-pointer items-center border-border/35 border-b px-2 text-left transition-colors",
                         selectedTimelineRowId === WORKING_TREE_ROW_ID
                           ? "bg-muted"
                           : "hover:bg-muted/35"
@@ -8698,8 +8709,8 @@ export function RepoInfo() {
                     >
                       <div className="min-w-0" />
                       <div className="h-full" />
-                      <div className="space-y-1.5">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                           <Input
                             className="h-7 w-full max-w-52"
                             disabled
@@ -8707,7 +8718,7 @@ export function RepoInfo() {
                             value={draftCommitSummary}
                           />
                           {workingTreeIndicators.editedCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[0.78rem] text-amber-700 dark:text-amber-300">
+                            <span className="inline-flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
                               <PencilSimpleIcon
                                 aria-hidden
                                 className="size-2.5"
@@ -8716,13 +8727,13 @@ export function RepoInfo() {
                             </span>
                           )}
                           {workingTreeIndicators.addedCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[0.78rem] text-emerald-700 dark:text-emerald-300">
+                            <span className="inline-flex items-center gap-1 text-emerald-700 text-xs dark:text-emerald-300">
                               <PlusIcon aria-hidden className="size-2.5" />
                               {workingTreeIndicators.addedCount}
                             </span>
                           )}
                           {workingTreeIndicators.removedCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[0.78rem] text-rose-700 dark:text-rose-300">
+                            <span className="inline-flex items-center gap-1 text-rose-700 text-xs dark:text-rose-300">
                               <MinusIcon aria-hidden className="size-2.5" />
                               {workingTreeIndicators.removedCount}
                             </span>
@@ -8786,7 +8797,7 @@ export function RepoInfo() {
                             <ContextMenuTrigger>
                               <button
                                 className={cn(
-                                  "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
+                                  "group relative z-10 grid h-11 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
                                   selectedTimelineRowId === item.hash ||
                                     openCommitMenuHash === item.hash
                                     ? "bg-muted hover:bg-muted"
@@ -8808,7 +8819,7 @@ export function RepoInfo() {
                                         <Tooltip>
                                           <TooltipTrigger
                                             render={
-                                              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[0.62rem] text-sky-700 leading-none dark:text-sky-300" />
+                                              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300" />
                                             }
                                           >
                                             <ArrowDownIcon className="size-3" />
@@ -8825,7 +8836,7 @@ export function RepoInfo() {
                                             render={
                                               <span
                                                 className={cn(
-                                                  "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-[0.65rem] leading-none",
+                                                  "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none",
                                                   index === 0
                                                     ? "max-w-24"
                                                     : "max-w-16"
@@ -8850,7 +8861,7 @@ export function RepoInfo() {
                                           <TooltipTrigger
                                             render={
                                               <span
-                                                className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-[0.62rem] leading-none"
+                                                className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-xs leading-none"
                                                 style={{
                                                   borderColor: `${laneColor}66`,
                                                 }}
@@ -8883,7 +8894,7 @@ export function RepoInfo() {
                                     }}
                                   />
                                   <div
-                                    className="flex h-full min-w-0 items-center gap-2"
+                                    className="flex h-full min-w-0 items-center gap-1.5"
                                     style={{
                                       paddingLeft:
                                         TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
@@ -8928,7 +8939,7 @@ export function RepoInfo() {
                       const rowButton = (
                         <button
                           className={cn(
-                            "group relative z-10 grid h-12 w-full items-center border-border/35 border-b px-3 text-left transition-colors",
+                            "group relative z-10 grid h-11 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
                             selectedTimelineRowId === row.id
                               ? "bg-muted"
                               : "hover:bg-muted/35"
@@ -8947,7 +8958,7 @@ export function RepoInfo() {
                         >
                           <div className="min-w-0 truncate pr-2">
                             <span
-                              className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-[0.65rem] leading-none"
+                              className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none"
                               style={{
                                 borderColor: `${laneColor}80`,
                               }}
@@ -8970,7 +8981,7 @@ export function RepoInfo() {
                               }}
                             />
                             <div
-                              className="flex h-full min-w-0 items-center gap-2"
+                              className="flex h-full min-w-0 items-center gap-1.5"
                               style={{
                                 paddingLeft:
                                   TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
@@ -9002,12 +9013,12 @@ export function RepoInfo() {
                     })}
                 </div>
                 {commits.length === 0 && !isLoadingHistory ? (
-                  <div className="px-3 py-4 text-muted-foreground text-sm">
+                  <div className="px-2 py-3 text-muted-foreground text-xs">
                     No commits found.
                   </div>
                 ) : null}
                 {isLoadingHistory ? (
-                  <div className="px-3 py-4 text-muted-foreground text-sm">
+                  <div className="px-2 py-3 text-muted-foreground text-xs">
                     Loading commits...
                   </div>
                 ) : null}
@@ -9295,7 +9306,7 @@ export function RepoInfo() {
                             <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
                               <pre
                                 aria-hidden="true"
-                                className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
+                                className="overflow-auto font-mono text-muted-foreground/90 text-xs leading-tight"
                               >
                                 {unsupportedAsciiArt}
                               </pre>
@@ -9409,7 +9420,7 @@ export function RepoInfo() {
                             <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
                               <pre
                                 aria-hidden="true"
-                                className="overflow-auto font-mono text-[0.62rem] text-muted-foreground/90 leading-tight"
+                                className="overflow-auto font-mono text-muted-foreground/90 text-xs leading-tight"
                               >
                                 {unsupportedAsciiArt}
                               </pre>
@@ -9683,8 +9694,8 @@ export function RepoInfo() {
             >
               {!isWorkingTreeSelection && selectedCommit ? (
                 <>
-                  <header className="border-border/70 border-b px-3 py-3">
-                    <div className="flex items-center justify-between gap-2">
+                  <header className="border-border/70 border-b px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-1.5">
                       <p className="font-medium text-sm">
                         Commit {selectedCommit.shortHash}
                       </p>
@@ -9697,10 +9708,10 @@ export function RepoInfo() {
                   </header>
 
                   <div className="flex min-h-0 flex-1 flex-col">
-                    <div className="space-y-3 border-border/70 border-b px-3 py-3 text-sm">
+                    <div className="space-y-2.5 border-border/70 border-b px-2.5 py-2.5 text-sm">
                       <div className="border border-border/70 bg-background/70">
                         <div
-                          className="overflow-y-auto px-3 pt-3"
+                          className="overflow-y-auto px-2.5 pt-2.5"
                           ref={commitDetailsLayoutRef}
                           style={{ height: `${commitDetailsPanelHeight}px` }}
                         >
@@ -9729,8 +9740,8 @@ export function RepoInfo() {
                           type="button"
                         />
                       </div>
-                      <div className="border border-border/70 bg-background/50 p-2.5">
-                        <div className="flex items-start gap-2.5">
+                      <div className="border border-border/70 bg-background/50 p-2">
+                        <div className="flex items-start gap-2">
                           <Avatar className="size-8 shrink-0">
                             <AvatarImage
                               alt={selectedCommit.author}
@@ -9746,7 +9757,7 @@ export function RepoInfo() {
                             </AvatarFallback>
                           </Avatar>
                           <div className="min-w-0 flex-1 space-y-0.5 text-xs">
-                            <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center justify-between gap-1.5">
                               <span className="truncate font-medium text-foreground text-sm">
                                 {selectedCommit.author}
                               </span>
@@ -9763,7 +9774,7 @@ export function RepoInfo() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
                         {selectedCommitFileSummary.modifiedCount > 0 ? (
                           <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
                             <PencilSimpleIcon className="size-3" />
@@ -9781,8 +9792,8 @@ export function RepoInfo() {
                           </span>
                         ) : null}
                       </div>
-                      <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
                           <Tooltip>
                             <TooltipTrigger
                               render={
@@ -9818,7 +9829,7 @@ export function RepoInfo() {
                             {showAllCommitFiles ? null : (
                               <button
                                 className={cn(
-                                  "px-3 py-1 font-medium text-xs transition-colors",
+                                  "px-2.5 py-0.5 font-medium text-xs transition-colors",
                                   commitDetailsViewMode === "path"
                                     ? "bg-accent text-accent-foreground"
                                     : "text-muted-foreground hover:text-foreground"
@@ -9831,7 +9842,7 @@ export function RepoInfo() {
                             )}
                             <button
                               className={cn(
-                                "px-3 py-1 font-medium text-xs transition-colors",
+                                "px-2.5 py-0.5 font-medium text-xs transition-colors",
                                 commitDetailsViewMode === "tree"
                                   ? "bg-accent text-accent-foreground"
                                   : "text-muted-foreground hover:text-foreground"
@@ -9860,7 +9871,7 @@ export function RepoInfo() {
                       {(() => {
                         if (isLoadingCommitFilesHash === selectedCommit.hash) {
                           return (
-                            <div className="px-3 py-4 text-muted-foreground text-sm">
+                            <div className="px-2.5 py-3 text-muted-foreground text-xs">
                               Loading changed files...
                             </div>
                           );
@@ -9868,19 +9879,19 @@ export function RepoInfo() {
 
                         if (selectedCommitFiles.length === 0) {
                           return (
-                            <div className="px-3 py-4 text-muted-foreground text-sm">
+                            <div className="px-2.5 py-3 text-muted-foreground text-xs">
                               No changed files for this commit.
                             </div>
                           );
                         }
 
                         return (
-                          <div className="h-full overflow-hidden px-2 py-2">
+                          <div className="h-full overflow-hidden px-1.5 py-1.5">
                             <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
                               {showAllCommitFiles ? (
                                 <div className="border-border/70 border-b px-2 py-2">
                                   <Input
-                                    className="h-8"
+                                    className="h-7"
                                     onChange={(event) => {
                                       setCommitFileFilterInputValue(
                                         event.target.value
@@ -9893,7 +9904,7 @@ export function RepoInfo() {
                               ) : null}
                               {commitDetailsViewMode === "tree" &&
                               filteredCommitFiles.length > 0 ? (
-                                <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                                <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
                                   {(() => {
                                     const expandableNodeKeys = Object.keys(
                                       collectExpandableCommitTreeKeys(
@@ -9911,7 +9922,7 @@ export function RepoInfo() {
 
                                     return (
                                       <Button
-                                        className="h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                        className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
                                         onClick={() => {
                                           if (isCommitTreeFullyExpanded) {
                                             collapseCommitTree(
@@ -9969,11 +9980,11 @@ export function RepoInfo() {
                 </>
               ) : (
                 <>
-                  <header className="shrink-0 space-y-3 border-border/70 border-b px-3 py-3">
-                    <div className="flex items-center justify-between gap-2">
+                  <header className="shrink-0 space-y-2.5 border-border/70 border-b px-2.5 py-2.5">
+                    <div className="flex items-center justify-between gap-1.5">
                       <Button
                         aria-label="Discard all changes"
-                        className="h-8 w-8 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                        className="h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground"
                         disabled={
                           !hasAnyWorkingTreeChanges || isDiscardingAllChanges
                         }
@@ -9984,21 +9995,21 @@ export function RepoInfo() {
                       >
                         <TrashIcon className="size-4" />
                       </Button>
-                      <p className="truncate text-sm">
+                      <p className="truncate text-xs">
                         <span className="font-medium">
                           {showAllFiles
                             ? `${allRepositoryFiles.length} repository files`
                             : `${workingTreeItems.length} file changes`}
                         </span>{" "}
                         on{" "}
-                        <span className="bg-accent px-2 py-0.5 font-medium text-accent-foreground">
+                        <span className="bg-accent px-1.5 py-0.5 font-medium text-accent-foreground text-xs">
                           {currentBranch}
                         </span>
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
                         <Tooltip>
                           <TooltipTrigger
                             render={
@@ -10028,7 +10039,7 @@ export function RepoInfo() {
                         <div className="inline-flex border border-border/80 bg-background/70 p-0.5">
                           <button
                             className={cn(
-                              "px-3 py-1 font-medium text-xs transition-colors",
+                              "px-2.5 py-0.5 font-medium text-xs transition-colors",
                               changesViewMode === "path"
                                 ? "bg-accent text-accent-foreground"
                                 : "text-muted-foreground hover:text-foreground",
@@ -10042,7 +10053,7 @@ export function RepoInfo() {
                           </button>
                           <button
                             className={cn(
-                              "px-3 py-1 font-medium text-xs transition-colors",
+                              "px-2.5 py-0.5 font-medium text-xs transition-colors",
                               changesViewMode === "tree"
                                 ? "bg-accent text-accent-foreground"
                                 : "text-muted-foreground hover:text-foreground"
@@ -10057,13 +10068,13 @@ export function RepoInfo() {
                     </div>
                   </header>
 
-                  <div className="min-h-0 flex-1 overflow-hidden px-3 py-3">
+                  <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-2.5">
                     <div className="flex h-full min-h-0 flex-col border border-border/70 bg-background/50">
                       {showAllFiles ? (
                         <section className="flex min-h-0 flex-1 flex-col">
                           <div className="border-border/70 border-b px-2 py-2">
                             <Input
-                              className="h-8"
+                              className="h-7"
                               onChange={(event) => {
                                 setRepositoryFileFilterInputValue(
                                   event.target.value
@@ -10074,7 +10085,7 @@ export function RepoInfo() {
                             />
                           </div>
                           {filteredRepositoryFiles.length > 0 ? (
-                            <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                            <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
                               {(() => {
                                 const expandableNodeState =
                                   collectExpandableTreeKeys(
@@ -10091,7 +10102,7 @@ export function RepoInfo() {
 
                                 return (
                                   <Button
-                                    className="h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                    className="h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
                                     onClick={() => {
                                       if (isAllFilesTreeFullyExpanded) {
                                         setExpandedTreeNodePaths((current) => {
@@ -10137,9 +10148,9 @@ export function RepoInfo() {
                               isUnstagedSectionCollapsed ? "shrink-0" : "flex-1"
                             )}
                           >
-                            <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                            <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
                               <button
-                                className="inline-flex items-center gap-1 text-left font-medium text-sm"
+                                className="inline-flex items-center gap-1 text-left font-medium text-xs"
                                 onClick={() =>
                                   setIsUnstagedSectionCollapsed(
                                     (current) => !current
@@ -10155,7 +10166,7 @@ export function RepoInfo() {
                                 Unstaged Files ({unstagedItems.length})
                               </button>
                               <Button
-                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
                                 disabled={!hasUnstagedChanges || isStagingAll}
                                 onClick={() => {
                                   handleStageAll().catch(() => undefined);
@@ -10189,9 +10200,9 @@ export function RepoInfo() {
                                 : "flex-1"
                             )}
                           >
-                            <div className="flex items-center gap-2 border-border/70 border-b px-2 py-2">
+                            <div className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
                               <button
-                                className="inline-flex items-center gap-1 text-left font-medium text-sm"
+                                className="inline-flex items-center gap-1 text-left font-medium text-xs"
                                 onClick={() =>
                                   setIsStagedSectionCollapsed(
                                     (current) => !current
@@ -10207,7 +10218,7 @@ export function RepoInfo() {
                                 Staged Files ({stagedItems.length})
                               </button>
                               <Button
-                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-[0.72rem] text-foreground hover:bg-accent/40"
+                                className="ml-auto h-7 border border-border/70 bg-background/60 px-2 text-foreground text-xs hover:bg-accent/40"
                                 disabled={!hasStagedChanges || isUnstagingAll}
                                 onClick={() => {
                                   handleUnstageAll().catch(() => undefined);
@@ -10237,11 +10248,14 @@ export function RepoInfo() {
                     </div>
                   </div>
 
-                  <form className="shrink-0 border-border/70 border-t px-4 py-4">
+                  <form className="shrink-0 border-border/70 border-t px-3 py-3">
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <Label htmlFor="commit-summary">Title</Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-xs" htmlFor="commit-summary">
+                          Title
+                        </Label>
                         <Button
+                          className="h-6 px-2 text-xs"
                           disabled={
                             isGeneratingAiCommitMessage ||
                             aiSelectedModel.trim().length === 0 ||
@@ -10252,17 +10266,18 @@ export function RepoInfo() {
                               () => undefined
                             );
                           }}
-                          size="sm"
+                          size="xs"
                           type="button"
                           variant="outline"
                         >
-                          <SparkleIcon className="size-4" />
+                          <SparkleIcon className="size-3" />
                           {isGeneratingAiCommitMessage
                             ? "Generating..."
                             : "Generate with AI"}
                         </Button>
                       </div>
                       <Input
+                        className="h-7 text-xs"
                         id="commit-summary"
                         onChange={(event) =>
                           setDraftCommitSummary(event.target.value)
@@ -10273,9 +10288,11 @@ export function RepoInfo() {
                       />
                     </div>
                     <div className="mt-3 space-y-2">
-                      <Label htmlFor="commit-description">Description</Label>
+                      <Label className="text-xs" htmlFor="commit-description">
+                        Description
+                      </Label>
                       <textarea
-                        className="h-24 w-full resize-none overflow-y-scroll border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className="h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                         id="commit-description"
                         onChange={(event) =>
                           setDraftCommitDescription(event.target.value)
@@ -10382,12 +10399,13 @@ export function RepoInfo() {
                       )}
                     </div>
                     <Button
-                      className="mt-4 w-full"
+                      className="mt-3 h-7 w-full text-xs"
                       disabled={isCommitting || !canCommit}
                       onClick={handleCommit}
+                      size="sm"
                       type="button"
                     >
-                      <DotOutlineIcon className="size-4" />
+                      <DotOutlineIcon className="size-3.5" />
                       Commit staged changes
                     </Button>
                   </form>

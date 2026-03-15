@@ -5095,13 +5095,13 @@ export function SettingsPage() {
             {query.length > 0 ? (
               <Button
                 aria-label="Clear search"
-                className="absolute top-1 right-1"
+                className="absolute top-1/2 right-0.5 -translate-y-1/2"
                 onClick={resetSettingsSearch}
-                size="icon-sm"
+                size="icon-xs"
                 type="button"
                 variant="ghost"
               >
-                <XIcon className="size-3.5" />
+                <XIcon className="size-3" />
               </Button>
             ) : null}
           </div>
