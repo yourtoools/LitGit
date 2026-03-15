@@ -360,16 +360,6 @@ const LazyDiffWorkspaceBlameSurface = lazy(async () => {
   };
 });
 
-const LazyDiffWorkspaceFileExplorer = lazy(async () => {
-  const module = await import(
-    "@/components/views/repo-info/diff-workspace-file-explorer"
-  );
-
-  return {
-    default: module.DiffWorkspaceFileExplorer,
-  };
-});
-
 const LazyDiffWorkspaceMarkdownPreviewSurface = lazy(async () => {
   const module = await import(
     "@/components/views/repo-info/diff-workspace-markdown-preview-surface"
@@ -1333,14 +1323,10 @@ export function RepoInfo() {
   const [isLoadingEditBuffer, setIsLoadingEditBuffer] = useState(false);
   const [isSavingEditBuffer, setIsSavingEditBuffer] = useState(false);
   const [editLoadError, setEditLoadError] = useState<string | null>(null);
-  const [isFileExplorerOpen, setIsFileExplorerOpen] = useState(false);
   const [pendingWorkspaceMode, setPendingWorkspaceMode] =
     useState<DiffWorkspaceMode | null>(null);
   const [pendingOpenDiffContext, setPendingOpenDiffContext] =
     useState<DiffPreviewOpenContext | null>(null);
-  const [pendingExplorerPath, setPendingExplorerPath] = useState<string | null>(
-    null
-  );
   const [pendingCloseDiffPanel, setPendingCloseDiffPanel] = useState(false);
   const [isUnsavedEditConfirmOpen, setIsUnsavedEditConfirmOpen] =
     useState(false);
@@ -5505,10 +5491,8 @@ export function RepoInfo() {
     setIsLoadingEditBuffer(false);
     setIsSavingEditBuffer(false);
     setEditLoadError(null);
-    setIsFileExplorerOpen(false);
     setPendingWorkspaceMode(null);
     setPendingOpenDiffContext(null);
-    setPendingExplorerPath(null);
     setPendingCloseDiffPanel(false);
     setIsUnsavedEditConfirmOpen(false);
     setOpenedCommitDiff(null);
@@ -5929,7 +5913,6 @@ export function RepoInfo() {
 
       setIsLoadingEditBuffer(true);
       setEditLoadError(null);
-      setIsFileExplorerOpen(false);
 
       if (hasUnsupportedWorkspaceTextEncoding) {
         setEditBuffer("");
@@ -6015,7 +5998,6 @@ export function RepoInfo() {
       if (isEditDirty) {
         setPendingWorkspaceMode(nextMode);
         setPendingOpenDiffContext(null);
-        setPendingExplorerPath(null);
         setPendingCloseDiffPanel(false);
         setIsUnsavedEditConfirmOpen(true);
         return;
@@ -6090,7 +6072,6 @@ export function RepoInfo() {
         filePath,
         item,
       });
-      setPendingExplorerPath(null);
       setPendingCloseDiffPanel(false);
       setIsUnsavedEditConfirmOpen(true);
       return;
@@ -6528,7 +6509,6 @@ export function RepoInfo() {
     if (isEditDirty) {
       setPendingWorkspaceMode(null);
       setPendingOpenDiffContext(null);
-      setPendingExplorerPath(null);
       setPendingCloseDiffPanel(true);
       setIsUnsavedEditConfirmOpen(true);
       return;
@@ -6536,45 +6516,6 @@ export function RepoInfo() {
 
     closeDiffPreviewPanel();
   }, [closeDiffPreviewPanel, isEditDirty]);
-
-  const handleExplorerPathSelection = async (nextPath: string) => {
-    if (!openedDiffContext) {
-      return;
-    }
-
-    if (openedDiffContext.filePath === nextPath) {
-      return;
-    }
-
-    if (isEditDirty) {
-      setPendingWorkspaceMode(null);
-      setPendingOpenDiffContext(null);
-      setPendingExplorerPath(nextPath);
-      setPendingCloseDiffPanel(false);
-      setIsUnsavedEditConfirmOpen(true);
-      return;
-    }
-
-    const nextContext: DiffPreviewOpenContext = {
-      source: "working",
-      mode: "diff",
-      filePath: nextPath,
-      item: workingTreeItemByPath.get(nextPath) ?? {
-        isUntracked: false,
-        path: nextPath,
-        stagedStatus: " ",
-        unstagedStatus: " ",
-      },
-    };
-
-    setOpenedDiffContext(nextContext);
-    setDiffPreviewPanelState({ kind: "preflightLoading", path: nextPath });
-    setWorkspaceMode("diff");
-    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
-    await runDiffPreviewPreflight(nextContext, "diff");
-    setWorkspaceMode("edit");
-    await loadEditSurface(nextContext);
-  };
 
   const toolbarControls = resolveToolbarControlState({
     hasDiffEditor: isDiffEditorReady,
@@ -6612,7 +6553,6 @@ export function RepoInfo() {
       const nextContext = pendingOpenDiffContext;
       setPendingOpenDiffContext(null);
       setPendingWorkspaceMode(null);
-      setPendingExplorerPath(null);
       setWorkspaceMode(nextContext.mode);
       setWorkspaceFilePresentation(
         nextContext.mode === "file"
@@ -6626,33 +6566,6 @@ export function RepoInfo() {
         path: nextContext.filePath,
       });
       await runDiffPreviewPreflight(nextContext, nextContext.mode);
-      return;
-    }
-
-    if (pendingExplorerPath && openedDiffContext) {
-      const nextContext: DiffPreviewOpenContext = {
-        source: "working",
-        mode: "diff",
-        filePath: pendingExplorerPath,
-        item: workingTreeItemByPath.get(pendingExplorerPath) ?? {
-          isUntracked: false,
-          path: pendingExplorerPath,
-          stagedStatus: " ",
-          unstagedStatus: " ",
-        },
-      };
-
-      setPendingExplorerPath(null);
-      setOpenedDiffContext(nextContext);
-      setDiffPreviewPanelState({
-        kind: "preflightLoading",
-        path: pendingExplorerPath,
-      });
-      setWorkspaceMode("diff");
-      setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
-      await runDiffPreviewPreflight(nextContext, "diff");
-      setWorkspaceMode("edit");
-      await loadEditSurface(nextContext);
       return;
     }
 
@@ -6694,7 +6607,6 @@ export function RepoInfo() {
         filePath,
         status,
       });
-      setPendingExplorerPath(null);
       setPendingCloseDiffPanel(false);
       setIsUnsavedEditConfirmOpen(true);
       return;
@@ -6770,7 +6682,6 @@ export function RepoInfo() {
     setEditLoadError(null);
     setPendingWorkspaceMode(null);
     setPendingOpenDiffContext(null);
-    setPendingExplorerPath(null);
     setPendingCloseDiffPanel(false);
     setOpenedDiffContext(context);
     setWorkspaceMode(mode);
@@ -9284,39 +9195,7 @@ export function RepoInfo() {
                               >
                                 {isSavingEditBuffer ? "Saving..." : "Save"}
                               </Button>
-                              <Button
-                                className="h-7 px-2 text-xs"
-                                onClick={() => {
-                                  setIsFileExplorerOpen((current) => !current);
-                                }}
-                                size="sm"
-                                type="button"
-                                variant="ghost"
-                              >
-                                Explorer
-                              </Button>
                             </div>
-                            {isFileExplorerOpen ? (
-                              <Suspense
-                                fallback={
-                                  <div className="absolute top-2 right-2 z-30 rounded-md border border-border/70 bg-background px-3 py-2 text-muted-foreground text-xs">
-                                    Loading explorer...
-                                  </div>
-                                }
-                              >
-                                <LazyDiffWorkspaceFileExplorer
-                                  activePath={
-                                    openedDiffContext?.filePath ?? null
-                                  }
-                                  files={allRepositoryFiles}
-                                  onSelectPath={(path) => {
-                                    handleExplorerPathSelection(path).catch(
-                                      () => undefined
-                                    );
-                                  }}
-                                />
-                              </Suspense>
-                            ) : null}
                           </>
                         )}
                       </>
@@ -10353,7 +10232,6 @@ export function RepoInfo() {
           if (!open) {
             setPendingWorkspaceMode(null);
             setPendingOpenDiffContext(null);
-            setPendingExplorerPath(null);
             setPendingCloseDiffPanel(false);
           }
         }}

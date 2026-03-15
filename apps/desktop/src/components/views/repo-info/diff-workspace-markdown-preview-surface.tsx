@@ -1,5 +1,5 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 
 interface DiffWorkspaceMarkdownPreviewSurfaceProps {
   markdown: string;
@@ -10,8 +10,6 @@ const ORDERED_LIST_PATTERN = /^\s*\d+\.\s+(.+)$/;
 const UNORDERED_LIST_PATTERN = /^\s*[-*+]\s+(.+)$/;
 const BLOCKQUOTE_PATTERN = /^\s*>\s?(.*)$/;
 const FENCE_PATTERN = /^```([\w-]+)?\s*$/;
-const INLINE_MARKDOWN_PATTERN =
-  /(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
 const LINK_PATTERN = /^\[([^\]]+)\]\(([^)]+)\)$/;
 const EXTERNAL_HTTP_PATTERN = /^https?:\/\//i;
 
@@ -27,9 +25,11 @@ function isSafeHref(value: string): boolean {
 }
 
 function renderInlineMarkdown(value: string): ReactNode[] {
+  const inlineMarkdownPattern =
+    /(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
   const nodes: ReactNode[] = [];
   let cursor = 0;
-  let match = INLINE_MARKDOWN_PATTERN.exec(value);
+  let match = inlineMarkdownPattern.exec(value);
 
   while (match !== null) {
     const token = match[0];
@@ -96,10 +96,8 @@ function renderInlineMarkdown(value: string): ReactNode[] {
     }
 
     cursor = tokenEnd;
-    match = INLINE_MARKDOWN_PATTERN.exec(value);
+    match = inlineMarkdownPattern.exec(value);
   }
-
-  INLINE_MARKDOWN_PATTERN.lastIndex = 0;
 
   if (cursor < value.length) {
     nodes.push(value.slice(cursor));
@@ -365,11 +363,15 @@ export function DiffWorkspaceMarkdownPreviewSurface({
 }: DiffWorkspaceMarkdownPreviewSurfaceProps) {
   const normalized =
     markdown.trim().length === 0 ? "_(Empty markdown file)_" : markdown;
+  const renderedBlocks = useMemo(
+    () => parseMarkdownBlocks(normalized),
+    [normalized]
+  );
 
   return (
     <div className="h-full overflow-auto px-5 py-4">
       <article className="diff-workspace-markdown-preview text-foreground [&>*:first-child]:mt-0">
-        {parseMarkdownBlocks(normalized)}
+        {renderedBlocks}
       </article>
     </div>
   );

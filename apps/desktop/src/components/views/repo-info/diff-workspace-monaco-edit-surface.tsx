@@ -42,7 +42,11 @@ export function DiffWorkspaceMonacoEditSurface({
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
           onSave();
         });
+        editor.onKeyDown((event) => {
+          event.stopPropagation();
+        });
         onMount(editor);
+        editor.focus();
       }}
       options={{
         automaticLayout: true,
@@ -53,6 +57,7 @@ export function DiffWorkspaceMonacoEditSurface({
         minimap: { enabled: false },
         readOnly: false,
         scrollBeyondLastLine: false,
+        trimAutoWhitespace: false,
         wordSeparators: syntaxHighlighting ? undefined : "",
         wordWrap,
       }}
