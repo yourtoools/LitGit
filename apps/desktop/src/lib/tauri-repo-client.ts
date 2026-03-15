@@ -684,6 +684,25 @@ export async function switchRepoBranch(path: string, branchName: string) {
   });
 }
 
+export async function checkoutRepoCommit(path: string, target: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Checkout commit works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git switch --detach ${target}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      target,
+    },
+    invokeCommand: "checkout_repository_commit",
+    repoPath: path,
+  });
+}
+
 export async function createRepoBranch(path: string, branchName: string) {
   const invoke = getTauriInvoke();
 
@@ -699,6 +718,30 @@ export async function createRepoBranch(path: string, branchName: string) {
       repoPath: path,
     },
     invokeCommand: "create_repository_branch",
+    repoPath: path,
+  });
+}
+
+export async function createRepoBranchAtReference(
+  path: string,
+  branchName: string,
+  target: string
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Create branch works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git switch -c ${branchName} ${target}`,
+    invoke,
+    invokeArgs: {
+      branchName,
+      repoPath: path,
+      target,
+    },
+    invokeCommand: "create_repository_branch_at_reference",
     repoPath: path,
   });
 }
@@ -1321,6 +1364,79 @@ export async function resetRepoToReference(
       mode,
     },
     invokeCommand: "reset_repository_to_reference",
+    repoPath: path,
+  });
+}
+
+export async function cherryPickRepoCommit(path: string, target: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Cherry-pick works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git cherry-pick ${target}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      target,
+    },
+    invokeCommand: "cherry_pick_repository_commit",
+    repoPath: path,
+  });
+}
+
+export async function revertRepoCommit(path: string, target: string) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Revert commit works in Tauri desktop app only");
+  }
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: `git revert --no-edit ${target}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      target,
+    },
+    invokeCommand: "revert_repository_commit",
+    repoPath: path,
+  });
+}
+
+export async function createRepoTag(
+  path: string,
+  tagName: string,
+  target: string,
+  annotated = false,
+  annotationMessage?: string
+) {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Create tag works in Tauri desktop app only");
+  }
+
+  const resolvedAnnotationMessage =
+    annotationMessage && annotationMessage.trim().length > 0
+      ? annotationMessage.trim()
+      : tagName;
+
+  await invokeRepoCommandWithSystemLog<void>({
+    command: annotated
+      ? `git tag -a ${tagName} ${target} -m ${resolvedAnnotationMessage}`
+      : `git tag ${tagName} ${target}`,
+    invoke,
+    invokeArgs: {
+      annotated,
+      annotationMessage: resolvedAnnotationMessage,
+      repoPath: path,
+      tagName,
+      target,
+    },
+    invokeCommand: "create_repository_tag",
     repoPath: path,
   });
 }

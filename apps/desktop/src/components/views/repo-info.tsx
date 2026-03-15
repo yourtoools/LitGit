@@ -1149,9 +1149,17 @@ export function RepoInfo() {
   const isLoadingStatus = useRepoStore((state) => state.isLoadingStatus);
   const isLoadingWip = useRepoStore((state) => state.isLoadingWip);
   const createBranch = useRepoStore((state) => state.createBranch);
+  const createBranchAtReference = useRepoStore(
+    (state) => state.createBranchAtReference
+  );
+  const createTag = useRepoStore((state) => state.createTag);
   const deleteBranch = useRepoStore((state) => state.deleteBranch);
   const deleteRemoteBranch = useRepoStore((state) => state.deleteRemoteBranch);
   const renameBranch = useRepoStore((state) => state.renameBranch);
+  const checkoutCommit = useRepoStore((state) => state.checkoutCommit);
+  const cherryPickCommit = useRepoStore((state) => state.cherryPickCommit);
+  const revertCommit = useRepoStore((state) => state.revertCommit);
+  const resetToReference = useRepoStore((state) => state.resetToReference);
   const setBranchUpstream = useRepoStore((state) => state.setBranchUpstream);
   const switchBranch = useRepoStore((state) => state.switchBranch);
   const applyStash = useRepoStore((state) => state.applyStash);
@@ -1270,6 +1278,28 @@ export function RepoInfo() {
     string | null
   >(null);
   const [isSettingUpstream, setIsSettingUpstream] = useState(false);
+  const [isCreateRefBranchDialogOpen, setIsCreateRefBranchDialogOpen] =
+    useState(false);
+  const [createRefBranchName, setCreateRefBranchName] = useState("");
+  const [createRefBranchTarget, setCreateRefBranchTarget] = useState<
+    string | null
+  >(null);
+  const [createRefBranchLabel, setCreateRefBranchLabel] = useState("");
+  const [isCreatingRefBranch, setIsCreatingRefBranch] = useState(false);
+  const [isCreateTagDialogOpen, setIsCreateTagDialogOpen] = useState(false);
+  const [createTagNameValue, setCreateTagNameValue] = useState("");
+  const [createTagTarget, setCreateTagTarget] = useState<string | null>(null);
+  const [createTagTargetLabel, setCreateTagTargetLabel] = useState("");
+  const [createTagAnnotated, setCreateTagAnnotated] = useState(false);
+  const [isCreatingTagAtReference, setIsCreatingTagAtReference] =
+    useState(false);
+  const [resetTarget, setResetTarget] = useState<string | null>(null);
+  const [resetTargetLabel, setResetTargetLabel] = useState("");
+  const [resetTargetMode, setResetTargetMode] = useState<
+    "hard" | "mixed" | "soft"
+  >("mixed");
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isResettingToReference, setIsResettingToReference] = useState(false);
   const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
   const [isPublishRepoConfirmOpen, setIsPublishRepoConfirmOpen] =
     useState(false);
@@ -1292,6 +1322,19 @@ export function RepoInfo() {
   const [isCreatingStash, setIsCreatingStash] = useState(false);
   const [isPoppingStash, setIsPoppingStash] = useState(false);
   const [isDroppingStash, setIsDroppingStash] = useState(false);
+  const [isCheckingOutCommit, setIsCheckingOutCommit] = useState(false);
+  const [isCherryPickingCommit, setIsCherryPickingCommit] = useState(false);
+  const [isRevertingCommit, setIsRevertingCommit] = useState(false);
+  let resetTargetDescription =
+    "Hard reset discards staged and working tree changes after moving HEAD. Use this carefully.";
+
+  if (resetTargetMode === "soft") {
+    resetTargetDescription =
+      "Move HEAD to the selected commit and keep all staged and working tree changes.";
+  } else if (resetTargetMode === "mixed") {
+    resetTargetDescription =
+      "Move HEAD to the selected commit, keep working tree changes, and unstage them.";
+  }
   const [draftCommitSummary, setDraftCommitSummary] = useState("");
   const [draftCommitDescription, setDraftCommitDescription] = useState("");
   const [amendPreviousCommit, setAmendPreviousCommit] = useState(false);
@@ -2236,17 +2279,6 @@ export function RepoInfo() {
     isTimelineGraphAutoCompact ||
     timelineGraphColumnWidth === TIMELINE_GRAPH_COLUMN_MIN_WIDTH;
   const timelineGridTemplateColumns = `${TIMELINE_BRANCH_COLUMN_WIDTH}px ${effectiveTimelineGraphColumnWidth}px minmax(0,1fr)`;
-  const childCommitCountByHash = useMemo<Record<string, number>>(() => {
-    const countsByHash: Record<string, number> = {};
-
-    for (const entry of commits) {
-      for (const parentHash of entry.parentHashes) {
-        countsByHash[parentHash] = (countsByHash[parentHash] ?? 0) + 1;
-      }
-    }
-
-    return countsByHash;
-  }, [commits]);
   const commitAvatarUrlByHash = useMemo<Record<string, string | null>>(() => {
     const avatarByHash: Record<string, string | null> = {};
 
@@ -2616,6 +2648,85 @@ export function RepoInfo() {
     }
 
     return `Git could not set upstream: ${rawMessage}`;
+  };
+
+  const getCommitActionFailureReason = (
+    error: unknown,
+    action:
+      | "checkout"
+      | "create-branch"
+      | "reset"
+      | "cherry-pick"
+      | "revert"
+      | "create-tag"
+  ): string => {
+    const rawMessage = getErrorMessage(error);
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("rebase in progress") ||
+      normalized.includes("merge in progress") ||
+      normalized.includes("cherry-pick in progress")
+    ) {
+      return "Another Git operation is in progress. Finish or abort it, then try again.";
+    }
+
+    if (
+      normalized.includes("local changes") &&
+      normalized.includes("would be overwritten")
+    ) {
+      return "You have uncommitted changes that block this action. Commit, stash, or discard them first.";
+    }
+
+    if (
+      normalized.includes("unknown revision") ||
+      normalized.includes("bad revision") ||
+      normalized.includes("could not be resolved")
+    ) {
+      return "The selected commit or reference could not be resolved. Refresh repository data and try again.";
+    }
+
+    if (
+      action === "create-branch" &&
+      (normalized.includes("already exists") ||
+        normalized.includes("fatal: a branch named"))
+    ) {
+      return "A branch with this name already exists.";
+    }
+
+    if (action === "create-branch" && normalized.includes("valid git branch")) {
+      return "Enter a valid Git branch name.";
+    }
+
+    if (action === "create-tag" && normalized.includes("already exists")) {
+      return "A tag with this name already exists.";
+    }
+
+    if (action === "create-tag" && normalized.includes("valid git tag")) {
+      return "Enter a valid Git tag name.";
+    }
+
+    if (action === "reset" && normalized.includes("detached head")) {
+      return "Resetting a branch requires a checked out branch. Exit detached HEAD and try again.";
+    }
+
+    if (
+      action === "revert" &&
+      normalized.includes("is a merge but no -m option")
+    ) {
+      return "Reverting a merge commit is not supported in this menu yet.";
+    }
+
+    const actionLabelByKind = {
+      checkout: "checkout this commit",
+      "create-branch": "create a branch here",
+      "create-tag": "create a tag here",
+      "cherry-pick": "cherry-pick this commit",
+      reset: "reset to this commit",
+      revert: "revert this commit",
+    } as const;
+
+    return `Git could not ${actionLabelByKind[action]}: ${rawMessage}`;
   };
 
   const getMergeFailureReason = (
@@ -3923,6 +4034,231 @@ export function RepoInfo() {
     }
   };
 
+  const handleCheckoutCommit = async (
+    target: string,
+    targetLabel: string,
+    rowId?: string | null
+  ) => {
+    if (!activeRepoId || isCheckingOutCommit) {
+      return;
+    }
+
+    setIsCheckingOutCommit(true);
+
+    try {
+      await checkoutCommit(activeRepoId, target);
+      if (rowId) {
+        setSelectedTimelineRowId(rowId);
+        setSelectedCommitId(target);
+      }
+      toast.success("Checkout Successful", {
+        description: targetLabel,
+      });
+    } catch (error) {
+      toast.error("Failed to checkout commit", {
+        description: getCommitActionFailureReason(error, "checkout"),
+      });
+    } finally {
+      setIsCheckingOutCommit(false);
+    }
+  };
+
+  const openCreateBranchAtReferenceDialog = (
+    target: string,
+    targetLabel: string
+  ) => {
+    if (isCreatingRefBranch) {
+      return;
+    }
+
+    setCreateRefBranchTarget(target);
+    setCreateRefBranchLabel(targetLabel);
+    setCreateRefBranchName("");
+    setIsCreateRefBranchDialogOpen(true);
+  };
+
+  const handleCreateBranchAtReference = async () => {
+    if (!(activeRepoId && createRefBranchTarget) || isCreatingRefBranch) {
+      return;
+    }
+
+    const trimmedBranchName = createRefBranchName.trim();
+
+    if (trimmedBranchName.length === 0) {
+      toast.error("Branch name is required");
+      return;
+    }
+
+    setIsCreatingRefBranch(true);
+
+    try {
+      await createBranchAtReference(
+        activeRepoId,
+        trimmedBranchName,
+        createRefBranchTarget
+      );
+      toast.success("Branch created", {
+        description: `${trimmedBranchName} at ${createRefBranchLabel}`,
+      });
+      setIsCreateRefBranchDialogOpen(false);
+      setCreateRefBranchTarget(null);
+      setCreateRefBranchLabel("");
+      setCreateRefBranchName("");
+    } catch (error) {
+      toast.error("Failed to create branch", {
+        description: getCommitActionFailureReason(error, "create-branch"),
+      });
+    } finally {
+      setIsCreatingRefBranch(false);
+    }
+  };
+
+  const openCreateTagDialog = (
+    target: string,
+    targetLabel: string,
+    annotated: boolean
+  ) => {
+    if (isCreatingTagAtReference) {
+      return;
+    }
+
+    setCreateTagTarget(target);
+    setCreateTagTargetLabel(targetLabel);
+    setCreateTagAnnotated(annotated);
+    setCreateTagNameValue("");
+    setIsCreateTagDialogOpen(true);
+  };
+
+  const handleCreateTagAtReference = async () => {
+    if (!(activeRepoId && createTagTarget) || isCreatingTagAtReference) {
+      return;
+    }
+
+    const trimmedTagName = createTagNameValue.trim();
+
+    if (trimmedTagName.length === 0) {
+      toast.error("Tag name is required");
+      return;
+    }
+
+    setIsCreatingTagAtReference(true);
+
+    try {
+      await createTag(
+        activeRepoId,
+        trimmedTagName,
+        createTagTarget,
+        createTagAnnotated,
+        createTagAnnotated ? trimmedTagName : undefined
+      );
+      toast.success(
+        createTagAnnotated ? "Annotated tag created" : "Tag created",
+        {
+          description: `${trimmedTagName} at ${createTagTargetLabel}`,
+        }
+      );
+      setIsCreateTagDialogOpen(false);
+      setCreateTagTarget(null);
+      setCreateTagTargetLabel("");
+      setCreateTagNameValue("");
+      setCreateTagAnnotated(false);
+    } catch (error) {
+      toast.error("Failed to create tag", {
+        description: getCommitActionFailureReason(error, "create-tag"),
+      });
+    } finally {
+      setIsCreatingTagAtReference(false);
+    }
+  };
+
+  const openResetConfirm = (
+    target: string,
+    targetLabel: string,
+    mode: "hard" | "mixed" | "soft"
+  ) => {
+    if (isResettingToReference) {
+      return;
+    }
+
+    setResetTarget(target);
+    setResetTargetLabel(targetLabel);
+    setResetTargetMode(mode);
+    setIsResetConfirmOpen(true);
+  };
+
+  const handleResetToCommit = async () => {
+    if (!(activeRepoId && resetTarget) || isResettingToReference) {
+      return;
+    }
+
+    setIsResettingToReference(true);
+
+    try {
+      await resetToReference(activeRepoId, resetTarget, resetTargetMode);
+      toast.success("Reset completed", {
+        description: `${resetTargetMode} -> ${resetTargetLabel}`,
+      });
+      setIsResetConfirmOpen(false);
+      setResetTarget(null);
+      setResetTargetLabel("");
+      setResetTargetMode("mixed");
+    } catch (error) {
+      toast.error("Failed to reset", {
+        description: getCommitActionFailureReason(error, "reset"),
+      });
+    } finally {
+      setIsResettingToReference(false);
+    }
+  };
+
+  const handleCherryPickAtReference = async (
+    target: string,
+    targetLabel: string
+  ) => {
+    if (!activeRepoId || isCherryPickingCommit) {
+      return;
+    }
+
+    setIsCherryPickingCommit(true);
+
+    try {
+      await cherryPickCommit(activeRepoId, target);
+      toast.success("Cherry-pick completed", {
+        description: targetLabel,
+      });
+    } catch (error) {
+      toast.error("Failed to cherry-pick commit", {
+        description: getCommitActionFailureReason(error, "cherry-pick"),
+      });
+    } finally {
+      setIsCherryPickingCommit(false);
+    }
+  };
+
+  const handleRevertAtReference = async (
+    target: string,
+    targetLabel: string
+  ) => {
+    if (!activeRepoId || isRevertingCommit) {
+      return;
+    }
+
+    setIsRevertingCommit(true);
+
+    try {
+      await revertCommit(activeRepoId, target);
+      toast.success("Revert completed", {
+        description: targetLabel,
+      });
+    } catch (error) {
+      toast.error("Failed to revert commit", {
+        description: getCommitActionFailureReason(error, "revert"),
+      });
+    } finally {
+      setIsRevertingCommit(false);
+    }
+  };
+
   const handleApplyStash = async (entry: SidebarEntry) => {
     if (
       entry.type !== "stash" ||
@@ -4678,6 +5014,11 @@ export function RepoInfo() {
   );
 
   const renderEntryDropdownMenuContent = (entry: SidebarEntry) => {
+    const entryCommitHash = getCommitHashForEntry(entry);
+    const targetRef = entryCommitHash ?? entry.name;
+    const targetLabel =
+      entryCommitHash === null ? entry.name : `commit ${targetRef.slice(0, 7)}`;
+
     if (entry.type === "tag") {
       return (
         <DropdownMenuContent
@@ -4730,67 +5071,125 @@ export function RepoInfo() {
             Rebase {currentBranch} onto {entry.name}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Checkout the commit at {entry.name}
+          <DropdownMenuItem
+            disabled={isCheckingOutCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                handleCheckoutCommit(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Checkout this commit
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isCreatingRefBranch || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openCreateBranchAtReferenceDialog(entryCommitHash, targetLabel);
+              }
+            }}
+          >
+            Create branch here
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isCherryPickingCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                handleCherryPickAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Cherry-pick commit
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Explain Branch Changes (Preview)
+          <DropdownMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openResetConfirm(entryCommitHash, targetLabel, "soft");
+              }
+            }}
+          >
+            Reset {currentBranch} here: Soft
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openResetConfirm(entryCommitHash, targetLabel, "mixed");
+              }
+            }}
+          >
+            Reset {currentBranch} here: Mixed
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openResetConfirm(entryCommitHash, targetLabel, "hard");
+              }
+            }}
+          >
+            Reset {currentBranch} here: Hard
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isRevertingCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                handleRevertAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Revert commit
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Create branch here</DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Cherry pick commit</DropdownMenuItem>
-          <DropdownMenuSub>
-            {/* TODO: Implement this action */}
-            <DropdownMenuSubTrigger disabled>
-              Reset {currentBranch} to this commit
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {/* TODO: Implement this action */}
-              <DropdownMenuItem disabled>
-                Soft - keep all changes
-              </DropdownMenuItem>
-              {/* TODO: Implement this action */}
-              <DropdownMenuItem disabled>
-                Mixed - keep working copy but reset index
-              </DropdownMenuItem>
-              {/* TODO: Implement this action */}
-              <DropdownMenuItem disabled>
-                Hard - discard all changes
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Revert commit</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Delete {entry.name} locally
+          <DropdownMenuItem
+            onClick={() => {
+              navigator.clipboard.writeText(entry.name).catch(() => undefined);
+            }}
+          >
+            Copy tag name
           </DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Delete {entry.name} from origin
+          <DropdownMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                copyToClipboard(entryCommitHash, "commit SHA").catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Copy commit sha
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Copy tag name</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Copy link to this tag on remote: origin
+          <DropdownMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openCreateTagDialog(entryCommitHash, targetLabel, false);
+              }
+            }}
+          >
+            Create tag here
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Hide</DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Solo</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Annotate {entry.name}</DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openCreateTagDialog(entryCommitHash, targetLabel, true);
+              }
+            }}
+          >
+            Create annotated tag here
+          </DropdownMenuItem>
         </DropdownMenuContent>
       );
     }
@@ -4829,229 +5228,232 @@ export function RepoInfo() {
           >
             Delete Stash
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Edit stash message</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Share stash as Cloud Patch
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Hide</DropdownMenuItem>
         </DropdownMenuContent>
       );
     }
 
-    return (() => {
-      const entryCommitHash = getCommitHashForEntry(entry);
-      const canShowMergeActions = !entry.active;
+    const canShowMergeActions = !entry.active;
 
-      return (
-        <DropdownMenuContent
-          align="end"
-          className="w-80"
-          onClick={preventLeftClickInMenus}
-          onMouseDown={preventLeftClickInMenus}
-          side="right"
-          sideOffset={6}
+    return (
+      <DropdownMenuContent
+        align="end"
+        className="w-80"
+        onClick={preventLeftClickInMenus}
+        onMouseDown={preventLeftClickInMenus}
+        side="right"
+        sideOffset={6}
+      >
+        <DropdownMenuItem
+          disabled={isPulling || isSwitchingBranch}
+          onClick={() => {
+            handlePullActionForEntry(entry, "pull-ff-possible").catch(
+              () => undefined
+            );
+          }}
         >
-          <DropdownMenuItem
-            disabled={isPulling || isSwitchingBranch}
-            onClick={() => {
-              handlePullActionForEntry(entry, "pull-ff-possible").catch(
-                () => undefined
-              );
-            }}
-          >
-            Pull (fast-forward if possible)
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={isPushing || isSwitchingBranch}
-            onClick={() => {
-              handlePushActionForEntry(entry).catch(() => undefined);
-            }}
-          >
-            Push
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={entry.isRemote || isSettingUpstream || isSwitchingBranch}
-            onClick={() => {
-              openSetUpstreamDialog(entry);
-            }}
-          >
-            Set Upstream
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {canShowMergeActions ? (
-            <>
-              <DropdownMenuItem
-                disabled={
-                  isRunningMergeAction ||
-                  isPulling ||
-                  isPushing ||
-                  isSwitchingBranch
-                }
-                onClick={() => {
-                  handleMergeActionForEntry(entry, "ff-only").catch(
-                    () => undefined
-                  );
-                }}
-              >
-                Fast-forward {currentBranch} to {entry.name}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={
-                  isRunningMergeAction ||
-                  isPulling ||
-                  isPushing ||
-                  isSwitchingBranch
-                }
-                onClick={() => {
-                  handleMergeActionForEntry(entry, "merge").catch(
-                    () => undefined
-                  );
-                }}
-              >
-                Merge {entry.name} into {currentBranch}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={
-                  isRunningMergeAction ||
-                  isPulling ||
-                  isPushing ||
-                  isSwitchingBranch
-                }
-                onClick={() => {
-                  handleMergeActionForEntry(entry, "rebase").catch(
-                    () => undefined
-                  );
-                }}
-              >
-                Rebase {currentBranch} onto {entry.name}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          ) : null}
-          <DropdownMenuItem
-            disabled={entry.active || isSwitchingBranch}
-            onClick={() => {
-              handleCheckoutBranch(entry).catch(() => undefined);
-            }}
-          >
-            Checkout {entry.name}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Create worktree from {entry.name}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Create branch here</DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Cherry pick commit</DropdownMenuItem>
-          <DropdownMenuSub>
-            {/* TODO: Implement this action */}
-            <DropdownMenuSubTrigger disabled>
-              Reset {currentBranch} to this commit
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {/* TODO: Implement this action */}
-              <DropdownMenuItem disabled>
-                Soft - keep all changes
-              </DropdownMenuItem>
-              {/* TODO: Implement this action */}
-              <DropdownMenuItem disabled>
-                Mixed - keep working copy but reset index
-              </DropdownMenuItem>
-              {/* TODO: Implement this action */}
-              <DropdownMenuItem disabled>
-                Hard - discard all changes
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Revert commit</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Explain Branch Changes (Preview)
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {entry.isRemote ? null : (
+          Pull (fast-forward if possible)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={isPushing || isSwitchingBranch}
+          onClick={() => {
+            handlePushActionForEntry(entry).catch(() => undefined);
+          }}
+        >
+          Push
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={entry.isRemote || isSettingUpstream || isSwitchingBranch}
+          onClick={() => {
+            openSetUpstreamDialog(entry);
+          }}
+        >
+          Set Upstream
+        </DropdownMenuItem>
+        {canShowMergeActions ? (
+          <>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
+              }
               onClick={() => {
-                openRenameBranchDialog(entry);
+                handleMergeActionForEntry(entry, "ff-only").catch(
+                  () => undefined
+                );
               }}
             >
-              Rename {entry.name}
+              Fast-forward {currentBranch} to {entry.name}
             </DropdownMenuItem>
-          )}
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => {
-              openDeleteBranchConfirm(entry);
-            }}
-          >
-            Delete {entry.name}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => {
-              copyToClipboard(entry.name, "branch name").catch(() => undefined);
-            }}
-          >
-            Copy branch name
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!entryCommitHash}
-            onClick={() => {
-              if (!entryCommitHash) {
-                return;
+            <DropdownMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
               }
-
+              onClick={() => {
+                handleMergeActionForEntry(entry, "merge").catch(
+                  () => undefined
+                );
+              }}
+            >
+              Merge {entry.name} into {currentBranch}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
+              }
+              onClick={() => {
+                handleMergeActionForEntry(entry, "rebase").catch(
+                  () => undefined
+                );
+              }}
+            >
+              Rebase {currentBranch} onto {entry.name}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={entry.active || isSwitchingBranch}
+          onClick={() => {
+            handleCheckoutBranch(entry).catch(() => undefined);
+          }}
+        >
+          Checkout {entry.name}
+        </DropdownMenuItem>
+        {entryCommitHash ? (
+          <>
+            <DropdownMenuItem
+              disabled={isCreatingRefBranch}
+              onClick={() => {
+                openCreateBranchAtReferenceDialog(entryCommitHash, targetLabel);
+              }}
+            >
+              Create branch here
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={isCherryPickingCommit}
+              onClick={() => {
+                handleCherryPickAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }}
+            >
+              Cherry-pick commit
+            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                Reset {currentBranch} to this commit
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem
+                  onClick={() => {
+                    openResetConfirm(entryCommitHash, targetLabel, "soft");
+                  }}
+                >
+                  Soft - keep all changes
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    openResetConfirm(entryCommitHash, targetLabel, "mixed");
+                  }}
+                >
+                  Mixed - keep working copy but reset index
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => {
+                    openResetConfirm(entryCommitHash, targetLabel, "hard");
+                  }}
+                >
+                  Hard - discard all changes
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem
+              disabled={isRevertingCommit}
+              onClick={() => {
+                handleRevertAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }}
+            >
+              Revert commit
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={isCreatingTagAtReference}
+              onClick={() => {
+                openCreateTagDialog(entryCommitHash, targetLabel, false);
+              }}
+            >
+              Create tag here
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={isCreatingTagAtReference}
+              onClick={() => {
+                openCreateTagDialog(entryCommitHash, targetLabel, true);
+              }}
+            >
+              Create annotated tag here
+            </DropdownMenuItem>
+          </>
+        ) : null}
+        <DropdownMenuSeparator />
+        {entry.isRemote ? null : (
+          <DropdownMenuItem
+            onClick={() => {
+              openRenameBranchDialog(entry);
+            }}
+          >
+            Rename {entry.name}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={() => {
+            openDeleteBranchConfirm(entry);
+          }}
+        >
+          Delete {entry.name}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => {
+            copyToClipboard(entry.name, "branch name").catch(() => undefined);
+          }}
+        >
+          Copy branch name
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!entryCommitHash}
+          onClick={() => {
+            if (entryCommitHash) {
               copyToClipboard(entryCommitHash, "commit SHA").catch(
                 () => undefined
               );
-            }}
-          >
-            Copy commit sha
-          </DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Copy link to branch: origin/{entry.name}
-          </DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Copy link to this commit on remote: origin
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Hide</DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Pin to Left</DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Solo</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Compare commit against working directory
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>Create tag here</DropdownMenuItem>
-          {/* TODO: Implement this action */}
-          <DropdownMenuItem disabled>
-            Create annotated tag here
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      );
-    })();
+            }
+          }}
+        >
+          Copy commit sha
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    );
   };
 
   const renderEntryContextMenuContent = (entry: SidebarEntry) => {
+    const entryCommitHash = getCommitHashForEntry(entry);
+    const targetRef = entryCommitHash ?? entry.name;
+    const targetLabel =
+      entryCommitHash === null ? entry.name : `commit ${targetRef.slice(0, 7)}`;
+
     if (entry.type === "tag") {
       return (
         <ContextMenuContent
@@ -5101,67 +5503,96 @@ export function RepoInfo() {
             Rebase {currentBranch} onto {entry.name}
           </ContextMenuItem>
           <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Checkout the commit at {entry.name}
+          <ContextMenuItem
+            disabled={isCheckingOutCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                handleCheckoutCommit(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Checkout this commit
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={isCreatingRefBranch || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openCreateBranchAtReferenceDialog(entryCommitHash, targetLabel);
+              }
+            }}
+          >
+            Create branch here
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={isCherryPickingCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                handleCherryPickAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Cherry-pick commit
+          </ContextMenuItem>
+          {entryCommitHash
+            ? renderCommitResetSubmenu(entryCommitHash, targetLabel, false)
+            : null}
+          <ContextMenuItem
+            disabled={isRevertingCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                handleRevertAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Revert commit
           </ContextMenuItem>
           <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Explain Branch Changes (Preview)
+          <ContextMenuItem
+            onClick={() => {
+              navigator.clipboard.writeText(entry.name).catch(() => undefined);
+            }}
+          >
+            Copy tag name
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                copyToClipboard(entryCommitHash, "commit SHA").catch(
+                  () => undefined
+                );
+              }
+            }}
+          >
+            Copy commit sha
           </ContextMenuItem>
           <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
-          <ContextMenuSub>
-            {/* TODO: Implement this action */}
-            <ContextMenuSubTrigger disabled>
-              Reset {currentBranch} to this commit
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                Soft - keep all changes
-              </ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                Mixed - keep working copy but reset index
-              </ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                Hard - discard all changes
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Delete {entry.name} locally
+          <ContextMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openCreateTagDialog(entryCommitHash, targetLabel, false);
+              }
+            }}
+          >
+            Create tag here
           </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Delete {entry.name} from origin
+          <ContextMenuItem
+            disabled={entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openCreateTagDialog(entryCommitHash, targetLabel, true);
+              }
+            }}
+          >
+            Create annotated tag here
           </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Copy tag name</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Copy link to this tag on remote: origin
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Hide</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Solo</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Annotate {entry.name}</ContextMenuItem>
         </ContextMenuContent>
       );
     }
@@ -5197,219 +5628,193 @@ export function RepoInfo() {
           >
             Delete Stash
           </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Edit stash message</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Share stash as Cloud Patch</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Hide</ContextMenuItem>
         </ContextMenuContent>
       );
     }
 
-    return (() => {
-      const entryCommitHash = getCommitHashForEntry(entry);
-      const canShowMergeActions = !entry.active;
+    const canShowMergeActions = !entry.active;
 
-      return (
-        <ContextMenuContent
-          className="w-80"
-          onClick={preventLeftClickInMenus}
-          onMouseDown={preventLeftClickInMenus}
+    return (
+      <ContextMenuContent
+        className="w-80"
+        onClick={preventLeftClickInMenus}
+        onMouseDown={preventLeftClickInMenus}
+      >
+        <ContextMenuItem
+          disabled={isPulling || isSwitchingBranch}
+          onClick={() => {
+            handlePullActionForEntry(entry, "pull-ff-possible").catch(
+              () => undefined
+            );
+          }}
         >
-          <ContextMenuItem
-            disabled={isPulling || isSwitchingBranch}
-            onClick={() => {
-              handlePullActionForEntry(entry, "pull-ff-possible").catch(
-                () => undefined
-              );
-            }}
-          >
-            Pull (fast-forward if possible)
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={isPushing || isSwitchingBranch}
-            onClick={() => {
-              handlePushActionForEntry(entry).catch(() => undefined);
-            }}
-          >
-            Push
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={entry.isRemote || isSettingUpstream || isSwitchingBranch}
-            onClick={() => {
-              openSetUpstreamDialog(entry);
-            }}
-          >
-            Set Upstream
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {canShowMergeActions ? (
-            <>
-              <ContextMenuItem
-                disabled={
-                  isRunningMergeAction ||
-                  isPulling ||
-                  isPushing ||
-                  isSwitchingBranch
-                }
-                onClick={() => {
-                  handleMergeActionForEntry(entry, "ff-only").catch(
-                    () => undefined
-                  );
-                }}
-              >
-                Fast-forward {currentBranch} to {entry.name}
-              </ContextMenuItem>
-              <ContextMenuItem
-                disabled={
-                  isRunningMergeAction ||
-                  isPulling ||
-                  isPushing ||
-                  isSwitchingBranch
-                }
-                onClick={() => {
-                  handleMergeActionForEntry(entry, "merge").catch(
-                    () => undefined
-                  );
-                }}
-              >
-                Merge {entry.name} into {currentBranch}
-              </ContextMenuItem>
-              <ContextMenuItem
-                disabled={
-                  isRunningMergeAction ||
-                  isPulling ||
-                  isPushing ||
-                  isSwitchingBranch
-                }
-                onClick={() => {
-                  handleMergeActionForEntry(entry, "rebase").catch(
-                    () => undefined
-                  );
-                }}
-              >
-                Rebase {currentBranch} onto {entry.name}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-            </>
-          ) : null}
-          <ContextMenuItem
-            disabled={entry.active || isSwitchingBranch}
-            onClick={() => {
-              handleCheckoutBranch(entry).catch(() => undefined);
-            }}
-          >
-            Checkout {entry.name}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Create worktree from {entry.name}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
-          <ContextMenuSub>
-            {/* TODO: Implement this action */}
-            <ContextMenuSubTrigger disabled>
-              Reset {currentBranch} to this commit
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                Soft - keep all changes
-              </ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                Mixed - keep working copy but reset index
-              </ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                Hard - discard all changes
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Explain Branch Changes (Preview)
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {entry.isRemote ? null : (
+          Pull (fast-forward if possible)
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={isPushing || isSwitchingBranch}
+          onClick={() => {
+            handlePushActionForEntry(entry).catch(() => undefined);
+          }}
+        >
+          Push
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={entry.isRemote || isSettingUpstream || isSwitchingBranch}
+          onClick={() => {
+            openSetUpstreamDialog(entry);
+          }}
+        >
+          Set Upstream
+        </ContextMenuItem>
+        {canShowMergeActions ? (
+          <>
+            <ContextMenuSeparator />
             <ContextMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
+              }
               onClick={() => {
-                openRenameBranchDialog(entry);
+                handleMergeActionForEntry(entry, "ff-only").catch(
+                  () => undefined
+                );
               }}
             >
-              Rename {entry.name}
+              Fast-forward {currentBranch} to {entry.name}
             </ContextMenuItem>
-          )}
-          <ContextMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => {
-              openDeleteBranchConfirm(entry);
-            }}
-          >
-            Delete {entry.name}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() => {
-              copyToClipboard(entry.name, "branch name").catch(() => undefined);
-            }}
-          >
-            Copy branch name
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={!entryCommitHash}
-            onClick={() => {
-              if (!entryCommitHash) {
-                return;
+            <ContextMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
               }
-
+              onClick={() => {
+                handleMergeActionForEntry(entry, "merge").catch(
+                  () => undefined
+                );
+              }}
+            >
+              Merge {entry.name} into {currentBranch}
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
+              }
+              onClick={() => {
+                handleMergeActionForEntry(entry, "rebase").catch(
+                  () => undefined
+                );
+              }}
+            >
+              Rebase {currentBranch} onto {entry.name}
+            </ContextMenuItem>
+          </>
+        ) : null}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          disabled={entry.active || isSwitchingBranch}
+          onClick={() => {
+            handleCheckoutBranch(entry).catch(() => undefined);
+          }}
+        >
+          Checkout {entry.name}
+        </ContextMenuItem>
+        {entryCommitHash ? (
+          <>
+            <ContextMenuItem
+              disabled={isCreatingRefBranch}
+              onClick={() => {
+                openCreateBranchAtReferenceDialog(entryCommitHash, targetLabel);
+              }}
+            >
+              Create branch here
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={isCherryPickingCommit}
+              onClick={() => {
+                handleCherryPickAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }}
+            >
+              Cherry-pick commit
+            </ContextMenuItem>
+            {renderCommitResetSubmenu(entryCommitHash, targetLabel, false)}
+            <ContextMenuItem
+              disabled={isRevertingCommit}
+              onClick={() => {
+                handleRevertAtReference(entryCommitHash, targetLabel).catch(
+                  () => undefined
+                );
+              }}
+            >
+              Revert commit
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              disabled={isCreatingTagAtReference}
+              onClick={() => {
+                openCreateTagDialog(entryCommitHash, targetLabel, false);
+              }}
+            >
+              Create tag here
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={isCreatingTagAtReference}
+              onClick={() => {
+                openCreateTagDialog(entryCommitHash, targetLabel, true);
+              }}
+            >
+              Create annotated tag here
+            </ContextMenuItem>
+          </>
+        ) : null}
+        <ContextMenuSeparator />
+        {entry.isRemote ? null : (
+          <ContextMenuItem
+            onClick={() => {
+              openRenameBranchDialog(entry);
+            }}
+          >
+            Rename {entry.name}
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={() => {
+            openDeleteBranchConfirm(entry);
+          }}
+        >
+          Delete {entry.name}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onClick={() => {
+            copyToClipboard(entry.name, "branch name").catch(() => undefined);
+          }}
+        >
+          Copy branch name
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!entryCommitHash}
+          onClick={() => {
+            if (entryCommitHash) {
               copyToClipboard(entryCommitHash, "commit SHA").catch(
                 () => undefined
               );
-            }}
-          >
-            Copy commit sha
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Copy link to branch: origin/{entry.name}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Copy link to this commit on remote: origin
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Hide</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Pin to Left</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Solo</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Compare commit against working directory
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create tag here</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
-        </ContextMenuContent>
-      );
-    })();
+            }
+          }}
+        >
+          Copy commit sha
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
   };
 
   const createSidebarEntryFromRefName = (
@@ -5459,191 +5864,48 @@ export function RepoInfo() {
     return Array.from(uniqueEntries.values());
   };
 
-  const renderCommitResetSubmenu = (disabled: boolean) => (
+  const renderCommitResetSubmenu = (
+    target: string,
+    targetLabel: string,
+    disabled: boolean
+  ) => (
     <ContextMenuSub>
       <ContextMenuSubTrigger disabled={disabled}>
         Reset {currentBranch} to this commit
       </ContextMenuSubTrigger>
       <ContextMenuSubContent>
-        <ContextMenuItem disabled>Soft - keep all changes</ContextMenuItem>
-        <ContextMenuItem disabled>
+        <ContextMenuItem
+          disabled={disabled}
+          onClick={() => {
+            openResetConfirm(target, targetLabel, "soft");
+          }}
+        >
+          Soft - keep all changes
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={disabled}
+          onClick={() => {
+            openResetConfirm(target, targetLabel, "mixed");
+          }}
+        >
           Mixed - keep working copy but reset index
         </ContextMenuItem>
-        <ContextMenuItem disabled>Hard - discard all changes</ContextMenuItem>
+        <ContextMenuItem
+          className="text-destructive focus:text-destructive"
+          disabled={disabled}
+          onClick={() => {
+            openResetConfirm(target, targetLabel, "hard");
+          }}
+        >
+          Hard - discard all changes
+        </ContextMenuItem>
       </ContextMenuSubContent>
     </ContextMenuSub>
   );
 
-  const _renderRefBranchSubmenuContent = (entry: SidebarEntry) =>
-    (() => {
-      const entryCommitHash = getCommitHashForEntry(entry);
-
-      return (
-        <>
-          <ContextMenuItem disabled>
-            Pull (fast-forward if possible)
-          </ContextMenuItem>
-          <ContextMenuItem disabled>Push</ContextMenuItem>
-          <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger disabled>Checkout</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem disabled>{entry.name}</ContextMenuItem>
-              {entry.isRemote ? null : (
-                <ContextMenuItem disabled>origin/{entry.name}</ContextMenuItem>
-              )}
-              <ContextMenuItem disabled>this commit</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger disabled>
-              Create worktree from
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem disabled>{entry.name}</ContextMenuItem>
-              {entry.isRemote ? null : (
-                <ContextMenuItem disabled>origin/{entry.name}</ContextMenuItem>
-              )}
-              <ContextMenuItem disabled>this commit</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
-          <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
-          {renderCommitResetSubmenu(true)}
-          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>
-            Push {currentBranch} and start a pull request to origin/{entry.name}
-          </ContextMenuItem>
-          <ContextMenuItem disabled>
-            Explain Branch Changes (Preview)
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Delete {entry.name}</ContextMenuItem>
-          {entry.isRemote ? null : (
-            <ContextMenuItem disabled>
-              Delete origin/{entry.name}
-            </ContextMenuItem>
-          )}
-          {entry.isRemote ? null : (
-            <ContextMenuItem disabled>
-              Delete {entry.name} and origin/{entry.name}
-            </ContextMenuItem>
-          )}
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() => {
-              copyToClipboard(entry.name, "branch name").catch(() => undefined);
-            }}
-          >
-            Copy branch name
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={!entryCommitHash}
-            onClick={() => {
-              if (!entryCommitHash) {
-                return;
-              }
-
-              copyToClipboard(entryCommitHash, "commit SHA").catch(
-                () => undefined
-              );
-            }}
-          >
-            Copy commit sha
-          </ContextMenuItem>
-          <ContextMenuItem disabled>
-            Copy link to branch: origin/{entry.name}
-          </ContextMenuItem>
-          <ContextMenuItem disabled>
-            Copy link to this commit on remote: origin
-          </ContextMenuItem>
-          <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
-          <ContextMenuItem disabled>
-            Share commit as Cloud Patch
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Pin to Left</ContextMenuItem>
-          <ContextMenuItem disabled>Solo</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Create tag here</ContextMenuItem>
-          <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
-        </>
-      );
-    })();
-
-  const _renderRefTagSubmenuContent = (entry: SidebarEntry) =>
-    (() => {
-      const entryCommitHash = getCommitHashForEntry(entry);
-
-      return (
-        <>
-          <ContextMenuItem disabled>Checkout this commit</ContextMenuItem>
-          <ContextMenuItem disabled>
-            Create worktree from this commit
-          </ContextMenuItem>
-          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
-          {renderCommitResetSubmenu(true)}
-          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
-          <ContextMenuItem disabled>Edit commit message</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Drop commit</ContextMenuItem>
-          <ContextMenuItem disabled>Move commit down</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Copy tag name</ContextMenuItem>
-          <ContextMenuItem
-            disabled={!entryCommitHash}
-            onClick={() => {
-              if (!entryCommitHash) {
-                return;
-              }
-
-              copyToClipboard(entryCommitHash, "commit SHA").catch(
-                () => undefined
-              );
-            }}
-          >
-            Copy commit sha
-          </ContextMenuItem>
-          <ContextMenuItem disabled>
-            Copy link to this commit on remote: origin
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Create tag here</ContextMenuItem>
-          <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem disabled>Annotate {entry.name}</ContextMenuItem>
-        </>
-      );
-    })();
-
   const renderCommitRowContextMenuContent = (commit: RepositoryCommit) => {
     const commitRefEntries = getCommitRefEntries(commit);
-    const isMergeCommit = commit.parentHashes.length > 1;
-    const isOldestCommit = commits.at(-1)?.hash === commit.hash;
-    const childCommitCount = childCommitCountByHash[commit.hash] ?? 0;
     const mergeTargetEntry =
-      commitRefEntries.find(
-        (entry) =>
-          entry.type === "branch" &&
-          !entry.isRemote &&
-          entry.name !== currentBranch
-      ) ??
-      commitRefEntries.find(
-        (entry) =>
-          entry.type === "branch" &&
-          entry.isRemote &&
-          entry.name !== currentBranch
-      ) ??
-      commitRefEntries.find((entry) => entry.name !== currentBranch) ??
-      null;
-    const mergeTargetRef = mergeTargetEntry?.name ?? commit.hash;
-    const mergeTargetLabel =
-      mergeTargetEntry?.name ?? `commit ${commit.shortHash}`;
-    let mergeTargetRemoteLabel = "origin/main";
-    const regularTargetEntry =
       commitRefEntries.find(
         (entry) =>
           entry.type === "branch" &&
@@ -5653,225 +5915,11 @@ export function RepoInfo() {
       commitRefEntries.find(
         (entry) => entry.type === "branch" && entry.name !== currentBranch
       ) ??
-      mergeTargetEntry;
-    const regularTargetLabel = regularTargetEntry?.name ?? currentBranch;
-    let regularTargetRemoteLabel = `origin/${currentBranch}`;
-
-    if (mergeTargetEntry) {
-      mergeTargetRemoteLabel = mergeTargetEntry.isRemote
-        ? mergeTargetEntry.name
-        : `origin/${mergeTargetEntry.name}`;
-    }
-
-    if (regularTargetEntry) {
-      regularTargetRemoteLabel = regularTargetEntry.isRemote
-        ? regularTargetEntry.name
-        : `origin/${regularTargetEntry.name}`;
-    }
-
-    if (isOldestCommit) {
-      return (
-        <ContextMenuContent
-          className="w-80"
-          onClick={preventLeftClickInMenus}
-          onMouseDown={preventLeftClickInMenus}
-        >
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Checkout this commit</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Create worktree from this commit
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
-          {renderCommitResetSubmenu(false)}
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Recompose {childCommitCount} children of {commit.shortHash} with AI
-            (Preview)
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Interactive Rebase {childCommitCount} children of {commit.shortHash}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() => {
-              copyToClipboard(commit.hash, "commit SHA").catch(() => undefined);
-            }}
-          >
-            Copy commit sha
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Copy link to this commit on remote: origin
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Share commit as Cloud Patch
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create tag here</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
-        </ContextMenuContent>
-      );
-    }
-
-    if (!isMergeCommit) {
-      return (
-        <ContextMenuContent
-          className="w-80"
-          onClick={preventLeftClickInMenus}
-          onMouseDown={preventLeftClickInMenus}
-        >
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Pull (fast-forward if possible)
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Push</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuSub>
-            {/* TODO: Implement this action */}
-            <ContextMenuSubTrigger>Checkout</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>{regularTargetLabel}</ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                {regularTargetRemoteLabel}
-              </ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>this commit</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
-          <ContextMenuSub>
-            {/* TODO: Implement this action */}
-            <ContextMenuSubTrigger>Create worktree from</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>{regularTargetLabel}</ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>
-                {regularTargetRemoteLabel}
-              </ContextMenuItem>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>this commit</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create branch here</ContextMenuItem>
-          {renderCommitResetSubmenu(false)}
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Edit commit message</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Revert commit</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Recompose commit with AI (Preview)
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Drop commit</ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Start a pull request to origin from {regularTargetRemoteLabel}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Explain Branch Changes (Preview)
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Apply patch</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Rename {regularTargetLabel}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Delete {regularTargetLabel}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Delete {regularTargetRemoteLabel}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Delete {regularTargetLabel} and {regularTargetRemoteLabel}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() => {
-              copyToClipboard(regularTargetLabel, "branch name").catch(
-                () => undefined
-              );
-            }}
-          >
-            Copy branch name
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              copyToClipboard(commit.hash, "commit SHA").catch(() => undefined);
-            }}
-          >
-            Copy commit sha
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Copy link to branch: {regularTargetRemoteLabel}
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Copy link to this commit on remote: origin
-          </ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>
-            Share commit as Cloud Patch
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuSub>
-            {/* TODO: Implement this action */}
-            <ContextMenuSubTrigger>Pin to Left</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>This commit</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSub>
-            {/* TODO: Implement this action */}
-            <ContextMenuSubTrigger>Solo</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {/* TODO: Implement this action */}
-              <ContextMenuItem disabled>This commit</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create tag here</ContextMenuItem>
-          {/* TODO: Implement this action */}
-          <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
-        </ContextMenuContent>
-      );
-    }
+      null;
+    const mergeTargetRef = mergeTargetEntry?.name ?? commit.hash;
+    const mergeTargetLabel =
+      mergeTargetEntry?.name ?? `commit ${commit.shortHash}`;
+    const hasMergeActions = commit.parentHashes.length > 1;
 
     return (
       <ContextMenuContent
@@ -5879,119 +5927,113 @@ export function RepoInfo() {
         onClick={preventLeftClickInMenus}
         onMouseDown={preventLeftClickInMenus}
       >
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
-          Pull (fast-forward if possible)
-        </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Push</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Set Upstream</ContextMenuItem>
-        <ContextMenuSeparator />
+        {hasMergeActions ? (
+          <>
+            <ContextMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
+              }
+              onClick={() => {
+                handleMergeAction(
+                  mergeTargetRef,
+                  mergeTargetLabel,
+                  "ff-only"
+                ).catch(() => undefined);
+              }}
+            >
+              Fast-forward {currentBranch} to {mergeTargetLabel}
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
+              }
+              onClick={() => {
+                handleMergeAction(
+                  mergeTargetRef,
+                  mergeTargetLabel,
+                  "merge"
+                ).catch(() => undefined);
+              }}
+            >
+              Merge {mergeTargetLabel} into {currentBranch}
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={
+                isRunningMergeAction ||
+                isPulling ||
+                isPushing ||
+                isSwitchingBranch
+              }
+              onClick={() => {
+                handleMergeAction(
+                  mergeTargetRef,
+                  mergeTargetLabel,
+                  "rebase"
+                ).catch(() => undefined);
+              }}
+            >
+              Rebase {currentBranch} onto {mergeTargetLabel}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        ) : null}
         <ContextMenuItem
-          disabled={
-            isRunningMergeAction || isPulling || isPushing || isSwitchingBranch
-          }
+          disabled={isCheckingOutCommit}
           onClick={() => {
-            handleMergeAction(
-              mergeTargetRef,
-              mergeTargetLabel,
-              "ff-only"
+            handleCheckoutCommit(
+              commit.hash,
+              `commit ${commit.shortHash}`,
+              commit.hash
             ).catch(() => undefined);
           }}
         >
-          Fast-forward {currentBranch} to {mergeTargetLabel}
+          Checkout this commit
         </ContextMenuItem>
         <ContextMenuItem
-          disabled={
-            isRunningMergeAction || isPulling || isPushing || isSwitchingBranch
-          }
+          disabled={isCreatingRefBranch}
           onClick={() => {
-            handleMergeAction(mergeTargetRef, mergeTargetLabel, "merge").catch(
-              () => undefined
+            openCreateBranchAtReferenceDialog(
+              commit.hash,
+              `commit ${commit.shortHash}`
             );
           }}
         >
-          Merge {mergeTargetLabel} into {currentBranch}
+          Create branch here
         </ContextMenuItem>
         <ContextMenuItem
-          disabled={
-            isRunningMergeAction || isPulling || isPushing || isSwitchingBranch
-          }
+          disabled={isCherryPickingCommit}
           onClick={() => {
-            handleMergeAction(mergeTargetRef, mergeTargetLabel, "rebase").catch(
-              () => undefined
-            );
+            handleCherryPickAtReference(
+              commit.hash,
+              `commit ${commit.shortHash}`
+            ).catch(() => undefined);
           }}
         >
-          Rebase {currentBranch} onto {mergeTargetLabel}
+          Cherry-pick commit
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuSub>
-          {/* TODO: Implement this action */}
-          <ContextMenuSubTrigger>Checkout</ContextMenuSubTrigger>
-          <ContextMenuSubContent>
-            {/* TODO: Implement this action */}
-            <ContextMenuItem disabled>{mergeTargetLabel}</ContextMenuItem>
-            {/* TODO: Implement this action */}
-            <ContextMenuItem disabled>{mergeTargetRemoteLabel}</ContextMenuItem>
-            {/* TODO: Implement this action */}
-            <ContextMenuItem disabled>this commit</ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-        <ContextMenuSub>
-          {/* TODO: Implement this action */}
-          <ContextMenuSubTrigger>Create worktree from</ContextMenuSubTrigger>
-          <ContextMenuSubContent>
-            {/* TODO: Implement this action */}
-            <ContextMenuItem disabled>{mergeTargetLabel}</ContextMenuItem>
-            {/* TODO: Implement this action */}
-            <ContextMenuItem disabled>{mergeTargetRemoteLabel}</ContextMenuItem>
-            {/* TODO: Implement this action */}
-            <ContextMenuItem disabled>this commit</ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-        <ContextMenuSeparator />
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Create branch here</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Cherry pick commit</ContextMenuItem>
-        {renderCommitResetSubmenu(false)}
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Revert commit</ContextMenuItem>
-        <ContextMenuSeparator />
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
-          Push {currentBranch} and start a pull request to{" "}
-          {mergeTargetRemoteLabel}
-        </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
-          Explain Branch Changes (Preview)
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Rename {mergeTargetLabel}</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Delete {mergeTargetLabel}</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
-          Delete {mergeTargetRemoteLabel}
-        </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
-          Delete {mergeTargetLabel} and {mergeTargetRemoteLabel}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
+        {renderCommitResetSubmenu(
+          commit.hash,
+          `commit ${commit.shortHash}`,
+          false
+        )}
         <ContextMenuItem
+          disabled={isRevertingCommit}
           onClick={() => {
-            copyToClipboard(mergeTargetLabel, "branch name").catch(
-              () => undefined
-            );
+            handleRevertAtReference(
+              commit.hash,
+              `commit ${commit.shortHash}`
+            ).catch(() => undefined);
           }}
         >
-          Copy branch name
+          Revert commit
         </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem
           onClick={() => {
             copyToClipboard(commit.hash, "commit SHA").catch(() => undefined);
@@ -5999,30 +6041,75 @@ export function RepoInfo() {
         >
           Copy commit sha
         </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
-          Copy link to branch: {mergeTargetRemoteLabel}
-        </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>
-          Copy link to this commit on remote: origin
-        </ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Create patch from commit</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Share commit as Cloud Patch</ContextMenuItem>
         <ContextMenuSeparator />
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Pin to Left</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Solo</ContextMenuItem>
-        <ContextMenuSeparator />
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Create tag here</ContextMenuItem>
-        {/* TODO: Implement this action */}
-        <ContextMenuItem disabled>Create annotated tag here</ContextMenuItem>
+        <ContextMenuItem
+          disabled={isCreatingTagAtReference}
+          onClick={() => {
+            openCreateTagDialog(
+              commit.hash,
+              `commit ${commit.shortHash}`,
+              false
+            );
+          }}
+        >
+          Create tag here
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={isCreatingTagAtReference}
+          onClick={() => {
+            openCreateTagDialog(
+              commit.hash,
+              `commit ${commit.shortHash}`,
+              true
+            );
+          }}
+        >
+          Create annotated tag here
+        </ContextMenuItem>
       </ContextMenuContent>
     );
+  };
+  const renderGraphNodeContextMenuContent = (row: GitTimelineRow) => {
+    if (row.type === "commit" && row.commitHash) {
+      const commit = commits.find((item) => item.hash === row.commitHash);
+      return commit ? renderCommitRowContextMenuContent(commit) : null;
+    }
+
+    const timelineEntry = getSidebarEntryForTimelineRow(row);
+    return timelineEntry ? renderEntryContextMenuContent(timelineEntry) : null;
+  };
+
+  const handleGraphNodeMenuOpenChange = (rowId: string, open: boolean) => {
+    const row = timelineRowById.get(rowId);
+
+    if (!row) {
+      return;
+    }
+
+    if (row.type === "commit" && row.commitHash) {
+      handleCommitMenuOpenChange(row.commitHash, open);
+    }
+
+    if (open) {
+      if (row.type === "commit" && row.commitHash) {
+        setSelectedTimelineRowId(row.id);
+        setSelectedCommitId(row.commitHash);
+      } else if (row.anchorCommitHash) {
+        setSelectedTimelineRowId(row.id);
+        setSelectedCommitId(row.anchorCommitHash);
+      }
+    }
+  };
+
+  const handleGraphNodeSelect = (row: GitTimelineRow) => {
+    if (row.type === "commit" && row.commitHash) {
+      handleCommitRowClick(row.commitHash);
+      return;
+    }
+
+    if (row.anchorCommitHash) {
+      selectTimelineReferenceRow(row.id, row.anchorCommitHash, false);
+    }
   };
   const getTreeNodeStateKey = (section: ChangeTreeSection, nodePath: string) =>
     `${section}:${nodePath}`;
@@ -9242,6 +9329,9 @@ export function RepoInfo() {
                   <GitGraphOverlay
                     commits={commits}
                     graphColumnWidth={effectiveTimelineGraphColumnWidth}
+                    onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
+                    onNodeSelect={handleGraphNodeSelect}
+                    renderNodeContextMenu={renderGraphNodeContextMenuContent}
                     rowHeight={TIMELINE_ROW_HEIGHT}
                     rows={timelineRows}
                     selectedRowId={selectedTimelineRowId}
@@ -11667,6 +11757,156 @@ export function RepoInfo() {
       </Dialog>
       <Dialog
         onOpenChange={(open) => {
+          if (isCreatingRefBranch && !open) {
+            return;
+          }
+
+          setIsCreateRefBranchDialogOpen(open);
+
+          if (!open) {
+            setCreateRefBranchTarget(null);
+            setCreateRefBranchLabel("");
+            setCreateRefBranchName("");
+          }
+        }}
+        open={isCreateRefBranchDialogOpen}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          showCloseButton={!isCreatingRefBranch}
+        >
+          <DialogHeader>
+            <DialogTitle>Create branch here</DialogTitle>
+            <DialogDescription>
+              Create and switch to a new branch at{" "}
+              {createRefBranchLabel || "the selected commit"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="create-ref-branch-name">Branch name</Label>
+            <Input
+              autoCapitalize="none"
+              autoCorrect="off"
+              disabled={isCreatingRefBranch}
+              id="create-ref-branch-name"
+              onChange={(event) => {
+                setCreateRefBranchName(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateBranchAtReference().catch(() => undefined);
+                }
+              }}
+              spellCheck={false}
+              value={createRefBranchName}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={isCreatingRefBranch}
+              onClick={() => {
+                setIsCreateRefBranchDialogOpen(false);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                isCreatingRefBranch || createRefBranchName.trim().length === 0
+              }
+              onClick={() => {
+                handleCreateBranchAtReference().catch(() => undefined);
+              }}
+              type="button"
+            >
+              {isCreatingRefBranch ? "Creating..." : "Create branch"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        onOpenChange={(open) => {
+          if (isCreatingTagAtReference && !open) {
+            return;
+          }
+
+          setIsCreateTagDialogOpen(open);
+
+          if (!open) {
+            setCreateTagTarget(null);
+            setCreateTagTargetLabel("");
+            setCreateTagNameValue("");
+            setCreateTagAnnotated(false);
+          }
+        }}
+        open={isCreateTagDialogOpen}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          showCloseButton={!isCreatingTagAtReference}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {createTagAnnotated
+                ? "Create annotated tag here"
+                : "Create tag here"}
+            </DialogTitle>
+            <DialogDescription>
+              Create {createTagAnnotated ? "an annotated tag" : "a tag"} at{" "}
+              {createTagTargetLabel || "the selected commit"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="create-tag-name">Tag name</Label>
+            <Input
+              autoCapitalize="none"
+              autoCorrect="off"
+              disabled={isCreatingTagAtReference}
+              id="create-tag-name"
+              onChange={(event) => {
+                setCreateTagNameValue(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateTagAtReference().catch(() => undefined);
+                }
+              }}
+              spellCheck={false}
+              value={createTagNameValue}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={isCreatingTagAtReference}
+              onClick={() => {
+                setIsCreateTagDialogOpen(false);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                isCreatingTagAtReference ||
+                createTagNameValue.trim().length === 0
+              }
+              onClick={() => {
+                handleCreateTagAtReference().catch(() => undefined);
+              }}
+              type="button"
+            >
+              {isCreatingTagAtReference ? "Creating..." : "Create tag"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        onOpenChange={(open) => {
           if (isSubmittingPublishRepo && !open) {
             return;
           }
@@ -11768,6 +12008,50 @@ export function RepoInfo() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (isResettingToReference && !open) {
+            return;
+          }
+
+          setIsResetConfirmOpen(open);
+
+          if (!open) {
+            setResetTarget(null);
+            setResetTargetLabel("");
+            setResetTargetMode("mixed");
+          }
+        }}
+        open={isResetConfirmOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Reset {currentBranch} to {resetTargetLabel}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resetTargetDescription}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResettingToReference} size="sm">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isResettingToReference || !resetTarget}
+              onClick={() => {
+                handleResetToCommit().catch(() => undefined);
+              }}
+              size="sm"
+              variant={resetTargetMode === "hard" ? "destructive" : "default"}
+            >
+              {isResettingToReference
+                ? "Resetting..."
+                : `Reset ${resetTargetMode}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         onOpenChange={(open) => {
           setIsUnsavedEditConfirmOpen(open);

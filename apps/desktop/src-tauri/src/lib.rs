@@ -1441,6 +1441,51 @@ fn create_repository_branch(repo_path: String, branch_name: String) -> Result<()
 }
 
 #[tauri::command]
+fn create_repository_branch_at_reference(
+    repo_path: String,
+    branch_name: String,
+    target: String,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_branch_name = branch_name.trim();
+    let trimmed_target = target.trim();
+
+    if trimmed_branch_name.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    if trimmed_target.is_empty() {
+        return Err("Target reference is required".to_string());
+    }
+
+    validate_branch_name(trimmed_branch_name)?;
+
+    let output = git_command()
+        .args([
+            "-C",
+            &repo_path,
+            "switch",
+            "-c",
+            trimmed_branch_name,
+            trimmed_target,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to run git switch: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Failed to create branch".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn delete_repository_branch(repo_path: String, branch_name: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -1722,6 +1767,31 @@ fn switch_repository_branch(repo_path: String, branch_name: String) -> Result<()
         } else {
             stderr
         });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn checkout_repository_commit(repo_path: String, target: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_target = target.trim();
+
+    if trimmed_target.is_empty() {
+        return Err("Target reference is required".to_string());
+    }
+
+    let output = git_command()
+        .args(["-C", &repo_path, "switch", "--detach", trimmed_target])
+        .output()
+        .map_err(|error| format!("Failed to run git switch --detach: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to checkout commit",
+        ));
     }
 
     Ok(())
@@ -2703,6 +2773,116 @@ fn reset_repository_to_reference(
         } else {
             stderr
         });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn cherry_pick_repository_commit(repo_path: String, target: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_target = target.trim();
+
+    if trimmed_target.is_empty() {
+        return Err("Target reference is required".to_string());
+    }
+
+    let output = git_command()
+        .args(["-C", &repo_path, "cherry-pick", trimmed_target])
+        .output()
+        .map_err(|error| format!("Failed to run git cherry-pick: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_process_error_message(
+            &output.stdout,
+            &output.stderr,
+            "Failed to cherry-pick commit",
+        ));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn revert_repository_commit(repo_path: String, target: String) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_target = target.trim();
+
+    if trimmed_target.is_empty() {
+        return Err("Target reference is required".to_string());
+    }
+
+    let output = git_command()
+        .args(["-C", &repo_path, "revert", "--no-edit", trimmed_target])
+        .output()
+        .map_err(|error| format!("Failed to run git revert: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_process_error_message(
+            &output.stdout,
+            &output.stderr,
+            "Failed to revert commit",
+        ));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn create_repository_tag(
+    repo_path: String,
+    tag_name: String,
+    target: String,
+    annotated: Option<bool>,
+    annotation_message: Option<String>,
+) -> Result<(), String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let trimmed_tag_name = tag_name.trim();
+    let trimmed_target = target.trim();
+
+    if trimmed_tag_name.is_empty() {
+        return Err("Tag name is required".to_string());
+    }
+
+    if trimmed_target.is_empty() {
+        return Err("Target reference is required".to_string());
+    }
+
+    validate_tag_name(trimmed_tag_name)?;
+
+    let is_annotated = annotated.unwrap_or(false);
+    let resolved_annotation_message = annotation_message
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(trimmed_tag_name);
+
+    let output = if is_annotated {
+        git_command()
+            .args([
+                "-C",
+                &repo_path,
+                "tag",
+                "-a",
+                trimmed_tag_name,
+                trimmed_target,
+                "-m",
+                resolved_annotation_message,
+            ])
+            .output()
+            .map_err(|error| format!("Failed to run git tag -a: {error}"))?
+    } else {
+        git_command()
+            .args(["-C", &repo_path, "tag", trimmed_tag_name, trimmed_target])
+            .output()
+            .map_err(|error| format!("Failed to run git tag: {error}"))?
+    };
+
+    if !output.status.success() {
+        return Err(git_error_message(&output.stderr, "Failed to create tag"));
     }
 
     Ok(())
@@ -3854,6 +4034,19 @@ fn validate_branch_name(name: &str) -> Result<(), String> {
 
     if !output.status.success() {
         return Err("Enter a valid Git branch name".to_string());
+    }
+
+    Ok(())
+}
+
+fn validate_tag_name(name: &str) -> Result<(), String> {
+    let output = git_command()
+        .args(["check-ref-format", &format!("refs/tags/{name}")])
+        .output()
+        .map_err(|error| format!("Failed to validate tag name: {error}"))?;
+
+    if !output.status.success() {
+        return Err("Enter a valid Git tag name".to_string());
     }
 
     Ok(())
@@ -5718,11 +5911,13 @@ pub fn run() {
             get_repository_remote_names,
             get_repository_stashes,
             create_repository_branch,
+            create_repository_branch_at_reference,
             delete_repository_branch,
             rename_repository_branch,
             delete_remote_repository_branch,
             set_repository_branch_upstream,
             switch_repository_branch,
+            checkout_repository_commit,
             pull_repository_action,
             run_repository_merge_action,
             push_repository_branch,
@@ -5739,6 +5934,9 @@ pub fn run() {
             discard_repository_path_changes,
             discard_all_repository_changes,
             reset_repository_to_reference,
+            cherry_pick_repository_commit,
+            revert_repository_commit,
+            create_repository_tag,
             get_repository_file_diff,
             get_repository_file_preflight,
             get_repository_file_content,

@@ -2,9 +2,13 @@ import { toast } from "sonner";
 import {
   addRepoIgnoreRule,
   applyRepoStash,
+  checkoutRepoCommit,
+  cherryPickRepoCommit,
   commitRepoChanges,
   createRepoBranch,
+  createRepoBranchAtReference,
   createRepoStash,
+  createRepoTag,
   deleteRemoteRepoBranch,
   deleteRepoBranch,
   discardAllRepoChanges,
@@ -29,6 +33,7 @@ import {
   pushRepoBranch,
   renameRepoBranch,
   resetRepoToReference,
+  revertRepoCommit,
   runRepoMergeAction,
   runRepoPull,
   saveRepoFileText,
@@ -173,10 +178,14 @@ type RepoActionsSliceKeys =
   | "applyStash"
   | "canRedoRepoAction"
   | "canUndoRepoAction"
+  | "checkoutCommit"
+  | "cherryPickCommit"
   | "clearRepoCommitDraftPrefill"
   | "commitChanges"
   | "createBranch"
+  | "createBranchAtReference"
   | "createStash"
+  | "createTag"
   | "deleteBranch"
   | "deleteRemoteBranch"
   | "discardAllChanges"
@@ -205,6 +214,8 @@ type RepoActionsSliceKeys =
   | "mergeReference"
   | "pushBranch"
   | "renameBranch"
+  | "resetToReference"
+  | "revertCommit"
   | "setBranchUpstream"
   | "saveFileText"
   | "redoRepoAction"
@@ -232,6 +243,61 @@ export const createRepoActionsSlice = (
   },
   canRedoRepoAction: (id) => {
     return (get().repoRedoDepthById[id] ?? 0) > 0;
+  },
+  checkoutCommit: async (id, target) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested checkout commit: ${target}`,
+    });
+
+    try {
+      await checkoutRepoCommit(targetRepo.path, target);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Checked out commit: ${target}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to checkout commit"),
+      });
+      throw error;
+    }
+  },
+  cherryPickCommit: async (id, target) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested cherry-pick: ${target}`,
+    });
+
+    try {
+      await cherryPickRepoCommit(targetRepo.path, target);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, false);
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Cherry-picked commit: ${target}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to cherry-pick commit"),
+      });
+      throw error;
+    }
   },
   getUndoRepoActionLabel: (id) => {
     return get().repoUndoLabelById[id] ?? null;
@@ -262,6 +328,36 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to create branch"),
+      });
+      throw error;
+    }
+  },
+  createBranchAtReference: async (id, branchName, target) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested branch creation at ${target}: ${branchName}`,
+    });
+
+    try {
+      await createRepoBranchAtReference(targetRepo.path, branchName, target);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Branch created at ${target}: ${branchName}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(
+          error,
+          "Failed to create branch at selected reference"
+        ),
       });
       throw error;
     }
@@ -343,6 +439,62 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to rename branch"),
+      });
+      throw error;
+    }
+  },
+  resetToReference: async (id, target, mode = "mixed") => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested reset ${mode} to ${target}`,
+    });
+
+    try {
+      await resetRepoToReference(targetRepo.path, target, mode);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, true);
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Repository reset ${mode} to ${target}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to reset repository"),
+      });
+      throw error;
+    }
+  },
+  revertCommit: async (id, target) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested revert commit: ${target}`,
+    });
+
+    try {
+      await revertRepoCommit(targetRepo.path, target);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, false);
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Reverted commit: ${target}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to revert commit"),
       });
       throw error;
     }
@@ -836,6 +988,49 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to create stash"),
+      });
+      throw error;
+    }
+  },
+  createTag: async (
+    id,
+    tagName,
+    target,
+    annotated = false,
+    annotationMessage = ""
+  ) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: annotated
+        ? `User requested annotated tag at ${target}: ${tagName}`
+        : `User requested tag at ${target}: ${tagName}`,
+    });
+
+    try {
+      await createRepoTag(
+        targetRepo.path,
+        tagName,
+        target,
+        annotated,
+        annotationMessage
+      );
+      await get().setActiveRepo(id, { forceRefresh: true });
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: annotated
+          ? `Annotated tag created at ${target}: ${tagName}`
+          : `Tag created at ${target}: ${tagName}`,
+      });
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to create tag"),
       });
       throw error;
     }

@@ -289,6 +289,8 @@ export interface RepoStoreState {
   applyStash: (id: string, stashRef: string) => Promise<void>;
   canRedoRepoAction: (id: string) => boolean;
   canUndoRepoAction: (id: string) => boolean;
+  checkoutCommit: (id: string, target: string) => Promise<void>;
+  cherryPickCommit: (id: string, target: string) => Promise<void>;
   clearActiveRepo: () => void;
   clearRepoCommitDraftPrefill: (id: string) => void;
   cloneRepository: (
@@ -309,6 +311,11 @@ export interface RepoStoreState {
     preferences?: RepoCommandPreferences
   ) => Promise<void>;
   createBranch: (id: string, branchName: string) => Promise<void>;
+  createBranchAtReference: (
+    id: string,
+    branchName: string,
+    target: string
+  ) => Promise<void>;
   createLocalRepository: (
     input: CreateLocalRepositoryInput
   ) => Promise<OpenedRepository | null>;
@@ -316,6 +323,13 @@ export interface RepoStoreState {
     id: string,
     summary: string,
     description: string
+  ) => Promise<void>;
+  createTag: (
+    id: string,
+    tagName: string,
+    target: string,
+    annotated?: boolean,
+    annotationMessage?: string
   ) => Promise<void>;
   deleteBranch: (id: string, branchName: string) => Promise<void>;
   deleteRemoteBranch: (
@@ -458,6 +472,12 @@ export interface RepoStoreState {
   repoUndoLabelById: Record<string, string | null>;
   repoWorkingTreeItems: Record<string, RepositoryWorkingTreeItem[]>;
   repoWorkingTreeStatuses: Record<string, RepositoryWorkingTreeStatus>;
+  resetToReference: (
+    id: string,
+    target: string,
+    mode?: "hard" | "mixed" | "soft"
+  ) => Promise<void>;
+  revertCommit: (id: string, target: string) => Promise<void>;
   saveFileText: (
     id: string,
     filePath: string,
