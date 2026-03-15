@@ -84,13 +84,15 @@ export function GitNode({ data }: NodeProps) {
         )}
       </svg>
       <Handle
-        className="!border-none !bg-transparent"
+        className="!border-none !bg-transparent pointer-events-none"
+        isConnectable={false}
         position={Position.Top}
         style={{ height: 1, left: "50%", top: -0.5, width: 1 }}
         type="target"
       />
       <Handle
-        className="!border-none !bg-transparent"
+        className="!border-none !bg-transparent pointer-events-none"
+        isConnectable={false}
         position={Position.Bottom}
         style={{ bottom: -0.5, height: 1, left: "50%", width: 1 }}
         type="source"
