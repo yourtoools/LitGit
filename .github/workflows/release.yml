@@ -82,7 +82,13 @@ jobs:
           script: |
             const tagName = process.env.RELEASE_TAG;
             const changelog = process.env.CHANGELOG?.trim() ?? "";
-            return [`## LitGit Desktop ${tagName}`, "", changelog].join("\n");
+            return [
+              `# LitGit Desktop ${tagName}`,
+              "",
+              "A new desktop release is ready with platform bundles, generated notes, and attached assets.",
+              "",
+              changelog,
+            ].join("\n");
 
       - name: Write dry-run release notes
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run

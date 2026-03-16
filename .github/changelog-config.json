@@ -10,9 +10,9 @@
     "question",
     "wontfix"
   ],
-  "template": "### Release Snapshot\n- Cross-platform desktop bundles for macOS, Windows, and Linux\n- Verified with repo checks before packaging\n- Detailed changelog generated automatically from merged work\n- Full diff: #{{RELEASE_DIFF}}\n\n### Metrics\n- #{{COMMITS}} commits across #{{CHANGED_FILES}} files\n- #{{ADDITIONS}} additions and #{{DELETIONS}} deletions\n- Contributors: #{{CONTRIBUTORS}}\n\n#{{CHANGELOG}}\n\n## Other Changes\n#{{UNCATEGORIZED}}",
+  "template": "## Highlights\n\n- Cross-platform LitGit Desktop bundles for macOS, Windows, and Linux\n- Verified in CI before packaging and release publishing\n- Auto-generated changelog curated from merged pull requests\n- Full diff: #{{RELEASE_DIFF}}\n\n## Release Metrics\n\n- #{{COMMITS}} commits across #{{CHANGED_FILES}} changed files\n- #{{ADDITIONS}} additions and #{{DELETIONS}} deletions\n- Contributors: #{{CONTRIBUTORS}}\n\n## What's Changed\n\n#{{CHANGELOG}}\n\n## Other Changes\n\n#{{UNCATEGORIZED}}\n\n## Downloads\n\nChoose the artifact that matches your platform from the release assets below.",
   "pr_template": "- #{{TITLE}} by @#{{AUTHOR}} in [##{{NUMBER}}](#{{URL}})",
-  "empty_template": "### Release Snapshot\n- No user-facing changes were detected for this release.\n",
+  "empty_template": "## Highlights\n\n- Cross-platform LitGit Desktop bundles for macOS, Windows, and Linux\n- Verified in CI before packaging and release publishing\n\n## What's Changed\n\nNo user-facing changes were detected for this release.\n\n## Downloads\n\nChoose the artifact that matches your platform from the release assets below.\n",
   "categories": [
     {
       "title": "## Breaking Changes",
