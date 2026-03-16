@@ -130,6 +130,8 @@ jobs:
             artifact_path: apps/desktop/src-tauri/target/release/bundle
 
     runs-on: ${{ matrix.platform }}
+    env:
+      NO_STRIP: ${{ matrix.platform == 'ubuntu-22.04' && 'true' || '' }}
 
     steps:
       - name: Checkout repository
