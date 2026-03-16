@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -58,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -67,7 +67,7 @@ jobs:
         uses: mikepenz/release-changelog-builder-action@v6.1.1
         with:
           configuration: .github/changelog-config.json
-          toTag: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          toTag: ${{ github.event_name == 'push' && github.ref_name || github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload dry-run release notes
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-notes-preview
           path: release-notes.md
@@ -111,21 +111,25 @@ jobs:
       matrix:
         include:
           - name: macOS Apple Silicon
+            artifact_name: tauri-bundle-macos-aarch64
             platform: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles app
             artifact_path: apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle
           - name: macOS Intel
+            artifact_name: tauri-bundle-macos-x64
             platform: macos-latest
             target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
             artifact_path: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle
           - name: Ubuntu x64
+            artifact_name: tauri-bundle-ubuntu-x64
             platform: ubuntu-22.04
             target: ""
             args: ""
             artifact_path: apps/desktop/src-tauri/target/release/bundle
           - name: Windows x64
+            artifact_name: tauri-bundle-windows-x64
             platform: windows-latest
             target: ""
             args: ""
@@ -135,7 +139,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -178,14 +182,14 @@ jobs:
 
       - name: Upload dry-run artifacts
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: tauri-bundle-${{ matrix.platform }}
+          name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
 
       - name: Build and publish release
-        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        if: github.event_name == 'push'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
