@@ -116,18 +116,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS Apple Silicon
-            artifact_name: tauri-bundle-macos-aarch64
-            platform: macos-latest
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles app
-            artifact_path: apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle
-          - name: macOS Intel
-            artifact_name: tauri-bundle-macos-x64
-            platform: macos-latest
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
-            artifact_path: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle
           - name: Ubuntu x64
             artifact_name: tauri-bundle-ubuntu-x64
             platform: ubuntu-22.04
@@ -175,6 +163,18 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build desktop web bundle
+        run: bun run build:desktop-web
+        working-directory: apps/desktop
+
+      - name: Verify desktop asset paths
+        shell: bash
+        run: |
+          if grep -E 'src="/assets/|href="/assets/' apps/desktop/dist/index.html; then
+            echo "Desktop bundle uses absolute /assets paths, which breaks packaged Tauri apps."
+            exit 1
+          fi
 
       - name: Build release bundle
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run && matrix.args == ''
