@@ -2,9 +2,7 @@
 
 Monorepo TypeScript modern untuk web dan desktop, dibangun dengan React, TanStack Router, dan Tauri.
 
-## Partisipasi Hackathon
-
-Proyek ini dibuat sebagai partisipasi dalam **[Mayar Vibecoding Competition 2026](https://mayar.id/vibe2026)** (Ramadhan 2026). Dikembangkan dengan pendekatan vibecoding dan [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack).
+Proyek ini dikembangkan dengan [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack).
 
 ## Fitur
 
@@ -69,4 +67,3 @@ Proprietary. Hak cipta dilindungi.
 ## Penghargaan
 
 - Dibangun dengan [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack).
-- Diserahkan sebagai bagian dari [Mayar Vibecoding Competition 2026](https://mayar.id/vibe2026).

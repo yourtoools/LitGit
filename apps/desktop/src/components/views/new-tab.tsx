@@ -12,13 +12,11 @@ import {
   DownloadSimpleIcon,
   FolderSimpleIcon,
   GearIcon,
-  GlobeIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import mayarLogo from "@/assets/mayar-logo.png";
 import { PageContainer } from "@/components/layout/page-container";
 import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
 import { QuickActionButton } from "@/components/views/quick-actions-launcher";
@@ -47,7 +45,6 @@ import type {
 } from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
-const MAYAR_URL = env.VITE_MAYAR_URL;
 const SOURCE_CODE_URL = env.VITE_SOURCE_CODE_URL;
 const BUG_REPORT_URL = env.VITE_BUG_REPORT_URL;
 const RECENT_REPO_SEARCH_INPUT_ID = "recent-repositories-search";
@@ -438,22 +435,6 @@ export function NewTabContent() {
     <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-300">
       <PageContainer className="relative flex w-full flex-1 flex-col gap-8">
         <header className="flex flex-col gap-4">
-          <div className="inline-flex w-fit items-center gap-2 border border-primary/25 bg-primary/10 px-3 py-1">
-            <span className="font-mono text-primary/85 text-xs uppercase tracking-[0.16em]">
-              Built at
-            </span>
-            <span className="font-mono text-foreground/85 text-xs uppercase tracking-[0.14em]">
-              Mayar Hackathon
-            </span>
-            <img
-              alt="Mayar brand logo"
-              className="h-3.5 w-auto opacity-75"
-              height={14}
-              loading="lazy"
-              src={mayarLogo}
-              width={60}
-            />
-          </div>
           <h1 className="font-extrabold font-mono text-4xl text-foreground leading-none tracking-tight">
             LitGit
           </h1>
@@ -714,22 +695,6 @@ export function NewTabContent() {
 
           <nav aria-label="External resources">
             <ul className="flex flex-wrap items-center gap-1.5">
-              <li>
-                <Button
-                  aria-label="Visit Mayar website (opens in new window)"
-                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
-                  onClick={() => {
-                    openExternalUrl(MAYAR_URL).catch(() => {
-                      return;
-                    });
-                  }}
-                  type="button"
-                  variant="ghost"
-                >
-                  <GlobeIcon aria-hidden="true" className="size-3.5" />
-                  Visit Mayar
-                </Button>
-              </li>
               <li>
                 <Button
                   aria-label="View source code (opens in new window)"
