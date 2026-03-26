@@ -1,13 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-
-/* Scan UI package components */
-@source "../";
-
-/* Scan all apps for Tailwind classes used with UI components */
 @source "../../../apps/**/*.{ts,tsx}";
-@source "../../../apps/**/*.{js,jsx}";
+@source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
 
