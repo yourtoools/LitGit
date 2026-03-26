@@ -155,9 +155,9 @@ export const createTabGroupsSlice = (
         .filter((entry) => entry.tab.groupId === groupId)
         .at(-1)?.index;
       const targetInsertIndex =
-        lastIndexInTargetGroup !== undefined
-          ? lastIndexInTargetGroup + 1
-          : tabsWithoutTarget.length;
+        lastIndexInTargetGroup === undefined
+          ? tabsWithoutTarget.length
+          : lastIndexInTargetGroup + 1;
       const movedTab: Tab = {
         ...targetTab,
         groupId,

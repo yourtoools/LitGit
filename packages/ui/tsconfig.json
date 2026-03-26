@@ -1,7 +1,6 @@
 {
   "extends": "@litgit/config/tsconfig.base.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
       "@litgit/ui/*": ["./src/*"]
     },

@@ -22,7 +22,7 @@ export function GroupHeader({
   const toggleGroupCollapse = useTabStore((state) => state.toggleGroupCollapse);
 
   const displayName =
-    group.name.length > 50 ? `${group.name.substring(0, 50)}...` : group.name;
+    group.name.length > 50 ? `${group.name.slice(0, 50)}...` : group.name;
 
   return (
     <GroupContextMenu groupId={group.id}>
