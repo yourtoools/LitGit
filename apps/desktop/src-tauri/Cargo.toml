@@ -1,7 +1,7 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
+description = "A fast, fluent, and minimal Git client designed for developers who demand speed and a clutter-free workflow"
 authors = ["you"]
 license = ""
 repository = ""
