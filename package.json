@@ -34,7 +34,15 @@
     "dev:desktop": "turbo run dev -F desktop",
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",
     "fix": "ultracite fix",
-    "gen:gitignore-templates": "turbo run gen:gitignore-templates -F desktop"
+    "gen:gitignore-templates": "turbo run gen:gitignore-templates -F desktop",
+    "bump-deps": "bun run scripts/bump.mjs",
+    "bump-deps:audit": "bun run scripts/bump.mjs --audit",
+    "bump-deps:ci": "bun run scripts/bump.mjs --yes",
+    "bump-deps:dry": "bun run scripts/bump.mjs --dry-run",
+    "bump-deps:safe": "bun run scripts/bump.mjs --skip-major",
+    "bump-deps:stable": "bun run scripts/bump.mjs --only-type stable",
+    "clean": "bun run scripts/cleanup.mjs",
+    "clean:all": "bun run scripts/cleanup.mjs --all"
   },
   "dependencies": {
     "@litgit/env": "workspace:*",
@@ -42,7 +50,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.5",
+    "@inquirer/prompts": "^8.3.2",
     "@litgit/config": "workspace:*",
     "lefthook": "2.1.2",
     "turbo": "^2.8.12",
