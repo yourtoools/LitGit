@@ -1536,6 +1536,13 @@ export function RepoInfo() {
     useState(false);
   const [rewordCommitSummary, setRewordCommitSummary] = useState("");
   const [rewordCommitDescription, setRewordCommitDescription] = useState("");
+  const [isGeneratingAiRewordMessage, setIsGeneratingAiRewordMessage] =
+    useState(false);
+  const [lastAiRewordGeneration, setLastAiRewordGeneration] = useState<null | {
+    promptMode: string;
+    providerKind: string;
+    schemaFallbackUsed: boolean;
+  }>(null);
   const [isRewordingCommitMessage, setIsRewordingCommitMessage] =
     useState(false);
   let resetTargetDescription =
@@ -2096,12 +2103,14 @@ export function RepoInfo() {
       setIsEditingSelectedCommitMessage(false);
       setRewordCommitSummary("");
       setRewordCommitDescription("");
+      setLastAiRewordGeneration(null);
       return;
     }
 
     setIsEditingSelectedCommitMessage(false);
     setRewordCommitSummary(selectedCommit.messageSummary);
     setRewordCommitDescription(selectedCommit.messageDescription);
+    setLastAiRewordGeneration(null);
   }, [selectedCommit]);
   const selectedCommitFiles = useMemo<RepositoryCommitFile[]>(
     () =>
@@ -9125,6 +9134,32 @@ export function RepoInfo() {
       setIsGeneratingAiCommitMessage(false);
     }
   };
+  const handleGenerateAiRewordMessage = async () => {
+    if (
+      !activeRepoId ||
+      isGeneratingAiRewordMessage ||
+      isRewordingCommitMessage ||
+      aiSelectedModel.trim().length === 0
+    ) {
+      return;
+    }
+
+    setIsGeneratingAiRewordMessage(true);
+
+    try {
+      const generatedCommit = await generateAiCommitMessage(activeRepoId, "");
+
+      setRewordCommitSummary(generatedCommit.title);
+      setRewordCommitDescription(generatedCommit.body);
+      setLastAiRewordGeneration({
+        promptMode: generatedCommit.promptMode,
+        providerKind: generatedCommit.providerKind,
+        schemaFallbackUsed: generatedCommit.schemaFallbackUsed,
+      });
+    } finally {
+      setIsGeneratingAiRewordMessage(false);
+    }
+  };
 
   const handleCommit = async () => {
     if (!activeRepoId || isCommitting || !canCommit) {
@@ -11165,22 +11200,59 @@ export function RepoInfo() {
                           {isEditingSelectedCommitMessage ? (
                             <div className="space-y-2 border border-border/70 bg-background/50 p-2.5">
                               <div className="space-y-1.5">
-                                <Label
-                                  className="text-xs"
-                                  htmlFor="reword-summary"
-                                >
-                                  Title
-                                </Label>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <Label
+                                      className="text-xs"
+                                      htmlFor="reword-summary"
+                                    >
+                                      Title
+                                    </Label>
+                                    {lastAiRewordGeneration ? (
+                                      <span className="inline-flex items-center rounded border border-border/70 px-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.08em]">
+                                        AI {lastAiRewordGeneration.promptMode}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <Button
+                                    className="h-6 px-2 text-xs"
+                                    disabled={
+                                      isGeneratingAiRewordMessage ||
+                                      isRewordingCommitMessage ||
+                                      aiSelectedModel.trim().length === 0
+                                    }
+                                    onClick={() => {
+                                      handleGenerateAiRewordMessage().catch(
+                                        () => undefined
+                                      );
+                                    }}
+                                    size="xs"
+                                    type="button"
+                                    variant="outline"
+                                  >
+                                    <SparkleIcon className="size-3" />
+                                    {isGeneratingAiRewordMessage
+                                      ? "Generating..."
+                                      : "Generate with AI"}
+                                  </Button>
+                                </div>
                                 <Input
                                   className="focus-visible:desktop-focus h-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   id="reword-summary"
                                   onChange={(event) => {
                                     setRewordCommitSummary(event.target.value);
+                                    setLastAiRewordGeneration(null);
                                   }}
                                   placeholder="Describe your changes"
                                   value={rewordCommitSummary}
                                 />
                               </div>
+                              {lastAiRewordGeneration?.promptMode === "fast" ? (
+                                <p className="text-[11px] text-muted-foreground leading-4">
+                                  AI used summary context instead of full patch
+                                  hunks because the staged diff was large.
+                                </p>
+                              ) : null}
                               <div className="space-y-1.5">
                                 <Label
                                   className="text-xs"
@@ -11189,12 +11261,13 @@ export function RepoInfo() {
                                   Commit description
                                 </Label>
                                 <Textarea
-                                  className="focus-visible:desktop-focus min-h-24 resize-none text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+                                  className="focus-visible:desktop-focus h-20 resize-none overflow-y-scroll text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   id="reword-description"
                                   onChange={(event) => {
                                     setRewordCommitDescription(
                                       event.target.value
                                     );
+                                    setLastAiRewordGeneration(null);
                                   }}
                                   placeholder="Add more detail for this commit"
                                   value={rewordCommitDescription}
@@ -11235,6 +11308,7 @@ export function RepoInfo() {
                                   disabled={isRewordingCommitMessage}
                                   onClick={() => {
                                     setIsEditingSelectedCommitMessage(false);
+                                    setLastAiRewordGeneration(null);
                                     setRewordCommitSummary(
                                       selectedCommit.messageSummary
                                     );
