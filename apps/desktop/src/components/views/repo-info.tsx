@@ -967,7 +967,7 @@ const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const WORKING_TREE_ROW_ID = "__working_tree__";
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
-const TIMELINE_ROW_HEIGHT = 44;
+const TIMELINE_ROW_HEIGHT = 36;
 const TIMELINE_GRAPH_COLUMN_MIN_WIDTH = 60;
 const TIMELINE_GRAPH_COLUMN_MAX_WIDTH = 320;
 const TIMELINE_COMMIT_MESSAGE_BAR_WIDTH = 3;
@@ -9678,7 +9678,7 @@ export function RepoInfo() {
                   {hasAnyWorkingTreeChanges ? (
                     <button
                       className={cn(
-                        "group relative z-10 grid h-11 w-full cursor-pointer items-center border-border/35 border-b px-2 text-left transition-colors",
+                        "group relative z-10 grid h-9 w-full cursor-pointer items-center border-border/35 border-b px-2 text-left transition-colors",
                         selectedTimelineRowId === WORKING_TREE_ROW_ID
                           ? "bg-muted"
                           : "hover:bg-muted/35"
@@ -9785,7 +9785,7 @@ export function RepoInfo() {
                             <ContextMenuTrigger>
                               <button
                                 className={cn(
-                                  "group relative z-10 grid h-11 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
+                                  "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
                                   selectedTimelineRowId === item.hash ||
                                     openCommitMenuHash === item.hash
                                     ? "bg-muted hover:bg-muted"
@@ -9882,14 +9882,14 @@ export function RepoInfo() {
                                     }}
                                   />
                                   <div
-                                    className="flex h-full min-w-0 items-center gap-1.5"
+                                    className="flex h-full min-w-0 items-center gap-1"
                                     style={{
                                       paddingLeft:
                                         TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
                                         TIMELINE_COMMIT_MESSAGE_BAR_GAP,
                                     }}
                                   >
-                                    <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                                    <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
                                       <span>{commitTitle}</span>
                                       {commitDescription.length > 0 ? (
                                         <span className="text-muted-foreground/80">
@@ -9927,7 +9927,7 @@ export function RepoInfo() {
                       const rowButton = (
                         <button
                           className={cn(
-                            "group relative z-10 grid h-11 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
+                            "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
                             selectedTimelineRowId === row.id
                               ? "bg-muted"
                               : "hover:bg-muted/35"
@@ -9969,14 +9969,14 @@ export function RepoInfo() {
                               }}
                             />
                             <div
-                              className="flex h-full min-w-0 items-center gap-1.5"
+                              className="flex h-full min-w-0 items-center gap-1"
                               style={{
                                 paddingLeft:
                                   TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
                                   TIMELINE_COMMIT_MESSAGE_BAR_GAP,
                               }}
                             >
-                              <p className="min-w-0 flex-1 truncate pr-2 text-sm">
+                              <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
                                 <span>{rowLabel}</span>
                                 <span className="text-muted-foreground/80">
                                   {" "}
