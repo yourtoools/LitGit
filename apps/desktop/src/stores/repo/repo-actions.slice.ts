@@ -34,6 +34,7 @@ import {
   renameRepoBranch,
   resetRepoToReference,
   revertRepoCommit,
+  rewordRepoCommit,
   runRepoMergeAction,
   runRepoPull,
   saveRepoFileText,
@@ -214,6 +215,7 @@ type RepoActionsSliceKeys =
   | "pullBranch"
   | "mergeReference"
   | "pushBranch"
+  | "rewordCommitMessage"
   | "renameBranch"
   | "resetToReference"
   | "revertCommit"
@@ -440,6 +442,40 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to rename branch"),
+      });
+      throw error;
+    }
+  },
+  rewordCommitMessage: async (id, target, summary, description) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested commit reword: ${target}`,
+    });
+
+    try {
+      const result = await rewordRepoCommit(
+        targetRepo.path,
+        target,
+        summary,
+        description
+      );
+      await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, true);
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Commit reworded: ${target}`,
+      });
+      return result;
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to reword commit"),
       });
       throw error;
     }

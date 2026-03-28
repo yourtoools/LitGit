@@ -45,6 +45,7 @@ import type {
   RepositoryStash,
   RepositoryWorkingTreeItem,
   RepositoryWorkingTreeStatus,
+  RewordRepositoryCommitResult,
 } from "@/stores/repo/repo-store-types";
 import { useOperationLogStore } from "@/stores/ui/use-operation-log-store";
 
@@ -787,6 +788,47 @@ export async function renameRepoBranch(
     invokeCommand: "rename_repository_branch",
     repoPath: path,
   });
+}
+
+export async function rewordRepoCommit(
+  path: string,
+  target: string,
+  summary: string,
+  description: string
+): Promise<RewordRepositoryCommitResult> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Reword commit works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `git reword ${target}`,
+    invoke,
+    invokeArgs: {
+      description,
+      repoPath: path,
+      summary,
+      target,
+    },
+    invokeCommand: "reword_repository_commit",
+    repoPath: path,
+  });
+
+  if (!isRecord(result)) {
+    throw new Error("Invalid reword commit payload");
+  }
+
+  const { headHash, updatedCommitHash } = result;
+
+  if (typeof headHash !== "string" || typeof updatedCommitHash !== "string") {
+    throw new Error("Invalid reword commit payload");
+  }
+
+  return {
+    headHash,
+    updatedCommitHash,
+  } satisfies RewordRepositoryCommitResult;
 }
 
 export async function deleteRemoteRepoBranch(

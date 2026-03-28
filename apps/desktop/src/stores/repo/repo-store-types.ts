@@ -286,6 +286,11 @@ export interface GeneratedRepositoryCommitMessage {
   title: string;
 }
 
+export interface RewordRepositoryCommitResult {
+  headHash: string;
+  updatedCommitHash: string;
+}
+
 export interface RepoStoreState {
   activeRepoId: string | null;
   addIgnoreRule: (id: string, pattern: string) => Promise<void>;
@@ -481,6 +486,12 @@ export interface RepoStoreState {
     mode?: "hard" | "mixed" | "soft"
   ) => Promise<void>;
   revertCommit: (id: string, target: string) => Promise<void>;
+  rewordCommitMessage: (
+    id: string,
+    target: string,
+    summary: string,
+    description: string
+  ) => Promise<RewordRepositoryCommitResult>;
   saveFileText: (
     id: string,
     filePath: string,

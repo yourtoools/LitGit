@@ -349,6 +349,25 @@ struct GeneratedCommitMessage {
     title: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RewordRepositoryCommitResult {
+    head_hash: String,
+    updated_commit_hash: String,
+}
+
+struct CommitRewriteMetadata {
+    author_date: String,
+    author_email: String,
+    author_name: String,
+    committer_date: String,
+    committer_email: String,
+    committer_name: String,
+    message: String,
+    parents: Vec<String>,
+    tree: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CommitPromptMode {
     Fast,
@@ -2565,6 +2584,120 @@ fn commit_repository_changes(
 }
 
 #[tauri::command]
+fn reword_repository_commit(
+    repo_path: String,
+    target: String,
+    summary: String,
+    description: String,
+) -> Result<RewordRepositoryCommitResult, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let next_message = build_commit_message_text(&summary, &description)?;
+    let head_hash = run_git_text_command(&repo_path, &["rev-parse", "HEAD"], "Failed to read HEAD")?;
+
+    let ancestor_output = git_command()
+        .args(["-C", &repo_path, "merge-base", "--is-ancestor", &target, &head_hash])
+        .output()
+        .map_err(|error| format!("Failed to verify commit ancestry: {error}"))?;
+
+    if !ancestor_output.status.success() {
+        return Err("The selected commit is not on the current HEAD ancestry path.".to_string());
+    }
+
+    let descendants_output = run_git_text_command(
+        &repo_path,
+        &["rev-list", "--reverse", "--ancestry-path", &format!("{target}..HEAD")],
+        "Failed to collect commits to rewrite",
+    )?;
+    let mut commits_to_rewrite = vec![target.clone()];
+    commits_to_rewrite.extend(
+        descendants_output
+            .lines()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(std::string::ToString::to_string),
+    );
+
+    let mut rewritten_by_original = HashMap::new();
+
+    for original_hash in &commits_to_rewrite {
+        let metadata = read_commit_rewrite_metadata(&repo_path, original_hash)?;
+        let rewritten_parents = metadata
+            .parents
+            .iter()
+            .map(|parent| {
+                rewritten_by_original
+                    .get(parent)
+                    .cloned()
+                    .unwrap_or_else(|| parent.clone())
+            })
+            .collect::<Vec<_>>();
+        let commit_message = if original_hash == &target {
+            next_message.as_str()
+        } else {
+            metadata.message.as_str()
+        };
+        let rewritten_hash =
+            create_rewritten_commit(&repo_path, &metadata, &rewritten_parents, commit_message)?;
+        rewritten_by_original.insert(original_hash.clone(), rewritten_hash);
+    }
+
+    let updated_commit_hash = rewritten_by_original
+        .get(&target)
+        .cloned()
+        .ok_or_else(|| "Failed to determine rewritten commit hash".to_string())?;
+    let next_head_hash = rewritten_by_original
+        .get(&head_hash)
+        .cloned()
+        .ok_or_else(|| "Failed to determine rewritten HEAD hash".to_string())?;
+    let current_head_ref_output = git_command()
+        .args(["-C", &repo_path, "symbolic-ref", "-q", "HEAD"])
+        .output()
+        .map_err(|error| format!("Failed to read current branch ref: {error}"))?;
+    let update_ref_target = if current_head_ref_output.status.success() {
+        let value = String::from_utf8_lossy(&current_head_ref_output.stdout)
+            .trim()
+            .to_string();
+
+        if value.is_empty() {
+            "HEAD".to_string()
+        } else {
+            value
+        }
+    } else {
+        "HEAD".to_string()
+    };
+    let update_ref_output = git_command()
+        .args([
+            "-C",
+            &repo_path,
+            "update-ref",
+            &update_ref_target,
+            &next_head_hash,
+            &head_hash,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to update rewritten history: {error}"))?;
+
+    if !update_ref_output.status.success() {
+        return Err(git_process_error_message(
+            &update_ref_output.stdout,
+            &update_ref_output.stderr,
+            "Failed to update rewritten history",
+        ));
+    }
+
+    let _ = git_command()
+        .args(["-C", &repo_path, "update-ref", "ORIG_HEAD", &head_hash])
+        .output();
+
+    Ok(RewordRepositoryCommitResult {
+        head_hash: next_head_hash,
+        updated_commit_hash,
+    })
+}
+
+#[tauri::command]
 fn stage_all_repository_changes(repo_path: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -4768,6 +4901,166 @@ fn run_git_text_command(repo_path: &str, args: &[&str], fallback: &str) -> Resul
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+fn build_commit_message_text(summary: &str, description: &str) -> Result<String, String> {
+    let summary_trimmed = summary.trim();
+
+    if summary_trimmed.is_empty() {
+        return Err("Commit summary is required".to_string());
+    }
+
+    let description_trimmed = description.trim();
+
+    Ok(if description_trimmed.is_empty() {
+        summary_trimmed.to_string()
+    } else {
+        format!("{summary_trimmed}\n\n{description_trimmed}")
+    })
+}
+
+fn read_commit_rewrite_metadata(
+    repo_path: &str,
+    commit_hash: &str,
+) -> Result<CommitRewriteMetadata, String> {
+    let output = git_command()
+        .args([
+            "-C",
+            repo_path,
+            "show",
+            "-s",
+            "--format=%T%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B",
+            commit_hash,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to read commit metadata: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to read commit metadata",
+        ));
+    }
+
+    let mut fields = output.stdout.splitn(9, |byte| *byte == b'\0');
+    let tree = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Commit metadata did not include a tree".to_string())?;
+    let parents = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| {
+            value
+                .split_whitespace()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let author_name = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Commit metadata did not include an author name".to_string())?;
+    let author_email = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Commit metadata did not include an author email".to_string())?;
+    let author_date = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Commit metadata did not include an author date".to_string())?;
+    let committer_name = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Commit metadata did not include a committer name".to_string())?;
+    let committer_email = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Commit metadata did not include a committer email".to_string())?;
+    let committer_date = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Commit metadata did not include a committer date".to_string())?;
+    let message = fields
+        .next()
+        .map(String::from_utf8_lossy)
+        .map(|value| value.to_string())
+        .ok_or_else(|| "Commit metadata did not include a commit message".to_string())?;
+
+    Ok(CommitRewriteMetadata {
+        author_date,
+        author_email,
+        author_name,
+        committer_date,
+        committer_email,
+        committer_name,
+        message,
+        parents,
+        tree,
+    })
+}
+
+fn create_rewritten_commit(
+    repo_path: &str,
+    metadata: &CommitRewriteMetadata,
+    parents: &[String],
+    message: &str,
+) -> Result<String, String> {
+    let mut command = git_command();
+    command.args(["-C", repo_path, "commit-tree", &metadata.tree]);
+
+    for parent in parents {
+        command.args(["-p", parent]);
+    }
+
+    command
+        .env("GIT_AUTHOR_NAME", &metadata.author_name)
+        .env("GIT_AUTHOR_EMAIL", &metadata.author_email)
+        .env("GIT_AUTHOR_DATE", &metadata.author_date)
+        .env("GIT_COMMITTER_NAME", &metadata.committer_name)
+        .env("GIT_COMMITTER_EMAIL", &metadata.committer_email)
+        .env("GIT_COMMITTER_DATE", &metadata.committer_date)
+        .stdin(Stdio::piped());
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Failed to spawn git commit-tree: {error}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(message.as_bytes())
+            .map_err(|error| format!("Failed to write commit message: {error}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Failed to finish git commit-tree: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_process_error_message(
+            &output.stdout,
+            &output.stderr,
+            "Failed to rewrite commit",
+        ));
+    }
+
+    let rewritten_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if rewritten_hash.is_empty() {
+        return Err("Git did not return a rewritten commit hash".to_string());
+    }
+
+    Ok(rewritten_hash)
+}
+
 fn build_commit_generation_prompt(
     diff_stat: &str,
     changed_files: &str,
@@ -6285,6 +6578,7 @@ pub fn run() {
             pop_repository_stash,
             drop_repository_stash,
             commit_repository_changes,
+            reword_repository_commit,
             add_repository_ignore_rule,
             stage_all_repository_changes,
             unstage_all_repository_changes,

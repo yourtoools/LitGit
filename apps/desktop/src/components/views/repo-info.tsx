@@ -77,6 +77,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@litgit/ui/components/sidebar";
+import { Textarea } from "@litgit/ui/components/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -1354,6 +1355,9 @@ export function RepoInfo() {
   const deleteBranch = useRepoStore((state) => state.deleteBranch);
   const deleteRemoteBranch = useRepoStore((state) => state.deleteRemoteBranch);
   const renameBranch = useRepoStore((state) => state.renameBranch);
+  const rewordCommitMessage = useRepoStore(
+    (state) => state.rewordCommitMessage
+  );
   const checkoutCommit = useRepoStore((state) => state.checkoutCommit);
   const cherryPickCommit = useRepoStore((state) => state.cherryPickCommit);
   const revertCommit = useRepoStore((state) => state.revertCommit);
@@ -1528,6 +1532,12 @@ export function RepoInfo() {
   const [isCheckingOutCommit, setIsCheckingOutCommit] = useState(false);
   const [isCherryPickingCommit, setIsCherryPickingCommit] = useState(false);
   const [isRevertingCommit, setIsRevertingCommit] = useState(false);
+  const [isEditingSelectedCommitMessage, setIsEditingSelectedCommitMessage] =
+    useState(false);
+  const [rewordCommitSummary, setRewordCommitSummary] = useState("");
+  const [rewordCommitDescription, setRewordCommitDescription] = useState("");
+  const [isRewordingCommitMessage, setIsRewordingCommitMessage] =
+    useState(false);
   let resetTargetDescription =
     "Hard reset discards staged and working tree changes after moving HEAD. Use this carefully.";
 
@@ -1775,11 +1785,24 @@ export function RepoInfo() {
   isRightSidebarOpenRef.current = isRightSidebarOpen;
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
+  const requiresForcePushAfterHistoryRewrite = activeRepoId
+    ? (repoHistoryRewriteHintById[activeRepoId] ?? false)
+    : false;
   const commits = useMemo<RepositoryCommit[]>(
     () => (activeRepoId ? (repoCommits[activeRepoId] ?? []) : []),
     [activeRepoId, repoCommits]
   );
-  const localHeadCommit = useMemo(() => resolveHeadCommit(commits), [commits]);
+  const timelineCommits = useMemo<RepositoryCommit[]>(
+    () =>
+      requiresForcePushAfterHistoryRewrite
+        ? commits.filter((commit) => commit.syncState !== "pullable")
+        : commits,
+    [commits, requiresForcePushAfterHistoryRewrite]
+  );
+  const localHeadCommit = useMemo(
+    () => resolveHeadCommit(timelineCommits),
+    [timelineCommits]
+  );
   const activeRepoIdentity = activeRepoId
     ? (repoGitIdentities[activeRepoId] ?? null)
     : null;
@@ -1796,11 +1819,11 @@ export function RepoInfo() {
   const wipAuthorAvatarUrl = useMemo(
     () =>
       resolveWipAuthorAvatarUrl(
-        commits,
+        timelineCommits,
         preferredWipEmail,
         preferredWipRawName
       ),
-    [commits, preferredWipEmail, preferredWipRawName]
+    [timelineCommits, preferredWipEmail, preferredWipRawName]
   );
   const branches = useMemo(
     () => (activeRepoId ? (repoBranches[activeRepoId] ?? []) : []),
@@ -1981,9 +2004,6 @@ export function RepoInfo() {
   const redoActionLabel = activeRepoId
     ? (repoRedoLabelById[activeRepoId] ?? null)
     : null;
-  const requiresForcePushAfterHistoryRewrite = activeRepoId
-    ? (repoHistoryRewriteHintById[activeRepoId] ?? false)
-    : false;
   const unstagedTree = useMemo(
     () => buildChangeTree(unstagedItems, fileTreeSortOrder),
     [fileTreeSortOrder, unstagedItems]
@@ -2022,9 +2042,9 @@ export function RepoInfo() {
   const currentBranchLaneColor = useMemo(
     () =>
       localHeadCommit?.hash
-        ? getCommitLaneColor(commits, localHeadCommit.hash)
-        : getCommitLaneColor(commits, ""),
-    [commits, localHeadCommit?.hash]
+        ? getCommitLaneColor(timelineCommits, localHeadCommit.hash)
+        : getCommitLaneColor(timelineCommits, ""),
+    [localHeadCommit?.hash, timelineCommits]
   );
   const currentLocalBranch = useMemo(
     () =>
@@ -2036,8 +2056,9 @@ export function RepoInfo() {
   );
   const isWorkingTreeSelection = selectedTimelineRowId === WORKING_TREE_ROW_ID;
   const selectedCommit = useMemo(
-    () => commits.find((item) => item.hash === selectedCommitId) ?? null,
-    [commits, selectedCommitId]
+    () =>
+      timelineCommits.find((item) => item.hash === selectedCommitId) ?? null,
+    [selectedCommitId, timelineCommits]
   );
   const selectedCommitMessageSections = useMemo(() => {
     if (!selectedCommit) {
@@ -2058,6 +2079,29 @@ export function RepoInfo() {
         .map((line) => line.replace(COMMIT_MESSAGE_LIST_MARKER_PATTERN, "")),
       summary: messageLines[0] ?? selectedCommit.message.trim(),
     };
+  }, [selectedCommit]);
+  const selectedCommitRebaseImpactCount = useMemo(() => {
+    if (!selectedCommit) {
+      return 0;
+    }
+
+    const selectedIndex = timelineCommits.findIndex(
+      (commit) => commit.hash === selectedCommit.hash
+    );
+
+    return selectedIndex > 0 ? selectedIndex : 0;
+  }, [selectedCommit, timelineCommits]);
+  useEffect(() => {
+    if (!selectedCommit) {
+      setIsEditingSelectedCommitMessage(false);
+      setRewordCommitSummary("");
+      setRewordCommitDescription("");
+      return;
+    }
+
+    setIsEditingSelectedCommitMessage(false);
+    setRewordCommitSummary(selectedCommit.messageSummary);
+    setRewordCommitDescription(selectedCommit.messageDescription);
   }, [selectedCommit]);
   const selectedCommitFiles = useMemo<RepositoryCommitFile[]>(
     () =>
@@ -2198,7 +2242,7 @@ export function RepoInfo() {
   }, [branchComboboxOptions, normalizedBranchQuery, selectedBranchOption]);
   const timelineReferenceRowsByCommitHash = useMemo(() => {
     const rowsByCommitHash = new Map<string, TimelineReferenceRowData[]>();
-    const commitHashSet = new Set(commits.map((commit) => commit.hash));
+    const commitHashSet = new Set(timelineCommits.map((commit) => commit.hash));
     const seenStashRefs = new Set<string>();
     const seenTagNames = new Set<string>();
 
@@ -2221,7 +2265,7 @@ export function RepoInfo() {
       rowsByCommitHash.set(stash.anchorCommitHash, existingRows);
     }
 
-    for (const commit of commits) {
+    for (const commit of timelineCommits) {
       const tagNames = new Set<string>();
 
       for (const rawReference of commit.refs) {
@@ -2252,7 +2296,7 @@ export function RepoInfo() {
     }
 
     return rowsByCommitHash;
-  }, [commits, stashes]);
+  }, [stashes, timelineCommits]);
   const timelineRows = useMemo<GitTimelineRow[]>(() => {
     const rows: GitTimelineRow[] = [];
 
@@ -2266,7 +2310,7 @@ export function RepoInfo() {
       });
     }
 
-    for (const commit of commits) {
+    for (const commit of timelineCommits) {
       const referenceRows =
         timelineReferenceRowsByCommitHash.get(commit.hash) ?? [];
 
@@ -2294,7 +2338,7 @@ export function RepoInfo() {
     timelineReferenceRowsByCommitHash,
     wipAuthorAvatarUrl,
     wipAuthorName,
-    commits,
+    timelineCommits,
   ]);
   const timelineRowById = useMemo(
     () => new Map(timelineRows.map((row) => [row.id, row])),
@@ -2323,11 +2367,11 @@ export function RepoInfo() {
     }
 
     return (
-      commits.find(
+      timelineCommits.find(
         (item) => item.hash === selectedTimelineRow.anchorCommitHash
       ) ?? null
     );
-  }, [commits, selectedTimelineRow]);
+  }, [selectedTimelineRow, timelineCommits]);
   const selectedStash = useMemo(() => {
     if (selectedTimelineRow?.type !== "stash") {
       return null;
@@ -2474,8 +2518,8 @@ export function RepoInfo() {
     return rowIds;
   }, [timelineRows]);
   const commitByHash = useMemo(
-    () => new Map(commits.map((commit) => [commit.hash, commit])),
-    [commits]
+    () => new Map(timelineCommits.map((commit) => [commit.hash, commit])),
+    [timelineCommits]
   );
   const timelineVisibleColumns = useMemo(
     () =>
@@ -2492,9 +2536,9 @@ export function RepoInfo() {
   const resolvedTimelineGraphColumnWidth = useMemo(
     () =>
       timelineVisibleColumns.includes("graph")
-        ? resolveGitGraphColumnWidth(commits)
+        ? resolveGitGraphColumnWidth(timelineCommits)
         : 0,
-    [commits, timelineVisibleColumns]
+    [timelineCommits, timelineVisibleColumns]
   );
   let timelineGraphTargetWidth = resolvedTimelineGraphColumnWidth;
 
@@ -2582,12 +2626,12 @@ export function RepoInfo() {
   const commitAvatarUrlByHash = useMemo<Record<string, string | null>>(() => {
     const avatarByHash: Record<string, string | null> = {};
 
-    for (const commit of commits) {
+    for (const commit of timelineCommits) {
       avatarByHash[commit.hash] = commit.authorAvatarUrl ?? null;
     }
 
     return avatarByHash;
-  }, [commits]);
+  }, [timelineCommits]);
   const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
     const localEntries: SidebarEntry[] = [];
     const remoteEntries: SidebarEntry[] = [];
@@ -3026,6 +3070,7 @@ export function RepoInfo() {
       | "reset"
       | "cherry-pick"
       | "revert"
+      | "reword"
       | "create-tag"
   ): string => {
     const rawMessage = getErrorMessage(error);
@@ -3085,11 +3130,19 @@ export function RepoInfo() {
       return "Reverting a merge commit is not supported in this menu yet.";
     }
 
+    if (
+      action === "reword" &&
+      normalized.includes("not on the current head ancestry path")
+    ) {
+      return "This commit is not on the currently checked out history path.";
+    }
+
     const actionLabelByKind = {
       checkout: "checkout this commit",
       "create-branch": "create a branch here",
       "create-tag": "create a tag here",
       "cherry-pick": "cherry-pick this commit",
+      reword: "reword this commit",
       reset: "reset to this commit",
       revert: "revert this commit",
     } as const;
@@ -3472,7 +3525,7 @@ export function RepoInfo() {
       return;
     }
 
-    if (commits.length === 0) {
+    if (timelineCommits.length === 0) {
       const fallbackRowId = hasAnyWorkingTreeChanges
         ? WORKING_TREE_ROW_ID
         : null;
@@ -3499,7 +3552,7 @@ export function RepoInfo() {
 
       if (
         resolvedCommitHash &&
-        commits.some((commit) => commit.hash === resolvedCommitHash)
+        timelineCommits.some((commit) => commit.hash === resolvedCommitHash)
       ) {
         if (selectedCommitId !== resolvedCommitHash) {
           setSelectedCommitId(resolvedCommitHash);
@@ -3511,7 +3564,7 @@ export function RepoInfo() {
 
     if (
       selectedCommitId &&
-      commits.some((commit) => commit.hash === selectedCommitId)
+      timelineCommits.some((commit) => commit.hash === selectedCommitId)
     ) {
       if (selectedTimelineRowId !== selectedCommitId) {
         setSelectedTimelineRowId(selectedCommitId);
@@ -3520,7 +3573,7 @@ export function RepoInfo() {
     }
 
     const fallbackCommitHash =
-      localHeadCommit?.hash ?? commits[0]?.hash ?? null;
+      localHeadCommit?.hash ?? timelineCommits[0]?.hash ?? null;
 
     if (selectedTimelineRowId !== fallbackCommitHash) {
       setSelectedTimelineRowId(fallbackCommitHash);
@@ -3530,7 +3583,7 @@ export function RepoInfo() {
       setSelectedCommitId(fallbackCommitHash);
     }
   }, [
-    commits,
+    timelineCommits,
     hasAnyWorkingTreeChanges,
     localHeadCommit,
     selectedCommitId,
@@ -4806,6 +4859,41 @@ export function RepoInfo() {
       setIsRevertingCommit(false);
     }
   };
+  const handleSubmitCommitReword = async () => {
+    if (
+      !(activeRepoId && selectedCommit) ||
+      isRewordingCommitMessage ||
+      rewordCommitSummary.trim().length === 0
+    ) {
+      return;
+    }
+
+    setIsRewordingCommitMessage(true);
+
+    try {
+      const result = await rewordCommitMessage(
+        activeRepoId,
+        selectedCommit.hash,
+        rewordCommitSummary,
+        rewordCommitDescription
+      );
+      setSelectedCommitId(result.updatedCommitHash);
+      setSelectedTimelineRowId(result.updatedCommitHash);
+      setIsEditingSelectedCommitMessage(false);
+      toast.success("Commit message updated", {
+        description:
+          selectedCommitRebaseImpactCount > 0
+            ? `Rebased ${selectedCommitRebaseImpactCount} descendant commit${selectedCommitRebaseImpactCount === 1 ? "" : "s"}`
+            : "Updated the selected commit message",
+      });
+    } catch (error) {
+      toast.error("Failed to update commit message", {
+        description: getCommitActionFailureReason(error, "reword"),
+      });
+    } finally {
+      setIsRewordingCommitMessage(false);
+    }
+  };
 
   const handleApplyStash = async (entry: SidebarEntry) => {
     if (
@@ -5441,7 +5529,7 @@ export function RepoInfo() {
         return null;
       }
 
-      for (const commit of commits) {
+      for (const commit of timelineCommits) {
         for (const rawReference of commit.refs) {
           const normalizedReference = normalizeCommitRefLabel(rawReference);
 
@@ -5453,7 +5541,7 @@ export function RepoInfo() {
 
       return null;
     },
-    [commits, stashes]
+    [stashes, timelineCommits]
   );
 
   const getTimelineRowIdForEntry = useCallback(
@@ -6620,7 +6708,9 @@ export function RepoInfo() {
   };
   const renderGraphNodeContextMenuContent = (row: GitTimelineRow) => {
     if (row.type === "commit" && row.commitHash) {
-      const commit = commits.find((item) => item.hash === row.commitHash);
+      const commit = timelineCommits.find(
+        (item) => item.hash === row.commitHash
+      );
       return commit ? renderCommitRowContextMenuContent(commit) : null;
     }
 
@@ -9977,7 +10067,7 @@ export function RepoInfo() {
                   {repoTimelinePreferences.visibleColumns.graph ? (
                     <GitGraphOverlay
                       branchColumnWidth={resolvedTimelineBranchColumnWidth}
-                      commits={commits}
+                      commits={timelineCommits}
                       graphColumnWidth={effectiveTimelineGraphColumnWidth}
                       onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
                       onNodeSelect={handleGraphNodeSelect}
@@ -10077,7 +10167,7 @@ export function RepoInfo() {
                           item.messageDescription ?? ""
                         ).trim();
                         const laneColor = getCommitLaneColor(
-                          commits,
+                          timelineCommits,
                           item.hash
                         );
                         const isPullableCommit = item.syncState === "pullable";
@@ -10267,7 +10357,7 @@ export function RepoInfo() {
                       }
 
                       const laneColor = getCommitLaneColor(
-                        commits,
+                        timelineCommits,
                         row.anchorCommitHash ?? ""
                       );
                       const timelineEntry = getSidebarEntryForTimelineRow(row);
@@ -11072,39 +11162,140 @@ export function RepoInfo() {
 
                       <div className="flex min-h-0 flex-1 flex-col">
                         <div className="space-y-2.5 border-border/70 border-b px-2.5 py-2.5 text-sm">
-                          <div className="border border-border/70 bg-background/70">
-                            <div
-                              className="overflow-y-auto px-2.5 pt-2.5"
-                              ref={commitDetailsLayoutRef}
-                              style={{
-                                height: `${commitDetailsPanelHeight}px`,
-                              }}
-                            >
-                              <div className="space-y-2">
-                                <p className="font-medium leading-snug">
-                                  {selectedCommitMessageSections.summary}
+                          {isEditingSelectedCommitMessage ? (
+                            <div className="space-y-2 border border-border/70 bg-background/50 p-2.5">
+                              <div className="space-y-1.5">
+                                <Label
+                                  className="text-xs"
+                                  htmlFor="reword-summary"
+                                >
+                                  Title
+                                </Label>
+                                <Input
+                                  className="focus-visible:desktop-focus h-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+                                  id="reword-summary"
+                                  onChange={(event) => {
+                                    setRewordCommitSummary(event.target.value);
+                                  }}
+                                  placeholder="Describe your changes"
+                                  value={rewordCommitSummary}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label
+                                  className="text-xs"
+                                  htmlFor="reword-description"
+                                >
+                                  Commit description
+                                </Label>
+                                <Textarea
+                                  className="focus-visible:desktop-focus min-h-24 resize-none text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+                                  id="reword-description"
+                                  onChange={(event) => {
+                                    setRewordCommitDescription(
+                                      event.target.value
+                                    );
+                                  }}
+                                  placeholder="Add more detail for this commit"
+                                  value={rewordCommitDescription}
+                                />
+                              </div>
+                              {selectedCommitRebaseImpactCount > 0 ? (
+                                <p className="text-muted-foreground text-sm leading-snug">
+                                  Rewording this commit message will cause{" "}
+                                  {selectedCommitRebaseImpactCount} commit
+                                  {selectedCommitRebaseImpactCount === 1
+                                    ? ""
+                                    : "s"}{" "}
+                                  to be rebased.
                                 </p>
-                                {selectedCommitMessageSections.detailLines
-                                  .length > 0 ? (
-                                  <ul className="space-y-1.5 pb-1 text-muted-foreground text-sm">
-                                    {selectedCommitMessageSections.detailLines.map(
-                                      (line) => (
-                                        <li className="leading-snug" key={line}>
-                                          - {line}
-                                        </li>
-                                      )
-                                    )}
-                                  </ul>
-                                ) : null}
+                              ) : null}
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  className="focus-visible:desktop-focus h-8 flex-1 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                                  disabled={
+                                    isRewordingCommitMessage ||
+                                    rewordCommitSummary.trim().length === 0
+                                  }
+                                  onClick={() => {
+                                    handleSubmitCommitReword().catch(
+                                      () => undefined
+                                    );
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="outline"
+                                >
+                                  {isRewordingCommitMessage
+                                    ? "Updating..."
+                                    : "Update Message"}
+                                </Button>
+                                <Button
+                                  className="focus-visible:desktop-focus h-8 flex-1 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                                  disabled={isRewordingCommitMessage}
+                                  onClick={() => {
+                                    setIsEditingSelectedCommitMessage(false);
+                                    setRewordCommitSummary(
+                                      selectedCommit.messageSummary
+                                    );
+                                    setRewordCommitDescription(
+                                      selectedCommit.messageDescription
+                                    );
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  Cancel Reword
+                                </Button>
                               </div>
                             </div>
-                            <button
-                              aria-label="Resize commit message"
-                              className="desktop-resize-handle-horizontal-focus h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent transition-colors hover:bg-accent/30"
-                              onMouseDown={startCommitDetailsResize}
-                              type="button"
-                            />
-                          </div>
+                          ) : (
+                            <div className="border border-border/70 bg-background/70 transition-colors hover:border-primary/60">
+                              <div
+                                className="overflow-y-auto px-2.5 pt-2.5"
+                                ref={commitDetailsLayoutRef}
+                                style={{
+                                  height: `${commitDetailsPanelHeight}px`,
+                                }}
+                              >
+                                <button
+                                  className="w-full cursor-pointer text-left"
+                                  onClick={() => {
+                                    setIsEditingSelectedCommitMessage(true);
+                                  }}
+                                  type="button"
+                                >
+                                  <div className="space-y-2 pb-2">
+                                    <p className="font-medium leading-snug">
+                                      {selectedCommitMessageSections.summary}
+                                    </p>
+                                    {selectedCommitMessageSections.detailLines
+                                      .length > 0 ? (
+                                      <ul className="space-y-1.5 text-muted-foreground text-sm">
+                                        {selectedCommitMessageSections.detailLines.map(
+                                          (line) => (
+                                            <li
+                                              className="leading-snug"
+                                              key={line}
+                                            >
+                                              - {line}
+                                            </li>
+                                          )
+                                        )}
+                                      </ul>
+                                    ) : null}
+                                  </div>
+                                </button>
+                              </div>
+                              <button
+                                aria-label="Resize commit message"
+                                className="desktop-resize-handle-horizontal-focus h-1.5 w-full cursor-row-resize border-border/70 border-t bg-transparent transition-colors hover:bg-accent/30"
+                                onMouseDown={startCommitDetailsResize}
+                                type="button"
+                              />
+                            </div>
+                          )}
                           <div className="border border-border/70 bg-background/50 p-2">
                             <div className="flex items-start gap-2">
                               <Avatar className="size-8 shrink-0">
