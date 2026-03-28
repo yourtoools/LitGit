@@ -305,7 +305,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     locale: "system",
     repoFileBrowserByRepoId: {},
     theme: "system",
-    toasterPosition: "top-right",
+    toasterPosition: "bottom-center",
     toolbarLabels: false,
   },
 };
