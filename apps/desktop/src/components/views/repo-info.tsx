@@ -94,6 +94,7 @@ import {
   DotOutlineIcon,
   DotsThreeVerticalIcon,
   DownloadSimpleIcon,
+  FolderSimpleIcon,
   GearIcon,
   GitBranchIcon,
   GithubLogoIcon,
@@ -211,6 +212,14 @@ interface SidebarGroupItem {
   count: number;
   entries: SidebarEntry[];
   key: string;
+  name: string;
+  treeNodes?: BranchTreeNode[];
+}
+
+interface BranchTreeNode {
+  children: BranchTreeNode[];
+  entry: SidebarEntry | null;
+  fullPath: string;
   name: string;
 }
 
@@ -791,6 +800,169 @@ function buildCommitFileTree(
   return toSortedArray(root);
 }
 
+function createEmptyBranchTreeNode(
+  name: string,
+  fullPath: string
+): BranchTreeNode {
+  return {
+    children: [],
+    entry: null,
+    fullPath,
+    name,
+  };
+}
+
+function buildBranchTree(entries: SidebarEntry[]): BranchTreeNode[] {
+  const root = createEmptyBranchTreeNode("", "");
+  const childMapByPath = new Map<string, Map<string, BranchTreeNode>>([
+    ["", new Map<string, BranchTreeNode>()],
+  ]);
+
+  for (const entry of entries) {
+    const segments = entry.name
+      .split("/")
+      .filter((segment) => segment.length > 0);
+
+    if (segments.length === 0) {
+      continue;
+    }
+
+    let cursor = root;
+    let segmentPath = "";
+    let childrenByName =
+      childMapByPath.get("") ?? new Map<string, BranchTreeNode>();
+
+    for (const segment of segments) {
+      segmentPath =
+        segmentPath.length > 0 ? `${segmentPath}/${segment}` : segment;
+      const existing = childrenByName.get(segment);
+
+      if (existing) {
+        cursor = existing;
+        childrenByName =
+          childMapByPath.get(segmentPath) ?? new Map<string, BranchTreeNode>();
+        continue;
+      }
+
+      const nextNode = createEmptyBranchTreeNode(segment, segmentPath);
+      cursor.children.push(nextNode);
+      childrenByName.set(segment, nextNode);
+      childMapByPath.set(segmentPath, new Map<string, BranchTreeNode>());
+      cursor = nextNode;
+      childrenByName = childMapByPath.get(segmentPath) ?? new Map();
+    }
+
+    cursor.entry = entry;
+  }
+
+  const toSortedArray = (node: BranchTreeNode): BranchTreeNode[] =>
+    node.children
+      .map((childNode) => ({
+        ...childNode,
+        children: toSortedArray(childNode),
+      }))
+      .sort((left, right) => {
+        const leftIsFolder = left.entry === null;
+        const rightIsFolder = right.entry === null;
+
+        if (leftIsFolder !== rightIsFolder) {
+          return leftIsFolder ? -1 : 1;
+        }
+
+        return left.name.localeCompare(right.name);
+      });
+
+  const compressBranchTree = (nodes: BranchTreeNode[]): BranchTreeNode[] => {
+    return nodes.map((node) => {
+      if (node.entry) {
+        return node;
+      }
+
+      const compressedChildren = compressBranchTree(node.children);
+
+      if (compressedChildren.length !== 1) {
+        return {
+          ...node,
+          children: compressedChildren,
+        };
+      }
+
+      const [onlyChild] = compressedChildren;
+
+      if (!onlyChild || onlyChild.entry) {
+        return {
+          ...node,
+          children: compressedChildren,
+        };
+      }
+
+      return {
+        ...onlyChild,
+        fullPath: onlyChild.fullPath,
+        name: `${node.name}/${onlyChild.name}`,
+      };
+    });
+  };
+
+  return compressBranchTree(toSortedArray(root));
+}
+
+function filterBranchTree(
+  nodes: BranchTreeNode[],
+  normalizedFilter: string
+): { count: number; nodes: BranchTreeNode[] } {
+  if (normalizedFilter.length === 0) {
+    return {
+      count: countBranchTreeEntries(nodes),
+      nodes,
+    };
+  }
+
+  let count = 0;
+  const filteredNodes = nodes.flatMap((node) => {
+    const filteredChildren = filterBranchTree(node.children, normalizedFilter);
+    const matchesSelf =
+      node.fullPath.toLowerCase().includes(normalizedFilter) ||
+      node.entry?.searchName.includes(normalizedFilter) === true;
+
+    if (!matchesSelf && filteredChildren.count === 0) {
+      return [];
+    }
+
+    if (node.entry) {
+      count += 1;
+    } else {
+      count += filteredChildren.count;
+    }
+
+    return {
+      ...node,
+      children: filteredChildren.nodes,
+    };
+  });
+
+  return {
+    count,
+    nodes: filteredNodes,
+  };
+}
+
+function countBranchTreeEntries(nodes: BranchTreeNode[]): number {
+  let total = 0;
+
+  for (const node of nodes) {
+    if (node.entry) {
+      total += 1;
+    }
+
+    if (node.children.length > 0) {
+      total += countBranchTreeEntries(node.children);
+    }
+  }
+
+  return total;
+}
+
 const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const WORKING_TREE_ROW_ID = "__working_tree__";
@@ -1218,6 +1390,9 @@ export function RepoInfo() {
     (state) => state.repoHistoryRewriteHintById
   );
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
+    Record<string, boolean>
+  >({});
+  const [collapsedBranchFolderKeys, setCollapsedBranchFolderKeys] = useState<
     Record<string, boolean>
   >({});
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
@@ -2356,12 +2531,14 @@ export function RepoInfo() {
         entries: localEntries,
         key: "local",
         name: "LOCAL",
+        treeNodes: buildBranchTree(localEntries),
       },
       {
         count: remoteEntries.length,
         entries: remoteEntries,
         key: "remote",
         name: "REMOTE",
+        treeNodes: buildBranchTree(remoteEntries),
       },
       {
         count: stashEntries.length,
@@ -2389,11 +2566,15 @@ export function RepoInfo() {
       const entries = group.entries.filter((entry) =>
         entry.searchName.includes(normalizedSidebarFilter)
       );
+      const filteredTree = group.treeNodes
+        ? filterBranchTree(group.treeNodes, normalizedSidebarFilter)
+        : null;
 
       return {
         ...group,
-        count: entries.length,
+        count: filteredTree ? filteredTree.count : entries.length,
         entries,
+        treeNodes: filteredTree?.nodes,
       };
     });
   }, [normalizedSidebarFilter, sidebarGroups]);
@@ -4014,6 +4195,152 @@ export function RepoInfo() {
     }
 
     return <>{highlightedParts}</>;
+  };
+  const toggleBranchFolder = (groupKey: string, folderPath: string) => {
+    const stateKey = `${groupKey}:${folderPath}`;
+
+    setCollapsedBranchFolderKeys((current) => ({
+      ...current,
+      [stateKey]: !current[stateKey],
+    }));
+  };
+  const renderSidebarBranchCounts = (entry: SidebarEntry) => {
+    return (
+      <>
+        {typeof entry.pendingSyncCount === "number" &&
+        entry.pendingSyncCount > 0 ? (
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
+            <ArrowDownIcon className="size-3" />
+            {entry.pendingSyncCount}
+          </span>
+        ) : null}
+        {typeof entry.pendingPushCount === "number" &&
+        entry.pendingPushCount > 0 ? (
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
+            <ArrowUpIcon className="size-3" />
+            {entry.pendingPushCount}
+          </span>
+        ) : null}
+      </>
+    );
+  };
+  const renderSidebarBranchTreeNodes = (
+    groupKey: string,
+    nodes: BranchTreeNode[],
+    depth = 0
+  ): ReactNode => {
+    return nodes.map((node) => {
+      const hasChildren = node.children.length > 0;
+
+      if (node.entry) {
+        const entry = node.entry;
+        const entryMenuKey = `${groupKey}-${entry.stashRef ?? entry.name}`;
+        const isEntryMenuOpen =
+          openEntryContextMenuKey === entryMenuKey ||
+          openEntryDropdownMenuKey === entryMenuKey;
+        const isEntryContextMenuOpen = openEntryContextMenuKey === entryMenuKey;
+        const isEntryDropdownMenuOpen =
+          openEntryDropdownMenuKey === entryMenuKey;
+
+        return (
+          <SidebarMenuItem key={entryMenuKey}>
+            <ContextMenu
+              onOpenChange={(open) => {
+                handleEntryContextMenuOpenChange(entryMenuKey, open);
+              }}
+              open={isEntryContextMenuOpen}
+            >
+              <ContextMenuTrigger>
+                <SidebarMenuButton
+                  aria-label={entry.name}
+                  className={cn(
+                    "group gap-1.5 rounded-none py-1 text-xs",
+                    isSidebarEntrySelected(entry) || isEntryMenuOpen
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  )}
+                  disabled={isSwitchingBranch}
+                  onClick={() => {
+                    handleSidebarEntryClick(entry).catch(() => undefined);
+                  }}
+                  style={{ paddingLeft: `${depth * 0.7 + 0.5}rem` }}
+                >
+                  <span className="inline-flex w-3 shrink-0 items-center justify-center text-muted-foreground/50">
+                    <span className="size-1 rounded-full bg-current" />
+                  </span>
+                  {renderEntryIcon(entry)}
+                  <span className="min-w-0 flex-1 truncate" title={entry.name}>
+                    {renderHighlightedEntryName(node.name)}
+                  </span>
+                  {renderSidebarBranchCounts(entry)}
+                  <DropdownMenu
+                    onOpenChange={(open) => {
+                      handleEntryDropdownMenuOpenChange(entryMenuKey, open);
+                    }}
+                    open={isEntryDropdownMenuOpen}
+                  >
+                    <DropdownMenuTrigger
+                      render={
+                        <button
+                          aria-label={`More options for ${entry.name}`}
+                          className={cn(
+                            "ml-0.5 inline-flex size-4 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
+                            isEntryMenuOpen && "opacity-100",
+                            entry.active && "hover:bg-accent-foreground/10"
+                          )}
+                          onClick={(event) => event.stopPropagation()}
+                          type="button"
+                        />
+                      }
+                    >
+                      <DotsThreeVerticalIcon className="size-3.5" />
+                    </DropdownMenuTrigger>
+                    {isEntryDropdownMenuOpen
+                      ? renderEntryDropdownMenuContent(entry)
+                      : null}
+                  </DropdownMenu>
+                </SidebarMenuButton>
+              </ContextMenuTrigger>
+              {isEntryContextMenuOpen
+                ? renderEntryContextMenuContent(entry)
+                : null}
+            </ContextMenu>
+          </SidebarMenuItem>
+        );
+      }
+
+      const folderStateKey = `${groupKey}:${node.fullPath}`;
+      const isCollapsed =
+        collapsedBranchFolderKeys[folderStateKey] ?? depth > 0;
+
+      return (
+        <div key={folderStateKey}>
+          <button
+            className="focus-visible:desktop-focus flex w-full items-center gap-1.5 py-0.5 pr-2 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+            onClick={() => toggleBranchFolder(groupKey, node.fullPath)}
+            style={{ paddingLeft: `${depth * 0.7 + 0.5}rem` }}
+            type="button"
+          >
+            <span className="inline-flex w-3 shrink-0 items-center justify-center">
+              {isCollapsed ? (
+                <CaretRightIcon className="size-3" />
+              ) : (
+                <CaretDownIcon className="size-3" />
+              )}
+            </span>
+            <FolderSimpleIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 flex-1 truncate" title={node.fullPath}>
+              {renderHighlightedEntryName(node.name)}
+            </span>
+          </button>
+          {hasChildren && !isCollapsed ? (
+            <div>
+              {renderSidebarBranchTreeNodes(groupKey, node.children, depth + 1)}
+            </div>
+          ) : null}
+        </div>
+      );
+    });
   };
 
   const handleCheckoutBranch = async (entry: SidebarEntry) => {
@@ -8700,128 +9027,118 @@ export function RepoInfo() {
                     {!collapsedGroupKeys[group.key] && (
                       <SidebarGroupContent>
                         <SidebarMenu>
-                          {group.entries.map((entry) => {
-                            const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
-                            const isEntryMenuOpen =
-                              openEntryContextMenuKey === entryMenuKey ||
-                              openEntryDropdownMenuKey === entryMenuKey;
-                            const isEntryContextMenuOpen =
-                              openEntryContextMenuKey === entryMenuKey;
-                            const isEntryDropdownMenuOpen =
-                              openEntryDropdownMenuKey === entryMenuKey;
+                          {group.treeNodes
+                            ? renderSidebarBranchTreeNodes(
+                                group.key,
+                                group.treeNodes
+                              )
+                            : group.entries.map((entry) => {
+                                const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
+                                const isEntryMenuOpen =
+                                  openEntryContextMenuKey === entryMenuKey ||
+                                  openEntryDropdownMenuKey === entryMenuKey;
+                                const isEntryContextMenuOpen =
+                                  openEntryContextMenuKey === entryMenuKey;
+                                const isEntryDropdownMenuOpen =
+                                  openEntryDropdownMenuKey === entryMenuKey;
 
-                            return (
-                              <SidebarMenuItem key={entryMenuKey}>
-                                <ContextMenu
-                                  onOpenChange={(open) => {
-                                    handleEntryContextMenuOpenChange(
-                                      entryMenuKey,
-                                      open
-                                    );
-                                  }}
-                                  open={isEntryContextMenuOpen}
-                                >
-                                  <ContextMenuTrigger>
-                                    <SidebarMenuButton
-                                      aria-label={entry.name}
-                                      className={cn(
-                                        "group gap-1.5 rounded-none py-1 text-xs",
-                                        isSidebarEntrySelected(entry) ||
-                                          isEntryMenuOpen
-                                          ? "bg-accent text-accent-foreground"
-                                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                                      )}
-                                      disabled={
-                                        entry.type !== "stash" &&
-                                        isSwitchingBranch
-                                      }
-                                      onClick={() => {
-                                        handleSidebarEntryClick(entry).catch(
-                                          () => undefined
+                                return (
+                                  <SidebarMenuItem key={entryMenuKey}>
+                                    <ContextMenu
+                                      onOpenChange={(open) => {
+                                        handleEntryContextMenuOpenChange(
+                                          entryMenuKey,
+                                          open
                                         );
                                       }}
+                                      open={isEntryContextMenuOpen}
                                     >
-                                      {renderEntryIcon(entry)}
-                                      <Tooltip>
-                                        <TooltipTrigger
-                                          render={
-                                            <span className="min-w-0 flex-1 truncate" />
-                                          }
-                                        >
-                                          {renderHighlightedEntryName(
-                                            entry.name
+                                      <ContextMenuTrigger>
+                                        <SidebarMenuButton
+                                          aria-label={entry.name}
+                                          className={cn(
+                                            "group gap-1.5 rounded-none py-1 text-xs",
+                                            isSidebarEntrySelected(entry) ||
+                                              isEntryMenuOpen
+                                              ? "bg-accent text-accent-foreground"
+                                              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                                           )}
-                                        </TooltipTrigger>
-                                        <TooltipContent
-                                          align="end"
-                                          side="right"
-                                          sideOffset={6}
-                                        >
-                                          {entry.name}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                      {entry.type === "branch" &&
-                                      typeof entry.pendingSyncCount ===
-                                        "number" &&
-                                      entry.pendingSyncCount > 0 ? (
-                                        <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
-                                          <ArrowDownIcon className="size-3" />
-                                          {entry.pendingSyncCount}
-                                        </span>
-                                      ) : null}
-                                      {entry.type === "branch" &&
-                                      typeof entry.pendingPushCount ===
-                                        "number" &&
-                                      entry.pendingPushCount > 0 ? (
-                                        <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
-                                          <ArrowUpIcon className="size-3" />
-                                          {entry.pendingPushCount}
-                                        </span>
-                                      ) : null}
-                                      <DropdownMenu
-                                        onOpenChange={(open) => {
-                                          handleEntryDropdownMenuOpenChange(
-                                            entryMenuKey,
-                                            open
-                                          );
-                                        }}
-                                        open={isEntryDropdownMenuOpen}
-                                      >
-                                        <DropdownMenuTrigger
-                                          render={
-                                            <button
-                                              aria-label={`More options for ${entry.name}`}
-                                              className={cn(
-                                                "ml-0.5 inline-flex size-4 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
-                                                isEntryMenuOpen &&
-                                                  "opacity-100",
-                                                entry.active &&
-                                                  "hover:bg-accent-foreground/10"
-                                              )}
-                                              onClick={(event) =>
-                                                event.stopPropagation()
-                                              }
-                                              type="button"
-                                            />
+                                          disabled={
+                                            entry.type !== "stash" &&
+                                            isSwitchingBranch
                                           }
-                                        >
-                                          <DotsThreeVerticalIcon className="size-3.5" />
-                                        </DropdownMenuTrigger>
-                                        {isEntryDropdownMenuOpen
-                                          ? renderEntryDropdownMenuContent(
+                                          onClick={() => {
+                                            handleSidebarEntryClick(
                                               entry
-                                            )
-                                          : null}
-                                      </DropdownMenu>
-                                    </SidebarMenuButton>
-                                  </ContextMenuTrigger>
-                                  {isEntryContextMenuOpen
-                                    ? renderEntryContextMenuContent(entry)
-                                    : null}
-                                </ContextMenu>
-                              </SidebarMenuItem>
-                            );
-                          })}
+                                            ).catch(() => undefined);
+                                          }}
+                                        >
+                                          {renderEntryIcon(entry)}
+                                          <Tooltip>
+                                            <TooltipTrigger
+                                              render={
+                                                <span className="min-w-0 flex-1 truncate" />
+                                              }
+                                            >
+                                              {renderHighlightedEntryName(
+                                                entry.name
+                                              )}
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                              align="end"
+                                              side="right"
+                                              sideOffset={6}
+                                            >
+                                              {entry.name}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                          {entry.type === "branch"
+                                            ? renderSidebarBranchCounts(entry)
+                                            : null}
+                                          <DropdownMenu
+                                            onOpenChange={(open) => {
+                                              handleEntryDropdownMenuOpenChange(
+                                                entryMenuKey,
+                                                open
+                                              );
+                                            }}
+                                            open={isEntryDropdownMenuOpen}
+                                          >
+                                            <DropdownMenuTrigger
+                                              render={
+                                                <button
+                                                  aria-label={`More options for ${entry.name}`}
+                                                  className={cn(
+                                                    "ml-0.5 inline-flex size-4 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
+                                                    isEntryMenuOpen &&
+                                                      "opacity-100",
+                                                    entry.active &&
+                                                      "hover:bg-accent-foreground/10"
+                                                  )}
+                                                  onClick={(event) =>
+                                                    event.stopPropagation()
+                                                  }
+                                                  type="button"
+                                                />
+                                              }
+                                            >
+                                              <DotsThreeVerticalIcon className="size-3.5" />
+                                            </DropdownMenuTrigger>
+                                            {isEntryDropdownMenuOpen
+                                              ? renderEntryDropdownMenuContent(
+                                                  entry
+                                                )
+                                              : null}
+                                          </DropdownMenu>
+                                        </SidebarMenuButton>
+                                      </ContextMenuTrigger>
+                                      {isEntryContextMenuOpen
+                                        ? renderEntryContextMenuContent(entry)
+                                        : null}
+                                    </ContextMenu>
+                                  </SidebarMenuItem>
+                                );
+                              })}
                         </SidebarMenu>
                       </SidebarGroupContent>
                     )}
