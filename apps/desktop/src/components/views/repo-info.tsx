@@ -1358,6 +1358,7 @@ export function RepoInfo() {
   const rewordCommitMessage = useRepoStore(
     (state) => state.rewordCommitMessage
   );
+  const dropCommit = useRepoStore((state) => state.dropCommit);
   const checkoutCommit = useRepoStore((state) => state.checkoutCommit);
   const cherryPickCommit = useRepoStore((state) => state.cherryPickCommit);
   const revertCommit = useRepoStore((state) => state.revertCommit);
@@ -1545,6 +1546,12 @@ export function RepoInfo() {
   }>(null);
   const [isRewordingCommitMessage, setIsRewordingCommitMessage] =
     useState(false);
+  const [isDropCommitConfirmOpen, setIsDropCommitConfirmOpen] = useState(false);
+  const [pendingDropCommitHash, setPendingDropCommitHash] = useState<
+    string | null
+  >(null);
+  const [pendingDropCommitLabel, setPendingDropCommitLabel] = useState("");
+  const [isDroppingCommit, setIsDroppingCommit] = useState(false);
   let resetTargetDescription =
     "Hard reset discards staged and working tree changes after moving HEAD. Use this carefully.";
 
@@ -2098,6 +2105,17 @@ export function RepoInfo() {
 
     return selectedIndex > 0 ? selectedIndex : 0;
   }, [selectedCommit, timelineCommits]);
+  const pendingDropCommitRebaseImpactCount = useMemo(() => {
+    if (!pendingDropCommitHash) {
+      return 0;
+    }
+
+    const targetIndex = timelineCommits.findIndex(
+      (commit) => commit.hash === pendingDropCommitHash
+    );
+
+    return targetIndex > 0 ? targetIndex : 0;
+  }, [pendingDropCommitHash, timelineCommits]);
   useEffect(() => {
     if (!selectedCommit) {
       setIsEditingSelectedCommitMessage(false);
@@ -3078,6 +3096,7 @@ export function RepoInfo() {
       | "create-branch"
       | "reset"
       | "cherry-pick"
+      | "drop"
       | "revert"
       | "reword"
       | "create-tag"
@@ -3140,6 +3159,20 @@ export function RepoInfo() {
     }
 
     if (
+      action === "drop" &&
+      normalized.includes("root commit cannot be dropped")
+    ) {
+      return "The only commit on this branch cannot be dropped.";
+    }
+
+    if (
+      action === "drop" &&
+      normalized.includes("not on the current head ancestry path")
+    ) {
+      return "This commit is not on the currently checked out history path.";
+    }
+
+    if (
       action === "reword" &&
       normalized.includes("not on the current head ancestry path")
     ) {
@@ -3151,6 +3184,7 @@ export function RepoInfo() {
       "create-branch": "create a branch here",
       "create-tag": "create a tag here",
       "cherry-pick": "cherry-pick this commit",
+      drop: "drop this commit",
       reword: "reword this commit",
       reset: "reset to this commit",
       revert: "revert this commit",
@@ -4795,6 +4829,15 @@ export function RepoInfo() {
     setResetTargetMode(mode);
     setIsResetConfirmOpen(true);
   };
+  const openDropCommitConfirm = (target: string, targetLabel: string) => {
+    if (isDroppingCommit) {
+      return;
+    }
+
+    setPendingDropCommitHash(target);
+    setPendingDropCommitLabel(targetLabel);
+    setIsDropCommitConfirmOpen(true);
+  };
 
   const handleResetToCommit = async () => {
     if (!(activeRepoId && resetTarget) || isResettingToReference) {
@@ -4818,6 +4861,34 @@ export function RepoInfo() {
       });
     } finally {
       setIsResettingToReference(false);
+    }
+  };
+  const handleDropCommit = async () => {
+    if (!(activeRepoId && pendingDropCommitHash) || isDroppingCommit) {
+      return;
+    }
+
+    setIsDroppingCommit(true);
+
+    try {
+      const result = await dropCommit(activeRepoId, pendingDropCommitHash);
+      setIsDropCommitConfirmOpen(false);
+      setPendingDropCommitHash(null);
+      setPendingDropCommitLabel("");
+      setSelectedCommitId(result.selectedCommitHash);
+      setSelectedTimelineRowId(result.selectedCommitHash);
+      toast.success("Commit dropped", {
+        description:
+          pendingDropCommitRebaseImpactCount > 0
+            ? `Rebased ${pendingDropCommitRebaseImpactCount} descendant commit${pendingDropCommitRebaseImpactCount === 1 ? "" : "s"}`
+            : "Removed the selected commit from the current history path",
+      });
+    } catch (error) {
+      toast.error("Failed to drop commit", {
+        description: getCommitActionFailureReason(error, "drop"),
+      });
+    } finally {
+      setIsDroppingCommit(false);
     }
   };
 
@@ -5795,6 +5866,17 @@ export function RepoInfo() {
           >
             Revert commit
           </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            disabled={isDroppingCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openDropCommitConfirm(entryCommitHash, targetLabel);
+              }
+            }}
+          >
+            Drop commit
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
@@ -6033,6 +6115,15 @@ export function RepoInfo() {
             >
               Revert commit
             </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={isDroppingCommit}
+              onClick={() => {
+                openDropCommitConfirm(entryCommitHash, targetLabel);
+              }}
+            >
+              Drop commit
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={isCreatingTagAtReference}
@@ -6197,6 +6288,17 @@ export function RepoInfo() {
             }}
           >
             Revert commit
+          </ContextMenuItem>
+          <ContextMenuItem
+            className="text-destructive focus:text-destructive"
+            disabled={isDroppingCommit || entryCommitHash === null}
+            onClick={() => {
+              if (entryCommitHash) {
+                openDropCommitConfirm(entryCommitHash, targetLabel);
+              }
+            }}
+          >
+            Drop commit
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
@@ -6401,6 +6503,15 @@ export function RepoInfo() {
               }}
             >
               Revert commit
+            </ContextMenuItem>
+            <ContextMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={isDroppingCommit}
+              onClick={() => {
+                openDropCommitConfirm(entryCommitHash, targetLabel);
+              }}
+            >
+              Drop commit
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -6678,6 +6789,15 @@ export function RepoInfo() {
           }}
         >
           Revert commit
+        </ContextMenuItem>
+        <ContextMenuItem
+          className="text-destructive focus:text-destructive"
+          disabled={isDroppingCommit}
+          onClick={() => {
+            openDropCommitConfirm(commit.hash, `commit ${commit.shortHash}`);
+          }}
+        >
+          Drop commit
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
@@ -13053,6 +13173,49 @@ export function RepoInfo() {
               {isResettingToReference
                 ? "Resetting..."
                 : `Reset ${resetTargetMode}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (isDroppingCommit && !open) {
+            return;
+          }
+
+          setIsDropCommitConfirmOpen(open);
+
+          if (!open) {
+            setPendingDropCommitHash(null);
+            setPendingDropCommitLabel("");
+          }
+        }}
+        open={isDropCommitConfirmOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Drop {pendingDropCommitLabel}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This rewrites the current branch history to remove the selected
+              commit.
+              {pendingDropCommitRebaseImpactCount > 0
+                ? ` ${pendingDropCommitRebaseImpactCount} descendant commit${pendingDropCommitRebaseImpactCount === 1 ? "" : "s"} will be replayed on top of the rewritten history.`
+                : " The surrounding commit content stays the same, but hashes may change."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDroppingCommit} size="sm">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDroppingCommit || !pendingDropCommitHash}
+              onClick={() => {
+                handleDropCommit().catch(() => undefined);
+              }}
+              size="sm"
+              variant="destructive"
+            >
+              {isDroppingCommit ? "Dropping..." : "Drop commit"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

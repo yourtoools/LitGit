@@ -14,6 +14,7 @@ import {
 } from "@/lib/repo-diff-workspace-contract";
 import type {
   CreateLocalRepositoryInput,
+  DropRepositoryCommitResult,
   GitIdentityStatus,
   GitIdentityValue,
   GitIdentityWriteInput,
@@ -829,6 +830,46 @@ export async function rewordRepoCommit(
     headHash,
     updatedCommitHash,
   } satisfies RewordRepositoryCommitResult;
+}
+
+export async function dropRepoCommit(
+  path: string,
+  target: string
+): Promise<DropRepositoryCommitResult> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Drop commit works in Tauri desktop app only");
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: `git drop ${target}`,
+    invoke,
+    invokeArgs: {
+      repoPath: path,
+      target,
+    },
+    invokeCommand: "drop_repository_commit",
+    repoPath: path,
+  });
+
+  if (!isRecord(result)) {
+    throw new Error("Invalid drop commit payload");
+  }
+
+  const { headHash, selectedCommitHash } = result;
+
+  if (
+    typeof headHash !== "string" ||
+    !(typeof selectedCommitHash === "string" || selectedCommitHash === null)
+  ) {
+    throw new Error("Invalid drop commit payload");
+  }
+
+  return {
+    headHash,
+    selectedCommitHash,
+  } satisfies DropRepositoryCommitResult;
 }
 
 export async function deleteRemoteRepoBranch(

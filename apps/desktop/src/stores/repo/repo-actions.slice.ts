@@ -13,6 +13,7 @@ import {
   deleteRepoBranch,
   discardAllRepoChanges,
   discardRepoPathChanges,
+  dropRepoCommit,
   dropRepoStash,
   getLatestRepoCommitMessage,
   getRepoCommitFileContent,
@@ -192,6 +193,7 @@ type RepoActionsSliceKeys =
   | "deleteRemoteBranch"
   | "discardAllChanges"
   | "discardPathChanges"
+  | "dropCommit"
   | "dropStash"
   | "generateAiCommitMessage"
   | "getRedoRepoActionLabel"
@@ -415,6 +417,35 @@ export const createRepoActionsSlice = (
       useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
         level: "error",
         message: resolveErrorMessage(error, "Failed to delete remote branch"),
+      });
+      throw error;
+    }
+  },
+  dropCommit: async (id, target) => {
+    const targetRepo = get().openedRepos.find((repo) => repo.id === id);
+
+    if (!targetRepo) {
+      throw new Error("Repository is no longer available");
+    }
+
+    useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+      level: "info",
+      message: `User requested drop commit: ${target}`,
+    });
+
+    try {
+      const result = await dropRepoCommit(targetRepo.path, target);
+      await get().setActiveRepo(id, { forceRefresh: true });
+      setRepoHistoryRewriteHint(set, id, true);
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "info",
+        message: `Dropped commit: ${target}`,
+      });
+      return result;
+    } catch (error) {
+      useOperationLogStore.getState().appendActivityLog(targetRepo.path, {
+        level: "error",
+        message: resolveErrorMessage(error, "Failed to drop commit"),
       });
       throw error;
     }

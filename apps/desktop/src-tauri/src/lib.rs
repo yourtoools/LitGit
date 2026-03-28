@@ -356,6 +356,13 @@ struct RewordRepositoryCommitResult {
     updated_commit_hash: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DropRepositoryCommitResult {
+    head_hash: String,
+    selected_commit_hash: Option<String>,
+}
+
 struct CommitRewriteMetadata {
     author_date: String,
     author_email: String,
@@ -2583,6 +2590,90 @@ fn commit_repository_changes(
     Ok(())
 }
 
+fn verify_commit_on_head_ancestry_path(
+    repo_path: &str,
+    target: &str,
+    head_hash: &str,
+) -> Result<(), String> {
+    let ancestor_output = git_command()
+        .args(["-C", repo_path, "merge-base", "--is-ancestor", target, head_hash])
+        .output()
+        .map_err(|error| format!("Failed to verify commit ancestry: {error}"))?;
+
+    if !ancestor_output.status.success() {
+        return Err("The selected commit is not on the current HEAD ancestry path.".to_string());
+    }
+
+    Ok(())
+}
+
+fn collect_head_descendants(repo_path: &str, target: &str) -> Result<Vec<String>, String> {
+    let descendants_output = run_git_text_command(
+        repo_path,
+        &["rev-list", "--reverse", "--ancestry-path", &format!("{target}..HEAD")],
+        "Failed to collect commits to rewrite",
+    )?;
+
+    Ok(descendants_output
+        .lines()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(std::string::ToString::to_string)
+        .collect())
+}
+
+fn resolve_current_head_ref(repo_path: &str) -> Result<String, String> {
+    let current_head_ref_output = git_command()
+        .args(["-C", repo_path, "symbolic-ref", "-q", "HEAD"])
+        .output()
+        .map_err(|error| format!("Failed to read current branch ref: {error}"))?;
+
+    if current_head_ref_output.status.success() {
+        let value = String::from_utf8_lossy(&current_head_ref_output.stdout)
+            .trim()
+            .to_string();
+
+        if !value.is_empty() {
+            return Ok(value);
+        }
+    }
+
+    Ok("HEAD".to_string())
+}
+
+fn update_rewritten_history_head(
+    repo_path: &str,
+    head_hash: &str,
+    next_head_hash: &str,
+) -> Result<(), String> {
+    let update_ref_target = resolve_current_head_ref(repo_path)?;
+    let update_ref_output = git_command()
+        .args([
+            "-C",
+            repo_path,
+            "update-ref",
+            &update_ref_target,
+            next_head_hash,
+            head_hash,
+        ])
+        .output()
+        .map_err(|error| format!("Failed to update rewritten history: {error}"))?;
+
+    if !update_ref_output.status.success() {
+        return Err(git_process_error_message(
+            &update_ref_output.stdout,
+            &update_ref_output.stderr,
+            "Failed to update rewritten history",
+        ));
+    }
+
+    let _ = git_command()
+        .args(["-C", repo_path, "update-ref", "ORIG_HEAD", head_hash])
+        .output();
+
+    Ok(())
+}
+
 #[tauri::command]
 fn reword_repository_commit(
     repo_path: String,
@@ -2594,29 +2685,10 @@ fn reword_repository_commit(
 
     let next_message = build_commit_message_text(&summary, &description)?;
     let head_hash = run_git_text_command(&repo_path, &["rev-parse", "HEAD"], "Failed to read HEAD")?;
-
-    let ancestor_output = git_command()
-        .args(["-C", &repo_path, "merge-base", "--is-ancestor", &target, &head_hash])
-        .output()
-        .map_err(|error| format!("Failed to verify commit ancestry: {error}"))?;
-
-    if !ancestor_output.status.success() {
-        return Err("The selected commit is not on the current HEAD ancestry path.".to_string());
-    }
-
-    let descendants_output = run_git_text_command(
-        &repo_path,
-        &["rev-list", "--reverse", "--ancestry-path", &format!("{target}..HEAD")],
-        "Failed to collect commits to rewrite",
-    )?;
+    verify_commit_on_head_ancestry_path(&repo_path, &target, &head_hash)?;
+    let descendants = collect_head_descendants(&repo_path, &target)?;
     let mut commits_to_rewrite = vec![target.clone()];
-    commits_to_rewrite.extend(
-        descendants_output
-            .lines()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(std::string::ToString::to_string),
-    );
+    commits_to_rewrite.extend(descendants);
 
     let mut rewritten_by_original = HashMap::new();
 
@@ -2650,50 +2722,96 @@ fn reword_repository_commit(
         .get(&head_hash)
         .cloned()
         .ok_or_else(|| "Failed to determine rewritten HEAD hash".to_string())?;
-    let current_head_ref_output = git_command()
-        .args(["-C", &repo_path, "symbolic-ref", "-q", "HEAD"])
-        .output()
-        .map_err(|error| format!("Failed to read current branch ref: {error}"))?;
-    let update_ref_target = if current_head_ref_output.status.success() {
-        let value = String::from_utf8_lossy(&current_head_ref_output.stdout)
-            .trim()
-            .to_string();
-
-        if value.is_empty() {
-            "HEAD".to_string()
-        } else {
-            value
-        }
-    } else {
-        "HEAD".to_string()
-    };
-    let update_ref_output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "update-ref",
-            &update_ref_target,
-            &next_head_hash,
-            &head_hash,
-        ])
-        .output()
-        .map_err(|error| format!("Failed to update rewritten history: {error}"))?;
-
-    if !update_ref_output.status.success() {
-        return Err(git_process_error_message(
-            &update_ref_output.stdout,
-            &update_ref_output.stderr,
-            "Failed to update rewritten history",
-        ));
-    }
-
-    let _ = git_command()
-        .args(["-C", &repo_path, "update-ref", "ORIG_HEAD", &head_hash])
-        .output();
+    update_rewritten_history_head(&repo_path, &head_hash, &next_head_hash)?;
 
     Ok(RewordRepositoryCommitResult {
         head_hash: next_head_hash,
         updated_commit_hash,
+    })
+}
+
+#[tauri::command]
+fn drop_repository_commit(
+    repo_path: String,
+    target: String,
+) -> Result<DropRepositoryCommitResult, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let head_hash = run_git_text_command(&repo_path, &["rev-parse", "HEAD"], "Failed to read HEAD")?;
+    verify_commit_on_head_ancestry_path(&repo_path, &target, &head_hash)?;
+
+    let target_metadata = read_commit_rewrite_metadata(&repo_path, &target)?;
+    let descendants = collect_head_descendants(&repo_path, &target)?;
+    let first_descendant = descendants.first().cloned();
+
+    if descendants.is_empty() && target_metadata.parents.is_empty() {
+        return Err("The root commit cannot be dropped because it would leave the branch empty.".to_string());
+    }
+
+    let mut rewritten_by_original = HashMap::new();
+
+    for original_hash in &descendants {
+        let metadata = read_commit_rewrite_metadata(&repo_path, original_hash)?;
+        let mut rewritten_parents = Vec::new();
+
+        for parent in &metadata.parents {
+            if parent == &target {
+                for target_parent in &target_metadata.parents {
+                    let replacement_parent = rewritten_by_original
+                        .get(target_parent)
+                        .cloned()
+                        .unwrap_or_else(|| target_parent.clone());
+
+                    if !rewritten_parents.contains(&replacement_parent) {
+                        rewritten_parents.push(replacement_parent);
+                    }
+                }
+                continue;
+            }
+
+            let rewritten_parent = rewritten_by_original
+                .get(parent)
+                .cloned()
+                .unwrap_or_else(|| parent.clone());
+
+            if !rewritten_parents.contains(&rewritten_parent) {
+                rewritten_parents.push(rewritten_parent);
+            }
+        }
+
+        let rewritten_hash = create_rewritten_commit(
+            &repo_path,
+            &metadata,
+            &rewritten_parents,
+            metadata.message.as_str(),
+        )?;
+        rewritten_by_original.insert(original_hash.clone(), rewritten_hash);
+    }
+
+    let next_head_hash = if target == head_hash {
+        first_descendant
+            .as_ref()
+            .and_then(|hash| rewritten_by_original.get(hash))
+            .cloned()
+            .or_else(|| target_metadata.parents.first().cloned())
+            .ok_or_else(|| "Failed to determine rewritten HEAD hash".to_string())?
+    } else {
+        rewritten_by_original
+            .get(&head_hash)
+            .cloned()
+            .ok_or_else(|| "Failed to determine rewritten HEAD hash".to_string())?
+    };
+    let selected_commit_hash = first_descendant
+        .as_ref()
+        .and_then(|hash| rewritten_by_original.get(hash))
+        .cloned()
+        .or_else(|| target_metadata.parents.first().cloned());
+
+    update_rewritten_history_head(&repo_path, &head_hash, &next_head_hash)?;
+
+    Ok(DropRepositoryCommitResult {
+        head_hash: next_head_hash,
+        selected_commit_hash: selected_commit_hash.filter(|hash| hash != &target),
     })
 }
 
@@ -6579,6 +6697,7 @@ pub fn run() {
             drop_repository_stash,
             commit_repository_changes,
             reword_repository_commit,
+            drop_repository_commit,
             add_repository_ignore_rule,
             stage_all_repository_changes,
             unstage_all_repository_changes,

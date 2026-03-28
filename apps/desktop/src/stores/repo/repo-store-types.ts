@@ -291,6 +291,11 @@ export interface RewordRepositoryCommitResult {
   updatedCommitHash: string;
 }
 
+export interface DropRepositoryCommitResult {
+  headHash: string;
+  selectedCommitHash: string | null;
+}
+
 export interface RepoStoreState {
   activeRepoId: string | null;
   addIgnoreRule: (id: string, pattern: string) => Promise<void>;
@@ -347,6 +352,10 @@ export interface RepoStoreState {
   ) => Promise<void>;
   discardAllChanges: (id: string) => Promise<void>;
   discardPathChanges: (id: string, filePath: string) => Promise<void>;
+  dropCommit: (
+    id: string,
+    target: string
+  ) => Promise<DropRepositoryCommitResult>;
   dropStash: (id: string, stashRef: string) => Promise<void>;
   generateAiCommitMessage: (
     id: string,
