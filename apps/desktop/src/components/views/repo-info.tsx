@@ -90,7 +90,6 @@ import {
   ArrowUpIcon,
   CaretDownIcon,
   CaretRightIcon,
-  CircleIcon,
   DotOutlineIcon,
   DotsThreeVerticalIcon,
   DownloadSimpleIcon,
@@ -117,6 +116,7 @@ import { intlFormat } from "date-fns";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { useTheme } from "next-themes";
 import {
+  Fragment,
   lazy,
   type ReactNode,
   Suspense,
@@ -173,7 +173,10 @@ import {
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import {
   DEFAULT_REPO_FILE_BROWSER_STATE,
+  DEFAULT_REPO_TIMELINE_PREFERENCES,
   type RepoFileBrowserSortOrder,
+  type RepoTimelineColumnId,
+  type RepoTimelinePreferences,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { resolveHeadCommit } from "@/stores/repo/repo-store.helpers";
@@ -221,6 +224,13 @@ interface BranchTreeNode {
   entry: SidebarEntry | null;
   fullPath: string;
   name: string;
+}
+
+interface TimelineColumnDefinition {
+  align?: "center" | "left";
+  id: RepoTimelineColumnId;
+  label: string;
+  width: string;
 }
 
 interface TimelineReferenceRowData {
@@ -973,6 +983,22 @@ const TIMELINE_GRAPH_COLUMN_MAX_WIDTH = 320;
 const TIMELINE_COMMIT_MESSAGE_BAR_WIDTH = 3;
 const TIMELINE_COMMIT_MESSAGE_BAR_GAP = 8;
 const TIMELINE_AUTO_COMPACT_BREAKPOINT = 1200;
+const TIMELINE_AUTHOR_COLUMN_WIDTH = 160;
+const TIMELINE_DATE_TIME_COLUMN_WIDTH = 190;
+const TIMELINE_SHA_COLUMN_WIDTH = 110;
+const TIMELINE_COLUMN_ORDER: RepoTimelineColumnId[] = [
+  "branch",
+  "graph",
+  "commitMessage",
+  "author",
+  "dateTime",
+  "sha",
+];
+const TIMELINE_COMPACT_LAYOUT_PREFERENCES: RepoTimelinePreferences = {
+  compactGraph: true,
+  smartBranchVisibility: true,
+  visibleColumns: DEFAULT_REPO_TIMELINE_PREFERENCES.visibleColumns,
+};
 
 const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
   c: "c",
@@ -1407,9 +1433,6 @@ export function RepoInfo() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(
     RIGHT_SIDEBAR_DEFAULT_WIDTH
   );
-  const [timelineGraphColumnWidth, setTimelineGraphColumnWidth] = useState<
-    number | null
-  >(null);
   const [isTimelineGraphAutoCompact, setIsTimelineGraphAutoCompact] =
     useState(false);
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
@@ -1696,6 +1719,12 @@ export function RepoInfo() {
   );
   const setRepoFileBrowserState = usePreferencesStore(
     (state) => state.setRepoFileBrowserState
+  );
+  const repoTimelinePreferences = usePreferencesStore(
+    (state) => state.ui.repoTimeline
+  );
+  const setRepoTimelinePreferences = usePreferencesStore(
+    (state) => state.setRepoTimelinePreferences
   );
   const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const editorPreferences = usePreferencesStore((state) => state.editor);
@@ -2444,21 +2473,112 @@ export function RepoInfo() {
 
     return rowIds;
   }, [timelineRows]);
-  const resolvedTimelineGraphColumnWidth = useMemo(
-    () => resolveGitGraphColumnWidth(commits),
+  const commitByHash = useMemo(
+    () => new Map(commits.map((commit) => [commit.hash, commit])),
     [commits]
   );
-  const effectiveTimelineGraphColumnWidth = clampWidth(
-    isTimelineGraphAutoCompact
-      ? TIMELINE_GRAPH_COLUMN_MIN_WIDTH
-      : (timelineGraphColumnWidth ?? resolvedTimelineGraphColumnWidth),
-    TIMELINE_GRAPH_COLUMN_MIN_WIDTH,
-    TIMELINE_GRAPH_COLUMN_MAX_WIDTH
+  const timelineVisibleColumns = useMemo(
+    () =>
+      TIMELINE_COLUMN_ORDER.filter(
+        (columnId) => repoTimelinePreferences.visibleColumns[columnId]
+      ),
+    [repoTimelinePreferences.visibleColumns]
   );
+  const resolvedTimelineBranchColumnWidth = timelineVisibleColumns.includes(
+    "branch"
+  )
+    ? TIMELINE_BRANCH_COLUMN_WIDTH
+    : 0;
+  const resolvedTimelineGraphColumnWidth = useMemo(
+    () =>
+      timelineVisibleColumns.includes("graph")
+        ? resolveGitGraphColumnWidth(commits)
+        : 0,
+    [commits, timelineVisibleColumns]
+  );
+  let timelineGraphTargetWidth = resolvedTimelineGraphColumnWidth;
+
+  if (isTimelineGraphAutoCompact || repoTimelinePreferences.compactGraph) {
+    timelineGraphTargetWidth = TIMELINE_GRAPH_COLUMN_MIN_WIDTH;
+  }
+
+  const effectiveTimelineGraphColumnWidth = timelineVisibleColumns.includes(
+    "graph"
+  )
+    ? clampWidth(
+        timelineGraphTargetWidth,
+        TIMELINE_GRAPH_COLUMN_MIN_WIDTH,
+        TIMELINE_GRAPH_COLUMN_MAX_WIDTH
+      )
+    : 0;
   const isTimelineGraphCompactMode =
-    isTimelineGraphAutoCompact ||
-    timelineGraphColumnWidth === TIMELINE_GRAPH_COLUMN_MIN_WIDTH;
-  const timelineGridTemplateColumns = `${TIMELINE_BRANCH_COLUMN_WIDTH}px ${effectiveTimelineGraphColumnWidth}px minmax(0,1fr)`;
+    isTimelineGraphAutoCompact || repoTimelinePreferences.compactGraph;
+  const timelineColumnDefinitions = useMemo<TimelineColumnDefinition[]>(() => {
+    const definitions: TimelineColumnDefinition[] = [];
+
+    for (const columnId of timelineVisibleColumns) {
+      switch (columnId) {
+        case "branch": {
+          definitions.push({
+            align: "center",
+            id: columnId,
+            label: "Branch / Tag",
+            width: `${TIMELINE_BRANCH_COLUMN_WIDTH}px`,
+          });
+          break;
+        }
+        case "graph": {
+          definitions.push({
+            align: "center",
+            id: columnId,
+            label: "Graph",
+            width: `${effectiveTimelineGraphColumnWidth}px`,
+          });
+          break;
+        }
+        case "commitMessage": {
+          definitions.push({
+            id: columnId,
+            label: "Commit message",
+            width: "minmax(260px,1fr)",
+          });
+          break;
+        }
+        case "author": {
+          definitions.push({
+            id: columnId,
+            label: "Author",
+            width: `${TIMELINE_AUTHOR_COLUMN_WIDTH}px`,
+          });
+          break;
+        }
+        case "dateTime": {
+          definitions.push({
+            id: columnId,
+            label: "Date / Time",
+            width: `${TIMELINE_DATE_TIME_COLUMN_WIDTH}px`,
+          });
+          break;
+        }
+        case "sha": {
+          definitions.push({
+            id: columnId,
+            label: "Sha",
+            width: `${TIMELINE_SHA_COLUMN_WIDTH}px`,
+          });
+          break;
+        }
+        default: {
+          break;
+        }
+      }
+    }
+
+    return definitions;
+  }, [effectiveTimelineGraphColumnWidth, timelineVisibleColumns]);
+  const timelineGridTemplateColumns = timelineColumnDefinitions
+    .map((column) => column.width)
+    .join(" ");
   const commitAvatarUrlByHash = useMemo<Record<string, string | null>>(() => {
     const avatarByHash: Record<string, string | null> = {};
 
@@ -2632,27 +2752,89 @@ export function RepoInfo() {
     fileBlameCacheRef.current.clear();
   }, [activeRepoId]);
 
-  const formatCommitDate = (value: string): string => {
-    const parsedDate = new Date(value);
+  const formatCommitDate = useCallback(
+    (value: string): string => {
+      const parsedDate = new Date(value);
 
-    if (Number.isNaN(parsedDate.getTime())) {
-      return value;
-    }
+      if (Number.isNaN(parsedDate.getTime())) {
+        return value;
+      }
 
-    const locale =
-      localePreference === "system" || localePreference.trim().length === 0
-        ? undefined
-        : localePreference;
+      const locale =
+        localePreference === "system" || localePreference.trim().length === 0
+          ? undefined
+          : localePreference;
 
-    const formatOptions: Intl.DateTimeFormatOptions = {
-      dateStyle: dateFormatPreference === "verbose" ? "full" : "medium",
-      timeStyle: dateFormatPreference === "verbose" ? "medium" : "short",
-    };
+      const formatOptions: Intl.DateTimeFormatOptions = {
+        dateStyle: dateFormatPreference === "verbose" ? "full" : "medium",
+        timeStyle: dateFormatPreference === "verbose" ? "medium" : "short",
+      };
 
-    return locale
-      ? intlFormat(parsedDate, formatOptions, { locale })
-      : intlFormat(parsedDate, formatOptions);
-  };
+      return locale
+        ? intlFormat(parsedDate, formatOptions, { locale })
+        : intlFormat(parsedDate, formatOptions);
+    },
+    [dateFormatPreference, localePreference]
+  );
+  const resolveTimelineRowCommit = useCallback(
+    (row: GitTimelineRow): RepositoryCommit | null => {
+      const commitHash = row.commitHash ?? row.anchorCommitHash;
+
+      if (!commitHash) {
+        return null;
+      }
+
+      return commitByHash.get(commitHash) ?? null;
+    },
+    [commitByHash]
+  );
+  const renderTimelineCell = useCallback(
+    (
+      columnId: RepoTimelineColumnId,
+      input: {
+        branchCell?: ReactNode;
+        commit?: RepositoryCommit | null;
+        commitMessageCell?: ReactNode;
+      }
+    ): ReactNode => {
+      switch (columnId) {
+        case "branch": {
+          return input.branchCell ?? <div className="min-w-0" />;
+        }
+        case "graph": {
+          return <div className="h-full" />;
+        }
+        case "commitMessage": {
+          return input.commitMessageCell ?? <div className="min-w-0" />;
+        }
+        case "author": {
+          return (
+            <div className="min-w-0 truncate px-2 text-xs">
+              {input.commit?.author ?? ""}
+            </div>
+          );
+        }
+        case "dateTime": {
+          return (
+            <div className="min-w-0 truncate px-2 text-muted-foreground text-xs">
+              {input.commit ? formatCommitDate(input.commit.date) : ""}
+            </div>
+          );
+        }
+        case "sha": {
+          return (
+            <div className="min-w-0 truncate px-2 font-mono text-[11px] text-muted-foreground">
+              {input.commit?.shortHash ?? ""}
+            </div>
+          );
+        }
+        default: {
+          return null;
+        }
+      }
+    },
+    [formatCommitDate]
+  );
   const getErrorMessage = (error: unknown): string => {
     if (error instanceof Error && error.message.trim().length > 0) {
       return error.message;
@@ -4060,9 +4242,40 @@ export function RepoInfo() {
   };
 
   const setTimelineGraphCompactMode = (isCompact: boolean) => {
-    setTimelineGraphColumnWidth(
-      isCompact ? TIMELINE_GRAPH_COLUMN_MIN_WIDTH : null
-    );
+    setRepoTimelinePreferences({ compactGraph: isCompact });
+  };
+  const setTimelineColumnVisibility = (
+    columnId: RepoTimelineColumnId,
+    visible: boolean
+  ) => {
+    setRepoTimelinePreferences((current) => {
+      const visibleColumnCount = Object.values(current.visibleColumns).filter(
+        Boolean
+      ).length;
+
+      if (!visible && visibleColumnCount <= 1) {
+        return current;
+      }
+
+      return {
+        visibleColumns: {
+          ...current.visibleColumns,
+          [columnId]: visible,
+        },
+      };
+    });
+  };
+  const resetTimelineLayout = (mode: "compact" | "default") => {
+    const nextPreferences =
+      mode === "compact"
+        ? TIMELINE_COMPACT_LAYOUT_PREFERENCES
+        : DEFAULT_REPO_TIMELINE_PREFERENCES;
+
+    setRepoTimelinePreferences({
+      compactGraph: nextPreferences.compactGraph,
+      smartBranchVisibility: nextPreferences.smartBranchVisibility,
+      visibleColumns: { ...nextPreferences.visibleColumns },
+    });
   };
 
   const preventLeftClickInMenus = (event: React.MouseEvent) => {
@@ -9514,47 +9727,142 @@ export function RepoInfo() {
 
           <div className="flex min-h-0 flex-1">
             <section className="relative flex min-w-0 flex-1 flex-col">
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <DropdownMenuTrigger
+                        render={
+                          <button
+                            aria-label="Timeline settings"
+                            className="focus-visible:desktop-focus-strong absolute top-0 right-0 z-30 inline-flex size-5 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
+                            type="button"
+                          />
+                        }
+                      />
+                    }
+                  >
+                    <GearIcon className="size-3" />
+                  </TooltipTrigger>
+                  <TooltipContent side="left">Timeline settings</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-60"
+                  sideOffset={6}
+                >
+                  <DropdownMenuCheckboxItem
+                    checked={repoTimelinePreferences.visibleColumns.branch}
+                    onCheckedChange={(checked) => {
+                      setTimelineColumnVisibility("branch", checked === true);
+                    }}
+                  >
+                    Branch / Tag
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={repoTimelinePreferences.visibleColumns.graph}
+                    onCheckedChange={(checked) => {
+                      setTimelineColumnVisibility("graph", checked === true);
+                    }}
+                  >
+                    Graph
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={
+                      repoTimelinePreferences.visibleColumns.commitMessage
+                    }
+                    onCheckedChange={(checked) => {
+                      setTimelineColumnVisibility(
+                        "commitMessage",
+                        checked === true
+                      );
+                    }}
+                  >
+                    Commit message
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={repoTimelinePreferences.visibleColumns.author}
+                    onCheckedChange={(checked) => {
+                      setTimelineColumnVisibility("author", checked === true);
+                    }}
+                  >
+                    Author
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={repoTimelinePreferences.visibleColumns.dateTime}
+                    onCheckedChange={(checked) => {
+                      setTimelineColumnVisibility("dateTime", checked === true);
+                    }}
+                  >
+                    Date / Time
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={repoTimelinePreferences.visibleColumns.sha}
+                    onCheckedChange={(checked) => {
+                      setTimelineColumnVisibility("sha", checked === true);
+                    }}
+                  >
+                    Sha
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={isTimelineGraphCompactMode}
+                    disabled={
+                      isTimelineGraphAutoCompact ||
+                      !repoTimelinePreferences.visibleColumns.graph
+                    }
+                    onCheckedChange={(checked) => {
+                      setTimelineGraphCompactMode(checked === true);
+                    }}
+                  >
+                    {isTimelineGraphAutoCompact
+                      ? "Compact Graph Column (Auto)"
+                      : "Compact Graph Column"}
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={repoTimelinePreferences.smartBranchVisibility}
+                    onCheckedChange={(checked) => {
+                      setRepoTimelinePreferences({
+                        smartBranchVisibility: checked === true,
+                      });
+                    }}
+                  >
+                    Smart Branch Visibility
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      resetTimelineLayout("default");
+                    }}
+                  >
+                    Reset columns to default layout
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      resetTimelineLayout("compact");
+                    }}
+                  >
+                    Reset columns to compact layout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <div
-                className="grid border-border/60 border-b px-2 py-1 text-muted-foreground text-xs/3 uppercase tracking-wide"
+                className="grid border-border/60 border-b px-2 py-1 pr-8 text-muted-foreground text-xs/3 uppercase tracking-wide"
                 style={{ gridTemplateColumns: timelineGridTemplateColumns }}
               >
-                <span className="flex items-center justify-center">
-                  Branch / Tag
-                </span>
-                <span className="flex items-center justify-center">Graph</span>
-                <span className="relative flex items-center justify-center">
-                  <span>Commit Message</span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <button
-                          aria-label="Timeline settings"
-                          className="focus-visible:desktop-focus-strong absolute right-0 inline-flex size-5 shrink-0 items-center justify-center transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
-                          type="button"
-                        />
-                      }
-                    >
-                      <GearIcon className="size-3" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-52"
-                      sideOffset={6}
-                    >
-                      <DropdownMenuCheckboxItem
-                        checked={isTimelineGraphCompactMode}
-                        disabled={isTimelineGraphAutoCompact}
-                        onCheckedChange={(checked) => {
-                          setTimelineGraphCompactMode(checked === true);
-                        }}
-                      >
-                        {isTimelineGraphAutoCompact
-                          ? "Compact graph (auto on small screen)"
-                          : "Compact graph (1 line)"}
-                      </DropdownMenuCheckboxItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </span>
+                {timelineColumnDefinitions.map((column) => (
+                  <span
+                    className={cn(
+                      "flex items-center px-2",
+                      column.align === "center"
+                        ? "justify-center"
+                        : "justify-start"
+                    )}
+                    key={column.id}
+                  >
+                    {column.label}
+                  </span>
+                ))}
               </div>
               <div
                 className={cn(
@@ -9568,113 +9876,117 @@ export function RepoInfo() {
                     className="grid items-center border-border/35 border-b bg-muted/[0.16] px-2 py-1.5"
                     style={{ gridTemplateColumns: timelineGridTemplateColumns }}
                   >
-                    <div className="min-w-0 truncate">
-                      <span
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-[0.7rem] leading-none shadow-sm"
-                        style={{
-                          backgroundColor:
-                            "color-mix(in srgb, canvas 90%, transparent)",
-                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
-                        }}
-                      >
-                        <span
-                          aria-hidden
-                          className="size-1.5 rounded-full"
-                          style={{ backgroundColor: currentBranchLaneColor }}
-                        />
-                        {currentBranch}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-center">
-                      <span
-                        aria-hidden
-                        className="flex size-7 items-center justify-center rounded-full bg-background/95"
-                        style={{
-                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
-                        }}
-                      >
-                        <CircleIcon
-                          className="size-2.5"
-                          style={{ color: currentBranchLaneColor }}
-                        />
-                      </span>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <div
-                        className="flex h-8 w-full max-w-72 items-center bg-background/95 pr-1 shadow-sm transition-shadow focus-within:shadow-md"
-                        style={{
-                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
-                        }}
-                      >
-                        <Input
-                          className="focus-visible:desktop-focus h-full border-0 bg-transparent px-3 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
-                          disabled={isCreatingBranch}
-                          onChange={(event) =>
-                            setNewBranchName(event.target.value)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              closeBranchCreateInput();
-                              return;
-                            }
+                    {timelineVisibleColumns.map((columnId) => (
+                      <Fragment key={columnId}>
+                        {renderTimelineCell(columnId, {
+                          branchCell:
+                            columnId === "branch" ? (
+                              <div className="min-w-0 truncate">
+                                <span
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 font-medium text-[0.7rem] leading-none shadow-sm"
+                                  style={{
+                                    backgroundColor:
+                                      "color-mix(in srgb, canvas 90%, transparent)",
+                                    boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
+                                  }}
+                                >
+                                  <span
+                                    aria-hidden
+                                    className="size-1.5 rounded-full"
+                                    style={{
+                                      backgroundColor: currentBranchLaneColor,
+                                    }}
+                                  />
+                                  {currentBranch}
+                                </span>
+                              </div>
+                            ) : undefined,
+                          commitMessageCell:
+                            columnId === "commitMessage" ? (
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <div
+                                  className="flex h-8 w-full max-w-72 items-center bg-background/95 pr-1 shadow-sm transition-shadow focus-within:shadow-md"
+                                  style={{
+                                    boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}66`,
+                                  }}
+                                >
+                                  <Input
+                                    className="focus-visible:desktop-focus h-full border-0 bg-transparent px-3 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                                    disabled={isCreatingBranch}
+                                    onChange={(event) =>
+                                      setNewBranchName(event.target.value)
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Escape") {
+                                        event.preventDefault();
+                                        closeBranchCreateInput();
+                                        return;
+                                      }
 
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              handleCreateBranchFromToolbar().catch(
-                                () => undefined
-                              );
-                            }
-                          }}
-                          placeholder="enter branch name"
-                          ref={branchCreateInputRef}
-                          value={newBranchName}
-                        />
-                      </div>
-                      <Button
-                        className="focus-visible:desktop-focus h-7 px-3 shadow-sm focus-visible:ring-0! focus-visible:ring-offset-0!"
-                        disabled={
-                          isCreatingBranch || newBranchName.trim().length === 0
-                        }
-                        onClick={() => {
-                          handleCreateBranchFromToolbar().catch(
-                            () => undefined
-                          );
-                        }}
-                        size="sm"
-                        style={{
-                          borderColor: `${currentBranchLaneColor}66`,
-                          boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}22`,
-                        }}
-                        type="button"
-                        variant="outline"
-                      >
-                        {isCreatingBranch ? "Creating..." : "Create"}
-                      </Button>
-                      <Button
-                        className="focus-visible:desktop-focus h-7 px-3 focus-visible:ring-0! focus-visible:ring-offset-0!"
-                        disabled={isCreatingBranch}
-                        onClick={closeBranchCreateInput}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
+                                      if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        handleCreateBranchFromToolbar().catch(
+                                          () => undefined
+                                        );
+                                      }
+                                    }}
+                                    placeholder="enter branch name"
+                                    ref={branchCreateInputRef}
+                                    value={newBranchName}
+                                  />
+                                </div>
+                                <Button
+                                  className="focus-visible:desktop-focus h-7 px-3 shadow-sm focus-visible:ring-0! focus-visible:ring-offset-0!"
+                                  disabled={
+                                    isCreatingBranch ||
+                                    newBranchName.trim().length === 0
+                                  }
+                                  onClick={() => {
+                                    handleCreateBranchFromToolbar().catch(
+                                      () => undefined
+                                    );
+                                  }}
+                                  size="sm"
+                                  style={{
+                                    borderColor: `${currentBranchLaneColor}66`,
+                                    boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}22`,
+                                  }}
+                                  type="button"
+                                  variant="outline"
+                                >
+                                  {isCreatingBranch ? "Creating..." : "Create"}
+                                </Button>
+                                <Button
+                                  className="focus-visible:desktop-focus h-7 px-3 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                                  disabled={isCreatingBranch}
+                                  onClick={closeBranchCreateInput}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : undefined,
+                        })}
+                      </Fragment>
+                    ))}
                   </div>
                 ) : null}
                 <div className="relative">
-                  <GitGraphOverlay
-                    commits={commits}
-                    graphColumnWidth={effectiveTimelineGraphColumnWidth}
-                    onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
-                    onNodeSelect={handleGraphNodeSelect}
-                    renderNodeContextMenu={renderGraphNodeContextMenuContent}
-                    rowHeight={TIMELINE_ROW_HEIGHT}
-                    rows={timelineRows}
-                    selectedRowId={selectedTimelineRowId}
-                  />
+                  {repoTimelinePreferences.visibleColumns.graph ? (
+                    <GitGraphOverlay
+                      branchColumnWidth={resolvedTimelineBranchColumnWidth}
+                      commits={commits}
+                      graphColumnWidth={effectiveTimelineGraphColumnWidth}
+                      onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
+                      onNodeSelect={handleGraphNodeSelect}
+                      renderNodeContextMenu={renderGraphNodeContextMenuContent}
+                      rowHeight={TIMELINE_ROW_HEIGHT}
+                      rows={timelineRows}
+                      selectedRowId={selectedTimelineRowId}
+                    />
+                  ) : null}
                   {hasAnyWorkingTreeChanges ? (
                     <button
                       className={cn(
@@ -9695,39 +10007,52 @@ export function RepoInfo() {
                       }}
                       type="button"
                     >
-                      <div className="min-w-0" />
-                      <div className="h-full" />
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                          <Input
-                            className="h-7 w-full max-w-52"
-                            disabled
-                            placeholder="// WIP"
-                            value={draftCommitSummary}
-                          />
-                          {workingTreeIndicators.editedCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
-                              <PencilSimpleIcon
-                                aria-hidden
-                                className="size-2.5"
-                              />
-                              {workingTreeIndicators.editedCount}
-                            </span>
-                          )}
-                          {workingTreeIndicators.addedCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-emerald-700 text-xs dark:text-emerald-300">
-                              <PlusIcon aria-hidden className="size-2.5" />
-                              {workingTreeIndicators.addedCount}
-                            </span>
-                          )}
-                          {workingTreeIndicators.removedCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-rose-700 text-xs dark:text-rose-300">
-                              <MinusIcon aria-hidden className="size-2.5" />
-                              {workingTreeIndicators.removedCount}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      {timelineVisibleColumns.map((columnId) => (
+                        <Fragment key={columnId}>
+                          {renderTimelineCell(columnId, {
+                            commitMessageCell:
+                              columnId === "commitMessage" ? (
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                    <Input
+                                      className="h-7 w-full max-w-52"
+                                      disabled
+                                      placeholder="// WIP"
+                                      value={draftCommitSummary}
+                                    />
+                                    {workingTreeIndicators.editedCount > 0 ? (
+                                      <span className="inline-flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
+                                        <PencilSimpleIcon
+                                          aria-hidden
+                                          className="size-2.5"
+                                        />
+                                        {workingTreeIndicators.editedCount}
+                                      </span>
+                                    ) : null}
+                                    {workingTreeIndicators.addedCount > 0 ? (
+                                      <span className="inline-flex items-center gap-1 text-emerald-700 text-xs dark:text-emerald-300">
+                                        <PlusIcon
+                                          aria-hidden
+                                          className="size-2.5"
+                                        />
+                                        {workingTreeIndicators.addedCount}
+                                      </span>
+                                    ) : null}
+                                    {workingTreeIndicators.removedCount > 0 ? (
+                                      <span className="inline-flex items-center gap-1 text-rose-700 text-xs dark:text-rose-300">
+                                        <MinusIcon
+                                          aria-hidden
+                                          className="size-2.5"
+                                        />
+                                        {workingTreeIndicators.removedCount}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ) : undefined,
+                          })}
+                        </Fragment>
+                      ))}
                     </button>
                   ) : null}
 
@@ -9735,9 +10060,7 @@ export function RepoInfo() {
                     .filter((row) => row.type !== "wip")
                     .map((row) => {
                       if (row.type === "commit" && row.commitHash) {
-                        const item = commits.find(
-                          (commit) => commit.hash === row.commitHash
-                        );
+                        const item = commitByHash.get(row.commitHash);
 
                         if (!item) {
                           return null;
@@ -9763,7 +10086,16 @@ export function RepoInfo() {
                             (ref) => normalizeCommitRefLabel(ref) ?? ref.trim()
                           )
                           .filter((ref) => ref.length > 0);
-                        const visibleRefCount = commitRefs.length > 2 ? 1 : 2;
+                        const visibleRefCount =
+                          repoTimelinePreferences.smartBranchVisibility ||
+                          timelineVisibleColumns.some(
+                            (columnId) =>
+                              columnId === "author" ||
+                              columnId === "dateTime" ||
+                              columnId === "sha"
+                          )
+                            ? 1
+                            : 2;
                         const visibleCommitRefs = commitRefs.slice(
                           0,
                           visibleRefCount
@@ -9800,106 +10132,127 @@ export function RepoInfo() {
                                 }}
                                 type="button"
                               >
-                                <div className="min-w-0 truncate pr-2">
-                                  {visibleCommitRefs.length > 0 ? (
-                                    <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                                      {isPullableCommit ? (
-                                        <Tooltip>
-                                          <TooltipTrigger
-                                            render={
-                                              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300" />
-                                            }
-                                          >
-                                            <ArrowDownIcon className="size-3" />
-                                            Pull
-                                          </TooltipTrigger>
-                                          <TooltipContent side="bottom">
-                                            Commit available from upstream
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      ) : null}
-                                      {visibleCommitRefs.map((ref, index) => (
-                                        <Tooltip key={ref}>
-                                          <TooltipTrigger
-                                            render={
-                                              <span
-                                                className={cn(
-                                                  "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none",
-                                                  index === 0
-                                                    ? "max-w-24"
-                                                    : "max-w-16"
+                                {timelineVisibleColumns.map((columnId) => (
+                                  <Fragment key={columnId}>
+                                    {renderTimelineCell(columnId, {
+                                      branchCell:
+                                        columnId === "branch" ? (
+                                          <div className="min-w-0 truncate pr-2">
+                                            {visibleCommitRefs.length > 0 ? (
+                                              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                                {isPullableCommit ? (
+                                                  <Tooltip>
+                                                    <TooltipTrigger
+                                                      render={
+                                                        <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300" />
+                                                      }
+                                                    >
+                                                      <ArrowDownIcon className="size-3" />
+                                                      Pull
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="bottom">
+                                                      Commit available from
+                                                      upstream
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                ) : null}
+                                                {visibleCommitRefs.map(
+                                                  (ref, index) => (
+                                                    <Tooltip key={ref}>
+                                                      <TooltipTrigger
+                                                        render={
+                                                          <span
+                                                            className={cn(
+                                                              "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none",
+                                                              index === 0
+                                                                ? "max-w-24"
+                                                                : "max-w-16"
+                                                            )}
+                                                            style={{
+                                                              borderColor: `${laneColor}80`,
+                                                            }}
+                                                          />
+                                                        }
+                                                      >
+                                                        <span className="truncate">
+                                                          {ref}
+                                                        </span>
+                                                      </TooltipTrigger>
+                                                      <TooltipContent side="bottom">
+                                                        {ref}
+                                                      </TooltipContent>
+                                                    </Tooltip>
+                                                  )
                                                 )}
-                                                style={{
-                                                  borderColor: `${laneColor}80`,
-                                                }}
-                                              />
-                                            }
-                                          >
-                                            <span className="truncate">
-                                              {ref}
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent side="bottom">
-                                            {ref}
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      ))}
-                                      {hiddenCommitRefCount > 0 ? (
-                                        <Tooltip>
-                                          <TooltipTrigger
-                                            render={
-                                              <span
-                                                className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-xs leading-none"
-                                                style={{
-                                                  borderColor: `${laneColor}66`,
-                                                }}
-                                              />
-                                            }
-                                          >
-                                            +{hiddenCommitRefCount}
-                                          </TooltipTrigger>
-                                          <TooltipContent side="bottom">
-                                            {hiddenCommitRefs.join(", ")}
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      ) : null}
-                                    </div>
-                                  ) : (
-                                    <span className="text-muted-foreground/70 text-xs">
-                                      <span className="sr-only">No refs</span>
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="h-full" />
-                                <div className="relative min-w-0 self-stretch">
-                                  <div
-                                    className="absolute top-0 bottom-0 left-0 rounded-full"
-                                    style={{
-                                      background: isPullableCommit
-                                        ? `repeating-linear-gradient(to bottom, ${laneColor} 0 2px, transparent 2px 6px)`
-                                        : laneColor,
-                                      width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
-                                    }}
-                                  />
-                                  <div
-                                    className="flex h-full min-w-0 items-center gap-1"
-                                    style={{
-                                      paddingLeft:
-                                        TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
-                                        TIMELINE_COMMIT_MESSAGE_BAR_GAP,
-                                    }}
-                                  >
-                                    <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
-                                      <span>{commitTitle}</span>
-                                      {commitDescription.length > 0 ? (
-                                        <span className="text-muted-foreground/80">
-                                          {" "}
-                                          {commitDescription}
-                                        </span>
-                                      ) : null}
-                                    </p>
-                                  </div>
-                                </div>
+                                                {hiddenCommitRefCount > 0 ? (
+                                                  <Tooltip>
+                                                    <TooltipTrigger
+                                                      render={
+                                                        <span
+                                                          className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-xs leading-none"
+                                                          style={{
+                                                            borderColor: `${laneColor}66`,
+                                                          }}
+                                                        />
+                                                      }
+                                                    >
+                                                      +{hiddenCommitRefCount}
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="bottom">
+                                                      {hiddenCommitRefs.join(
+                                                        ", "
+                                                      )}
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                ) : null}
+                                              </div>
+                                            ) : (
+                                              <span className="text-muted-foreground/70 text-xs">
+                                                <span className="sr-only">
+                                                  No refs
+                                                </span>
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : undefined,
+                                      commit: item,
+                                      commitMessageCell:
+                                        columnId === "commitMessage" ? (
+                                          <div className="relative min-w-0 self-stretch">
+                                            <div
+                                              className="absolute top-0 bottom-0 left-0 rounded-full"
+                                              style={{
+                                                background: isPullableCommit
+                                                  ? `repeating-linear-gradient(to bottom, ${laneColor} 0 2px, transparent 2px 6px)`
+                                                  : laneColor,
+                                                width:
+                                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                                              }}
+                                            />
+                                            <div
+                                              className="flex h-full min-w-0 items-center gap-1"
+                                              style={{
+                                                paddingLeft:
+                                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                                  TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                                              }}
+                                            >
+                                              <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
+                                                <span>{commitTitle}</span>
+                                                {commitDescription.length >
+                                                0 ? (
+                                                  <span className="text-muted-foreground/80">
+                                                    {" "}
+                                                    {commitDescription}
+                                                  </span>
+                                                ) : null}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        ) : undefined,
+                                    })}
+                                  </Fragment>
+                                ))}
                               </button>
                             </ContextMenuTrigger>
                             {openCommitMenuHash === item.hash
@@ -9918,6 +10271,7 @@ export function RepoInfo() {
                         row.anchorCommitHash ?? ""
                       );
                       const timelineEntry = getSidebarEntryForTimelineRow(row);
+                      const rowCommit = resolveTimelineRowCommit(row);
                       const rowLabel = row.label ?? "";
                       const rowKindLabel =
                         row.type === "stash"
@@ -9944,47 +10298,62 @@ export function RepoInfo() {
                           }}
                           type="button"
                         >
-                          <div className="min-w-0 truncate pr-2">
-                            <span
-                              className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none"
-                              style={{
-                                borderColor: `${laneColor}80`,
-                              }}
-                            >
-                              {row.type === "stash" ? (
-                                <StackSimpleIcon className="size-2.5 shrink-0" />
-                              ) : (
-                                <TagIcon className="size-2.5 shrink-0" />
-                              )}
-                              <span className="truncate">{rowLabel}</span>
-                            </span>
-                          </div>
-                          <div className="h-full" />
-                          <div className="relative min-w-0 self-stretch">
-                            <div
-                              className="absolute top-0 bottom-0 left-0 rounded-full"
-                              style={{
-                                backgroundColor: laneColor,
-                                width: TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
-                              }}
-                            />
-                            <div
-                              className="flex h-full min-w-0 items-center gap-1"
-                              style={{
-                                paddingLeft:
-                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
-                                  TIMELINE_COMMIT_MESSAGE_BAR_GAP,
-                              }}
-                            >
-                              <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
-                                <span>{rowLabel}</span>
-                                <span className="text-muted-foreground/80">
-                                  {" "}
-                                  {rowKindLabel}
-                                </span>
-                              </p>
-                            </div>
-                          </div>
+                          {timelineVisibleColumns.map((columnId) => (
+                            <Fragment key={columnId}>
+                              {renderTimelineCell(columnId, {
+                                branchCell:
+                                  columnId === "branch" ? (
+                                    <div className="min-w-0 truncate pr-2">
+                                      <span
+                                        className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none"
+                                        style={{
+                                          borderColor: `${laneColor}80`,
+                                        }}
+                                      >
+                                        {row.type === "stash" ? (
+                                          <StackSimpleIcon className="size-2.5 shrink-0" />
+                                        ) : (
+                                          <TagIcon className="size-2.5 shrink-0" />
+                                        )}
+                                        <span className="truncate">
+                                          {rowLabel}
+                                        </span>
+                                      </span>
+                                    </div>
+                                  ) : undefined,
+                                commit: rowCommit,
+                                commitMessageCell:
+                                  columnId === "commitMessage" ? (
+                                    <div className="relative min-w-0 self-stretch">
+                                      <div
+                                        className="absolute top-0 bottom-0 left-0 rounded-full"
+                                        style={{
+                                          backgroundColor: laneColor,
+                                          width:
+                                            TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                                        }}
+                                      />
+                                      <div
+                                        className="flex h-full min-w-0 items-center gap-1"
+                                        style={{
+                                          paddingLeft:
+                                            TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                            TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                                        }}
+                                      >
+                                        <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
+                                          <span>{rowLabel}</span>
+                                          <span className="text-muted-foreground/80">
+                                            {" "}
+                                            {rowKindLabel}
+                                          </span>
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ) : undefined,
+                              })}
+                            </Fragment>
+                          ))}
                         </button>
                       );
 

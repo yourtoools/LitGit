@@ -13,10 +13,12 @@ import {
   type DateFormatPreset,
   DEFAULT_PREFERENCES,
   DEFAULT_REPO_FILE_BROWSER_STATE,
+  DEFAULT_REPO_TIMELINE_PREFERENCES,
   getDefaultAiMaxInputTokens,
   getDefaultAiMaxOutputTokens,
   PREFERENCES_STORAGE_KEY,
   type RepoFileBrowserState,
+  type RepoTimelinePreferences,
   type SettingsSectionId,
   type TerminalCursorStyle,
   type ThemePreference,
@@ -68,6 +70,11 @@ interface PreferencesStoreState extends AppPreferences {
     input:
       | Partial<RepoFileBrowserState>
       | ((current: RepoFileBrowserState) => Partial<RepoFileBrowserState>)
+  ) => void;
+  setRepoTimelinePreferences: (
+    input:
+      | Partial<RepoTimelinePreferences>
+      | ((current: RepoTimelinePreferences) => Partial<RepoTimelinePreferences>)
   ) => void;
   setSearchQuery: (searchQuery: string) => void;
   setSection: (section: SettingsSectionId) => void;
@@ -274,6 +281,27 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
           };
         });
       },
+      setRepoTimelinePreferences: (input) => {
+        set((state) => {
+          const currentTimeline = state.ui.repoTimeline;
+          const nextInput =
+            typeof input === "function" ? input(currentTimeline) : input;
+
+          return {
+            ui: {
+              ...state.ui,
+              repoTimeline: {
+                ...currentTimeline,
+                ...nextInput,
+                visibleColumns: {
+                  ...currentTimeline.visibleColumns,
+                  ...nextInput.visibleColumns,
+                },
+              },
+            },
+          };
+        });
+      },
       setRememberTabs: (rememberTabs) => {
         if (!rememberTabs) {
           clearPersistedTabs();
@@ -440,6 +468,16 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
             repoFileBrowserByRepoId: {
               ...currentState.ui.repoFileBrowserByRepoId,
               ...persisted.ui?.repoFileBrowserByRepoId,
+            },
+            repoTimeline: {
+              ...DEFAULT_REPO_TIMELINE_PREFERENCES,
+              ...currentState.ui.repoTimeline,
+              ...persisted.ui?.repoTimeline,
+              visibleColumns: {
+                ...DEFAULT_REPO_TIMELINE_PREFERENCES.visibleColumns,
+                ...currentState.ui.repoTimeline.visibleColumns,
+                ...persisted.ui?.repoTimeline?.visibleColumns,
+              },
             },
           },
         };

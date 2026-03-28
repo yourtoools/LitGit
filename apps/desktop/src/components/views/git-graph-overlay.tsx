@@ -26,6 +26,7 @@ const DEFAULT_EDGE_OPTIONS = {
 const DOTTED_EDGE_PATTERN = "1 5";
 
 interface GitGraphOverlayProps {
+  branchColumnWidth?: number;
   commits: RepositoryCommit[];
   graphColumnWidth: number;
   onNodeMenuOpenChange?: (rowId: string, open: boolean) => void;
@@ -37,6 +38,7 @@ interface GitGraphOverlayProps {
 }
 
 export function GitGraphOverlay({
+  branchColumnWidth,
   commits,
   graphColumnWidth,
   onNodeMenuOpenChange,
@@ -55,12 +57,14 @@ export function GitGraphOverlay({
         commits,
         selectedRowId,
         rowHeight,
+        branchColumnWidth,
         graphColumnWidth,
         dashedStrokePattern,
         DOTTED_EDGE_PATTERN
       ),
     [
       commits,
+      branchColumnWidth,
       dashedStrokePattern,
       graphColumnWidth,
       rowHeight,

@@ -36,8 +36,6 @@ const LANE_COLORS = [
 const GRID_HORIZONTAL_PADDING = 12;
 export const TIMELINE_BRANCH_COLUMN_WIDTH = 180;
 export const MIN_TIMELINE_GRAPH_COLUMN_WIDTH = 60;
-const GRAPH_COLUMN_START_X =
-  GRID_HORIZONTAL_PADDING + TIMELINE_BRANCH_COLUMN_WIDTH;
 const LANE_OFFSET_X = 8;
 const LANE_SPACING_X = 16;
 const GIT_NODE_SIZE_BY_TYPE: Record<GitTimelineRowType, number> = {
@@ -122,6 +120,10 @@ export function resolveGitGraphColumnWidth(
   return Math.max(MIN_TIMELINE_GRAPH_COLUMN_WIDTH, graphWidth);
 }
 
+function resolveGraphColumnStartX(branchColumnWidth: number): number {
+  return GRID_HORIZONTAL_PADDING + branchColumnWidth;
+}
+
 export function getCommitLaneColor(
   commits: RepositoryCommit[],
   commitHash: string
@@ -136,6 +138,7 @@ function createNode(
   lane: number,
   rowIndex: number,
   rowHeight: number,
+  branchColumnWidth: number,
   graphScaleX: number,
   isCompact: boolean,
   color: string,
@@ -156,10 +159,10 @@ function createNode(
     nodeStrokePattern = dottedStrokePattern;
   }
 
-  const baseCenterX =
-    GRAPH_COLUMN_START_X + LANE_OFFSET_X + lane * LANE_SPACING_X;
+  const graphColumnStartX = resolveGraphColumnStartX(branchColumnWidth);
+  const baseCenterX = graphColumnStartX + LANE_OFFSET_X + lane * LANE_SPACING_X;
   const centerX =
-    GRAPH_COLUMN_START_X + (baseCenterX - GRAPH_COLUMN_START_X) * graphScaleX;
+    graphColumnStartX + (baseCenterX - graphColumnStartX) * graphScaleX;
   const centerY =
     rowIndex * rowHeight + rowHeight / 2 + NODE_OPTICAL_VERTICAL_OFFSET;
 
@@ -219,6 +222,7 @@ export function buildGitGraphLayout(
   commits: RepositoryCommit[],
   selectedRowId: string | null,
   rowHeight: number = DEFAULT_ROW_HEIGHT,
+  branchColumnWidth: number = TIMELINE_BRANCH_COLUMN_WIDTH,
   graphColumnWidth?: number,
   dashedStrokePattern?: string,
   dottedStrokePattern?: string
@@ -277,6 +281,7 @@ export function buildGitGraphLayout(
         positionedLane,
         rowIndex,
         rowHeight,
+        branchColumnWidth,
         graphScaleX,
         isCompactGraph,
         color,

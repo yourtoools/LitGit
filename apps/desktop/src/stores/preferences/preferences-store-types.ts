@@ -32,10 +32,38 @@ export interface UiPreferences {
   dateFormat: DateFormatPreset;
   locale: string;
   repoFileBrowserByRepoId: Record<string, RepoFileBrowserState>;
+  repoTimeline: RepoTimelinePreferences;
   theme: ThemePreference;
   toasterPosition: ToasterPosition;
   toolbarLabels: boolean;
 }
+
+export type RepoTimelineColumnId =
+  | "branch"
+  | "graph"
+  | "commitMessage"
+  | "author"
+  | "dateTime"
+  | "sha";
+
+export interface RepoTimelinePreferences {
+  compactGraph: boolean;
+  smartBranchVisibility: boolean;
+  visibleColumns: Record<RepoTimelineColumnId, boolean>;
+}
+
+export const DEFAULT_REPO_TIMELINE_PREFERENCES: RepoTimelinePreferences = {
+  compactGraph: false,
+  smartBranchVisibility: false,
+  visibleColumns: {
+    author: true,
+    branch: true,
+    commitMessage: true,
+    dateTime: true,
+    graph: true,
+    sha: false,
+  },
+};
 
 export type RepoFileBrowserSortOrder = "asc" | "desc";
 
@@ -304,6 +332,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     dateFormat: "compact",
     locale: "system",
     repoFileBrowserByRepoId: {},
+    repoTimeline: DEFAULT_REPO_TIMELINE_PREFERENCES,
     theme: "system",
     toasterPosition: "bottom-center",
     toolbarLabels: false,
