@@ -260,7 +260,7 @@ export function HeaderTabsSearch() {
               <ComboboxInput
                 autoFocus
                 className="flex h-7 w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
-                placeholder="Search tabs..."
+                placeholder={`Search tabs (${getSearchTabsShortcutLabel()})`}
                 showClear
                 showTrigger={false}
               />
