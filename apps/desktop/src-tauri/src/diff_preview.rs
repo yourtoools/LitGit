@@ -1,21 +1,17 @@
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine as _;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{
-    decode_text_content_with_encoding, git_command, is_probably_text_content,
-    resolve_file_extension, resolve_image_mime_type, validate_git_repo, RepositoryCommitFileDiff,
-    RepositoryFileDiff,
+use super::{RepositoryCommitFileDiff, RepositoryFileDiff};
+use crate::git_support::{
+    decode_text_content_with_encoding, encode_image_data_url, git_command,
+    is_probably_text_content, resolve_file_extension, resolve_image_mime_type, validate_git_repo,
 };
 
 const DIFF_CHANGED_LINE_LIMIT: usize = 500;
 const FILE_LINE_LIMIT: usize = 20_000;
 const NON_TEXT_SIZE_LIMIT_BYTES: usize = 10 * 1024 * 1024;
-const IMAGE_CONTENT_MAX_BYTES: usize = 64 * 1024 * 1024;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PreviewMode {
     Diff,
@@ -263,15 +259,6 @@ fn resolve_preflight_gate(
     }
 
     PreviewGate::None
-}
-
-fn encode_image_data_url(content: &[u8], mime_type: &str) -> Option<String> {
-    if content.is_empty() || content.len() > IMAGE_CONTENT_MAX_BYTES {
-        return None;
-    }
-
-    let encoded = BASE64_STANDARD.encode(content);
-    Some(format!("data:{mime_type};base64,{encoded}"))
 }
 
 fn build_preflight_metadata(
@@ -727,7 +714,8 @@ mod tests {
     #[test]
     fn unchanged_text_diff_reports_zero_changed_lines() {
         let content = b"# markdown\nsame\n";
-        let changed = compute_changed_line_count(Some(content.as_slice()), Some(content.as_slice()));
+        let changed =
+            compute_changed_line_count(Some(content.as_slice()), Some(content.as_slice()));
 
         assert_eq!(changed, Some(0));
     }

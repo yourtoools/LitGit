@@ -6,7 +6,7 @@ use std::path::{Component, Path};
 use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{
+use crate::git_support::{
     decode_text_content_with_encoding, encode_text_with_encoding, git_command, validate_git_repo,
 };
 
@@ -556,9 +556,8 @@ pub(crate) fn get_repository_file_history(
         .clamp(1, MAX_HISTORY_LIMIT);
     let resolved_head_revision =
         resolve_head_revision(&repo_path).unwrap_or_else(|| "NO_HEAD".to_string());
-    let cache_key = format!(
-        "{repo_path}\x1f{resolved_head_revision}\x1f{file_path}\x1f{resolved_limit}"
-    );
+    let cache_key =
+        format!("{repo_path}\x1f{resolved_head_revision}\x1f{file_path}\x1f{resolved_limit}");
 
     if let Some(cached_payload) = read_cached_payload(&FILE_HISTORY_CACHE, &cache_key) {
         return Ok(cached_payload);
@@ -659,7 +658,12 @@ pub(crate) fn get_repository_file_blame(
         revision: resolved_revision.to_string(),
     };
 
-    write_cached_payload(&FILE_BLAME_CACHE, cache_key, payload.clone(), BLAME_CACHE_LIMIT);
+    write_cached_payload(
+        &FILE_BLAME_CACHE,
+        cache_key,
+        payload.clone(),
+        BLAME_CACHE_LIMIT,
+    );
 
     Ok(payload)
 }
@@ -718,16 +722,6 @@ pub(crate) fn detect_repository_file_encoding(
 #[cfg(test)]
 mod tests {
     use super::{parse_blame_output, parse_history_entries, parse_hunks_from_patch};
-
-    #[test]
-    fn decode_windows1252_text_payload() {
-        let bytes = [0x48, 0x69, 0x20, 0x80];
-        let decoded =
-            super::super::decode_text_content_with_encoding(Some(&bytes), Some("windows-1252"))
-                .expect("expected successful decode");
-
-        assert_eq!(decoded, "Hi €");
-    }
 
     #[test]
     fn hunk_parser_returns_changed_blocks() {
