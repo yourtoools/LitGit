@@ -166,6 +166,7 @@ import {
   type DiffWorkspaceMode,
   type DiffWorkspacePresentationMode,
 } from "@/components/views/repo-info/diff-workspace-types";
+import { ImageDiffViewer } from "@/components/views/repo-info/image-diff-viewer";
 import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   normalizeComboboxQuery,
@@ -10839,69 +10840,12 @@ export function RepoInfo() {
                           </div>
                         ) : null}
                         {activeDiffViewerKind === "image" ? (
-                          <div className="h-full overflow-auto p-3">
-                            {useImageSplitView ? (
-                              <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2">
-                                <div className="flex min-h-0 flex-col border border-border/70 bg-background">
-                                  <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
-                                    Original
-                                  </p>
-                                  <div className="flex min-h-55 flex-1 items-center justify-center p-3">
-                                    {activeDiffOldImageDataUrl ? (
-                                      <img
-                                        alt={`Original version of ${activeDiffPath}`}
-                                        className="max-h-full max-w-full object-contain"
-                                        height={800}
-                                        src={activeDiffOldImageDataUrl}
-                                        width={1200}
-                                      />
-                                    ) : (
-                                      <p className="text-center text-muted-foreground text-xs">
-                                        No image in the previous revision.
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex min-h-0 flex-col border border-border/70 bg-background">
-                                  <p className="border-border/70 border-b px-3 py-2 font-medium text-xs uppercase tracking-wide">
-                                    Modified
-                                  </p>
-                                  <div className="flex min-h-55 flex-1 items-center justify-center p-3">
-                                    {activeDiffNewImageDataUrl ? (
-                                      <img
-                                        alt={`Modified version of ${activeDiffPath}`}
-                                        className="max-h-full max-w-full object-contain"
-                                        height={800}
-                                        src={activeDiffNewImageDataUrl}
-                                        width={1200}
-                                      />
-                                    ) : (
-                                      <p className="text-center text-muted-foreground text-xs">
-                                        No image in the current revision.
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex min-h-full items-center justify-center border border-border/70 bg-background p-3">
-                                {centeredImageDataUrl ? (
-                                  <img
-                                    alt={activeDiffPath}
-                                    className="max-h-full max-w-full object-contain"
-                                    height={800}
-                                    src={centeredImageDataUrl}
-                                    width={1200}
-                                  />
-                                ) : (
-                                  <p className="text-center text-muted-foreground text-xs">
-                                    No preview available for this image
-                                    revision.
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <ImageDiffViewer
+                            filePath={activeDiffPath}
+                            newImageSrc={activeDiffNewImageDataUrl}
+                            oldImageSrc={activeDiffOldImageDataUrl}
+                            splitView={useImageSplitView}
+                          />
                         ) : null}
                         {activeDiffViewerKind === "unsupported" ? (
                           <div className="flex h-full items-center justify-center px-6">
@@ -10999,23 +10943,12 @@ export function RepoInfo() {
                           </div>
                         ) : null}
                         {activeDiffViewerKind === "image" ? (
-                          <div className="h-full overflow-auto p-3">
-                            <div className="flex min-h-full items-center justify-center border border-border/70 bg-background p-3">
-                              {centeredImageDataUrl ? (
-                                <img
-                                  alt={activeDiffPath}
-                                  className="max-h-full max-w-full object-contain"
-                                  height={800}
-                                  src={centeredImageDataUrl}
-                                  width={1200}
-                                />
-                              ) : (
-                                <p className="text-center text-muted-foreground text-xs">
-                                  No preview available for this image revision.
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                          <ImageDiffViewer
+                            filePath={activeDiffPath}
+                            newImageSrc={centeredImageDataUrl}
+                            oldImageSrc={null}
+                            splitView={false}
+                          />
                         ) : null}
                         {activeDiffViewerKind === "unsupported" ? (
                           <div className="flex h-full items-center justify-center px-6">
