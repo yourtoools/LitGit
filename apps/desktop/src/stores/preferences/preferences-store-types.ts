@@ -70,6 +70,7 @@ export type RepoFileBrowserSortOrder = "asc" | "desc";
 export interface RepoFileBrowserState {
   expandedTreeNodePaths: Record<string, boolean>;
   filterInputValue: string;
+  hiddenGraphEntryKeys: Record<string, boolean>;
   isStagedSectionCollapsed: boolean;
   isUnstagedSectionCollapsed: boolean;
   showAllFiles: boolean;
@@ -80,6 +81,7 @@ export interface RepoFileBrowserState {
 export const DEFAULT_REPO_FILE_BROWSER_STATE: RepoFileBrowserState = {
   expandedTreeNodePaths: {},
   filterInputValue: "",
+  hiddenGraphEntryKeys: {},
   isStagedSectionCollapsed: false,
   isUnstagedSectionCollapsed: false,
   showAllFiles: false,

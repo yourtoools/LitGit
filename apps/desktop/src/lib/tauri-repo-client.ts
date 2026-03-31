@@ -65,6 +65,26 @@ function parseRepositoryRemoteNames(value: unknown): string[] {
   return parseStringArray(value, "Invalid repository remotes payload");
 }
 
+function parseRepositoryRemoteAvatars(
+  value: unknown
+): Record<string, string | null> {
+  if (!isRecord(value)) {
+    throw new Error("Invalid repository remote avatars payload");
+  }
+
+  const avatarsByRemote: Record<string, string | null> = {};
+
+  for (const [remoteName, avatarUrl] of Object.entries(value)) {
+    if (!(typeof avatarUrl === "string" || avatarUrl === null)) {
+      throw new Error("Invalid repository remote avatars payload");
+    }
+
+    avatarsByRemote[remoteName] = avatarUrl;
+  }
+
+  return avatarsByRemote;
+}
+
 function parseGitIdentityValue(value: unknown): GitIdentityValue {
   if (!isRecord(value)) {
     throw new Error("Invalid Git identity payload");
@@ -1982,6 +2002,26 @@ export async function getRepositoryFiles(path: string) {
   });
 
   return parseRepositoryFileEntries(result);
+}
+
+export async function getRepositoryRemoteAvatars(
+  path: string
+): Promise<Record<string, string | null>> {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    return {};
+  }
+
+  const result = await invokeRepoCommandWithSystemLog<unknown>({
+    command: "git remote -v",
+    invoke,
+    invokeArgs: { repoPath: path },
+    invokeCommand: "get_repository_remote_avatars",
+    repoPath: path,
+  });
+
+  return parseRepositoryRemoteAvatars(result);
 }
 
 export async function fetchRepoData(

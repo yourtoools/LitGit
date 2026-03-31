@@ -91,13 +91,17 @@ import {
   ArrowUpIcon,
   CaretDownIcon,
   CaretRightIcon,
+  CheckCircleIcon,
+  CloudIcon,
   DotOutlineIcon,
   DotsThreeVerticalIcon,
   DownloadSimpleIcon,
-  FolderSimpleIcon,
+  EyeIcon,
+  EyeSlashIcon,
   GearIcon,
   GitBranchIcon,
   GithubLogoIcon,
+  LaptopIcon,
   MinusIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -173,6 +177,7 @@ import {
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
 import { getRuntimePlatform } from "@/lib/runtime-platform";
+import { getRepositoryRemoteAvatars } from "@/lib/tauri-repo-client";
 import {
   DEFAULT_REPO_FILE_BROWSER_STATE,
   DEFAULT_REPO_TIMELINE_PREFERENCES,
@@ -219,6 +224,26 @@ interface SidebarGroupItem {
   key: string;
   name: string;
   treeNodes?: BranchTreeNode[];
+}
+
+function renderSidebarGroupSectionIcon(groupKey: string): ReactNode {
+  if (groupKey === "local") {
+    return <LaptopIcon className="size-3" />;
+  }
+
+  if (groupKey === "remote") {
+    return <CloudIcon className="size-3" />;
+  }
+
+  if (groupKey === "stashes") {
+    return <StackSimpleIcon className="size-3" />;
+  }
+
+  if (groupKey === "tags") {
+    return <TagIcon className="size-3" />;
+  }
+
+  return null;
 }
 
 interface BranchTreeNode {
@@ -322,6 +347,8 @@ const MIN_TIMELINE_CONTENT_WIDTH = 560;
 const COMMIT_MESSAGE_LIST_MARKER_PATTERN = /^[-*•]\s*/;
 const FILE_FILTER_DEBOUNCE_MS = 500;
 const SIDEBAR_FILTER_DEBOUNCE_MS = 500;
+const SIDEBAR_TREE_BASE_PADDING_REM = 0.5;
+const SIDEBAR_TREE_DEPTH_PADDING_REM = 0.55;
 const COMMIT_DIFF_CACHE_LIMIT = 32;
 const DIFF_WORKSPACE_PAYLOAD_CACHE_LIMIT = 64;
 const FILE_HISTORY_LIMIT = 200;
@@ -1423,6 +1450,14 @@ export function RepoInfo() {
   );
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
     Record<string, boolean>
+  >({
+    local: true,
+    remote: true,
+    stashes: true,
+    tags: true,
+  });
+  const [remoteAvatarUrlByName, setRemoteAvatarUrlByName] = useState<
+    Record<string, string | null>
   >({});
   const [collapsedBranchFolderKeys, setCollapsedBranchFolderKeys] = useState<
     Record<string, boolean>
@@ -1800,6 +1835,32 @@ export function RepoInfo() {
   isRightSidebarOpenRef.current = isRightSidebarOpen;
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
+  const activeRepoPath = activeRepo?.path ?? null;
+
+  useEffect(() => {
+    if (!activeRepoPath) {
+      setRemoteAvatarUrlByName({});
+      return;
+    }
+
+    let cancelled = false;
+
+    getRepositoryRemoteAvatars(activeRepoPath)
+      .then((avatarsByRemote) => {
+        if (!cancelled) {
+          setRemoteAvatarUrlByName(avatarsByRemote);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRemoteAvatarUrlByName({});
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRepoPath]);
   const requiresForcePushAfterHistoryRewrite = activeRepoId
     ? (repoHistoryRewriteHintById[activeRepoId] ?? false)
     : false;
@@ -1930,6 +1991,8 @@ export function RepoInfo() {
     repoFileBrowserPreferences.isStagedSectionCollapsed;
   const expandedTreeNodePaths =
     repoFileBrowserPreferences.expandedTreeNodePaths;
+  const hiddenSidebarGraphEntryKeys =
+    repoFileBrowserPreferences.hiddenGraphEntryKeys;
   const showAllFiles = repoFileBrowserPreferences.showAllFiles;
   const fileTreeSortOrder = repoFileBrowserPreferences.sortOrder;
   const repositoryFileFilterInputValue =
@@ -2343,6 +2406,22 @@ export function RepoInfo() {
         timelineReferenceRowsByCommitHash.get(commit.hash) ?? [];
 
       for (const referenceRow of referenceRows) {
+        if (referenceRow.type === "stash") {
+          const stashRef = referenceRow.id.slice("stash:".length);
+
+          if (hiddenSidebarGraphEntryKeys[`stash:${stashRef}`]) {
+            continue;
+          }
+        }
+
+        if (
+          referenceRow.type === "tag" &&
+          referenceRow.label &&
+          hiddenSidebarGraphEntryKeys[`tag:${referenceRow.label}`]
+        ) {
+          continue;
+        }
+
         rows.push({
           anchorCommitHash: referenceRow.anchorCommitHash,
           id: referenceRow.id,
@@ -2366,6 +2445,7 @@ export function RepoInfo() {
     timelineReferenceRowsByCommitHash,
     wipAuthorAvatarUrl,
     wipAuthorName,
+    hiddenSidebarGraphEntryKeys,
     timelineCommits,
   ]);
   const timelineRowById = useMemo(
@@ -2663,27 +2743,17 @@ export function RepoInfo() {
   const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
     const localEntries: SidebarEntry[] = [];
     const remoteEntries: SidebarEntry[] = [];
-    const stashByRef = new Map(stashes.map((stash) => [stash.ref, stash]));
-    const stashEntries: SidebarEntry[] = timelineRows
-      .filter((row) => row.type === "stash")
-      .flatMap((row) => {
-        const stashRef = row.id.slice("stash:".length);
-        const stash = stashByRef.get(stashRef);
+    const stashEntries: SidebarEntry[] = stashes.map((stash) => {
+      const label = formatStashLabel(stash);
 
-        if (!stash) {
-          return [];
-        }
-
-        const label = formatStashLabel(stash);
-
-        return {
-          name: label,
-          searchName: label.toLowerCase(),
-          stashMessage: stash.message,
-          stashRef: stash.ref,
-          type: "stash",
-        };
-      });
+      return {
+        name: label,
+        searchName: label.toLowerCase(),
+        stashMessage: stash.message,
+        stashRef: stash.ref,
+        type: "stash",
+      };
+    });
     const tagEntries: SidebarEntry[] = [];
 
     for (const branch of branches) {
@@ -2745,7 +2815,7 @@ export function RepoInfo() {
         name: "TAGS",
       },
     ];
-  }, [branches, stashes, timelineRows]);
+  }, [branches, stashes]);
   const normalizedSidebarFilter = deferredSidebarFilterQuery
     .trim()
     .toLowerCase();
@@ -2774,6 +2844,35 @@ export function RepoInfo() {
     () =>
       filteredSidebarGroups.reduce((total, group) => total + group.count, 0),
     [filteredSidebarGroups]
+  );
+  const graphEntryTypeByReferenceName = useMemo(() => {
+    const entryTypeByReferenceName = new Map<string, "branch" | "tag">();
+
+    for (const branch of branches) {
+      if (branch.refType !== "branch" && branch.refType !== "tag") {
+        continue;
+      }
+
+      entryTypeByReferenceName.set(
+        branch.name,
+        branch.refType === "tag" ? "tag" : "branch"
+      );
+    }
+
+    return entryTypeByReferenceName;
+  }, [branches]);
+  const isReferenceHiddenInGraph = useCallback(
+    (referenceName: string): boolean => {
+      if (referenceName === currentBranch) {
+        return false;
+      }
+
+      const entryType = graphEntryTypeByReferenceName.get(referenceName);
+      const visibilityKey = `${entryType ?? "branch"}:${referenceName}`;
+
+      return hiddenSidebarGraphEntryKeys[visibilityKey] === true;
+    },
+    [currentBranch, graphEntryTypeByReferenceName, hiddenSidebarGraphEntryKeys]
   );
 
   useEffect(() => {
@@ -4453,6 +4552,123 @@ export function RepoInfo() {
     return <GitBranchIcon className="size-3 shrink-0" />;
   };
 
+  const resolveSidebarEntryActionsLabel = (entry: SidebarEntry): string => {
+    if (entry.type === "stash") {
+      return "Stash actions";
+    }
+
+    if (entry.type === "tag") {
+      return "Tag actions";
+    }
+
+    return "Branch actions";
+  };
+
+  const getSidebarGraphEntryVisibilityKey = (
+    entry: Pick<SidebarEntry, "type" | "name" | "stashRef">
+  ): string => {
+    if (entry.type === "stash") {
+      return `stash:${entry.stashRef ?? entry.name}`;
+    }
+
+    return `${entry.type}:${entry.name}`;
+  };
+  const isSidebarEntryHiddenInGraph = (
+    entry: Pick<SidebarEntry, "active" | "type" | "name" | "stashRef">
+  ): boolean => {
+    if (entry.type === "branch" && entry.active) {
+      return false;
+    }
+
+    const visibilityKey = getSidebarGraphEntryVisibilityKey(entry);
+
+    return hiddenSidebarGraphEntryKeys[visibilityKey] === true;
+  };
+  const toggleSidebarEntryGraphVisibility = (entry: SidebarEntry) => {
+    if (entry.type === "branch" && entry.active) {
+      return;
+    }
+
+    const visibilityKey = getSidebarGraphEntryVisibilityKey(entry);
+
+    persistRepoFileBrowserState((current) => {
+      const next = { ...current.hiddenGraphEntryKeys };
+
+      if (next[visibilityKey]) {
+        delete next[visibilityKey];
+      } else {
+        next[visibilityKey] = true;
+      }
+
+      return { hiddenGraphEntryKeys: next };
+    });
+  };
+
+  const renderSidebarEntryLeadIndicator = (
+    groupKey: string,
+    entry: SidebarEntry
+  ) => {
+    const isHiddenInGraph = isSidebarEntryHiddenInGraph(entry);
+    const isActiveLocalBranch =
+      groupKey === "local" && entry.type === "branch" && entry.active;
+    const indicatorLabel = isHiddenInGraph
+      ? "Show in the graph"
+      : "Hide in the graph";
+
+    const eyeButton = (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              aria-label={indicatorLabel}
+              className="inline-flex size-3 items-center justify-center text-muted-foreground/75 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                toggleSidebarEntryGraphVisibility(entry);
+              }}
+              type="button"
+            />
+          }
+        >
+          {isHiddenInGraph ? (
+            <EyeSlashIcon className="size-3" />
+          ) : (
+            <EyeIcon className="size-3" />
+          )}
+        </TooltipTrigger>
+        <TooltipContent align="start" side="right" sideOffset={6}>
+          {indicatorLabel}
+        </TooltipContent>
+      </Tooltip>
+    );
+
+    if (isActiveLocalBranch) {
+      return (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="inline-flex w-3 shrink-0 items-center justify-center text-emerald-500">
+                <CheckCircleIcon className="size-3" />
+              </span>
+            }
+          >
+            Checked out
+          </TooltipTrigger>
+          <TooltipContent align="start" side="right" sideOffset={6}>
+            Checked out
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <span className="inline-flex w-3 shrink-0 items-center justify-center">
+        {eyeButton}
+      </span>
+    );
+  };
+
   const renderHighlightedEntryName = (name: string) => {
     if (normalizedSidebarFilter.length === 0) {
       return name;
@@ -4545,12 +4761,15 @@ export function RepoInfo() {
       if (node.entry) {
         const entry = node.entry;
         const entryMenuKey = `${groupKey}-${entry.stashRef ?? entry.name}`;
+        const entryActionsLabel = resolveSidebarEntryActionsLabel(entry);
         const isEntryMenuOpen =
           openEntryContextMenuKey === entryMenuKey ||
           openEntryDropdownMenuKey === entryMenuKey;
         const isEntryContextMenuOpen = openEntryContextMenuKey === entryMenuKey;
         const isEntryDropdownMenuOpen =
           openEntryDropdownMenuKey === entryMenuKey;
+        const remoteGroupItemInsetRem =
+          groupKey === "remote" ? SIDEBAR_TREE_DEPTH_PADDING_REM : 0;
 
         return (
           <SidebarMenuItem key={entryMenuKey}>
@@ -4564,24 +4783,34 @@ export function RepoInfo() {
                 <SidebarMenuButton
                   aria-label={entry.name}
                   className={cn(
-                    "group gap-1.5 rounded-none py-1 text-xs",
+                    "group gap-1.5 rounded-none px-1 py-1 text-xs",
                     isSidebarEntrySelected(entry) || isEntryMenuOpen
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   )}
                   disabled={isSwitchingBranch}
                   onClick={() => {
-                    handleSidebarEntryClick(entry).catch(() => undefined);
+                    handleSidebarEntryClick(entry);
                   }}
-                  style={{ paddingLeft: `${depth * 0.7 + 0.5}rem` }}
+                  onDoubleClick={() => {
+                    handleSidebarEntryDoubleClick(entry);
+                  }}
+                  style={{
+                    paddingLeft: `${depth * SIDEBAR_TREE_DEPTH_PADDING_REM + SIDEBAR_TREE_BASE_PADDING_REM + remoteGroupItemInsetRem}rem`,
+                  }}
                 >
-                  <span className="inline-flex w-3 shrink-0 items-center justify-center text-muted-foreground/50">
-                    <span className="size-1 rounded-full bg-current" />
-                  </span>
+                  {renderSidebarEntryLeadIndicator(groupKey, entry)}
                   {renderEntryIcon(entry)}
-                  <span className="min-w-0 flex-1 truncate" title={entry.name}>
-                    {renderHighlightedEntryName(node.name)}
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={<span className="min-w-0 flex-1 truncate" />}
+                    >
+                      {renderHighlightedEntryName(node.name)}
+                    </TooltipTrigger>
+                    <TooltipContent align="start" side="right" sideOffset={6}>
+                      {entry.name}
+                    </TooltipContent>
+                  </Tooltip>
                   {renderSidebarBranchCounts(entry)}
                   <DropdownMenu
                     onOpenChange={(open) => {
@@ -4603,7 +4832,20 @@ export function RepoInfo() {
                         />
                       }
                     >
-                      <DotsThreeVerticalIcon className="size-3.5" />
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={<span className="inline-flex items-center" />}
+                        >
+                          <DotsThreeVerticalIcon className="size-3.5" />
+                        </TooltipTrigger>
+                        <TooltipContent
+                          align="start"
+                          side="right"
+                          sideOffset={6}
+                        >
+                          {entryActionsLabel}
+                        </TooltipContent>
+                      </Tooltip>
                     </DropdownMenuTrigger>
                     {isEntryDropdownMenuOpen
                       ? renderEntryDropdownMenuContent(entry)
@@ -4620,25 +4862,45 @@ export function RepoInfo() {
       }
 
       const folderStateKey = `${groupKey}:${node.fullPath}`;
+      const isRemoteRootFolder = groupKey === "remote" && depth === 0;
       const isCollapsed =
         collapsedBranchFolderKeys[folderStateKey] ?? depth > 0;
+      const remoteGroupItemInsetRem =
+        groupKey === "remote" && depth > 0 ? SIDEBAR_TREE_DEPTH_PADDING_REM : 0;
 
       return (
         <div key={folderStateKey}>
           <button
-            className="focus-visible:desktop-focus flex w-full items-center gap-1.5 py-0.5 pr-2 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
+            className="focus-visible:desktop-focus flex w-full items-center gap-1.5 px-1 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
             onClick={() => toggleBranchFolder(groupKey, node.fullPath)}
-            style={{ paddingLeft: `${depth * 0.7 + 0.5}rem` }}
+            style={{
+              paddingLeft: `${depth * SIDEBAR_TREE_DEPTH_PADDING_REM + SIDEBAR_TREE_BASE_PADDING_REM + remoteGroupItemInsetRem}rem`,
+            }}
             type="button"
           >
-            <span className="inline-flex w-3 shrink-0 items-center justify-center">
-              {isCollapsed ? (
-                <CaretRightIcon className="size-3" />
-              ) : (
-                <CaretDownIcon className="size-3" />
-              )}
-            </span>
-            <FolderSimpleIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+            {isRemoteRootFolder ? null : (
+              <span className="inline-flex w-3 shrink-0 items-center justify-center">
+                {isCollapsed ? (
+                  <CaretRightIcon className="size-3" />
+                ) : (
+                  <CaretDownIcon className="size-3" />
+                )}
+              </span>
+            )}
+            {isRemoteRootFolder ? (
+              <span className="inline-flex w-3 shrink-0 items-center justify-center" />
+            ) : null}
+            {isRemoteRootFolder ? (
+              <Avatar className="size-3.5 shrink-0">
+                <AvatarImage
+                  alt={`${node.name} owner avatar`}
+                  src={remoteAvatarUrlByName[node.name] ?? undefined}
+                />
+                <AvatarFallback className="bg-transparent p-0 text-muted-foreground/70">
+                  <GithubLogoIcon className="size-3.5" />
+                </AvatarFallback>
+              </Avatar>
+            ) : null}
             <span className="min-w-0 flex-1 truncate" title={node.fullPath}>
               {renderHighlightedEntryName(node.name)}
             </span>
@@ -9141,20 +9403,33 @@ export function RepoInfo() {
     ]
   );
 
-  const handleSidebarEntryClick = async (entry: SidebarEntry) => {
+  const focusSidebarEntryInGraph = useCallback(
+    (entry: SidebarEntry) => {
+      const rowId = getTimelineRowIdForEntry(entry);
+      const anchorCommitHash = getCommitHashForEntry(entry);
+
+      if (!(rowId && anchorCommitHash)) {
+        return;
+      }
+
+      setSelectedTimelineRowId(rowId);
+      setSelectedCommitId(anchorCommitHash);
+      scrollTimelineRowIntoView(rowId);
+    },
+    [getCommitHashForEntry, getTimelineRowIdForEntry, scrollTimelineRowIntoView]
+  );
+
+  const handleSidebarEntryClick = (entry: SidebarEntry) => {
+    focusSidebarEntryInGraph(entry);
+  };
+
+  const handleSidebarEntryDoubleClick = (entry: SidebarEntry) => {
     if (entry.type === "branch") {
-      await handleCheckoutBranch(entry);
+      handleCheckoutBranch(entry).catch(() => undefined);
       return;
     }
 
-    const rowId = getTimelineRowIdForEntry(entry);
-    const anchorCommitHash = getCommitHashForEntry(entry);
-
-    if (!(rowId && anchorCommitHash)) {
-      return;
-    }
-
-    selectTimelineReferenceRow(rowId, anchorCommitHash, true);
+    focusSidebarEntryInGraph(entry);
   };
 
   const handleTimelineReferenceRowClick = (row: GitTimelineRow) => {
@@ -9409,24 +9684,25 @@ export function RepoInfo() {
               className="shrink-0"
               style={{ width: `${leftSidebarWidth}px` }}
             >
-              <SidebarHeader className="border-border/70 border-b px-2 py-2">
-                <div className="space-y-1 px-2">
+              <SidebarHeader className="border-border/70 border-b p-2.5">
+                <div className="space-y-1">
                   <p className="text-muted-foreground text-xs uppercase tracking-wider">
                     Repository
                   </p>
-                  <div className="flex items-center gap-1.5">
-                    <GithubLogoIcon className="size-3.5 text-muted-foreground" />
-                    <p className="truncate font-semibold text-sm">
-                      {activeRepo.name}
-                    </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <GithubLogoIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      <p
+                        className="max-w-56 truncate font-semibold text-sm"
+                        title={activeRepo.name}
+                      >
+                        {activeRepo.name}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                      Viewing {filteredSidebarEntryCount}
+                    </span>
                   </div>
-                </div>
-                <div className="-mx-2 mt-1.5 border-border/60 border-b" />
-                <div className="mt-2 flex items-center justify-between px-2 text-xs">
-                  <span className="text-muted-foreground">Viewing</span>
-                  <span className="font-medium text-foreground/90">
-                    {filteredSidebarEntryCount}
-                  </span>
                 </div>
                 <div className="relative mt-1.5">
                   <Input
@@ -9455,12 +9731,12 @@ export function RepoInfo() {
                 </div>
               </SidebarHeader>
 
-              <SidebarContent className="py-2">
+              <SidebarContent className="px-2.5 py-2.5">
                 {filteredSidebarGroups.map((group) => (
-                  <SidebarGroup key={group.key}>
+                  <SidebarGroup className="mt-2 first:mt-0" key={group.key}>
                     <SidebarGroupLabel className="px-0 py-0">
                       <button
-                        className="flex w-full items-center justify-between px-2 py-0.5"
+                        className="flex w-full items-center justify-between py-0.5"
                         onClick={() =>
                           setCollapsedGroupKeys((current) => ({
                             ...current,
@@ -9475,6 +9751,7 @@ export function RepoInfo() {
                           ) : (
                             <CaretDownIcon className="size-3" />
                           )}
+                          {renderSidebarGroupSectionIcon(group.key)}
                           {group.name}
                         </span>
                         <span className="font-medium text-muted-foreground text-xs">
@@ -9493,6 +9770,8 @@ export function RepoInfo() {
                               )
                             : group.entries.map((entry) => {
                                 const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
+                                const entryActionsLabel =
+                                  resolveSidebarEntryActionsLabel(entry);
                                 const isEntryMenuOpen =
                                   openEntryContextMenuKey === entryMenuKey ||
                                   openEntryDropdownMenuKey === entryMenuKey;
@@ -9527,11 +9806,18 @@ export function RepoInfo() {
                                             isSwitchingBranch
                                           }
                                           onClick={() => {
-                                            handleSidebarEntryClick(
+                                            handleSidebarEntryClick(entry);
+                                          }}
+                                          onDoubleClick={() => {
+                                            handleSidebarEntryDoubleClick(
                                               entry
-                                            ).catch(() => undefined);
+                                            );
                                           }}
                                         >
+                                          {renderSidebarEntryLeadIndicator(
+                                            group.key,
+                                            entry
+                                          )}
                                           {renderEntryIcon(entry)}
                                           <Tooltip>
                                             <TooltipTrigger
@@ -9581,7 +9867,22 @@ export function RepoInfo() {
                                                 />
                                               }
                                             >
-                                              <DotsThreeVerticalIcon className="size-3.5" />
+                                              <Tooltip>
+                                                <TooltipTrigger
+                                                  render={
+                                                    <span className="inline-flex items-center" />
+                                                  }
+                                                >
+                                                  <DotsThreeVerticalIcon className="size-3.5" />
+                                                </TooltipTrigger>
+                                                <TooltipContent
+                                                  align="start"
+                                                  side="right"
+                                                  sideOffset={6}
+                                                >
+                                                  {entryActionsLabel}
+                                                </TooltipContent>
+                                              </Tooltip>
                                             </DropdownMenuTrigger>
                                             {isEntryDropdownMenuOpen
                                               ? renderEntryDropdownMenuContent(
@@ -10351,7 +10652,10 @@ export function RepoInfo() {
                           .map(
                             (ref) => normalizeCommitRefLabel(ref) ?? ref.trim()
                           )
-                          .filter((ref) => ref.length > 0);
+                          .filter(
+                            (ref) =>
+                              ref.length > 0 && !isReferenceHiddenInGraph(ref)
+                          );
                         const visibleRefCount =
                           repoTimelinePreferences.smartBranchVisibility ||
                           timelineVisibleColumns.some(

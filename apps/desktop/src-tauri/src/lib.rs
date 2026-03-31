@@ -23,8 +23,8 @@ mod branches;
 use branches::{
     create_repository_branch, create_repository_branch_at_reference,
     delete_remote_repository_branch, delete_repository_branch, get_repository_branches,
-    get_repository_remote_names, rename_repository_branch, set_repository_branch_upstream,
-    switch_repository_branch,
+    get_repository_remote_avatars, get_repository_remote_names, rename_repository_branch,
+    set_repository_branch_upstream, switch_repository_branch,
 };
 mod commit_messages;
 use commit_messages::{
@@ -286,6 +286,7 @@ pub fn run() {
             get_latest_repository_commit_message,
             get_repository_branches,
             get_repository_remote_names,
+            get_repository_remote_avatars,
             get_repository_stashes,
             create_repository_branch,
             create_repository_branch_at_reference,

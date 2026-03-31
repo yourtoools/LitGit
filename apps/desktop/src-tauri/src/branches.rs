@@ -1,9 +1,11 @@
 use crate::git_support::{git_command, git_error_message, validate_git_repo};
 use crate::repository::validate_branch_name;
 use crate::settings::{
-    apply_git_preferences, begin_network_operation, RepoCommandPreferences, SettingsState,
+    apply_git_preferences, begin_network_operation, load_keyring_entry, RepoCommandPreferences,
+    SettingsState, GITHUB_AVATAR_SERVICE,
 };
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
 use tauri::State;
 
@@ -28,6 +30,95 @@ fn parse_remote_names_output(stdout: &str) -> Vec<String> {
         .filter(|remote_name| !remote_name.is_empty())
         .map(ToOwned::to_owned)
         .collect()
+}
+
+fn parse_remote_urls_output(stdout: &str) -> HashMap<String, String> {
+    let mut remote_urls = HashMap::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut parts = trimmed.split_whitespace();
+        let Some(remote_name) = parts.next() else {
+            continue;
+        };
+        let Some(remote_url) = parts.next() else {
+            continue;
+        };
+        let remote_kind = parts.next().unwrap_or_default();
+
+        if remote_kind == "(fetch)" || !remote_urls.contains_key(remote_name) {
+            remote_urls.insert(remote_name.to_string(), remote_url.to_string());
+        }
+    }
+
+    remote_urls
+}
+
+fn parse_github_owner_from_remote_url(remote_url: &str) -> Option<String> {
+    fn parse_owner(path: &str) -> Option<String> {
+        let normalized = path.trim().trim_start_matches('/');
+        let path_without_query = normalized.split(['?', '#']).next().unwrap_or_default();
+        let mut segments = path_without_query.split('/');
+        let owner = segments.next()?.trim();
+        let repository = segments.next()?.trim();
+
+        if owner.is_empty() || repository.is_empty() {
+            return None;
+        }
+
+        Some(owner.to_string())
+    }
+
+    let trimmed = remote_url.trim();
+
+    for prefix in [
+        "git@github.com:",
+        "ssh://git@github.com/",
+        "ssh://github.com/",
+        "https://github.com/",
+        "http://github.com/",
+        "git://github.com/",
+    ] {
+        if let Some(path) = trimmed.strip_prefix(prefix) {
+            return parse_owner(path);
+        }
+    }
+
+    None
+}
+
+fn get_github_token(state: &SettingsState) -> Option<String> {
+    if let Ok(Some(token)) = load_keyring_entry(GITHUB_AVATAR_SERVICE, "token") {
+        return Some(token);
+    }
+
+    state.github_session_token()
+}
+
+fn fetch_github_owner_avatar_url(owner: &str, token: Option<&str>) -> Option<String> {
+    let endpoint = format!("https://api.github.com/users/{owner}");
+    let mut request = ureq::get(&endpoint)
+        .set("Accept", "application/vnd.github+json")
+        .set("User-Agent", "LitGit")
+        .set("X-GitHub-Api-Version", "2022-11-28");
+
+    if let Some(token) = token {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+
+    let response = request.call().ok()?;
+    let body = response.into_string().ok()?;
+    let payload: serde_json::Value = serde_json::from_str(&body).ok()?;
+
+    payload
+        .get("avatar_url")
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned)
 }
 
 #[tauri::command]
@@ -190,6 +281,38 @@ pub(crate) fn get_repository_remote_names(repo_path: String) -> Result<Vec<Strin
     Ok(parse_remote_names_output(&String::from_utf8_lossy(
         &output.stdout,
     )))
+}
+
+#[tauri::command]
+pub(crate) fn get_repository_remote_avatars(
+    repo_path: String,
+    state: State<'_, SettingsState>,
+) -> Result<HashMap<String, Option<String>>, String> {
+    validate_git_repo(Path::new(&repo_path))?;
+
+    let output = git_command()
+        .args(["-C", &repo_path, "remote", "-v"])
+        .output()
+        .map_err(|error| format!("Failed to run git remote -v: {error}"))?;
+
+    if !output.status.success() {
+        return Err(git_error_message(
+            &output.stderr,
+            "Failed to read repository remotes",
+        ));
+    }
+
+    let remote_urls = parse_remote_urls_output(&String::from_utf8_lossy(&output.stdout));
+    let github_token = get_github_token(state.inner());
+    let mut avatars_by_remote = HashMap::new();
+
+    for (remote_name, remote_url) in remote_urls {
+        let avatar_url = parse_github_owner_from_remote_url(&remote_url)
+            .and_then(|owner| fetch_github_owner_avatar_url(&owner, github_token.as_deref()));
+        avatars_by_remote.insert(remote_name, avatar_url);
+    }
+
+    Ok(avatars_by_remote)
 }
 
 #[tauri::command]
@@ -564,7 +687,10 @@ pub(crate) fn switch_repository_branch(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_repository_branch, parse_remote_names_output};
+    use super::{
+        create_repository_branch, parse_github_owner_from_remote_url, parse_remote_names_output,
+        parse_remote_urls_output,
+    };
     use crate::git_support::git_command;
     use std::env;
     use std::fs;
@@ -579,6 +705,54 @@ mod tests {
             remote_names,
             vec!["origin".to_string(), "upstream".to_string()]
         );
+    }
+
+    #[test]
+    fn parse_remote_urls_output_prefers_fetch_url_per_remote() {
+        let parsed = parse_remote_urls_output(
+            "origin\thttps://github.com/litgit/litgit.git (fetch)\norigin\thttps://github.com/litgit/litgit.git (push)\nupstream\tgit@github.com:acme/monorepo.git (push)\nupstream\tgit@github.com:acme/monorepo.git (fetch)\n"
+        );
+
+        assert_eq!(
+            parsed.get("origin"),
+            Some(&"https://github.com/litgit/litgit.git".to_string())
+        );
+        assert_eq!(
+            parsed.get("upstream"),
+            Some(&"git@github.com:acme/monorepo.git".to_string())
+        );
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn parse_github_owner_from_remote_url_supports_github_url_variants() {
+        assert_eq!(
+            parse_github_owner_from_remote_url("git@github.com:litgit/LitGit.git"),
+            Some("litgit".to_string())
+        );
+        assert_eq!(
+            parse_github_owner_from_remote_url("https://github.com/acme/platform"),
+            Some("acme".to_string())
+        );
+        assert_eq!(
+            parse_github_owner_from_remote_url(
+                "ssh://git@github.com/open-source-org/tooling.git"
+            ),
+            Some("open-source-org".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_github_owner_from_remote_url_returns_none_for_non_github_or_invalid_urls() {
+        assert_eq!(
+            parse_github_owner_from_remote_url("https://gitlab.com/litgit/LitGit.git"),
+            None
+        );
+        assert_eq!(
+            parse_github_owner_from_remote_url("https://github.com/litgit"),
+            None
+        );
+        assert_eq!(parse_github_owner_from_remote_url(""), None);
     }
 
     #[test]

@@ -100,6 +100,21 @@ interface PreferencesStoreState extends AppPreferences {
   setToolbarLabels: (toolbarLabels: boolean) => void;
 }
 
+const normalizeRepoFileBrowserByRepoId = (
+  repoFileBrowserByRepoId:
+    | Record<string, Partial<RepoFileBrowserState>>
+    | undefined
+): Record<string, RepoFileBrowserState> =>
+  Object.fromEntries(
+    Object.entries(repoFileBrowserByRepoId ?? {}).map(([repoId, repoState]) => [
+      repoId,
+      {
+        ...DEFAULT_REPO_FILE_BROWSER_STATE,
+        ...repoState,
+      },
+    ])
+  );
+
 const clearPersistedTabs = () => {
   if (typeof window === "undefined") {
     return;
@@ -261,9 +276,10 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
       },
       setRepoFileBrowserState: (repoId, input) => {
         set((state) => {
-          const currentRepoState =
-            state.ui.repoFileBrowserByRepoId[repoId] ??
-            DEFAULT_REPO_FILE_BROWSER_STATE;
+          const currentRepoState = {
+            ...DEFAULT_REPO_FILE_BROWSER_STATE,
+            ...(state.ui.repoFileBrowserByRepoId[repoId] ?? {}),
+          };
           const nextInput =
             typeof input === "function" ? input(currentRepoState) : input;
 
@@ -466,8 +482,12 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
             ...currentState.ui,
             ...persisted.ui,
             repoFileBrowserByRepoId: {
-              ...currentState.ui.repoFileBrowserByRepoId,
-              ...persisted.ui?.repoFileBrowserByRepoId,
+              ...normalizeRepoFileBrowserByRepoId(
+                currentState.ui.repoFileBrowserByRepoId
+              ),
+              ...normalizeRepoFileBrowserByRepoId(
+                persisted.ui?.repoFileBrowserByRepoId
+              ),
             },
             repoTimeline: {
               ...DEFAULT_REPO_TIMELINE_PREFERENCES,
