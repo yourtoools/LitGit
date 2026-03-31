@@ -17,6 +17,10 @@
       "cache": false,
       "persistent": true
     },
+    "dev:cdp": {
+      "cache": false,
+      "persistent": true
+    },
     "dev:desktop-web": {
       "cache": false,
       "persistent": true

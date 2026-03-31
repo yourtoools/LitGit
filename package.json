@@ -31,6 +31,7 @@
     "check": "ultracite check",
     "check-types": "bun x turbo run check-types --dangerously-disable-package-manager-check",
     "dev": "turbo dev",
+    "dev:desktop:cdp": "turbo run dev:cdp -F desktop",
     "dev:desktop": "turbo run dev -F desktop",
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",
     "fix": "ultracite fix",

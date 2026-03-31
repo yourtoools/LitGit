@@ -9,6 +9,7 @@
     "check-types": "tsc --noEmit",
     "desktop-web": "vite dev",
     "dev": "tauri dev",
+    "dev:cdp": "tauri dev --config src-tauri/tauri.cdp.conf.json",
     "dev:desktop-web": "vite dev",
     "gen:gitignore-templates": "node scripts/generate-gitignore-templates.mjs",
     "serve": "vite preview",
