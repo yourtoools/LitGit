@@ -20,6 +20,8 @@
  *   --only-type     Only update packages of specific type (stable|canary|beta|alpha|rc|next)
  *   --package <n>   Only check a specific package
  *   -h, --help      Show help message
+ *
+ * Note: When cleanup is performed, bun audit --fix runs automatically
  */
 
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
@@ -33,7 +35,6 @@ import { parseArgs } from "node:util";
 const ROOT_DIR = process.cwd();
 const SKIP_PREFIXES = ["@socialyze/", "workspace:"];
 const PACKAGE_BROWSER_BASE_URL = "https://npmx.dev";
-const VALID_AUDIT_LEVELS = ["low", "moderate", "high", "critical"];
 /** @type {Map<string, {["dist-tags"]: Record<string, string>, versions: Record<string, unknown>, repository?: {url?: string}, homepage?: string}>} */
 const VERSION_CACHE = new Map();
 
@@ -67,8 +68,6 @@ const { values: args } = parseArgs({
   options: {
     "dry-run": { type: "boolean", default: false },
     "skip-major": { type: "boolean", default: false },
-    audit: { type: "boolean", default: false },
-    "audit-level": { type: "string", default: "high" },
     yes: { type: "boolean", default: false },
     "only-type": { type: "string" },
     package: { type: "string" },
@@ -86,8 +85,6 @@ Usage:
 Options:
   --dry-run       Preview changes without applying them
   --skip-major    Skip packages with major version bumps
-  --audit         Run bun audit after updating dependencies
-  --audit-level   Minimum vulnerability severity (low|moderate|high|critical)
   --yes           Auto-confirm all prompts (for CI/automation)
   --only-type     Only update packages of specific type (stable|canary|beta|alpha|rc|next)
   --package <n>   Only check a specific package
@@ -96,10 +93,12 @@ Options:
 Examples:
   bun run bump-deps:dry
   bun run bump-deps --package next --dry-run
-  bun run bump-deps --audit --audit-level moderate
   bun run bump-deps:safe           # Skip major version bumps
-  bun run bump-deps --only-type    # Only update stable versions
+  bun run bump-deps --only-type stable
   bun run bump-deps --yes          # Auto-confirm (CI mode)
+
+Note: When you confirm cleanup, the workflow runs:
+  rm -rf bun.lock node_modules -> bun pm cache rm -> bun install -> bun audit --fix
   bun run bump-deps
 `);
   process.exit(0);
@@ -266,29 +265,6 @@ function getVersionTypeLabel(type) {
     next: "nxt",
   };
   return labels[type];
-}
-
-/**
- * @param {string} auditLevel
- * @returns {string}
- */
-function validateAuditLevel(auditLevel) {
-  if (VALID_AUDIT_LEVELS.includes(auditLevel)) {
-    return auditLevel;
-  }
-
-  console.error(
-    `Invalid --audit-level value: "${auditLevel}"\nValid options: ${VALID_AUDIT_LEVELS.join(", ")}`
-  );
-  process.exit(1);
-}
-
-/**
- * @param {string} auditLevel
- * @returns {string[]}
- */
-export function buildAuditCommand(auditLevel) {
-  return ["bun", "audit", "--json", "--audit-level", auditLevel];
 }
 
 /**
@@ -905,38 +881,19 @@ async function runCleanup() {
     process.exit(1);
   }
 
-  console.log("\nDone! All dependencies updated.");
-}
-
-/**
- * @param {string} auditLevel
- */
-function runAudit(auditLevel) {
-  console.log(`\nRunning vulnerability audit (level: ${auditLevel})...`);
-
-  const auditResult = Bun.spawnSync(buildAuditCommand(auditLevel), {
+  // Run bun audit --fix automatically after install
+  console.log("\nRunning bun audit --fix...");
+  const auditFixResult = Bun.spawnSync(["bun", "audit", "--fix"], {
     cwd: ROOT_DIR,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdio: ["inherit", "inherit", "inherit"],
   });
-
-  const stdout = auditResult.stdout.toString();
-  const stderr = auditResult.stderr.toString();
-
-  if (auditResult.exitCode === 0) {
-    console.log("  ✓ No vulnerabilities found at or above the selected level");
-    return;
+  if (auditFixResult.exitCode === 0) {
+    console.log("  ✓ bun audit --fix completed");
+  } else {
+    console.log("  ⚠ bun audit --fix found vulnerabilities or completed with warnings");
   }
 
-  if (stdout) {
-    console.log(stdout);
-  }
-
-  if (stderr) {
-    console.error(stderr);
-  }
-
-  console.warn("  ⚠ Vulnerabilities were reported. Review the audit output above.");
+  console.log("\nDone! All dependencies updated.");
 }
 
 // ============================================================================
@@ -945,7 +902,6 @@ function runAudit(auditLevel) {
 
 async function main() {
   console.log("Bump Dependencies Script\n");
-  const auditLevel = validateAuditLevel(args["audit-level"]);
 
   if (args["dry-run"]) {
     console.log("Mode: Dry Run (no changes will be made)\n");
@@ -1058,15 +1014,7 @@ async function main() {
     console.log("  rm -rf bun.lock node_modules");
     console.log("  bun pm cache rm");
     console.log("  bun install");
-  }
-
-  if (args.audit) {
-    if (!shouldCleanup) {
-      console.warn(
-        "\n⚠ Running audit without reinstalling first. Results reflect the current install state."
-      );
-    }
-    runAudit(auditLevel);
+    console.log("  bun audit --fix");
   }
 }
 

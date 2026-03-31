@@ -30,14 +30,14 @@
     "monaco-editor": "^0.55.1",
     "@phosphor-icons/react": "catalog:",
     "@tailwindcss/vite": "^4.2.2",
-    "@tanstack/react-router": "^1.168.4",
+    "@tanstack/react-router": "^1.168.10",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-web-links": "^0.12.0",
-    "@xyflow/react": "^12.10.1",
+    "@xyflow/react": "^12.10.2",
     "date-fns": "catalog:",
     "dotenv": "catalog:",
     "gitignore-templates": "^0.0.6",
@@ -53,7 +53,7 @@
   },
   "devDependencies": {
     "@tanstack/react-router-devtools": "^1.166.11",
-    "@tanstack/router-plugin": "^1.167.5",
+    "@tanstack/router-plugin": "^1.167.12",
     "@tauri-apps/cli": "^2.10.1",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -61,6 +61,6 @@
     "@vitejs/plugin-react": "^6.0.1",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
-    "vite": "^8.0.2"
+    "vite": "^8.0.3"
   }
 }
