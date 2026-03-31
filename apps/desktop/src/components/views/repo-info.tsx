@@ -9973,143 +9973,163 @@ export function RepoInfo() {
 
           <div className="flex min-h-0 flex-1">
             <section className="relative flex min-w-0 flex-1 flex-col">
-              <DropdownMenu>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <DropdownMenuTrigger
+              {isDiffPanelOpen ? null : (
+                <div className="flex items-center overflow-hidden border-border/60 border-b">
+                  <div
+                    className="grid min-w-0 flex-1 px-2 py-1 text-muted-foreground text-xs/3 uppercase tracking-wide"
+                    style={{ gridTemplateColumns: timelineGridTemplateColumns }}
+                  >
+                    {timelineColumnDefinitions.map((column) => (
+                      <span
+                        className={cn(
+                          "flex items-center truncate px-2",
+                          column.align === "center"
+                            ? "justify-center"
+                            : "justify-start"
+                        )}
+                        key={column.id}
+                      >
+                        {column.label}
+                      </span>
+                    ))}
+                  </div>
+                  <DropdownMenu>
+                    <Tooltip>
+                      <TooltipTrigger
                         render={
-                          <button
-                            aria-label="Timeline settings"
-                            className="focus-visible:desktop-focus-strong absolute top-0 right-0 z-30 inline-flex size-5 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
-                            type="button"
+                          <DropdownMenuTrigger
+                            render={
+                              <button
+                                aria-label="Timeline settings"
+                                className="focus-visible:desktop-focus-strong inline-flex size-5 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/40"
+                                type="button"
+                              />
+                            }
                           />
                         }
-                      />
-                    }
-                  >
-                    <GearIcon className="size-3" />
-                  </TooltipTrigger>
-                  <TooltipContent side="left">Timeline settings</TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent
-                  align="end"
-                  className="w-60"
-                  sideOffset={6}
-                >
-                  <DropdownMenuCheckboxItem
-                    checked={repoTimelinePreferences.visibleColumns.branch}
-                    onCheckedChange={(checked) => {
-                      setTimelineColumnVisibility("branch", checked === true);
-                    }}
-                  >
-                    Branch / Tag
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={repoTimelinePreferences.visibleColumns.graph}
-                    onCheckedChange={(checked) => {
-                      setTimelineColumnVisibility("graph", checked === true);
-                    }}
-                  >
-                    Graph
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={
-                      repoTimelinePreferences.visibleColumns.commitMessage
-                    }
-                    onCheckedChange={(checked) => {
-                      setTimelineColumnVisibility(
-                        "commitMessage",
-                        checked === true
-                      );
-                    }}
-                  >
-                    Commit message
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={repoTimelinePreferences.visibleColumns.author}
-                    onCheckedChange={(checked) => {
-                      setTimelineColumnVisibility("author", checked === true);
-                    }}
-                  >
-                    Author
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={repoTimelinePreferences.visibleColumns.dateTime}
-                    onCheckedChange={(checked) => {
-                      setTimelineColumnVisibility("dateTime", checked === true);
-                    }}
-                  >
-                    Date / Time
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={repoTimelinePreferences.visibleColumns.sha}
-                    onCheckedChange={(checked) => {
-                      setTimelineColumnVisibility("sha", checked === true);
-                    }}
-                  >
-                    Sha
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={isTimelineGraphCompactMode}
-                    disabled={
-                      isTimelineGraphAutoCompact ||
-                      !repoTimelinePreferences.visibleColumns.graph
-                    }
-                    onCheckedChange={(checked) => {
-                      setTimelineGraphCompactMode(checked === true);
-                    }}
-                  >
-                    {isTimelineGraphAutoCompact
-                      ? "Compact Graph Column (Auto)"
-                      : "Compact Graph Column"}
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={repoTimelinePreferences.smartBranchVisibility}
-                    onCheckedChange={(checked) => {
-                      setRepoTimelinePreferences({
-                        smartBranchVisibility: checked === true,
-                      });
-                    }}
-                  >
-                    Smart Branch Visibility
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      resetTimelineLayout("default");
-                    }}
-                  >
-                    Reset columns to default layout
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      resetTimelineLayout("compact");
-                    }}
-                  >
-                    Reset columns to compact layout
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <div
-                className="grid border-border/60 border-b px-2 py-1 pr-8 text-muted-foreground text-xs/3 uppercase tracking-wide"
-                style={{ gridTemplateColumns: timelineGridTemplateColumns }}
-              >
-                {timelineColumnDefinitions.map((column) => (
-                  <span
-                    className={cn(
-                      "flex items-center px-2",
-                      column.align === "center"
-                        ? "justify-center"
-                        : "justify-start"
-                    )}
-                    key={column.id}
-                  >
-                    {column.label}
-                  </span>
-                ))}
-              </div>
+                      >
+                        <GearIcon className="size-3" />
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        Timeline settings
+                      </TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent
+                      align="end"
+                      className="w-60"
+                      sideOffset={6}
+                    >
+                      <DropdownMenuCheckboxItem
+                        checked={repoTimelinePreferences.visibleColumns.branch}
+                        onCheckedChange={(checked) => {
+                          setTimelineColumnVisibility(
+                            "branch",
+                            checked === true
+                          );
+                        }}
+                      >
+                        Branch / Tag
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={repoTimelinePreferences.visibleColumns.graph}
+                        onCheckedChange={(checked) => {
+                          setTimelineColumnVisibility(
+                            "graph",
+                            checked === true
+                          );
+                        }}
+                      >
+                        Graph
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={
+                          repoTimelinePreferences.visibleColumns.commitMessage
+                        }
+                        onCheckedChange={(checked) => {
+                          setTimelineColumnVisibility(
+                            "commitMessage",
+                            checked === true
+                          );
+                        }}
+                      >
+                        Commit message
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={repoTimelinePreferences.visibleColumns.author}
+                        onCheckedChange={(checked) => {
+                          setTimelineColumnVisibility(
+                            "author",
+                            checked === true
+                          );
+                        }}
+                      >
+                        Author
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={
+                          repoTimelinePreferences.visibleColumns.dateTime
+                        }
+                        onCheckedChange={(checked) => {
+                          setTimelineColumnVisibility(
+                            "dateTime",
+                            checked === true
+                          );
+                        }}
+                      >
+                        Date / Time
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={repoTimelinePreferences.visibleColumns.sha}
+                        onCheckedChange={(checked) => {
+                          setTimelineColumnVisibility("sha", checked === true);
+                        }}
+                      >
+                        Sha
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuCheckboxItem
+                        checked={isTimelineGraphCompactMode}
+                        disabled={
+                          isTimelineGraphAutoCompact ||
+                          !repoTimelinePreferences.visibleColumns.graph
+                        }
+                        onCheckedChange={(checked) => {
+                          setTimelineGraphCompactMode(checked === true);
+                        }}
+                      >
+                        {isTimelineGraphAutoCompact
+                          ? "Compact Graph Column (Auto)"
+                          : "Compact Graph Column"}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={repoTimelinePreferences.smartBranchVisibility}
+                        onCheckedChange={(checked) => {
+                          setRepoTimelinePreferences({
+                            smartBranchVisibility: checked === true,
+                          });
+                        }}
+                      >
+                        Smart Branch Visibility
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          resetTimelineLayout("default");
+                        }}
+                      >
+                        Reset columns to default layout
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          resetTimelineLayout("compact");
+                        }}
+                      >
+                        Reset columns to compact layout
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
               <div
                 className={cn(
                   "relative min-h-0 flex-1 overflow-y-auto",
