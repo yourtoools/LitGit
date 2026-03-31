@@ -10119,7 +10119,7 @@ export function RepoInfo() {
               >
                 {isBranchCreateInputOpen ? (
                   <div
-                    className="grid items-center border-border/35 border-b bg-muted/[0.16] px-2 py-1.5"
+                    className="grid items-center border-border/35 border-b bg-muted/16 px-2 py-1.5"
                     style={{ gridTemplateColumns: timelineGridTemplateColumns }}
                   >
                     {timelineVisibleColumns.map((columnId) => (
@@ -10258,14 +10258,14 @@ export function RepoInfo() {
                           {renderTimelineCell(columnId, {
                             commitMessageCell:
                               columnId === "commitMessage" ? (
-                                <div className="space-y-1">
-                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                                    <Input
-                                      className="h-7 w-full max-w-52"
-                                      disabled
-                                      placeholder="// WIP"
-                                      value={draftCommitSummary}
-                                    />
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <Input
+                                    className="h-7 w-full min-w-0 max-w-52"
+                                    disabled
+                                    placeholder="// WIP"
+                                    value={draftCommitSummary}
+                                  />
+                                  <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
                                     {workingTreeIndicators.editedCount > 0 ? (
                                       <span className="inline-flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
                                         <PencilSimpleIcon
