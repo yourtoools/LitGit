@@ -1,172 +1,75 @@
 import { useMemo } from "react";
+import type {
+  GitIdentityStatus,
+  LatestRepositoryCommitMessage,
+  RepositoryBranch,
+  RepositoryCommit,
+  RepositoryFileEntry,
+  RepositoryStash,
+  RepositoryWorkingTreeItem,
+} from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 
-export const useRepoActions = () => {
-  const addIgnoreRule = useRepoStore((state) => state.addIgnoreRule);
-  const applyStash = useRepoStore((state) => state.applyStash);
-  const checkoutCommit = useRepoStore((state) => state.checkoutCommit);
-  const cherryPickCommit = useRepoStore((state) => state.cherryPickCommit);
-  const clearRepoCommitDraftPrefill = useRepoStore(
-    (state) => state.clearRepoCommitDraftPrefill
-  );
-  const commitChanges = useRepoStore((state) => state.commitChanges);
-  const createBranch = useRepoStore((state) => state.createBranch);
-  const createBranchAtReference = useRepoStore(
-    (state) => state.createBranchAtReference
-  );
-  const createStash = useRepoStore((state) => state.createStash);
-  const createTag = useRepoStore((state) => state.createTag);
-  const deleteBranch = useRepoStore((state) => state.deleteBranch);
-  const deleteRemoteBranch = useRepoStore((state) => state.deleteRemoteBranch);
-  const discardAllChanges = useRepoStore((state) => state.discardAllChanges);
-  const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
-  const dropCommit = useRepoStore((state) => state.dropCommit);
-  const dropStash = useRepoStore((state) => state.dropStash);
-  const generateAiCommitMessage = useRepoStore(
-    (state) => state.generateAiCommitMessage
-  );
-  const getCommitFileContent = useRepoStore(
-    (state) => state.getCommitFileContent
-  );
-  const getCommitFileHunks = useRepoStore((state) => state.getCommitFileHunks);
-  const getCommitFilePreflight = useRepoStore(
-    (state) => state.getCommitFilePreflight
-  );
-  const getCommitFiles = useRepoStore((state) => state.getCommitFiles);
-  const getFileBlame = useRepoStore((state) => state.getFileBlame);
-  const getFileContent = useRepoStore((state) => state.getFileContent);
-  const getFileDetectedEncoding = useRepoStore(
-    (state) => state.getFileDetectedEncoding
-  );
-  const getFileHistory = useRepoStore((state) => state.getFileHistory);
-  const getFileHunks = useRepoStore((state) => state.getFileHunks);
-  const getFilePreflight = useRepoStore((state) => state.getFilePreflight);
-  const getFileText = useRepoStore((state) => state.getFileText);
-  const getLatestCommitMessage = useRepoStore(
-    (state) => state.getLatestCommitMessage
-  );
-  const getRepositoryFiles = useRepoStore((state) => state.getRepositoryFiles);
-  const mergeReference = useRepoStore((state) => state.mergeReference);
-  const popStash = useRepoStore((state) => state.popStash);
-  const pullBranch = useRepoStore((state) => state.pullBranch);
-  const pushBranch = useRepoStore((state) => state.pushBranch);
-  const redoRepoAction = useRepoStore((state) => state.redoRepoAction);
-  const renameBranch = useRepoStore((state) => state.renameBranch);
-  const resetToReference = useRepoStore((state) => state.resetToReference);
-  const revertCommit = useRepoStore((state) => state.revertCommit);
-  const rewordCommitMessage = useRepoStore(
-    (state) => state.rewordCommitMessage
-  );
-  const saveFileText = useRepoStore((state) => state.saveFileText);
-  const setBranchUpstream = useRepoStore((state) => state.setBranchUpstream);
-  const stageAll = useRepoStore((state) => state.stageAll);
-  const stageFile = useRepoStore((state) => state.stageFile);
-  const switchBranch = useRepoStore((state) => state.switchBranch);
-  const undoRepoAction = useRepoStore((state) => state.undoRepoAction);
-  const unstageAll = useRepoStore((state) => state.unstageAll);
-  const unstageFile = useRepoStore((state) => state.unstageFile);
+const EMPTY_BRANCHES: RepositoryBranch[] = [];
+const EMPTY_COMMITS: RepositoryCommit[] = [];
+const EMPTY_FILES: RepositoryFileEntry[] = [];
+const EMPTY_REMOTE_NAMES: string[] = [];
+const EMPTY_STASHES: RepositoryStash[] = [];
+const EMPTY_WORKING_TREE_ITEMS: RepositoryWorkingTreeItem[] = [];
 
-  return useMemo(
-    () => ({
-      addIgnoreRule,
-      applyStash,
-      checkoutCommit,
-      cherryPickCommit,
-      clearRepoCommitDraftPrefill,
-      commitChanges,
-      createBranch,
-      createBranchAtReference,
-      createStash,
-      createTag,
-      deleteBranch,
-      deleteRemoteBranch,
-      discardAllChanges,
-      discardPathChanges,
-      dropCommit,
-      dropStash,
-      generateAiCommitMessage,
-      getCommitFileContent,
-      getCommitFileHunks,
-      getCommitFilePreflight,
-      getCommitFiles,
-      getFileBlame,
-      getFileContent,
-      getFileDetectedEncoding,
-      getFileHistory,
-      getFileHunks,
-      getFilePreflight,
-      getFileText,
-      getLatestCommitMessage,
-      getRepositoryFiles,
-      mergeReference,
-      popStash,
-      pullBranch,
-      pushBranch,
-      redoRepoAction,
-      renameBranch,
-      resetToReference,
-      revertCommit,
-      rewordCommitMessage,
-      saveFileText,
-      setBranchUpstream,
-      stageAll,
-      stageFile,
-      switchBranch,
-      undoRepoAction,
-      unstageAll,
-      unstageFile,
-    }),
-    [
-      addIgnoreRule,
-      applyStash,
-      checkoutCommit,
-      cherryPickCommit,
-      clearRepoCommitDraftPrefill,
-      commitChanges,
-      createBranch,
-      createBranchAtReference,
-      createStash,
-      createTag,
-      deleteBranch,
-      deleteRemoteBranch,
-      discardAllChanges,
-      discardPathChanges,
-      dropCommit,
-      dropStash,
-      generateAiCommitMessage,
-      getCommitFileContent,
-      getCommitFileHunks,
-      getCommitFilePreflight,
-      getCommitFiles,
-      getFileBlame,
-      getFileContent,
-      getFileDetectedEncoding,
-      getFileHistory,
-      getFileHunks,
-      getFilePreflight,
-      getFileText,
-      getLatestCommitMessage,
-      getRepositoryFiles,
-      mergeReference,
-      popStash,
-      pullBranch,
-      pushBranch,
-      redoRepoAction,
-      renameBranch,
-      resetToReference,
-      revertCommit,
-      rewordCommitMessage,
-      saveFileText,
-      setBranchUpstream,
-      stageAll,
-      stageFile,
-      switchBranch,
-      undoRepoAction,
-      unstageAll,
-      unstageFile,
-    ]
-  );
-};
+export const useRepoActions = () =>
+  useMemo(() => {
+    const state = useRepoStore.getState();
+    return {
+      addIgnoreRule: state.addIgnoreRule,
+      applyStash: state.applyStash,
+      checkoutCommit: state.checkoutCommit,
+      cherryPickCommit: state.cherryPickCommit,
+      clearRepoCommitDraftPrefill: state.clearRepoCommitDraftPrefill,
+      commitChanges: state.commitChanges,
+      createBranch: state.createBranch,
+      createBranchAtReference: state.createBranchAtReference,
+      createStash: state.createStash,
+      createTag: state.createTag,
+      deleteBranch: state.deleteBranch,
+      deleteRemoteBranch: state.deleteRemoteBranch,
+      discardAllChanges: state.discardAllChanges,
+      discardPathChanges: state.discardPathChanges,
+      dropCommit: state.dropCommit,
+      dropStash: state.dropStash,
+      generateAiCommitMessage: state.generateAiCommitMessage,
+      getCommitFileContent: state.getCommitFileContent,
+      getCommitFileHunks: state.getCommitFileHunks,
+      getCommitFilePreflight: state.getCommitFilePreflight,
+      getCommitFiles: state.getCommitFiles,
+      getFileBlame: state.getFileBlame,
+      getFileContent: state.getFileContent,
+      getFileDetectedEncoding: state.getFileDetectedEncoding,
+      getFileHistory: state.getFileHistory,
+      getFileHunks: state.getFileHunks,
+      getFilePreflight: state.getFilePreflight,
+      getFileText: state.getFileText,
+      getLatestCommitMessage: state.getLatestCommitMessage,
+      getRepositoryFiles: state.getRepositoryFiles,
+      mergeReference: state.mergeReference,
+      popStash: state.popStash,
+      pullBranch: state.pullBranch,
+      pushBranch: state.pushBranch,
+      redoRepoAction: state.redoRepoAction,
+      renameBranch: state.renameBranch,
+      resetToReference: state.resetToReference,
+      revertCommit: state.revertCommit,
+      rewordCommitMessage: state.rewordCommitMessage,
+      saveFileText: state.saveFileText,
+      setBranchUpstream: state.setBranchUpstream,
+      stageAll: state.stageAll,
+      stageFile: state.stageFile,
+      switchBranch: state.switchBranch,
+      undoRepoAction: state.undoRepoAction,
+      unstageAll: state.unstageAll,
+      unstageFile: state.unstageFile,
+    };
+  }, []);
 
 export const useRepoActiveContext = () => {
   const activeRepoId = useRepoStore((state) => state.activeRepoId);
@@ -186,60 +89,80 @@ export const useRepoActiveContext = () => {
   );
 };
 
-export const useRepoDataMaps = () => {
-  const repoBranches = useRepoStore((state) => state.repoBranches);
-  const repoCommitDraftPrefillById = useRepoStore(
-    (state) => state.repoCommitDraftPrefillById
-  );
-  const repoCommits = useRepoStore((state) => state.repoCommits);
-  const repoFilesById = useRepoStore((state) => state.repoFilesById);
-  const repoGitIdentities = useRepoStore((state) => state.repoGitIdentities);
-  const repoHistoryRewriteHintById = useRepoStore(
-    (state) => state.repoHistoryRewriteHintById
-  );
-  const repoRedoDepthById = useRepoStore((state) => state.repoRedoDepthById);
-  const repoRedoLabelById = useRepoStore((state) => state.repoRedoLabelById);
-  const repoRemoteNames = useRepoStore((state) => state.repoRemoteNames);
-  const repoStashes = useRepoStore((state) => state.repoStashes);
-  const repoUndoDepthById = useRepoStore((state) => state.repoUndoDepthById);
-  const repoUndoLabelById = useRepoStore((state) => state.repoUndoLabelById);
-  const repoWorkingTreeItems = useRepoStore(
-    (state) => state.repoWorkingTreeItems
+export const useRepoBranches = (repoId: null | string): RepositoryBranch[] =>
+  useRepoStore((state) =>
+    repoId ? (state.repoBranches[repoId] ?? EMPTY_BRANCHES) : EMPTY_BRANCHES
   );
 
-  return useMemo(
-    () => ({
-      repoBranches,
-      repoCommitDraftPrefillById,
-      repoCommits,
-      repoFilesById,
-      repoGitIdentities,
-      repoHistoryRewriteHintById,
-      repoRedoDepthById,
-      repoRedoLabelById,
-      repoRemoteNames,
-      repoStashes,
-      repoUndoDepthById,
-      repoUndoLabelById,
-      repoWorkingTreeItems,
-    }),
-    [
-      repoBranches,
-      repoCommitDraftPrefillById,
-      repoCommits,
-      repoFilesById,
-      repoGitIdentities,
-      repoHistoryRewriteHintById,
-      repoRedoDepthById,
-      repoRedoLabelById,
-      repoRemoteNames,
-      repoStashes,
-      repoUndoDepthById,
-      repoUndoLabelById,
-      repoWorkingTreeItems,
-    ]
+export const useRepoCommits = (repoId: null | string): RepositoryCommit[] =>
+  useRepoStore((state) =>
+    repoId ? (state.repoCommits[repoId] ?? EMPTY_COMMITS) : EMPTY_COMMITS
   );
-};
+
+export const useRepoFiles = (repoId: null | string): RepositoryFileEntry[] =>
+  useRepoStore((state) =>
+    repoId ? (state.repoFilesById[repoId] ?? EMPTY_FILES) : EMPTY_FILES
+  );
+
+export const useRepoGitIdentity = (
+  repoId: null | string
+): GitIdentityStatus | null =>
+  useRepoStore((state) =>
+    repoId ? (state.repoGitIdentities[repoId] ?? null) : null
+  );
+
+export const useRepoHistoryRewriteHint = (repoId: null | string): boolean =>
+  useRepoStore((state) =>
+    repoId ? (state.repoHistoryRewriteHintById[repoId] ?? false) : false
+  );
+
+export const useRepoRemoteNames = (repoId: null | string): string[] =>
+  useRepoStore((state) =>
+    repoId
+      ? (state.repoRemoteNames[repoId] ?? EMPTY_REMOTE_NAMES)
+      : EMPTY_REMOTE_NAMES
+  );
+
+export const useRepoStashes = (repoId: null | string): RepositoryStash[] =>
+  useRepoStore((state) =>
+    repoId ? (state.repoStashes[repoId] ?? EMPTY_STASHES) : EMPTY_STASHES
+  );
+
+export const useRepoWorkingTreeItems = (
+  repoId: null | string
+): RepositoryWorkingTreeItem[] =>
+  useRepoStore((state) =>
+    repoId
+      ? (state.repoWorkingTreeItems[repoId] ?? EMPTY_WORKING_TREE_ITEMS)
+      : EMPTY_WORKING_TREE_ITEMS
+  );
+
+export const useRepoUndoDepth = (repoId: null | string): number =>
+  useRepoStore((state) =>
+    repoId ? (state.repoUndoDepthById[repoId] ?? 0) : 0
+  );
+
+export const useRepoRedoDepth = (repoId: null | string): number =>
+  useRepoStore((state) =>
+    repoId ? (state.repoRedoDepthById[repoId] ?? 0) : 0
+  );
+
+export const useRepoUndoLabel = (repoId: null | string): null | string =>
+  useRepoStore((state) =>
+    repoId ? (state.repoUndoLabelById[repoId] ?? null) : null
+  );
+
+export const useRepoRedoLabel = (repoId: null | string): null | string =>
+  useRepoStore((state) =>
+    repoId ? (state.repoRedoLabelById[repoId] ?? null) : null
+  );
+
+export const useRepoCommitDraftPrefill = (
+  repoId: null | string
+): LatestRepositoryCommitMessage | null =>
+  useRepoStore((state) =>
+    repoId ? (state.repoCommitDraftPrefillById[repoId] ?? null) : null
+  );
 
 export const useRepoLoadingState = () => {
   const isLoadingBranches = useRepoStore((state) => state.isLoadingBranches);

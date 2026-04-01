@@ -188,8 +188,20 @@ import { usePreferencesStore } from "@/stores/preferences/use-preferences-store"
 import {
   useRepoActions,
   useRepoActiveContext,
-  useRepoDataMaps,
+  useRepoBranches,
+  useRepoCommitDraftPrefill,
+  useRepoCommits,
+  useRepoFiles,
+  useRepoGitIdentity,
+  useRepoHistoryRewriteHint,
   useRepoLoadingState,
+  useRepoRedoDepth,
+  useRepoRedoLabel,
+  useRepoRemoteNames,
+  useRepoStashes,
+  useRepoUndoDepth,
+  useRepoUndoLabel,
+  useRepoWorkingTreeItems,
 } from "@/stores/repo/repo-selectors";
 import { resolveHeadCommit } from "@/stores/repo/repo-store.helpers";
 import type {
@@ -1437,21 +1449,20 @@ export function RepoInfo() {
     unstageAll,
     unstageFile,
   } = useRepoActions();
-  const {
-    repoBranches,
-    repoCommitDraftPrefillById,
-    repoCommits,
-    repoFilesById,
-    repoGitIdentities,
-    repoHistoryRewriteHintById,
-    repoRedoDepthById,
-    repoRedoLabelById,
-    repoRemoteNames,
-    repoStashes,
-    repoUndoDepthById,
-    repoUndoLabelById,
-    repoWorkingTreeItems,
-  } = useRepoDataMaps();
+  const branches = useRepoBranches(activeRepoId);
+  const commits = useRepoCommits(activeRepoId);
+  const allRepositoryFiles = useRepoFiles(activeRepoId);
+  const activeRepoIdentity = useRepoGitIdentity(activeRepoId);
+  const requiresForcePushAfterHistoryRewrite =
+    useRepoHistoryRewriteHint(activeRepoId);
+  const activeRepoRemoteNames = useRepoRemoteNames(activeRepoId);
+  const stashes = useRepoStashes(activeRepoId);
+  const workingTreeItems = useRepoWorkingTreeItems(activeRepoId);
+  const canUndoAction = useRepoUndoDepth(activeRepoId) > 0;
+  const canRedoAction = useRepoRedoDepth(activeRepoId) > 0;
+  const undoActionLabel = useRepoUndoLabel(activeRepoId);
+  const redoActionLabel = useRepoRedoLabel(activeRepoId);
+  const commitDraftPrefill = useRepoCommitDraftPrefill(activeRepoId);
   const { isLoadingBranches, isLoadingHistory, isLoadingStatus, isLoadingWip } =
     useRepoLoadingState();
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
@@ -1870,13 +1881,6 @@ export function RepoInfo() {
       );
     });
   }, []);
-  const requiresForcePushAfterHistoryRewrite = activeRepoId
-    ? (repoHistoryRewriteHintById[activeRepoId] ?? false)
-    : false;
-  const commits = useMemo<RepositoryCommit[]>(
-    () => (activeRepoId ? (repoCommits[activeRepoId] ?? []) : []),
-    [activeRepoId, repoCommits]
-  );
   const timelineCommits = useMemo<RepositoryCommit[]>(
     () =>
       requiresForcePushAfterHistoryRewrite
@@ -1888,9 +1892,6 @@ export function RepoInfo() {
     () => resolveHeadCommit(timelineCommits),
     [timelineCommits]
   );
-  const activeRepoIdentity = activeRepoId
-    ? (repoGitIdentities[activeRepoId] ?? null)
-    : null;
   const preferredWipIdentity = activeRepoIdentity?.global.isComplete
     ? activeRepoIdentity.global
     : (activeRepoIdentity?.effective ?? null);
@@ -1909,14 +1910,6 @@ export function RepoInfo() {
         preferredWipRawName
       ),
     [timelineCommits, preferredWipEmail, preferredWipRawName]
-  );
-  const branches = useMemo(
-    () => (activeRepoId ? (repoBranches[activeRepoId] ?? []) : []),
-    [activeRepoId, repoBranches]
-  );
-  const stashes = useMemo<RepositoryStash[]>(
-    () => (activeRepoId ? (repoStashes[activeRepoId] ?? []) : []),
-    [activeRepoId, repoStashes]
   );
   const persistRepoFileBrowserState = (
     input:
@@ -1985,14 +1978,6 @@ export function RepoInfo() {
     }));
   };
 
-  const workingTreeItems = useMemo<RepositoryWorkingTreeItem[]>(
-    () => (activeRepoId ? (repoWorkingTreeItems[activeRepoId] ?? []) : []),
-    [activeRepoId, repoWorkingTreeItems]
-  );
-  const allRepositoryFiles = useMemo<RepositoryFileEntry[]>(
-    () => (activeRepoId ? (repoFilesById[activeRepoId] ?? []) : []),
-    [activeRepoId, repoFilesById]
-  );
   const changesViewMode = repoFileBrowserPreferences.viewMode;
   const isUnstagedSectionCollapsed =
     repoFileBrowserPreferences.isUnstagedSectionCollapsed;
@@ -2074,23 +2059,7 @@ export function RepoInfo() {
     };
   }, [workingTreeItems]);
   const canCommit = draftCommitSummary.trim().length > 0 && hasStagedChanges;
-  const activeRepoRemoteNames = useMemo(
-    () => (activeRepoId ? (repoRemoteNames[activeRepoId] ?? []) : []),
-    [activeRepoId, repoRemoteNames]
-  );
   const hasRemoteConfigured = activeRepoRemoteNames.length > 0;
-  const canUndoAction = activeRepoId
-    ? (repoUndoDepthById[activeRepoId] ?? 0) > 0
-    : false;
-  const canRedoAction = activeRepoId
-    ? (repoRedoDepthById[activeRepoId] ?? 0) > 0
-    : false;
-  const undoActionLabel = activeRepoId
-    ? (repoUndoLabelById[activeRepoId] ?? null)
-    : null;
-  const redoActionLabel = activeRepoId
-    ? (repoRedoLabelById[activeRepoId] ?? null)
-    : null;
   const unstagedTree = useMemo(
     () => buildChangeTree(unstagedItems, fileTreeSortOrder),
     [fileTreeSortOrder, unstagedItems]
@@ -3763,18 +3732,16 @@ export function RepoInfo() {
       return;
     }
 
-    const prefill = repoCommitDraftPrefillById[activeRepoId] ?? null;
-
-    if (!prefill) {
+    if (!commitDraftPrefill) {
       return;
     }
 
-    setDraftCommitSummary(prefill.summary);
-    setDraftCommitDescription(prefill.description);
+    setDraftCommitSummary(commitDraftPrefill.summary);
+    setDraftCommitDescription(commitDraftPrefill.description);
     setAmendPreviousCommit(false);
     setLastAiCommitGeneration(null);
     clearRepoCommitDraftPrefill(activeRepoId);
-  }, [activeRepoId, clearRepoCommitDraftPrefill, repoCommitDraftPrefillById]);
+  }, [activeRepoId, clearRepoCommitDraftPrefill, commitDraftPrefill]);
 
   useEffect(() => {
     if (activeRepoId === null) {
