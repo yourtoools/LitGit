@@ -5,9 +5,8 @@ import {
 } from "@litgit/ui/components/avatar";
 import { Button } from "@litgit/ui/components/button";
 import { SpinnerGapIcon } from "@phosphor-icons/react";
-import type { editor as MonacoEditor } from "monaco-editor";
+import type { ComponentType } from "react";
 import { useMemo } from "react";
-import { DiffPreviewMonacoSurface } from "@/components/views/repo-info/diff-preview-monaco-surface";
 import type { DiffPreviewPanelState } from "@/components/views/repo-info/diff-preview-state";
 import { DiffPreviewSurface } from "@/components/views/repo-info/diff-preview-surface";
 import { ImageDiffViewer } from "@/components/views/repo-info/image-diff-viewer";
@@ -16,8 +15,25 @@ import type {
   RepositoryFileHistoryEntry,
 } from "@/stores/repo/repo-store-types";
 
+interface DiffEditorProps {
+  fontFamily: string;
+  fontSize: number;
+  ignoreTrimWhitespace: boolean;
+  language: string;
+  lineNumbers: "off" | "on";
+  modelPathBase: string;
+  modified: string;
+  onMount: (editor: unknown) => void;
+  original: string;
+  renderSideBySide: boolean;
+  syntaxHighlighting: boolean;
+  theme: "vs" | "vs-dark";
+  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+}
+
 interface DiffWorkspaceHistorySurfaceProps {
   avatarUrlByCommitHash: Record<string, string | null>;
+  DiffEditorComponent: ComponentType<DiffEditorProps>;
   diff: RepositoryCommitFileDiff | null;
   diffModelPathBase: string;
   diffState: DiffPreviewPanelState;
@@ -29,7 +45,7 @@ interface DiffWorkspaceHistorySurfaceProps {
   language: string;
   lineNumbers: "off" | "on";
   onCancelDiff: () => void;
-  onDiffEditorMount: (editor: MonacoEditor.IStandaloneDiffEditor) => void;
+  onDiffEditorMount: (editor: unknown) => void;
   onRenderDiffAnyway: () => void;
   onRetry: () => void;
   onRetryDiff: () => void;
@@ -112,6 +128,7 @@ function resolveAvatarLabel(author: string): string {
 export function DiffWorkspaceHistorySurface({
   avatarUrlByCommitHash,
   diff,
+  DiffEditorComponent,
   diffModelPathBase,
   diffState,
   entries,
@@ -250,7 +267,7 @@ export function DiffWorkspaceHistorySurface({
           ) : null}
 
           {shouldRenderTextDiff ? (
-            <DiffPreviewMonacoSurface
+            <DiffEditorComponent
               fontFamily={fontFamily}
               fontSize={fontSize}
               ignoreTrimWhitespace={ignoreTrimWhitespace}

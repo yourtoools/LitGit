@@ -141,7 +141,6 @@ import {
   resolveGitGraphColumnWidth,
   TIMELINE_BRANCH_COLUMN_WIDTH,
 } from "@/components/views/git-graph-layout";
-import { GitGraphOverlay } from "@/components/views/git-graph-overlay";
 import {
   type DiffPreviewPanelState,
   resolveDiffPreviewUiState,
@@ -186,6 +185,12 @@ import {
   type RepoTimelinePreferences,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
+  useRepoActions,
+  useRepoActiveContext,
+  useRepoDataMaps,
+  useRepoLoadingState,
+} from "@/stores/repo/repo-selectors";
 import { resolveHeadCommit } from "@/stores/repo/repo-store.helpers";
 import type {
   MergeActionMode,
@@ -203,7 +208,6 @@ import type {
   RepositoryStash,
   RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
-import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
 interface SidebarEntry {
@@ -445,6 +449,14 @@ const LazyDiffWorkspaceMarkdownPreviewSurface = lazy(async () => {
 
   return {
     default: module.DiffWorkspaceMarkdownPreviewSurface,
+  };
+});
+
+const LazyGitGraphOverlay = lazy(async () => {
+  const module = await import("@/components/views/git-graph-overlay");
+
+  return {
+    default: module.GitGraphOverlay,
   };
 });
 
@@ -1077,8 +1089,23 @@ const resolveMonacoEol = (
   return resolveSystemMonacoEol();
 };
 
+interface MinimalDiffEditor {
+  getModifiedEditor: () => MinimalCodeEditor;
+  getOriginalEditor: () => MinimalCodeEditor;
+  goToDiff?: (direction: "previous" | "next") => void;
+}
+
+interface MinimalCodeEditor {
+  getModel: () => { setEOL: (eol: number) => void } | null;
+  revealLineInCenter?: (line: number) => void;
+  updateOptions: (options: {
+    lineNumbers?: "on" | "off";
+    tabSize?: number;
+  }) => void;
+}
+
 const applyDiffEditorPreferences = (
-  editor: MonacoEditor.IStandaloneDiffEditor,
+  editor: MinimalDiffEditor,
   lineNumbers: "on" | "off",
   tabSize: number,
   eolPreference: "system" | "lf" | "crlf"
@@ -1098,7 +1125,7 @@ const applyDiffEditorPreferences = (
 };
 
 const applyCodeEditorPreferences = (
-  editor: MonacoEditor.IStandaloneCodeEditor,
+  editor: MinimalCodeEditor,
   lineNumbers: "on" | "off",
   tabSize: number,
   eolPreference: "system" | "lf" | "crlf"
@@ -1360,94 +1387,73 @@ function getRightSidebarMaxWidth(
 }
 
 export function RepoInfo() {
-  const activeRepoId = useRepoStore((state) => state.activeRepoId);
-  const openedRepos = useRepoStore((state) => state.openedRepos);
-  const repoCommits = useRepoStore((state) => state.repoCommits);
-  const repoBranches = useRepoStore((state) => state.repoBranches);
-  const repoStashes = useRepoStore((state) => state.repoStashes);
-  const repoRemoteNames = useRepoStore((state) => state.repoRemoteNames);
-  const repoWorkingTreeItems = useRepoStore(
-    (state) => state.repoWorkingTreeItems
-  );
-  const repoFilesById = useRepoStore((state) => state.repoFilesById);
-  const repoGitIdentities = useRepoStore((state) => state.repoGitIdentities);
-  const isLoadingBranches = useRepoStore((state) => state.isLoadingBranches);
-  const isLoadingHistory = useRepoStore((state) => state.isLoadingHistory);
-  const isLoadingStatus = useRepoStore((state) => state.isLoadingStatus);
-  const isLoadingWip = useRepoStore((state) => state.isLoadingWip);
-  const createBranch = useRepoStore((state) => state.createBranch);
-  const createBranchAtReference = useRepoStore(
-    (state) => state.createBranchAtReference
-  );
-  const createTag = useRepoStore((state) => state.createTag);
-  const deleteBranch = useRepoStore((state) => state.deleteBranch);
-  const deleteRemoteBranch = useRepoStore((state) => state.deleteRemoteBranch);
-  const renameBranch = useRepoStore((state) => state.renameBranch);
-  const rewordCommitMessage = useRepoStore(
-    (state) => state.rewordCommitMessage
-  );
-  const dropCommit = useRepoStore((state) => state.dropCommit);
-  const checkoutCommit = useRepoStore((state) => state.checkoutCommit);
-  const cherryPickCommit = useRepoStore((state) => state.cherryPickCommit);
-  const revertCommit = useRepoStore((state) => state.revertCommit);
-  const resetToReference = useRepoStore((state) => state.resetToReference);
-  const setBranchUpstream = useRepoStore((state) => state.setBranchUpstream);
-  const switchBranch = useRepoStore((state) => state.switchBranch);
-  const applyStash = useRepoStore((state) => state.applyStash);
-  const createStash = useRepoStore((state) => state.createStash);
-  const popStash = useRepoStore((state) => state.popStash);
-  const dropStash = useRepoStore((state) => state.dropStash);
-  const addIgnoreRule = useRepoStore((state) => state.addIgnoreRule);
-  const stageAll = useRepoStore((state) => state.stageAll);
-  const unstageAll = useRepoStore((state) => state.unstageAll);
-  const stageFile = useRepoStore((state) => state.stageFile);
-  const unstageFile = useRepoStore((state) => state.unstageFile);
-  const getFilePreflight = useRepoStore((state) => state.getFilePreflight);
-  const getFileContent = useRepoStore((state) => state.getFileContent);
-  const getFileHunks = useRepoStore((state) => state.getFileHunks);
-  const getFileHistory = useRepoStore((state) => state.getFileHistory);
-  const getFileBlame = useRepoStore((state) => state.getFileBlame);
-  const getFileDetectedEncoding = useRepoStore(
-    (state) => state.getFileDetectedEncoding
-  );
-  const getFileText = useRepoStore((state) => state.getFileText);
-  const saveFileText = useRepoStore((state) => state.saveFileText);
-  const getRepositoryFiles = useRepoStore((state) => state.getRepositoryFiles);
-  const getLatestCommitMessage = useRepoStore(
-    (state) => state.getLatestCommitMessage
-  );
-  const generateAiCommitMessage = useRepoStore(
-    (state) => state.generateAiCommitMessage
-  );
-  const getCommitFiles = useRepoStore((state) => state.getCommitFiles);
-  const getCommitFilePreflight = useRepoStore(
-    (state) => state.getCommitFilePreflight
-  );
-  const getCommitFileContent = useRepoStore(
-    (state) => state.getCommitFileContent
-  );
-  const getCommitFileHunks = useRepoStore((state) => state.getCommitFileHunks);
-  const discardAllChanges = useRepoStore((state) => state.discardAllChanges);
-  const discardPathChanges = useRepoStore((state) => state.discardPathChanges);
-  const commitChanges = useRepoStore((state) => state.commitChanges);
-  const pullBranch = useRepoStore((state) => state.pullBranch);
-  const mergeReference = useRepoStore((state) => state.mergeReference);
-  const pushBranch = useRepoStore((state) => state.pushBranch);
-  const undoRepoAction = useRepoStore((state) => state.undoRepoAction);
-  const redoRepoAction = useRepoStore((state) => state.redoRepoAction);
-  const repoUndoDepthById = useRepoStore((state) => state.repoUndoDepthById);
-  const repoRedoDepthById = useRepoStore((state) => state.repoRedoDepthById);
-  const repoUndoLabelById = useRepoStore((state) => state.repoUndoLabelById);
-  const repoRedoLabelById = useRepoStore((state) => state.repoRedoLabelById);
-  const repoCommitDraftPrefillById = useRepoStore(
-    (state) => state.repoCommitDraftPrefillById
-  );
-  const clearRepoCommitDraftPrefill = useRepoStore(
-    (state) => state.clearRepoCommitDraftPrefill
-  );
-  const repoHistoryRewriteHintById = useRepoStore(
-    (state) => state.repoHistoryRewriteHintById
-  );
+  const { activeRepoId, openedRepos } = useRepoActiveContext();
+  const {
+    addIgnoreRule,
+    applyStash,
+    checkoutCommit,
+    cherryPickCommit,
+    clearRepoCommitDraftPrefill,
+    commitChanges,
+    createBranch,
+    createBranchAtReference,
+    createStash,
+    createTag,
+    deleteBranch,
+    deleteRemoteBranch,
+    discardAllChanges,
+    discardPathChanges,
+    dropCommit,
+    dropStash,
+    generateAiCommitMessage,
+    getCommitFileContent,
+    getCommitFileHunks,
+    getCommitFilePreflight,
+    getCommitFiles,
+    getFileBlame,
+    getFileContent,
+    getFileDetectedEncoding,
+    getFileHistory,
+    getFileHunks,
+    getFilePreflight,
+    getFileText,
+    getLatestCommitMessage,
+    getRepositoryFiles,
+    mergeReference,
+    popStash,
+    pullBranch,
+    pushBranch,
+    redoRepoAction,
+    renameBranch,
+    resetToReference,
+    revertCommit,
+    rewordCommitMessage,
+    saveFileText,
+    setBranchUpstream,
+    stageAll,
+    stageFile,
+    switchBranch,
+    undoRepoAction,
+    unstageAll,
+    unstageFile,
+  } = useRepoActions();
+  const {
+    repoBranches,
+    repoCommitDraftPrefillById,
+    repoCommits,
+    repoFilesById,
+    repoGitIdentities,
+    repoHistoryRewriteHintById,
+    repoRedoDepthById,
+    repoRedoLabelById,
+    repoRemoteNames,
+    repoStashes,
+    repoUndoDepthById,
+    repoUndoLabelById,
+    repoWorkingTreeItems,
+  } = useRepoDataMaps();
+  const { isLoadingBranches, isLoadingHistory, isLoadingStatus, isLoadingWip } =
+    useRepoLoadingState();
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
     Record<string, boolean>
   >({
@@ -1788,15 +1794,9 @@ export function RepoInfo() {
   );
   const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const editorPreferences = usePreferencesStore((state) => state.editor);
-  const openedDiffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
-    null
-  );
-  const openedFileEditorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(
-    null
-  );
-  const openedEditEditorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(
-    null
-  );
+  const openedDiffEditorRef = useRef<MinimalDiffEditor | null>(null);
+  const openedFileEditorRef = useRef<MinimalCodeEditor | null>(null);
+  const openedEditEditorRef = useRef<MinimalCodeEditor | null>(null);
   const previousWorkspaceEncodingRef = useRef(workspaceEncoding);
   const resolvedWorkspaceEncoding =
     resolveDiffWorkspaceEncodingValue(workspaceEncoding);
@@ -1861,6 +1861,15 @@ export function RepoInfo() {
       cancelled = true;
     };
   }, [activeRepoPath]);
+  useEffect(() => {
+    import("@/components/views/git-graph-overlay").catch((error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to preload commit graph surface."
+      );
+    });
+  }, []);
   const requiresForcePushAfterHistoryRewrite = activeRepoId
     ? (repoHistoryRewriteHintById[activeRepoId] ?? false)
     : false;
@@ -8377,7 +8386,7 @@ export function RepoInfo() {
       });
     }
 
-    openedDiffEditorRef.current?.goToDiff("previous");
+    openedDiffEditorRef.current?.goToDiff?.("previous");
   };
 
   const handleNextChange = () => {
@@ -8399,7 +8408,7 @@ export function RepoInfo() {
       });
     }
 
-    openedDiffEditorRef.current?.goToDiff("next");
+    openedDiffEditorRef.current?.goToDiff?.("next");
   };
 
   const handleOpenHistoryEntry = async (entry: RepositoryFileHistoryEntry) => {
@@ -10542,17 +10551,33 @@ export function RepoInfo() {
                 ) : null}
                 <div className="relative">
                   {repoTimelinePreferences.visibleColumns.graph ? (
-                    <GitGraphOverlay
-                      branchColumnWidth={resolvedTimelineBranchColumnWidth}
-                      commits={timelineCommits}
-                      graphColumnWidth={effectiveTimelineGraphColumnWidth}
-                      onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
-                      onNodeSelect={handleGraphNodeSelect}
-                      renderNodeContextMenu={renderGraphNodeContextMenuContent}
-                      rowHeight={TIMELINE_ROW_HEIGHT}
-                      rows={timelineRows}
-                      selectedRowId={selectedTimelineRowId}
-                    />
+                    <Suspense
+                      fallback={
+                        <div
+                          className="pointer-events-none absolute top-0 right-0 left-0 z-20 animate-pulse border-border/35 border-b bg-muted/20"
+                          style={{
+                            height: Math.max(
+                              TIMELINE_ROW_HEIGHT * timelineRows.length,
+                              TIMELINE_ROW_HEIGHT
+                            ),
+                          }}
+                        />
+                      }
+                    >
+                      <LazyGitGraphOverlay
+                        branchColumnWidth={resolvedTimelineBranchColumnWidth}
+                        commits={timelineCommits}
+                        graphColumnWidth={effectiveTimelineGraphColumnWidth}
+                        onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
+                        onNodeSelect={handleGraphNodeSelect}
+                        renderNodeContextMenu={
+                          renderGraphNodeContextMenuContent
+                        }
+                        rowHeight={TIMELINE_ROW_HEIGHT}
+                        rows={timelineRows}
+                        selectedRowId={selectedTimelineRowId}
+                      />
+                    </Suspense>
                   ) : null}
                   {hasAnyWorkingTreeChanges ? (
                     <button
@@ -11305,6 +11330,7 @@ export function RepoInfo() {
                       >
                         <LazyDiffWorkspaceHistorySurface
                           avatarUrlByCommitHash={commitAvatarUrlByHash}
+                          DiffEditorComponent={LazyDiffPreviewMonacoSurface}
                           diff={
                             activeDiff && openedDiffContext?.source === "commit"
                               ? {
@@ -11339,7 +11365,7 @@ export function RepoInfo() {
                           onCancelDiff={handleWorkspaceCloseRequest}
                           onDiffEditorMount={(editor) => {
                             applyDiffEditorPreferences(
-                              editor,
+                              editor as MinimalDiffEditor,
                               editorPreferences.lineNumbers,
                               editorPreferences.tabSize,
                               editorPreferences.eol
@@ -11390,6 +11416,7 @@ export function RepoInfo() {
                       >
                         <LazyDiffWorkspaceBlameSurface
                           avatarUrlByCommitHash={commitAvatarUrlByHash}
+                          EditorComponent={LazyDiffWorkspaceMonacoFileSurface}
                           fontFamily={editorPreferences.fontFamily}
                           fontSize={editorPreferences.fontSize}
                           isLoading={isLoadingBlame}
@@ -11405,9 +11432,10 @@ export function RepoInfo() {
                             "inmemory://litgit/unknown?blame"
                           }
                           onPreviewEditorMount={(editor) => {
-                            openedFileEditorRef.current = editor;
+                            openedFileEditorRef.current =
+                              editor as MinimalCodeEditor;
                             applyCodeEditorPreferences(
-                              editor,
+                              editor as MinimalCodeEditor,
                               editorPreferences.lineNumbers,
                               editorPreferences.tabSize,
                               editorPreferences.eol

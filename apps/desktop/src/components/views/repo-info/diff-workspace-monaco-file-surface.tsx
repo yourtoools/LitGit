@@ -1,13 +1,9 @@
 import { Editor } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { useEffect, useMemo, useRef } from "react";
+import type { DiffWorkspaceMonacoBlameDecoration } from "@/components/views/repo-info/diff-workspace-monaco-types";
 
-export interface DiffWorkspaceMonacoBlameDecoration {
-  author: string;
-  avatarLabel: string;
-  color: string;
-  lineNumber: number;
-}
+export type { DiffWorkspaceMonacoBlameDecoration } from "@/components/views/repo-info/diff-workspace-monaco-types";
 
 interface DiffWorkspaceMonacoFileSurfaceProps {
   blameDecorations?: DiffWorkspaceMonacoBlameDecoration[];

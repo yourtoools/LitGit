@@ -44,11 +44,9 @@ import {
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
 import {
-  localGitignoreTemplateContents,
-  localGitignoreTemplateOptions,
-  localLicenseTemplateContents,
-  localLicenseTemplateOptions,
-} from "@/lib/repository-template-data";
+  loadRepositoryTemplates,
+  type RepositoryTemplates,
+} from "@/lib/repository-template-data.lazy";
 import {
   getRepoGitIdentity,
   pickLocalRepositoryParentFolder,
@@ -661,6 +659,8 @@ export function RepositoryStartLocalDialog({
   );
   const { routeRepository } = useOpenRepositoryTabRouting();
 
+  const [repositoryTemplates, setRepositoryTemplates] =
+    useState<RepositoryTemplates | null>(null);
   const [name, setName] = useState("");
   const [destinationParent, setDestinationParent] = useState("");
   const [defaultBranch, setDefaultBranch] = useState(
@@ -672,16 +672,18 @@ export function RepositoryStartLocalDialog({
   const [licenseTemplateKey, setLicenseTemplateKey] = useState<string | null>(
     null
   );
-  const [gitignoreTemplatesState] = useState<TemplateState>({
-    error: null,
-    isLoading: false,
-    options: localGitignoreTemplateOptions,
-  });
-  const [licenseTemplatesState] = useState<TemplateState>({
-    error: null,
-    isLoading: false,
-    options: localLicenseTemplateOptions,
-  });
+  const [gitignoreTemplatesState, setGitignoreTemplatesState] =
+    useState<TemplateState>({
+      error: null,
+      isLoading: true,
+      options: [],
+    });
+  const [licenseTemplatesState, setLicenseTemplatesState] =
+    useState<TemplateState>({
+      error: null,
+      isLoading: true,
+      options: [],
+    });
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isPickingDestination, setIsPickingDestination] = useState(false);
@@ -702,6 +704,17 @@ export function RepositoryStartLocalDialog({
 
   useEffect(() => {
     if (!open) {
+      setRepositoryTemplates(null);
+      setGitignoreTemplatesState({
+        error: null,
+        isLoading: true,
+        options: [],
+      });
+      setLicenseTemplatesState({
+        error: null,
+        isLoading: true,
+        options: [],
+      });
       setName("");
       setDestinationParent("");
       setDefaultBranch(preferredDefaultBranchName);
@@ -717,6 +730,58 @@ export function RepositoryStartLocalDialog({
       return;
     }
 
+    let isCancelled = false;
+    setGitignoreTemplatesState((current) => ({
+      ...current,
+      error: null,
+      isLoading: true,
+    }));
+    setLicenseTemplatesState((current) => ({
+      ...current,
+      error: null,
+      isLoading: true,
+    }));
+
+    loadRepositoryTemplates()
+      .then((templates) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setRepositoryTemplates(templates);
+        setGitignoreTemplatesState({
+          error: null,
+          isLoading: false,
+          options: templates.gitignoreOptions,
+        });
+        setLicenseTemplatesState({
+          error: null,
+          isLoading: false,
+          options: templates.licenseOptions,
+        });
+      })
+      .catch((error) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to load repository templates.";
+
+        setGitignoreTemplatesState({
+          error: message,
+          isLoading: false,
+          options: [],
+        });
+        setLicenseTemplatesState({
+          error: message,
+          isLoading: false,
+          options: [],
+        });
+      });
+
     if (!successState) {
       setDefaultBranch((currentValue) => {
         return currentValue.trim().length === 0
@@ -728,6 +793,10 @@ export function RepositoryStartLocalDialog({
         nameInputRef.current?.focus();
       });
     }
+
+    return () => {
+      isCancelled = true;
+    };
   }, [open, preferredDefaultBranchName, successState]);
 
   const fullDestinationPath = useMemo(
@@ -785,11 +854,17 @@ export function RepositoryStartLocalDialog({
       setFormError(null);
 
       try {
+        if (!repositoryTemplates) {
+          setFormError("Repository templates are still loading. Try again.");
+          return;
+        }
+
         const gitignoreTemplateContent = gitignoreTemplateKey
-          ? (localGitignoreTemplateContents[gitignoreTemplateKey] ?? null)
+          ? (repositoryTemplates.gitignoreContents[gitignoreTemplateKey] ??
+            null)
           : null;
         const licenseTemplateContent = licenseTemplateKey
-          ? (localLicenseTemplateContents[licenseTemplateKey] ?? null)
+          ? (repositoryTemplates.licenseContents[licenseTemplateKey] ?? null)
           : null;
 
         const openedRepository = await createLocalRepository({
@@ -830,6 +905,7 @@ export function RepositoryStartLocalDialog({
       gitignoreTemplateKey,
       licenseTemplateKey,
       name,
+      repositoryTemplates,
     ]
   );
 

@@ -5,16 +5,29 @@ import {
 } from "@litgit/ui/components/avatar";
 import { Button } from "@litgit/ui/components/button";
 import { SpinnerGapIcon } from "@phosphor-icons/react";
-import type { editor as MonacoEditor } from "monaco-editor";
+import type { ComponentType } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  type DiffWorkspaceMonacoBlameDecoration,
-  DiffWorkspaceMonacoFileSurface,
-} from "@/components/views/repo-info/diff-workspace-monaco-file-surface";
+import type { DiffWorkspaceMonacoBlameDecoration } from "@/components/views/repo-info/diff-workspace-monaco-types";
 import type { RepositoryFileBlameLine } from "@/stores/repo/repo-store-types";
+
+interface EditorProps {
+  blameDecorations?: DiffWorkspaceMonacoBlameDecoration[];
+  fontFamily: string;
+  fontSize: number;
+  language: string;
+  lineNumbers: "off" | "on";
+  minimapEnabled?: boolean;
+  modelPath: string;
+  onMount: (editor: unknown) => void;
+  syntaxHighlighting: boolean;
+  theme: "vs" | "vs-dark";
+  value: string;
+  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+}
 
 interface DiffWorkspaceBlameSurfaceProps {
   avatarUrlByCommitHash: Record<string, string | null>;
+  EditorComponent: ComponentType<EditorProps>;
   fontFamily: string;
   fontSize: number;
   isLoading: boolean;
@@ -22,7 +35,7 @@ interface DiffWorkspaceBlameSurfaceProps {
   lineNumbers: "off" | "on";
   lines: RepositoryFileBlameLine[];
   modelPath: string;
-  onPreviewEditorMount: (editor: MonacoEditor.IStandaloneCodeEditor) => void;
+  onPreviewEditorMount: (editor: unknown) => void;
   onRetry: () => void;
   renderError: string | null;
   syntaxHighlighting: boolean;
@@ -117,6 +130,7 @@ function toRelativeDateLabel(authorTime: number | null): string {
 
 export function DiffWorkspaceBlameSurface({
   avatarUrlByCommitHash,
+  EditorComponent,
   fontFamily,
   fontSize,
   isLoading,
@@ -131,9 +145,9 @@ export function DiffWorkspaceBlameSurface({
   theme,
   wordWrap,
 }: DiffWorkspaceBlameSurfaceProps) {
-  const previewEditorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(
-    null
-  );
+  const previewEditorRef = useRef<{
+    revealLineInCenter?: (line: number) => void;
+  } | null>(null);
   const normalizedLines = useMemo(
     () => [...lines].sort((left, right) => left.lineNumber - right.lineNumber),
     [lines]
@@ -211,7 +225,7 @@ export function DiffWorkspaceBlameSurface({
       return;
     }
 
-    previewEditorRef.current?.revealLineInCenter(
+    previewEditorRef.current?.revealLineInCenter?.(
       selectedSummary.firstLineNumber
     );
   }, [selectedSummary]);
@@ -302,7 +316,7 @@ export function DiffWorkspaceBlameSurface({
 
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-0 flex-1">
-          <DiffWorkspaceMonacoFileSurface
+          <EditorComponent
             blameDecorations={blameDecorations}
             fontFamily={fontFamily}
             fontSize={fontSize}
@@ -311,7 +325,9 @@ export function DiffWorkspaceBlameSurface({
             minimapEnabled
             modelPath={modelPath}
             onMount={(editor) => {
-              previewEditorRef.current = editor;
+              previewEditorRef.current = editor as {
+                revealLineInCenter?: (line: number) => void;
+              } | null;
               onPreviewEditorMount(editor);
             }}
             syntaxHighlighting={syntaxHighlighting}
