@@ -2,9 +2,6 @@ use serde::Serialize;
 use std::path::Path;
 use tauri::Manager;
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
 mod diff_preview;
 use diff_preview::{
     get_repository_commit_file_content, get_repository_commit_file_preflight,
@@ -16,9 +13,11 @@ use diff_workspace::{
     get_repository_file_history, get_repository_file_hunks, get_repository_file_text,
     save_repository_file_text,
 };
+mod launcher;
 use history::{
     get_latest_repository_commit_message, get_repository_commit_files, get_repository_history,
 };
+use launcher::{get_launcher_applications, open_path_with_application};
 mod branches;
 use branches::{
     create_repository_branch, create_repository_branch_at_reference,
@@ -354,7 +353,9 @@ pub fn run() {
             create_terminal_session,
             write_terminal_session,
             resize_terminal_session,
-            close_terminal_session
+            close_terminal_session,
+            get_launcher_applications,
+            open_path_with_application
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

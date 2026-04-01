@@ -65,6 +65,26 @@ interface ProxyTestResult {
   ok: boolean;
 }
 
+export type ExternalLauncherApplication =
+  | "antigravity"
+  | "cursor"
+  | "file-manager"
+  | "git-bash"
+  | "kiro"
+  | "terminal"
+  | "trae"
+  | "visual-studio"
+  | "void"
+  | "vscode"
+  | "windsurf"
+  | "wsl"
+  | "zed";
+
+export interface ExternalLauncherApp {
+  id: ExternalLauncherApplication;
+  label: string;
+}
+
 interface SigningKeyInfo {
   id: string;
   label: string;
@@ -81,6 +101,25 @@ const parseRecord = (value: unknown, errorMessage: string) => {
   }
 
   return value as Record<string, unknown>;
+};
+
+const parseLauncherApplications = (value: unknown): ExternalLauncherApp[] => {
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid launcher applications payload");
+  }
+
+  return value.map((entry) => {
+    const parsed = parseRecord(entry, "Invalid launcher applications payload");
+
+    if (typeof parsed.id !== "string" || typeof parsed.label !== "string") {
+      throw new Error("Invalid launcher applications payload");
+    }
+
+    return {
+      id: parsed.id as ExternalLauncherApplication,
+      label: parsed.label,
+    };
+  });
 };
 
 const parseGitIdentityValue = (value: unknown) => {
@@ -238,6 +277,31 @@ export const clearStoredHttpCredentialEntry = async (
   }
 
   await invoke("clear_http_credential_entry", { entryId });
+};
+
+export const openPathWithApplication = async (input: {
+  application: ExternalLauncherApplication;
+  path: string;
+}): Promise<void> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    throw new Error("Open with works in Tauri desktop app only");
+  }
+
+  await invoke("open_path_with_application", input);
+};
+
+export const getLauncherApplications = async (): Promise<
+  ExternalLauncherApp[]
+> => {
+  const invoke = getTauriInvoke();
+
+  if (!invoke) {
+    return [];
+  }
+
+  return parseLauncherApplications(await invoke("get_launcher_applications"));
 };
 
 export const saveAiProviderSecret = async (

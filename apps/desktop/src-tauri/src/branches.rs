@@ -735,9 +735,7 @@ mod tests {
             Some("acme".to_string())
         );
         assert_eq!(
-            parse_github_owner_from_remote_url(
-                "ssh://git@github.com/open-source-org/tooling.git"
-            ),
+            parse_github_owner_from_remote_url("ssh://git@github.com/open-source-org/tooling.git"),
             Some("open-source-org".to_string())
         );
     }
