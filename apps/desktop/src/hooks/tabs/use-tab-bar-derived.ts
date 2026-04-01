@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   getRenderItems,
   toGroupDropId,
@@ -98,25 +98,40 @@ export const useTabBarDerived = ({
     return groups.map((group) => toGroupDropId(group.id));
   }, [groups]);
 
-  const getTabById = (tabId: string): Tab | undefined => {
-    return tabByIdMap.get(tabId);
-  };
+  const getTabById = useCallback(
+    (tabId: string): Tab | undefined => {
+      return tabByIdMap.get(tabId);
+    },
+    [tabByIdMap]
+  );
 
-  const getGroupById = (groupId: string): TabGroup | undefined => {
-    return groupByIdMap.get(groupId);
-  };
+  const getGroupById = useCallback(
+    (groupId: string): TabGroup | undefined => {
+      return groupByIdMap.get(groupId);
+    },
+    [groupByIdMap]
+  );
 
-  const getGroupStartIndex = (groupId: string): number => {
-    return groupStatsById.get(groupId)?.startOrder ?? -1;
-  };
+  const getGroupStartIndex = useCallback(
+    (groupId: string): number => {
+      return groupStatsById.get(groupId)?.startOrder ?? -1;
+    },
+    [groupStatsById]
+  );
 
-  const getGroupEndIndex = (groupId: string): number => {
-    return groupStatsById.get(groupId)?.endOrder ?? -1;
-  };
+  const getGroupEndIndex = useCallback(
+    (groupId: string): number => {
+      return groupStatsById.get(groupId)?.endOrder ?? -1;
+    },
+    [groupStatsById]
+  );
 
-  const getGroupTabCount = (groupId: string): number => {
-    return groupStatsById.get(groupId)?.count ?? 0;
-  };
+  const getGroupTabCount = useCallback(
+    (groupId: string): number => {
+      return groupStatsById.get(groupId)?.count ?? 0;
+    },
+    [groupStatsById]
+  );
 
   return {
     sortedTabs,
