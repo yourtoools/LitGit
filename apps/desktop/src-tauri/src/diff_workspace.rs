@@ -2,12 +2,13 @@ use chardetng::EncodingDetector;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Component, Path};
-use std::sync::{LazyLock, Mutex};
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::git_support::{
     decode_text_content_with_encoding, encode_text_with_encoding, git_command, validate_git_repo,
+    validate_repo_relative_file_path,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 200;
@@ -15,8 +16,31 @@ const MAX_HISTORY_LIMIT: usize = 1_000;
 const HISTORY_CACHE_LIMIT: usize = 128;
 const BLAME_CACHE_LIMIT: usize = 128;
 
+type CachedPayloadMap<T> = Mutex<LimitedPayloadCache<T>>;
+type FileContentPair = (Option<Vec<u8>>, Option<Vec<u8>>);
+
+struct LimitedPayloadCache<T> {
+    entries: HashMap<String, CachedPayloadEntry<T>>,
+    next_sequence: usize,
+}
+
+struct CachedPayloadEntry<T> {
+    sequence: usize,
+    value: T,
+}
+
+impl<T> Default for LimitedPayloadCache<T> {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            next_sequence: 0,
+        }
+    }
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// A parsed unified-diff hunk with line ranges and hunk body lines.
 pub(crate) struct RepositoryFileHunk {
     header: String,
     index: usize,
@@ -29,6 +53,7 @@ pub(crate) struct RepositoryFileHunk {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Hunk payload for a working-tree file.
 pub(crate) struct RepositoryFileHunks {
     hunks: Vec<RepositoryFileHunk>,
     path: String,
@@ -36,6 +61,7 @@ pub(crate) struct RepositoryFileHunks {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Hunk payload for a file from a specific commit.
 pub(crate) struct RepositoryCommitFileHunks {
     commit_hash: String,
     hunks: Vec<RepositoryFileHunk>,
@@ -44,6 +70,7 @@ pub(crate) struct RepositoryCommitFileHunks {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// A history entry for one file revision.
 pub(crate) struct RepositoryFileHistoryEntry {
     author: String,
     author_email: String,
@@ -55,6 +82,7 @@ pub(crate) struct RepositoryFileHistoryEntry {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// File history payload returned by `git log --follow`.
 pub(crate) struct RepositoryFileHistoryPayload {
     entries: Vec<RepositoryFileHistoryEntry>,
     path: String,
@@ -62,6 +90,7 @@ pub(crate) struct RepositoryFileHistoryPayload {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// A single line in blame output with author and commit metadata.
 pub(crate) struct RepositoryFileBlameLine {
     author: String,
     author_email: String,
@@ -74,6 +103,7 @@ pub(crate) struct RepositoryFileBlameLine {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Blame payload for a file at a revision.
 pub(crate) struct RepositoryFileBlamePayload {
     lines: Vec<RepositoryFileBlameLine>,
     path: String,
@@ -82,38 +112,64 @@ pub(crate) struct RepositoryFileBlamePayload {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Detected text encoding label for a repository file.
 pub(crate) struct RepositoryFileDetectedEncoding {
     encoding: String,
 }
 
-static FILE_HISTORY_CACHE: LazyLock<Mutex<HashMap<String, RepositoryFileHistoryPayload>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static FILE_BLAME_CACHE: LazyLock<Mutex<HashMap<String, RepositoryFileBlamePayload>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static FILE_HISTORY_CACHE: OnceLock<CachedPayloadMap<RepositoryFileHistoryPayload>> =
+    OnceLock::new();
+static FILE_BLAME_CACHE: OnceLock<CachedPayloadMap<RepositoryFileBlamePayload>> = OnceLock::new();
 
-fn read_cached_payload<T: Clone>(
-    cache: &LazyLock<Mutex<HashMap<String, T>>>,
-    key: &str,
-) -> Option<T> {
-    let cache_guard = cache.lock().ok()?;
-    cache_guard.get(key).cloned()
+fn file_history_cache() -> &'static CachedPayloadMap<RepositoryFileHistoryPayload> {
+    FILE_HISTORY_CACHE.get_or_init(|| Mutex::new(LimitedPayloadCache::default()))
+}
+
+fn file_blame_cache() -> &'static CachedPayloadMap<RepositoryFileBlamePayload> {
+    FILE_BLAME_CACHE.get_or_init(|| Mutex::new(LimitedPayloadCache::default()))
+}
+
+fn read_cached_payload<T: Clone>(cache: &CachedPayloadMap<T>, key: &str) -> Option<T> {
+    let Ok(cache_guard) = cache.lock() else {
+        log::warn!("Failed to read cached repository payload because the cache lock is poisoned");
+        return None;
+    };
+
+    cache_guard
+        .entries
+        .get(key)
+        .map(|cached_entry| cached_entry.value.clone())
 }
 
 fn write_cached_payload<T: Clone>(
-    cache: &LazyLock<Mutex<HashMap<String, T>>>,
+    cache: &CachedPayloadMap<T>,
     key: String,
     value: T,
     limit: usize,
 ) {
     let Ok(mut cache_guard) = cache.lock() else {
+        log::warn!("Failed to update cached repository payload because the cache lock is poisoned");
         return;
     };
 
-    if cache_guard.len() >= limit {
-        cache_guard.clear();
+    let sequence = cache_guard.next_sequence;
+    cache_guard.next_sequence = cache_guard.next_sequence.wrapping_add(1);
+
+    if !cache_guard.entries.contains_key(&key) && cache_guard.entries.len() >= limit {
+        let oldest_key = cache_guard
+            .entries
+            .iter()
+            .min_by_key(|(_, cached_entry)| cached_entry.sequence)
+            .map(|(cached_key, _)| cached_key.clone());
+
+        if let Some(oldest_key) = oldest_key {
+            cache_guard.entries.remove(&oldest_key);
+        }
     }
 
-    cache_guard.insert(key, value);
+    cache_guard
+        .entries
+        .insert(key, CachedPayloadEntry { sequence, value });
 }
 
 fn resolve_head_revision(repo_path: &str) -> Option<String> {
@@ -156,10 +212,9 @@ fn write_temp_bytes(prefix: &str, content: &[u8]) -> Option<std::path::PathBuf> 
     Some(path)
 }
 
-fn load_working_tree_contents(
-    repo_path: &str,
-    file_path: &str,
-) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>), String> {
+fn load_working_tree_contents(repo_path: &str, file_path: &str) -> Result<FileContentPair, String> {
+    validate_repo_relative_file_path(file_path)?;
+
     let old_output = git_command()
         .args(["-C", repo_path, "show", &format!("HEAD:{file_path}")])
         .output()
@@ -174,7 +229,9 @@ fn load_commit_contents(
     repo_path: &str,
     commit_hash: &str,
     file_path: &str,
-) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>), String> {
+) -> Result<FileContentPair, String> {
+    validate_repo_relative_file_path(file_path)?;
+
     let old_output = git_command()
         .args([
             "-C",
@@ -206,7 +263,11 @@ fn parse_hunk_range(token: &str) -> Option<(usize, usize)> {
     }
 
     let value = &token[1..];
-    let (start, lines) = value.split_once(',').unwrap_or((value, "1"));
+    let (start, lines) = if let Some((parsed_start, parsed_lines)) = value.split_once(',') {
+        (parsed_start, parsed_lines)
+    } else {
+        (value, "1")
+    };
     let parsed_start = start.parse::<usize>().ok()?;
     let parsed_lines = lines.parse::<usize>().ok()?;
 
@@ -426,6 +487,8 @@ fn read_file_text_with_encoding(
     file_path: &str,
     encoding: Option<&str>,
 ) -> Result<String, String> {
+    validate_repo_relative_file_path(file_path)?;
+
     let target_path = Path::new(repo_path).join(file_path);
     let raw_content =
         fs::read(target_path).map_err(|error| format!("Failed to read file: {error}"))?;
@@ -484,25 +547,10 @@ fn read_file_bytes_for_encoding_detection(
     Err("Failed to detect file encoding".to_string())
 }
 
-fn validate_relative_file_path(file_path: &str) -> Result<(), String> {
-    let path = Path::new(file_path);
-
-    if path.is_absolute() {
-        return Err("File path must be relative to repository root".to_string());
-    }
-
-    let contains_parent = path
-        .components()
-        .any(|component| matches!(component, Component::ParentDir));
-
-    if contains_parent {
-        return Err("File path must not contain parent-directory traversal".to_string());
-    }
-
-    Ok(())
-}
-
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns parsed unified-diff hunks for a working-tree file.
 pub(crate) fn get_repository_file_hunks(
     repo_path: String,
     file_path: String,
@@ -522,7 +570,10 @@ pub(crate) fn get_repository_file_hunks(
     })
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns parsed unified-diff hunks for a file in a specific commit.
 pub(crate) fn get_repository_commit_file_hunks(
     repo_path: String,
     commit_hash: String,
@@ -544,13 +595,17 @@ pub(crate) fn get_repository_commit_file_hunks(
     })
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns revision history for a file, following renames.
 pub(crate) fn get_repository_file_history(
     repo_path: String,
     file_path: String,
     limit: Option<usize>,
 ) -> Result<RepositoryFileHistoryPayload, String> {
     validate_git_repo(Path::new(&repo_path))?;
+    validate_repo_relative_file_path(&file_path)?;
     let resolved_limit = limit
         .unwrap_or(DEFAULT_HISTORY_LIMIT)
         .clamp(1, MAX_HISTORY_LIMIT);
@@ -559,7 +614,7 @@ pub(crate) fn get_repository_file_history(
     let cache_key =
         format!("{repo_path}\x1f{resolved_head_revision}\x1f{file_path}\x1f{resolved_limit}");
 
-    if let Some(cached_payload) = read_cached_payload(&FILE_HISTORY_CACHE, &cache_key) {
+    if let Some(cached_payload) = read_cached_payload(file_history_cache(), &cache_key) {
         return Ok(cached_payload);
     }
 
@@ -596,7 +651,7 @@ pub(crate) fn get_repository_file_history(
     };
 
     write_cached_payload(
-        &FILE_HISTORY_CACHE,
+        file_history_cache(),
         cache_key,
         payload.clone(),
         HISTORY_CACHE_LIMIT,
@@ -605,13 +660,17 @@ pub(crate) fn get_repository_file_history(
     Ok(payload)
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns line-by-line blame metadata for a file at a revision.
 pub(crate) fn get_repository_file_blame(
     repo_path: String,
     file_path: String,
     revision: Option<String>,
 ) -> Result<RepositoryFileBlamePayload, String> {
     validate_git_repo(Path::new(&repo_path))?;
+    validate_repo_relative_file_path(&file_path)?;
     let resolved_revision = revision
         .as_deref()
         .map(str::trim)
@@ -624,7 +683,7 @@ pub(crate) fn get_repository_file_blame(
     };
     let cache_key = format!("{repo_path}\x1f{cache_revision}\x1f{file_path}");
 
-    if let Some(cached_payload) = read_cached_payload(&FILE_BLAME_CACHE, &cache_key) {
+    if let Some(cached_payload) = read_cached_payload(file_blame_cache(), &cache_key) {
         return Ok(cached_payload);
     }
 
@@ -659,7 +718,7 @@ pub(crate) fn get_repository_file_blame(
     };
 
     write_cached_payload(
-        &FILE_BLAME_CACHE,
+        file_blame_cache(),
         cache_key,
         payload.clone(),
         BLAME_CACHE_LIMIT,
@@ -668,7 +727,10 @@ pub(crate) fn get_repository_file_blame(
     Ok(payload)
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Saves text to a repository file using the requested encoding.
 pub(crate) fn save_repository_file_text(
     repo_path: String,
     file_path: String,
@@ -676,7 +738,7 @@ pub(crate) fn save_repository_file_text(
     encoding: Option<String>,
 ) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
-    validate_relative_file_path(&file_path)?;
+    validate_repo_relative_file_path(&file_path)?;
 
     let target_path = Path::new(&repo_path).join(&file_path);
     let encoded_content = encode_text_with_encoding(&text, encoding.as_deref())?;
@@ -692,25 +754,31 @@ pub(crate) fn save_repository_file_text(
     Ok(())
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Reads repository file text using the requested encoding.
 pub(crate) fn get_repository_file_text(
     repo_path: String,
     file_path: String,
     encoding: Option<String>,
 ) -> Result<String, String> {
     validate_git_repo(Path::new(&repo_path))?;
-    validate_relative_file_path(&file_path)?;
+    validate_repo_relative_file_path(&file_path)?;
     read_file_text_with_encoding(&repo_path, &file_path, encoding.as_deref())
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Detects the text encoding of a repository file or file revision.
 pub(crate) fn detect_repository_file_encoding(
     repo_path: String,
     file_path: String,
     revision: Option<String>,
 ) -> Result<RepositoryFileDetectedEncoding, String> {
     validate_git_repo(Path::new(&repo_path))?;
-    validate_relative_file_path(&file_path)?;
+    validate_repo_relative_file_path(&file_path)?;
 
     let content =
         read_file_bytes_for_encoding_detection(&repo_path, &file_path, revision.as_deref())?;
@@ -725,7 +793,7 @@ mod tests {
 
     #[test]
     fn hunk_parser_returns_changed_blocks() {
-        let patch = r#"diff --git a/file.ts b/file.ts
+        let patch = r"diff --git a/file.ts b/file.ts
 index 1111111..2222222 100644
 --- a/file.ts
 +++ b/file.ts
@@ -736,7 +804,7 @@ index 1111111..2222222 100644
 @@ -9 +9,2 @@
  const second = true;
 +const third = true;
-"#;
+";
 
         let hunks = parse_hunks_from_patch(patch);
 

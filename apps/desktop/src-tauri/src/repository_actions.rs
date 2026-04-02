@@ -12,21 +12,25 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 use tauri::State;
+use thiserror::Error;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Result payload for pull/fetch operations.
 pub(crate) struct PullActionResult {
     head_changed: bool,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Result payload for merge/rebase actions.
 pub(crate) struct MergeActionResult {
     head_changed: bool,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Result of rewriting a commit message and descendant history.
 pub(crate) struct RewordRepositoryCommitResult {
     head_hash: String,
     updated_commit_hash: String,
@@ -34,6 +38,7 @@ pub(crate) struct RewordRepositoryCommitResult {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Result of dropping a commit from current HEAD ancestry.
 pub(crate) struct DropRepositoryCommitResult {
     head_hash: String,
     selected_commit_hash: Option<String>,
@@ -51,6 +56,40 @@ struct CommitRewriteMetadata {
     tree: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct PushUpstreamPlan {
+    remote_name: String,
+    should_set_upstream: bool,
+}
+
+type RepositoryActionsResult<T> = Result<T, RepositoryActionsError>;
+
+#[derive(Debug, Error)]
+enum RepositoryActionsError {
+    #[error("{0}")]
+    Message(String),
+    #[error("Failed to {action}: {source}")]
+    Io {
+        action: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+impl RepositoryActionsError {
+    fn io(action: &'static str, source: std::io::Error) -> Self {
+        Self::Io { action, source }
+    }
+
+    fn message(message: impl Into<String>) -> Self {
+        Self::Message(message.into())
+    }
+}
+
+fn ensure_repo(repo_path: &str) -> RepositoryActionsResult<()> {
+    validate_git_repo(Path::new(repo_path)).map_err(RepositoryActionsError::message)
+}
+
 fn resolve_publish_visibility_flag(publish_visibility: Option<&str>) -> &'static str {
     match publish_visibility
         .map(str::trim)
@@ -62,14 +101,48 @@ fn resolve_publish_visibility_flag(publish_visibility: Option<&str>) -> &'static
     }
 }
 
-fn resolve_head_hash(repo_path: &str) -> Result<String, String> {
+fn resolve_push_upstream_plan(
+    branch_name: &str,
+    upstream_ref: Option<&str>,
+    has_origin_remote: bool,
+) -> RepositoryActionsResult<PushUpstreamPlan> {
+    let upstream_remote_and_branch = upstream_ref
+        .and_then(|value| value.strip_prefix("refs/remotes/"))
+        .and_then(|value| value.split_once('/'));
+
+    let remote_name = upstream_remote_and_branch.map_or_else(
+        || "origin".to_string(),
+        |(remote_name, _)| remote_name.to_string(),
+    );
+    let upstream_branch_name =
+        upstream_remote_and_branch.map(|(_, remote_branch_name)| remote_branch_name);
+    let upstream_matches_current_branch =
+        upstream_branch_name.is_some_and(|remote_branch_name| remote_branch_name == branch_name);
+    let should_set_upstream = upstream_ref.is_none() || !upstream_matches_current_branch;
+
+    if should_set_upstream && upstream_ref.is_none() && !has_origin_remote {
+        return Err(RepositoryActionsError::message(
+            "No upstream branch found and remote 'origin' is not configured",
+        ));
+    }
+
+    Ok(PushUpstreamPlan {
+        remote_name,
+        should_set_upstream,
+    })
+}
+
+fn resolve_head_hash(repo_path: &str) -> RepositoryActionsResult<String> {
     let output = git_command()
         .args(["-C", repo_path, "rev-parse", "HEAD"])
         .output()
-        .map_err(|error| format!("Failed to resolve HEAD: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("resolve HEAD", error))?;
 
     if !output.status.success() {
-        return Err(git_error_message(&output.stderr, "Failed to resolve HEAD"));
+        return Err(RepositoryActionsError::message(git_error_message(
+            &output.stderr,
+            "Failed to resolve HEAD",
+        )));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -83,38 +156,245 @@ fn is_missing_remote_repository_message(message: &str) -> bool {
         || normalized.contains("not found") && normalized.contains("repository")
 }
 
-fn validate_tag_name(name: &str) -> Result<(), String> {
+fn validate_tag_name(name: &str) -> RepositoryActionsResult<()> {
     let output = git_command()
         .args(["check-ref-format", &format!("refs/tags/{name}")])
         .output()
-        .map_err(|error| format!("Failed to validate tag name: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("validate tag name", error))?;
 
     if !output.status.success() {
-        return Err("Enter a valid Git tag name".to_string());
+        return Err(RepositoryActionsError::message(
+            "Enter a valid Git tag name",
+        ));
     }
 
     Ok(())
 }
 
-fn run_git_text_command(repo_path: &str, args: &[&str], fallback: &str) -> Result<String, String> {
+fn run_git_text_command(
+    repo_path: &str,
+    args: &[&str],
+    fallback: &str,
+) -> RepositoryActionsResult<String> {
     let output = git_command()
         .args(["-C", repo_path])
         .args(args)
         .output()
-        .map_err(|error| format!("Failed to run git command: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("run git command", error))?;
 
     if !output.status.success() {
-        return Err(git_error_message(&output.stderr, fallback));
+        return Err(RepositoryActionsError::message(git_error_message(
+            &output.stderr,
+            fallback,
+        )));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn build_commit_message_text(summary: &str, description: &str) -> Result<String, String> {
+fn run_gh_repo_create(
+    repo_path: &str,
+    publish_name: &str,
+    visibility_flag: &str,
+) -> RepositoryActionsResult<()> {
+    let mut command = background_command("gh");
+    let publish_output = command
+        .current_dir(repo_path)
+        .env("GH_PROMPT_DISABLED", "1")
+        .args([
+            "repo",
+            "create",
+            publish_name,
+            "--source",
+            ".",
+            "--remote",
+            "origin",
+            visibility_flag,
+            "--push",
+        ])
+        .output()
+        .map_err(|error| RepositoryActionsError::io("run gh repo create", error))?;
+
+    if !publish_output.status.success() {
+        let stderr = String::from_utf8_lossy(&publish_output.stderr)
+            .trim()
+            .to_string();
+        let stdout = String::from_utf8_lossy(&publish_output.stdout)
+            .trim()
+            .to_string();
+
+        return Err(RepositoryActionsError::message(if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "Failed to publish repository with GitHub CLI".to_string()
+        }));
+    }
+
+    Ok(())
+}
+
+fn resolve_current_branch_name(repo_path: &str) -> RepositoryActionsResult<String> {
+    let branch_name = run_git_text_command(
+        repo_path,
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+        "Failed to resolve current branch",
+    )?;
+
+    if branch_name.is_empty() || branch_name == "HEAD" {
+        return Err(RepositoryActionsError::message(
+            "Cannot push from detached HEAD",
+        ));
+    }
+
+    Ok(branch_name)
+}
+
+fn repository_has_any_remote(repo_path: &str) -> RepositoryActionsResult<bool> {
+    let remote_output = git_command()
+        .args(["-C", repo_path, "remote"])
+        .output()
+        .map_err(|error| RepositoryActionsError::io("read repository remotes", error))?;
+
+    if !remote_output.status.success() {
+        return Err(RepositoryActionsError::message(git_error_message(
+            &remote_output.stderr,
+            "Failed to read repository remotes",
+        )));
+    }
+
+    Ok(String::from_utf8_lossy(&remote_output.stdout)
+        .lines()
+        .map(str::trim)
+        .any(|remote_name| !remote_name.is_empty()))
+}
+
+fn resolve_origin_remote_missing_on_server(
+    repo_path: &str,
+    command_preferences: &RepoCommandPreferences,
+    state: &State<'_, SettingsState>,
+    has_origin_remote: bool,
+) -> RepositoryActionsResult<bool> {
+    if !has_origin_remote {
+        return Ok(false);
+    }
+
+    let mut health_check_command = git_command();
+    apply_git_preferences(&mut health_check_command, command_preferences, Some(state))
+        .map_err(RepositoryActionsError::message)?;
+
+    let health_check_output = health_check_command
+        .args([
+            "-C",
+            repo_path,
+            "ls-remote",
+            "--exit-code",
+            "origin",
+            "HEAD",
+        ])
+        .output()
+        .map_err(|error| RepositoryActionsError::io("check remote repository health", error))?;
+
+    if health_check_output.status.success() {
+        return Ok(false);
+    }
+
+    let stderr = String::from_utf8_lossy(&health_check_output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&health_check_output.stdout).to_string();
+
+    Ok(is_missing_remote_repository_message(&stderr)
+        || is_missing_remote_repository_message(&stdout))
+}
+
+fn publish_repository_from_request(
+    repo_path: &str,
+    publish_repo_name: Option<&str>,
+    publish_visibility: Option<&str>,
+    missing_remote_message: &str,
+) -> RepositoryActionsResult<()> {
+    let publish_name = publish_repo_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| RepositoryActionsError::message(missing_remote_message))?;
+
+    validate_repository_name(publish_name).map_err(RepositoryActionsError::message)?;
+
+    let visibility_flag = resolve_publish_visibility_flag(publish_visibility);
+    run_gh_repo_create(repo_path, publish_name, visibility_flag)
+}
+
+fn resolve_upstream_ref(repo_path: &str) -> RepositoryActionsResult<Option<String>> {
+    let upstream_output = git_command()
+        .args([
+            "-C",
+            repo_path,
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}",
+        ])
+        .output()
+        .map_err(|error| RepositoryActionsError::io("check branch upstream", error))?;
+
+    if !upstream_output.status.success() {
+        return Ok(None);
+    }
+
+    let upstream_ref = String::from_utf8_lossy(&upstream_output.stdout)
+        .trim()
+        .to_string();
+
+    if upstream_ref.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(upstream_ref))
+    }
+}
+
+fn run_git_push(
+    repo_path: &str,
+    command_preferences: &RepoCommandPreferences,
+    state: &State<'_, SettingsState>,
+    push_plan: &PushUpstreamPlan,
+    branch_name: &str,
+    should_force_with_lease: bool,
+) -> RepositoryActionsResult<()> {
+    let mut command = git_command();
+    apply_git_preferences(&mut command, command_preferences, Some(state))
+        .map_err(RepositoryActionsError::message)?;
+
+    command.args(["-C", repo_path, "push"]);
+
+    if should_force_with_lease {
+        command.arg("--force-with-lease");
+    }
+
+    if push_plan.should_set_upstream {
+        command.args(["-u", push_plan.remote_name.as_str(), branch_name]);
+    }
+
+    let push_output = command
+        .output()
+        .map_err(|error| RepositoryActionsError::io("run git push", error))?;
+
+    if !push_output.status.success() {
+        return Err(RepositoryActionsError::message(git_error_message(
+            &push_output.stderr,
+            "Failed to push branch",
+        )));
+    }
+
+    Ok(())
+}
+
+fn build_commit_message_text(summary: &str, description: &str) -> RepositoryActionsResult<String> {
     let summary_trimmed = summary.trim();
 
     if summary_trimmed.is_empty() {
-        return Err("Commit summary is required".to_string());
+        return Err(RepositoryActionsError::message(
+            "Commit summary is required",
+        ));
     }
 
     let description_trimmed = description.trim();
@@ -130,7 +410,7 @@ fn verify_commit_on_head_ancestry_path(
     repo_path: &str,
     target: &str,
     head_hash: &str,
-) -> Result<(), String> {
+) -> RepositoryActionsResult<()> {
     let ancestor_output = git_command()
         .args([
             "-C",
@@ -141,16 +421,18 @@ fn verify_commit_on_head_ancestry_path(
             head_hash,
         ])
         .output()
-        .map_err(|error| format!("Failed to verify commit ancestry: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("verify commit ancestry", error))?;
 
     if !ancestor_output.status.success() {
-        return Err("The selected commit is not on the current HEAD ancestry path.".to_string());
+        return Err(RepositoryActionsError::message(
+            "The selected commit is not on the current HEAD ancestry path.",
+        ));
     }
 
     Ok(())
 }
 
-fn collect_head_descendants(repo_path: &str, target: &str) -> Result<Vec<String>, String> {
+fn collect_head_descendants(repo_path: &str, target: &str) -> RepositoryActionsResult<Vec<String>> {
     let descendants_output = run_git_text_command(
         repo_path,
         &[
@@ -170,11 +452,11 @@ fn collect_head_descendants(repo_path: &str, target: &str) -> Result<Vec<String>
         .collect())
 }
 
-fn resolve_current_head_ref(repo_path: &str) -> Result<String, String> {
+fn resolve_current_head_ref(repo_path: &str) -> RepositoryActionsResult<String> {
     let current_head_ref_output = git_command()
         .args(["-C", repo_path, "symbolic-ref", "-q", "HEAD"])
         .output()
-        .map_err(|error| format!("Failed to read current branch ref: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("read current branch ref", error))?;
 
     if current_head_ref_output.status.success() {
         let value = String::from_utf8_lossy(&current_head_ref_output.stdout)
@@ -193,7 +475,7 @@ fn update_rewritten_history_head(
     repo_path: &str,
     head_hash: &str,
     next_head_hash: &str,
-) -> Result<(), String> {
+) -> RepositoryActionsResult<()> {
     let update_ref_target = resolve_current_head_ref(repo_path)?;
     let update_ref_output = git_command()
         .args([
@@ -205,14 +487,14 @@ fn update_rewritten_history_head(
             head_hash,
         ])
         .output()
-        .map_err(|error| format!("Failed to update rewritten history: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("update rewritten history", error))?;
 
     if !update_ref_output.status.success() {
-        return Err(git_process_error_message(
+        return Err(RepositoryActionsError::message(git_process_error_message(
             &update_ref_output.stdout,
             &update_ref_output.stderr,
             "Failed to update rewritten history",
-        ));
+        )));
     }
 
     let _ = git_command()
@@ -225,7 +507,7 @@ fn update_rewritten_history_head(
 fn read_commit_rewrite_metadata(
     repo_path: &str,
     commit_hash: &str,
-) -> Result<CommitRewriteMetadata, String> {
+) -> RepositoryActionsResult<CommitRewriteMetadata> {
     let output = git_command()
         .args([
             "-C",
@@ -236,13 +518,13 @@ fn read_commit_rewrite_metadata(
             commit_hash,
         ])
         .output()
-        .map_err(|error| format!("Failed to read commit metadata: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("read commit metadata", error))?;
 
     if !output.status.success() {
-        return Err(git_error_message(
+        return Err(RepositoryActionsError::message(git_error_message(
             &output.stderr,
             "Failed to read commit metadata",
-        ));
+        )));
     }
 
     let mut fields = output.stdout.splitn(9, |byte| *byte == b'\0');
@@ -251,7 +533,7 @@ fn read_commit_rewrite_metadata(
         .map(String::from_utf8_lossy)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "Commit metadata did not include a tree".to_string())?;
+        .ok_or_else(|| RepositoryActionsError::message("Commit metadata did not include a tree"))?;
     let parents = fields
         .next()
         .map(String::from_utf8_lossy)
@@ -266,37 +548,51 @@ fn read_commit_rewrite_metadata(
         .next()
         .map(String::from_utf8_lossy)
         .map(|value| value.to_string())
-        .ok_or_else(|| "Commit metadata did not include an author name".to_string())?;
+        .ok_or_else(|| {
+            RepositoryActionsError::message("Commit metadata did not include an author name")
+        })?;
     let author_email = fields
         .next()
         .map(String::from_utf8_lossy)
         .map(|value| value.to_string())
-        .ok_or_else(|| "Commit metadata did not include an author email".to_string())?;
+        .ok_or_else(|| {
+            RepositoryActionsError::message("Commit metadata did not include an author email")
+        })?;
     let author_date = fields
         .next()
         .map(String::from_utf8_lossy)
         .map(|value| value.to_string())
-        .ok_or_else(|| "Commit metadata did not include an author date".to_string())?;
+        .ok_or_else(|| {
+            RepositoryActionsError::message("Commit metadata did not include an author date")
+        })?;
     let committer_name = fields
         .next()
         .map(String::from_utf8_lossy)
         .map(|value| value.to_string())
-        .ok_or_else(|| "Commit metadata did not include a committer name".to_string())?;
+        .ok_or_else(|| {
+            RepositoryActionsError::message("Commit metadata did not include a committer name")
+        })?;
     let committer_email = fields
         .next()
         .map(String::from_utf8_lossy)
         .map(|value| value.to_string())
-        .ok_or_else(|| "Commit metadata did not include a committer email".to_string())?;
+        .ok_or_else(|| {
+            RepositoryActionsError::message("Commit metadata did not include a committer email")
+        })?;
     let committer_date = fields
         .next()
         .map(String::from_utf8_lossy)
         .map(|value| value.to_string())
-        .ok_or_else(|| "Commit metadata did not include a committer date".to_string())?;
+        .ok_or_else(|| {
+            RepositoryActionsError::message("Commit metadata did not include a committer date")
+        })?;
     let message = fields
         .next()
         .map(String::from_utf8_lossy)
         .map(|value| value.to_string())
-        .ok_or_else(|| "Commit metadata did not include a commit message".to_string())?;
+        .ok_or_else(|| {
+            RepositoryActionsError::message("Commit metadata did not include a commit message")
+        })?;
 
     Ok(CommitRewriteMetadata {
         author_date,
@@ -316,7 +612,7 @@ fn create_rewritten_commit(
     metadata: &CommitRewriteMetadata,
     parents: &[String],
     message: &str,
-) -> Result<String, String> {
+) -> RepositoryActionsResult<String> {
     let mut command = git_command();
     command.args(["-C", repo_path, "commit-tree", &metadata.tree]);
 
@@ -337,61 +633,84 @@ fn create_rewritten_commit(
 
     let mut child = command
         .spawn()
-        .map_err(|error| format!("Failed to spawn git commit-tree: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("spawn git commit-tree", error))?;
 
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(message.as_bytes())
-            .map_err(|error| format!("Failed to write commit message: {error}"))?;
+            .map_err(|error| RepositoryActionsError::io("write commit message", error))?;
     }
 
     let output = child
         .wait_with_output()
-        .map_err(|error| format!("Failed to finish git commit-tree: {error}"))?;
+        .map_err(|error| RepositoryActionsError::io("finish git commit-tree", error))?;
 
     if !output.status.success() {
-        return Err(git_process_error_message(
+        return Err(RepositoryActionsError::message(git_process_error_message(
             &output.stdout,
             &output.stderr,
             "Failed to rewrite commit",
-        ));
+        )));
     }
 
     let rewritten_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     if rewritten_hash.is_empty() {
-        return Err("Git did not return a rewritten commit hash".to_string());
+        return Err(RepositoryActionsError::message(
+            "Git did not return a rewritten commit hash",
+        ));
     }
 
     Ok(rewritten_hash)
 }
 
-#[tauri::command]
-pub(crate) fn checkout_repository_commit(repo_path: String, target: String) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
-
-    let trimmed_target = target.trim();
-
-    if trimmed_target.is_empty() {
-        return Err("Target reference is required".to_string());
-    }
-
-    let output = git_command()
-        .args(["-C", &repo_path, "switch", "--detach", trimmed_target])
-        .output()
-        .map_err(|error| format!("Failed to run git switch --detach: {error}"))?;
-
-    if !output.status.success() {
-        return Err(git_error_message(
-            &output.stderr,
-            "Failed to checkout commit",
-        ));
-    }
-
-    Ok(())
+fn resolve_rewritten_parent_hash(
+    rewritten_by_original: &HashMap<String, String>,
+    parent: &str,
+) -> String {
+    rewritten_by_original
+        .get(parent)
+        .cloned()
+        .unwrap_or_else(|| parent.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Checks out a commit in detached HEAD mode.
+pub(crate) fn checkout_repository_commit(repo_path: String, target: String) -> Result<(), String> {
+    (|| -> RepositoryActionsResult<()> {
+        ensure_repo(&repo_path)?;
+
+        let trimmed_target = target.trim();
+
+        if trimmed_target.is_empty() {
+            return Err(RepositoryActionsError::message(
+                "Target reference is required",
+            ));
+        }
+
+        let output = git_command()
+            .args(["-C", &repo_path, "switch", "--detach", trimmed_target])
+            .output()
+            .map_err(|error| RepositoryActionsError::io("run git switch --detach", error))?;
+
+        if !output.status.success() {
+            return Err(RepositoryActionsError::message(git_error_message(
+                &output.stderr,
+                "Failed to checkout commit",
+            )));
+        }
+
+        Ok(())
+    })()
+    .map_err(|error| error.to_string())
+}
+
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
+#[tauri::command]
+/// Pushes the current branch and can publish a repository when no remote exists.
 pub(crate) fn push_repository_branch(
     state: State<'_, SettingsState>,
     repo_path: String,
@@ -400,343 +719,141 @@ pub(crate) fn push_repository_branch(
     publish_repo_name: Option<String>,
     publish_visibility: Option<String>,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
-    let command_preferences = preferences.unwrap_or_default();
-    let _network_operation = begin_network_operation(&state, &repo_path)?;
+    (|| -> RepositoryActionsResult<()> {
+        ensure_repo(&repo_path)?;
+        let command_preferences = preferences.unwrap_or_default();
+        let _network_operation = begin_network_operation(&state, &repo_path)
+            .map_err(RepositoryActionsError::message)?;
+        let branch_name = resolve_current_branch_name(&repo_path)?;
+        let has_any_remote = repository_has_any_remote(&repo_path)?;
 
-    let branch_output = git_command()
-        .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
-
-    if !branch_output.status.success() {
-        return Err(git_error_message(
-            &branch_output.stderr,
-            "Failed to resolve current branch",
-        ));
-    }
-
-    let branch_name = String::from_utf8_lossy(&branch_output.stdout)
-        .trim()
-        .to_string();
-
-    if branch_name.is_empty() || branch_name == "HEAD" {
-        return Err("Cannot push from detached HEAD".to_string());
-    }
-
-    let remote_output = git_command()
-        .args(["-C", &repo_path, "remote"])
-        .output()
-        .map_err(|error| format!("Failed to read repository remotes: {error}"))?;
-
-    if !remote_output.status.success() {
-        return Err(git_error_message(
-            &remote_output.stderr,
-            "Failed to read repository remotes",
-        ));
-    }
-
-    let has_any_remote = String::from_utf8_lossy(&remote_output.stdout)
-        .lines()
-        .map(str::trim)
-        .any(|remote_name| !remote_name.is_empty());
-
-    if !has_any_remote {
-        let publish_name = publish_repo_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                "No remote is configured. Publish this repository before pushing.".to_string()
-            })?;
-
-        validate_repository_name(publish_name)?;
-
-        let visibility_flag = resolve_publish_visibility_flag(publish_visibility.as_deref());
-
-        let mut command = background_command("gh");
-        let publish_output = command
-            .current_dir(&repo_path)
-            .env("GH_PROMPT_DISABLED", "1")
-            .args([
-                "repo",
-                "create",
-                publish_name,
-                "--source",
-                ".",
-                "--remote",
-                "origin",
-                visibility_flag,
-                "--push",
-            ])
-            .output()
-            .map_err(|error| format!("Failed to run gh repo create: {error}"))?;
-
-        if !publish_output.status.success() {
-            let stderr = String::from_utf8_lossy(&publish_output.stderr)
-                .trim()
-                .to_string();
-            let stdout = String::from_utf8_lossy(&publish_output.stdout)
-                .trim()
-                .to_string();
-
-            return Err(if !stderr.is_empty() {
-                stderr
-            } else if !stdout.is_empty() {
-                stdout
-            } else {
-                "Failed to publish repository with GitHub CLI".to_string()
-            });
+        if !has_any_remote {
+            publish_repository_from_request(
+                &repo_path,
+                publish_repo_name.as_deref(),
+                publish_visibility.as_deref(),
+                "No remote is configured. Publish this repository before pushing.",
+            )?;
+            return Ok(());
         }
 
-        return Ok(());
-    }
+        let origin_remote_output = git_command()
+            .args(["-C", &repo_path, "remote", "get-url", "origin"])
+            .output()
+            .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?;
 
-    let origin_remote_output = git_command()
-        .args(["-C", &repo_path, "remote", "get-url", "origin"])
-        .output()
-        .map_err(|error| format!("Failed to verify origin remote: {error}"))?;
-
-    let has_origin_remote = origin_remote_output.status.success();
-
-    let origin_remote_missing_on_server = if has_origin_remote {
-        let mut health_check_command = git_command();
-        apply_git_preferences(
-            &mut health_check_command,
+        let has_origin_remote = origin_remote_output.status.success();
+        let origin_remote_missing_on_server = resolve_origin_remote_missing_on_server(
+            &repo_path,
             &command_preferences,
-            Some(&state),
+            &state,
+            has_origin_remote,
         )?;
 
-        let health_check_output = health_check_command
-            .args([
-                "-C",
+        if origin_remote_missing_on_server {
+            let remove_origin_output = git_command()
+                .args(["-C", &repo_path, "remote", "remove", "origin"])
+                .output()
+                .map_err(|error| RepositoryActionsError::io("remove stale origin remote", error))?;
+
+            if !remove_origin_output.status.success() {
+                return Err(RepositoryActionsError::message(git_error_message(
+                    &remove_origin_output.stderr,
+                    "Failed to remove stale origin remote",
+                )));
+            }
+
+            publish_repository_from_request(
                 &repo_path,
-                "ls-remote",
-                "--exit-code",
-                "origin",
-                "HEAD",
-            ])
-            .output()
-            .map_err(|error| format!("Failed to check remote repository health: {error}"))?;
-
-        if health_check_output.status.success() {
-            false
-        } else {
-            let stderr = String::from_utf8_lossy(&health_check_output.stderr).to_string();
-            let stdout = String::from_utf8_lossy(&health_check_output.stdout).to_string();
-
-            is_missing_remote_repository_message(&stderr)
-                || is_missing_remote_repository_message(&stdout)
-        }
-    } else {
-        false
-    };
-
-    if origin_remote_missing_on_server {
-        let publish_name = publish_repo_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                "Remote repository for 'origin' was not found. Publish this repository to recreate it before pushing."
-                    .to_string()
-            })?;
-
-        validate_repository_name(publish_name)?;
-
-        let visibility_flag = resolve_publish_visibility_flag(publish_visibility.as_deref());
-
-        let remove_origin_output = git_command()
-            .args(["-C", &repo_path, "remote", "remove", "origin"])
-            .output()
-            .map_err(|error| format!("Failed to remove stale origin remote: {error}"))?;
-
-        if !remove_origin_output.status.success() {
-            return Err(git_error_message(
-                &remove_origin_output.stderr,
-                "Failed to remove stale origin remote",
-            ));
+                publish_repo_name.as_deref(),
+                publish_visibility.as_deref(),
+                "Remote repository for 'origin' was not found. Publish this repository to recreate it before pushing.",
+            )?;
+            return Ok(());
         }
 
-        let mut command = background_command("gh");
-        let publish_output = command
-            .current_dir(&repo_path)
-            .env("GH_PROMPT_DISABLED", "1")
-            .args([
-                "repo",
-                "create",
-                publish_name,
-                "--source",
-                ".",
-                "--remote",
-                "origin",
-                visibility_flag,
-                "--push",
-            ])
-            .output()
-            .map_err(|error| format!("Failed to run gh repo create: {error}"))?;
+        let upstream_ref = resolve_upstream_ref(&repo_path)?;
+        let push_plan =
+            resolve_push_upstream_plan(&branch_name, upstream_ref.as_deref(), has_origin_remote)?;
+        let should_force_with_lease = force_with_lease == Some(true);
 
-        if !publish_output.status.success() {
-            let stderr = String::from_utf8_lossy(&publish_output.stderr)
-                .trim()
-                .to_string();
-            let stdout = String::from_utf8_lossy(&publish_output.stdout)
-                .trim()
-                .to_string();
-
-            return Err(if !stderr.is_empty() {
-                stderr
-            } else if !stdout.is_empty() {
-                stdout
-            } else {
-                "Failed to publish repository with GitHub CLI".to_string()
-            });
-        }
-
-        return Ok(());
-    }
-
-    let upstream_output = git_command()
-        .args([
-            "-C",
+        run_git_push(
             &repo_path,
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{u}",
-        ])
-        .output()
-        .map_err(|error| format!("Failed to check branch upstream: {error}"))?;
-
-    let upstream_ref = if upstream_output.status.success() {
-        let value = String::from_utf8_lossy(&upstream_output.stdout)
-            .trim()
-            .to_string();
-
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
-    } else {
-        None
-    };
-
-    let upstream_remote_and_branch = upstream_ref
-        .as_deref()
-        .and_then(|value| value.strip_prefix("refs/remotes/"))
-        .and_then(|value| value.split_once('/'));
-
-    let upstream_remote_name = upstream_remote_and_branch
-        .map(|(remote_name, _)| remote_name.to_string())
-        .unwrap_or_else(|| "origin".to_string());
-    let upstream_branch_name =
-        upstream_remote_and_branch.map(|(_, remote_branch_name)| remote_branch_name);
-    let upstream_matches_current_branch =
-        upstream_branch_name.is_some_and(|remote_branch_name| remote_branch_name == branch_name);
-    let should_set_upstream = upstream_ref.is_none() || !upstream_matches_current_branch;
-
-    let should_force_with_lease = force_with_lease == Some(true);
-
-    let push_output = if should_set_upstream {
-        if upstream_ref.is_none() && !has_origin_remote {
-            return Err(
-                "No upstream branch found and remote 'origin' is not configured".to_string(),
-            );
-        }
-
-        let mut command = git_command();
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
-
-        command.args(["-C", &repo_path, "push"]);
-
-        if should_force_with_lease {
-            command.arg("--force-with-lease");
-        }
-
-        command
-            .args(["-u", &upstream_remote_name, &branch_name])
-            .output()
-            .map_err(|error| format!("Failed to run git push: {error}"))?
-    } else {
-        let mut command = git_command();
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
-
-        command.args(["-C", &repo_path, "push"]);
-
-        if should_force_with_lease {
-            command.arg("--force-with-lease");
-        }
-
-        command
-            .output()
-            .map_err(|error| format!("Failed to run git push: {error}"))?
-    };
-
-    if !push_output.status.success() {
-        return Err(git_error_message(
-            &push_output.stderr,
-            "Failed to push branch",
-        ));
-    }
-
-    Ok(())
+            &command_preferences,
+            &state,
+            &push_plan,
+            &branch_name,
+            should_force_with_lease,
+        )
+    })()
+    .map_err(|error| error.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Runs pull/fetch action modes and reports whether HEAD changed.
 pub(crate) fn pull_repository_action(
     state: State<'_, SettingsState>,
     repo_path: String,
     mode: String,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<PullActionResult, String> {
-    validate_git_repo(Path::new(&repo_path))?;
-    let command_preferences = preferences.unwrap_or_default();
-    let _network_operation = begin_network_operation(&state, &repo_path)?;
+    (|| -> RepositoryActionsResult<PullActionResult> {
+        ensure_repo(&repo_path)?;
+        let command_preferences = preferences.unwrap_or_default();
+        let _network_operation =
+            begin_network_operation(&state, &repo_path).map_err(RepositoryActionsError::message)?;
 
-    let head_before = resolve_head_hash(&repo_path)?;
+        let head_before = resolve_head_hash(&repo_path)?;
 
-    let mut pull_command = git_command();
-    pull_command.args(["-C", &repo_path]);
-    apply_git_preferences(&mut pull_command, &command_preferences, Some(&state))?;
+        let mut pull_command = git_command();
+        pull_command.args(["-C", &repo_path]);
+        apply_git_preferences(&mut pull_command, &command_preferences, Some(&state))
+            .map_err(RepositoryActionsError::message)?;
 
-    match mode.as_str() {
-        "fetch-all" => {
-            pull_command.args(["fetch", "--all", "--prune"]);
+        match mode.as_str() {
+            "fetch-all" => {
+                pull_command.args(["fetch", "--all", "--prune"]);
+            }
+            "pull-ff-possible" => {
+                pull_command.arg("pull");
+            }
+            "pull-ff-only" => {
+                pull_command.args(["pull", "--ff-only"]);
+            }
+            "pull-rebase" => {
+                pull_command.args(["pull", "--rebase"]);
+            }
+            _ => {
+                return Err(RepositoryActionsError::message("Unsupported pull mode"));
+            }
         }
-        "pull-ff-possible" => {
-            pull_command.arg("pull");
-        }
-        "pull-ff-only" => {
-            pull_command.args(["pull", "--ff-only"]);
-        }
-        "pull-rebase" => {
-            pull_command.args(["pull", "--rebase"]);
-        }
-        _ => {
-            return Err("Unsupported pull mode".to_string());
-        }
-    }
 
-    let output = pull_command
-        .output()
-        .map_err(|error| format!("Failed to run git pull/fetch: {error}"))?;
+        let output = pull_command
+            .output()
+            .map_err(|error| RepositoryActionsError::io("run git pull/fetch", error))?;
 
-    if !output.status.success() {
-        return Err(git_error_message(
-            &output.stderr,
-            "Failed to execute pull action",
-        ));
-    }
+        if !output.status.success() {
+            return Err(RepositoryActionsError::message(git_error_message(
+                &output.stderr,
+                "Failed to execute pull action",
+            )));
+        }
 
-    let head_after = resolve_head_hash(&repo_path)?;
+        let head_after = resolve_head_hash(&repo_path)?;
 
-    Ok(PullActionResult {
-        head_changed: head_before != head_after,
-    })
+        Ok(PullActionResult {
+            head_changed: head_before != head_after,
+        })
+    })()
+    .map_err(|error| error.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Runs merge, fast-forward-only merge, or rebase against a target reference.
 pub(crate) fn run_repository_merge_action(
     state: State<'_, SettingsState>,
     repo_path: String,
@@ -744,157 +861,186 @@ pub(crate) fn run_repository_merge_action(
     target_ref: String,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<MergeActionResult, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    (|| -> RepositoryActionsResult<MergeActionResult> {
+        ensure_repo(&repo_path)?;
 
-    let trimmed_target_ref = target_ref.trim();
+        let trimmed_target_ref = target_ref.trim();
 
-    if trimmed_target_ref.is_empty() {
-        return Err("A target reference is required".to_string());
-    }
-
-    let target_resolution = format!("{trimmed_target_ref}^{{commit}}");
-    let target_exists = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &target_resolution,
-        ])
-        .status()
-        .map_err(|error| format!("Failed to resolve target reference: {error}"))?
-        .success();
-
-    if !target_exists {
-        return Err(format!(
-            "The target reference '{trimmed_target_ref}' could not be resolved"
-        ));
-    }
-
-    let current_branch_output = git_command()
-        .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|error| format!("Failed to inspect current branch: {error}"))?;
-
-    if !current_branch_output.status.success() {
-        return Err(git_error_message(
-            &current_branch_output.stderr,
-            "Failed to inspect current branch",
-        ));
-    }
-
-    let current_branch_name = String::from_utf8_lossy(&current_branch_output.stdout)
-        .trim()
-        .to_string();
-
-    if current_branch_name == "HEAD" {
-        return Err(
-            "This action requires a checked out branch. Exit detached HEAD and try again."
-                .to_string(),
-        );
-    }
-
-    let command_preferences = preferences.unwrap_or_default();
-    let head_before = resolve_head_hash(&repo_path)?;
-
-    let mut command = git_command();
-    command.args(["-C", &repo_path]);
-    apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
-
-    match mode.as_str() {
-        "ff-only" => {
-            command.args(["merge", "--ff-only", trimmed_target_ref]);
+        if trimmed_target_ref.is_empty() {
+            return Err(RepositoryActionsError::message(
+                "A target reference is required",
+            ));
         }
-        "merge" => {
-            command.args(["merge", trimmed_target_ref]);
+
+        let target_resolution = format!("{trimmed_target_ref}^{{commit}}");
+        let target_exists = git_command()
+            .args([
+                "-C",
+                &repo_path,
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &target_resolution,
+            ])
+            .status()
+            .map_err(|error| RepositoryActionsError::io("resolve target reference", error))?
+            .success();
+
+        if !target_exists {
+            return Err(RepositoryActionsError::message(format!(
+                "The target reference '{trimmed_target_ref}' could not be resolved"
+            )));
         }
-        "rebase" => {
-            command.args(["rebase", trimmed_target_ref]);
+
+        let current_branch_output = git_command()
+            .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .map_err(|error| RepositoryActionsError::io("inspect current branch", error))?;
+
+        if !current_branch_output.status.success() {
+            return Err(RepositoryActionsError::message(git_error_message(
+                &current_branch_output.stderr,
+                "Failed to inspect current branch",
+            )));
         }
-        _ => {
-            return Err("Unsupported merge action mode".to_string());
+
+        let current_branch_name = String::from_utf8_lossy(&current_branch_output.stdout)
+            .trim()
+            .to_string();
+
+        if current_branch_name == "HEAD" {
+            return Err(RepositoryActionsError::message(
+                "This action requires a checked out branch. Exit detached HEAD and try again.",
+            ));
         }
-    }
 
-    let output = command
-        .output()
-        .map_err(|error| format!("Failed to run merge action: {error}"))?;
+        let command_preferences = preferences.unwrap_or_default();
+        let head_before = resolve_head_hash(&repo_path)?;
 
-    if !output.status.success() {
-        let fallback_message = match mode.as_str() {
-            "ff-only" => "Failed to fast-forward branch",
-            "merge" => "Failed to merge branch",
-            "rebase" => "Failed to rebase branch",
-            _ => "Failed to run merge action",
-        };
+        let mut command = git_command();
+        command.args(["-C", &repo_path]);
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))
+            .map_err(RepositoryActionsError::message)?;
 
-        return Err(git_error_message(&output.stderr, fallback_message));
-    }
+        match mode.as_str() {
+            "ff-only" => {
+                command.args(["merge", "--ff-only", trimmed_target_ref]);
+            }
+            "merge" => {
+                command.args(["merge", trimmed_target_ref]);
+            }
+            "rebase" => {
+                command.args(["rebase", trimmed_target_ref]);
+            }
+            _ => {
+                return Err(RepositoryActionsError::message(
+                    "Unsupported merge action mode",
+                ));
+            }
+        }
 
-    let head_after = resolve_head_hash(&repo_path)?;
+        let output = command
+            .output()
+            .map_err(|error| RepositoryActionsError::io("run merge action", error))?;
 
-    Ok(MergeActionResult {
-        head_changed: head_before != head_after,
-    })
+        if !output.status.success() {
+            let fallback_message = match mode.as_str() {
+                "ff-only" => "Failed to fast-forward branch",
+                "merge" => "Failed to merge branch",
+                "rebase" => "Failed to rebase branch",
+                _ => "Failed to run merge action",
+            };
+
+            return Err(RepositoryActionsError::message(git_error_message(
+                &output.stderr,
+                fallback_message,
+            )));
+        }
+
+        let head_after = resolve_head_hash(&repo_path)?;
+
+        Ok(MergeActionResult {
+            head_changed: head_before != head_after,
+        })
+    })()
+    .map_err(|error| error.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Cherry-picks a commit onto the current branch.
 pub(crate) fn cherry_pick_repository_commit(
     repo_path: String,
     target: String,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    (|| -> RepositoryActionsResult<()> {
+        ensure_repo(&repo_path)?;
 
-    let trimmed_target = target.trim();
+        let trimmed_target = target.trim();
 
-    if trimmed_target.is_empty() {
-        return Err("Target reference is required".to_string());
-    }
+        if trimmed_target.is_empty() {
+            return Err(RepositoryActionsError::message(
+                "Target reference is required",
+            ));
+        }
 
-    let output = git_command()
-        .args(["-C", &repo_path, "cherry-pick", trimmed_target])
-        .output()
-        .map_err(|error| format!("Failed to run git cherry-pick: {error}"))?;
+        let output = git_command()
+            .args(["-C", &repo_path, "cherry-pick", trimmed_target])
+            .output()
+            .map_err(|error| RepositoryActionsError::io("run git cherry-pick", error))?;
 
-    if !output.status.success() {
-        return Err(git_process_error_message(
-            &output.stdout,
-            &output.stderr,
-            "Failed to cherry-pick commit",
-        ));
-    }
+        if !output.status.success() {
+            return Err(RepositoryActionsError::message(git_process_error_message(
+                &output.stdout,
+                &output.stderr,
+                "Failed to cherry-pick commit",
+            )));
+        }
 
-    Ok(())
+        Ok(())
+    })()
+    .map_err(|error| error.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Reverts a commit with `--no-edit`.
 pub(crate) fn revert_repository_commit(repo_path: String, target: String) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    (|| -> RepositoryActionsResult<()> {
+        ensure_repo(&repo_path)?;
 
-    let trimmed_target = target.trim();
+        let trimmed_target = target.trim();
 
-    if trimmed_target.is_empty() {
-        return Err("Target reference is required".to_string());
-    }
+        if trimmed_target.is_empty() {
+            return Err(RepositoryActionsError::message(
+                "Target reference is required",
+            ));
+        }
 
-    let output = git_command()
-        .args(["-C", &repo_path, "revert", "--no-edit", trimmed_target])
-        .output()
-        .map_err(|error| format!("Failed to run git revert: {error}"))?;
+        let output = git_command()
+            .args(["-C", &repo_path, "revert", "--no-edit", trimmed_target])
+            .output()
+            .map_err(|error| RepositoryActionsError::io("run git revert", error))?;
 
-    if !output.status.success() {
-        return Err(git_process_error_message(
-            &output.stdout,
-            &output.stderr,
-            "Failed to revert commit",
-        ));
-    }
+        if !output.status.success() {
+            return Err(RepositoryActionsError::message(git_process_error_message(
+                &output.stdout,
+                &output.stderr,
+                "Failed to revert commit",
+            )));
+        }
 
-    Ok(())
+        Ok(())
+    })()
+    .map_err(|error| error.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Creates lightweight or annotated tags at a target reference.
 pub(crate) fn create_repository_tag(
     repo_path: String,
     tag_name: String,
@@ -902,207 +1048,223 @@ pub(crate) fn create_repository_tag(
     annotated: Option<bool>,
     annotation_message: Option<String>,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    (|| -> RepositoryActionsResult<()> {
+        ensure_repo(&repo_path)?;
 
-    let trimmed_tag_name = tag_name.trim();
-    let trimmed_target = target.trim();
+        let trimmed_tag_name = tag_name.trim();
+        let trimmed_target = target.trim();
 
-    if trimmed_tag_name.is_empty() {
-        return Err("Tag name is required".to_string());
-    }
+        if trimmed_tag_name.is_empty() {
+            return Err(RepositoryActionsError::message("Tag name is required"));
+        }
 
-    if trimmed_target.is_empty() {
-        return Err("Target reference is required".to_string());
-    }
+        if trimmed_target.is_empty() {
+            return Err(RepositoryActionsError::message(
+                "Target reference is required",
+            ));
+        }
 
-    validate_tag_name(trimmed_tag_name)?;
+        validate_tag_name(trimmed_tag_name)?;
 
-    let is_annotated = annotated.unwrap_or(false);
-    let resolved_annotation_message = annotation_message
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(trimmed_tag_name);
+        let is_annotated = annotated.unwrap_or(false);
+        let resolved_annotation_message = annotation_message
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(trimmed_tag_name);
 
-    let output = if is_annotated {
-        git_command()
-            .args([
-                "-C",
-                &repo_path,
-                "tag",
-                "-a",
-                trimmed_tag_name,
-                trimmed_target,
-                "-m",
-                resolved_annotation_message,
-            ])
-            .output()
-            .map_err(|error| format!("Failed to run git tag -a: {error}"))?
-    } else {
-        git_command()
-            .args(["-C", &repo_path, "tag", trimmed_tag_name, trimmed_target])
-            .output()
-            .map_err(|error| format!("Failed to run git tag: {error}"))?
-    };
+        let output = if is_annotated {
+            git_command()
+                .args([
+                    "-C",
+                    &repo_path,
+                    "tag",
+                    "-a",
+                    trimmed_tag_name,
+                    trimmed_target,
+                    "-m",
+                    resolved_annotation_message,
+                ])
+                .output()
+                .map_err(|error| RepositoryActionsError::io("run git tag -a", error))?
+        } else {
+            git_command()
+                .args(["-C", &repo_path, "tag", trimmed_tag_name, trimmed_target])
+                .output()
+                .map_err(|error| RepositoryActionsError::io("run git tag", error))?
+        };
 
-    if !output.status.success() {
-        return Err(git_error_message(&output.stderr, "Failed to create tag"));
-    }
+        if !output.status.success() {
+            return Err(RepositoryActionsError::message(git_error_message(
+                &output.stderr,
+                "Failed to create tag",
+            )));
+        }
 
-    Ok(())
+        Ok(())
+    })()
+    .map_err(|error| error.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Rewrites the target commit message and replays descendants on top of rewritten parents.
 pub(crate) fn reword_repository_commit(
     repo_path: String,
     target: String,
     summary: String,
     description: String,
 ) -> Result<RewordRepositoryCommitResult, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    (|| -> RepositoryActionsResult<RewordRepositoryCommitResult> {
+        ensure_repo(&repo_path)?;
 
-    let next_message = build_commit_message_text(&summary, &description)?;
-    let head_hash =
-        run_git_text_command(&repo_path, &["rev-parse", "HEAD"], "Failed to read HEAD")?;
-    verify_commit_on_head_ancestry_path(&repo_path, &target, &head_hash)?;
-    let descendants = collect_head_descendants(&repo_path, &target)?;
-    let mut commits_to_rewrite = vec![target.clone()];
-    commits_to_rewrite.extend(descendants);
+        let next_message = build_commit_message_text(&summary, &description)?;
+        let head_hash =
+            run_git_text_command(&repo_path, &["rev-parse", "HEAD"], "Failed to read HEAD")?;
+        verify_commit_on_head_ancestry_path(&repo_path, &target, &head_hash)?;
+        let descendants = collect_head_descendants(&repo_path, &target)?;
+        let mut commits_to_rewrite = vec![target.clone()];
+        commits_to_rewrite.extend(descendants);
 
-    let mut rewritten_by_original = HashMap::new();
+        let mut rewritten_by_original = HashMap::new();
 
-    for original_hash in &commits_to_rewrite {
-        let metadata = read_commit_rewrite_metadata(&repo_path, original_hash)?;
-        let rewritten_parents = metadata
-            .parents
-            .iter()
-            .map(|parent| {
-                rewritten_by_original
-                    .get(parent)
-                    .cloned()
-                    .unwrap_or_else(|| parent.clone())
-            })
-            .collect::<Vec<_>>();
-        let commit_message = if original_hash == &target {
-            next_message.as_str()
-        } else {
-            metadata.message.as_str()
-        };
-        let rewritten_hash =
-            create_rewritten_commit(&repo_path, &metadata, &rewritten_parents, commit_message)?;
-        rewritten_by_original.insert(original_hash.clone(), rewritten_hash);
-    }
+        for original_hash in &commits_to_rewrite {
+            let metadata = read_commit_rewrite_metadata(&repo_path, original_hash)?;
+            let rewritten_parents = metadata
+                .parents
+                .iter()
+                .map(|parent| resolve_rewritten_parent_hash(&rewritten_by_original, parent))
+                .collect::<Vec<_>>();
+            let commit_message = if original_hash == &target {
+                next_message.as_str()
+            } else {
+                metadata.message.as_str()
+            };
+            let rewritten_hash =
+                create_rewritten_commit(&repo_path, &metadata, &rewritten_parents, commit_message)?;
+            rewritten_by_original.insert(original_hash.clone(), rewritten_hash);
+        }
 
-    let updated_commit_hash = rewritten_by_original
-        .get(&target)
-        .cloned()
-        .ok_or_else(|| "Failed to determine rewritten commit hash".to_string())?;
-    let next_head_hash = rewritten_by_original
-        .get(&head_hash)
-        .cloned()
-        .ok_or_else(|| "Failed to determine rewritten HEAD hash".to_string())?;
-    update_rewritten_history_head(&repo_path, &head_hash, &next_head_hash)?;
+        let updated_commit_hash = rewritten_by_original.get(&target).cloned().ok_or_else(|| {
+            RepositoryActionsError::message("Failed to determine rewritten commit hash")
+        })?;
+        let next_head_hash = rewritten_by_original
+            .get(&head_hash)
+            .cloned()
+            .ok_or_else(|| {
+                RepositoryActionsError::message("Failed to determine rewritten HEAD hash")
+            })?;
+        update_rewritten_history_head(&repo_path, &head_hash, &next_head_hash)?;
 
-    Ok(RewordRepositoryCommitResult {
-        head_hash: next_head_hash,
-        updated_commit_hash,
-    })
+        Ok(RewordRepositoryCommitResult {
+            head_hash: next_head_hash,
+            updated_commit_hash,
+        })
+    })()
+    .map_err(|error| error.to_string())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Drops a commit from the current HEAD ancestry by rewriting descendants.
 pub(crate) fn drop_repository_commit(
     repo_path: String,
     target: String,
 ) -> Result<DropRepositoryCommitResult, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    (|| -> RepositoryActionsResult<DropRepositoryCommitResult> {
+        ensure_repo(&repo_path)?;
 
-    let head_hash =
-        run_git_text_command(&repo_path, &["rev-parse", "HEAD"], "Failed to read HEAD")?;
-    verify_commit_on_head_ancestry_path(&repo_path, &target, &head_hash)?;
+        let head_hash =
+            run_git_text_command(&repo_path, &["rev-parse", "HEAD"], "Failed to read HEAD")?;
+        verify_commit_on_head_ancestry_path(&repo_path, &target, &head_hash)?;
 
-    let target_metadata = read_commit_rewrite_metadata(&repo_path, &target)?;
-    let descendants = collect_head_descendants(&repo_path, &target)?;
-    let first_descendant = descendants.first().cloned();
+        let target_metadata = read_commit_rewrite_metadata(&repo_path, &target)?;
+        let descendants = collect_head_descendants(&repo_path, &target)?;
+        let first_descendant = descendants.first().cloned();
 
-    if descendants.is_empty() && target_metadata.parents.is_empty() {
-        return Err(
-            "The root commit cannot be dropped because it would leave the branch empty."
-                .to_string(),
-        );
-    }
-
-    let mut rewritten_by_original = HashMap::new();
-
-    for original_hash in &descendants {
-        let metadata = read_commit_rewrite_metadata(&repo_path, original_hash)?;
-        let mut rewritten_parents = Vec::new();
-
-        for parent in &metadata.parents {
-            if parent == &target {
-                for target_parent in &target_metadata.parents {
-                    let replacement_parent = rewritten_by_original
-                        .get(target_parent)
-                        .cloned()
-                        .unwrap_or_else(|| target_parent.clone());
-
-                    if !rewritten_parents.contains(&replacement_parent) {
-                        rewritten_parents.push(replacement_parent);
-                    }
-                }
-                continue;
-            }
-
-            let rewritten_parent = rewritten_by_original
-                .get(parent)
-                .cloned()
-                .unwrap_or_else(|| parent.clone());
-
-            if !rewritten_parents.contains(&rewritten_parent) {
-                rewritten_parents.push(rewritten_parent);
-            }
+        if descendants.is_empty() && target_metadata.parents.is_empty() {
+            return Err(RepositoryActionsError::message(
+                "The root commit cannot be dropped because it would leave the branch empty.",
+            ));
         }
 
-        let rewritten_hash = create_rewritten_commit(
-            &repo_path,
-            &metadata,
-            &rewritten_parents,
-            metadata.message.as_str(),
-        )?;
-        rewritten_by_original.insert(original_hash.clone(), rewritten_hash);
-    }
+        let mut rewritten_by_original = HashMap::new();
 
-    let next_head_hash = if target == head_hash {
-        first_descendant
+        for original_hash in &descendants {
+            let metadata = read_commit_rewrite_metadata(&repo_path, original_hash)?;
+            let mut rewritten_parents = Vec::new();
+
+            for parent in &metadata.parents {
+                if parent == &target {
+                    for target_parent in &target_metadata.parents {
+                        let replacement_parent =
+                            resolve_rewritten_parent_hash(&rewritten_by_original, target_parent);
+
+                        if !rewritten_parents.contains(&replacement_parent) {
+                            rewritten_parents.push(replacement_parent);
+                        }
+                    }
+                    continue;
+                }
+
+                let rewritten_parent =
+                    resolve_rewritten_parent_hash(&rewritten_by_original, parent);
+
+                if !rewritten_parents.contains(&rewritten_parent) {
+                    rewritten_parents.push(rewritten_parent);
+                }
+            }
+
+            let rewritten_hash = create_rewritten_commit(
+                &repo_path,
+                &metadata,
+                &rewritten_parents,
+                metadata.message.as_str(),
+            )?;
+            rewritten_by_original.insert(original_hash.clone(), rewritten_hash);
+        }
+
+        let next_head_hash = if target == head_hash {
+            first_descendant
+                .as_ref()
+                .and_then(|hash| rewritten_by_original.get(hash))
+                .cloned()
+                .or_else(|| target_metadata.parents.first().cloned())
+                .ok_or_else(|| {
+                    RepositoryActionsError::message("Failed to determine rewritten HEAD hash")
+                })?
+        } else {
+            rewritten_by_original
+                .get(&head_hash)
+                .cloned()
+                .ok_or_else(|| {
+                    RepositoryActionsError::message("Failed to determine rewritten HEAD hash")
+                })?
+        };
+        let selected_commit_hash = first_descendant
             .as_ref()
             .and_then(|hash| rewritten_by_original.get(hash))
             .cloned()
-            .or_else(|| target_metadata.parents.first().cloned())
-            .ok_or_else(|| "Failed to determine rewritten HEAD hash".to_string())?
-    } else {
-        rewritten_by_original
-            .get(&head_hash)
-            .cloned()
-            .ok_or_else(|| "Failed to determine rewritten HEAD hash".to_string())?
-    };
-    let selected_commit_hash = first_descendant
-        .as_ref()
-        .and_then(|hash| rewritten_by_original.get(hash))
-        .cloned()
-        .or_else(|| target_metadata.parents.first().cloned());
+            .or_else(|| target_metadata.parents.first().cloned());
 
-    update_rewritten_history_head(&repo_path, &head_hash, &next_head_hash)?;
+        update_rewritten_history_head(&repo_path, &head_hash, &next_head_hash)?;
 
-    Ok(DropRepositoryCommitResult {
-        head_hash: next_head_hash,
-        selected_commit_hash: selected_commit_hash.filter(|hash| hash != &target),
-    })
+        Ok(DropRepositoryCommitResult {
+            head_hash: next_head_hash,
+            selected_commit_hash: selected_commit_hash.filter(|hash| hash != &target),
+        })
+    })()
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        checkout_repository_commit, drop_repository_commit, resolve_head_hash,
-        resolve_publish_visibility_flag, reword_repository_commit,
+        build_commit_message_text, checkout_repository_commit, drop_repository_commit,
+        resolve_head_hash, resolve_publish_visibility_flag, resolve_push_upstream_plan,
+        reword_repository_commit,
     };
     use crate::git_support::git_command;
     use std::env;
@@ -1121,6 +1283,50 @@ mod tests {
             resolve_publish_visibility_flag(Some(" public ")),
             "--public"
         );
+    }
+
+    #[test]
+    fn resolve_push_upstream_plan_uses_origin_when_branch_has_no_upstream() {
+        let plan = resolve_push_upstream_plan("main", None, true).expect("plan should resolve");
+
+        assert_eq!(plan.remote_name, "origin");
+        assert!(plan.should_set_upstream);
+    }
+
+    #[test]
+    fn resolve_push_upstream_plan_skips_upstream_flag_when_tracking_current_branch() {
+        let plan = resolve_push_upstream_plan("main", Some("refs/remotes/upstream/main"), true)
+            .expect("plan should resolve");
+
+        assert_eq!(plan.remote_name, "upstream");
+        assert!(!plan.should_set_upstream);
+    }
+
+    #[test]
+    fn resolve_push_upstream_plan_requires_origin_when_no_upstream_exists() {
+        let error = resolve_push_upstream_plan("main", None, false)
+            .expect_err("missing origin should be rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "No upstream branch found and remote 'origin' is not configured"
+        );
+    }
+
+    #[test]
+    fn build_commit_message_text_returns_error_when_summary_is_blank() {
+        let error =
+            build_commit_message_text("   ", "Body").expect_err("blank summary should be rejected");
+
+        assert_eq!(error.to_string(), "Commit summary is required");
+    }
+
+    #[test]
+    fn build_commit_message_text_joins_trimmed_summary_and_description() {
+        let message = build_commit_message_text("  Add tests  ", "  Cover edge cases  ")
+            .expect("commit message text should build");
+
+        assert_eq!(message, "Add tests\n\nCover edge cases");
     }
 
     #[test]

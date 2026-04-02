@@ -24,6 +24,7 @@ enum GitHubTokenStorageTarget {
 }
 
 #[derive(Clone)]
+/// In-memory GitHub identity cache record used by history author enrichment.
 pub(crate) struct GitHubIdentityCacheRecord {
     pub(crate) avatar_url: Option<String>,
     pub(crate) stored_at_unix_seconds: u64,
@@ -60,18 +61,33 @@ impl Default for SettingsState {
 
 impl SettingsState {
     pub(crate) fn github_session_token(&self) -> Option<String> {
-        let secrets = self.ai_secrets.lock().ok()?;
+        let Ok(secrets) = self.ai_secrets.lock() else {
+            log::warn!("Failed to access settings state while reading the GitHub session token");
+            return None;
+        };
+
         secrets.get("github_token").map(|value| value.value.clone())
     }
 
     pub(crate) fn github_identity_cache_file_path(&self) -> Option<PathBuf> {
-        let cache = self.github_identity_cache.lock().ok()?;
+        let Ok(cache) = self.github_identity_cache.lock() else {
+            log::warn!(
+                "Failed to access GitHub identity cache path because the cache lock is poisoned"
+            );
+            return None;
+        };
+
         cache.file_path.clone()
     }
 
     pub(crate) fn set_github_identity_cache_file_path(&self, file_path: Option<PathBuf>) {
-        if let Ok(mut cache) = self.github_identity_cache.lock() {
-            cache.file_path = file_path;
+        match self.github_identity_cache.lock() {
+            Ok(mut cache) => {
+                cache.file_path = file_path;
+            }
+            Err(_) => {
+                log::warn!("Failed to update the GitHub identity cache path because the cache lock is poisoned");
+            }
         }
     }
 
@@ -95,6 +111,7 @@ struct AutoFetchSchedulerHandle {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Runtime capabilities reported by the settings backend.
 pub(crate) struct SettingsBackendCapabilities {
     runtime_platform: String,
     secure_storage_available: bool,
@@ -103,6 +120,7 @@ pub(crate) struct SettingsBackendCapabilities {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Secret availability and storage mode metadata.
 pub(crate) struct SecretStatusPayload {
     has_stored_value: bool,
     storage_mode: String,
@@ -110,6 +128,7 @@ pub(crate) struct SecretStatusPayload {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Metadata for one stored HTTP credential entry.
 pub(crate) struct HttpCredentialEntryMetadata {
     host: String,
     id: String,
@@ -120,6 +139,7 @@ pub(crate) struct HttpCredentialEntryMetadata {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Result payload for proxy connectivity checks.
 pub(crate) struct ProxyTestResult {
     message: String,
     ok: bool,
@@ -127,6 +147,7 @@ pub(crate) struct ProxyTestResult {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Signing key descriptor discovered from GPG or SSH sources.
 pub(crate) struct SigningKeyInfo {
     id: String,
     label: String,
@@ -135,12 +156,14 @@ pub(crate) struct SigningKeyInfo {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// System font family descriptor.
 pub(crate) struct SystemFontFamily {
     pub(crate) family: String,
 }
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Git identity value pair (name and email) with completeness marker.
 pub(crate) struct GitIdentityValue {
     email: Option<String>,
     is_complete: bool,
@@ -149,6 +172,7 @@ pub(crate) struct GitIdentityValue {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Combined Git identity payload across effective/global/local scopes.
 pub(crate) struct GitIdentityStatusPayload {
     effective: GitIdentityValue,
     effective_scope: Option<String>,
@@ -159,6 +183,7 @@ pub(crate) struct GitIdentityStatusPayload {
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Input payload for writing Git identity settings.
 pub(crate) struct GitIdentityWriteRequest {
     pub(crate) email: String,
     pub(crate) name: String,
@@ -167,6 +192,7 @@ pub(crate) struct GitIdentityWriteRequest {
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Repository command behavior preferences applied to git subprocesses.
 pub(crate) struct RepoCommandPreferences {
     pub(crate) enable_proxy: Option<bool>,
     pub(crate) gpg_program_path: Option<String>,
@@ -188,11 +214,13 @@ pub(crate) struct RepoCommandPreferences {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Generic picked file path payload.
 pub(crate) struct PickedFilePath {
     path: String,
 }
 
 #[derive(Clone)]
+/// Secret value plus storage mode marker.
 pub(crate) struct StoredSecretValue {
     pub(crate) storage_mode: String,
     pub(crate) value: String,
@@ -208,6 +236,7 @@ impl StoredSecretValue {
 }
 
 #[derive(Clone)]
+/// HTTP credential record persisted in secure/session storage.
 pub(crate) struct StoredHttpCredential {
     host: String,
     port: Option<u16>,
@@ -229,7 +258,10 @@ impl Drop for NetworkOperationGuard<'_> {
     }
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Generates an SSH keypair in the user's `~/.ssh` directory.
 pub(crate) fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, String> {
     let trimmed_name = file_name.trim();
 
@@ -270,6 +302,7 @@ pub(crate) fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, 
 }
 
 #[tauri::command]
+/// Lists available signing keys from GPG and SSH key stores.
 pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
     let mut keys = Vec::new();
 
@@ -298,17 +331,16 @@ pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
 
                 match parts[0] {
                     "sec" => {
-                        current_key_id = parts.get(4).map(|value| value.to_string());
+                        current_key_id = parts.get(4).map(|value| (*value).to_string());
                     }
                     "uid" => {
-                        if let Some(key_id) = current_key_id.clone() {
-                            let label = parts.get(9).unwrap_or(&"GPG key").to_string();
+                        if let Some(key_id) = current_key_id.take() {
+                            let label = (*parts.get(9).unwrap_or(&"GPG key")).to_string();
                             keys.push(SigningKeyInfo {
                                 id: key_id,
                                 label,
                                 r#type: "gpg".to_string(),
                             });
-                            current_key_id = None;
                         }
                     }
                     _ => {}
@@ -346,7 +378,10 @@ pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
     Ok(keys)
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Lists system font families and caches the result in process state.
 pub(crate) fn list_system_font_families(
     state: State<'_, SettingsState>,
 ) -> Result<Vec<SystemFontFamily>, String> {
@@ -384,6 +419,7 @@ pub(crate) fn list_system_font_families(
 }
 
 #[tauri::command]
+/// Returns effective, global, and local Git identity values.
 pub(crate) fn get_git_identity(
     repo_path: Option<String>,
 ) -> Result<GitIdentityStatusPayload, String> {
@@ -404,7 +440,10 @@ pub(crate) fn get_git_identity(
     build_git_identity_status(repo_path.as_deref())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Saves Git identity values at global or local scope and returns updated status.
 pub(crate) fn set_git_identity(
     git_identity: GitIdentityWriteRequest,
     repo_path: Option<String>,
@@ -521,8 +560,7 @@ pub(crate) fn resolve_ai_provider_secret(
     }
 
     Err(format!(
-        "No API key saved for the '{}' AI provider",
-        trimmed_provider
+        "No API key saved for the '{trimmed_provider}' AI provider"
     ))
 }
 
@@ -669,10 +707,8 @@ fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatu
     };
 
     let (effective, effective_scope) = if let Some(path) = repo_path {
-        let local_value = local.clone().unwrap_or_else(empty_git_identity_value);
-
-        if local_value.is_complete {
-            (local_value, Some("local".to_string()))
+        if let Some(local_value) = local.as_ref().filter(|value| value.is_complete) {
+            (local_value.clone(), Some("local".to_string()))
         } else {
             let effective_value = read_git_identity_value(Some(path), "effective")?;
             let scope = if effective_value.is_complete {
@@ -703,14 +739,6 @@ fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatu
     })
 }
 
-fn empty_git_identity_value() -> GitIdentityValue {
-    GitIdentityValue {
-        email: None,
-        is_complete: false,
-        name: None,
-    }
-}
-
 pub(crate) fn normalize_git_identity_scope(scope: &str) -> Result<&str, String> {
     match scope.trim() {
         "global" => Ok("global"),
@@ -737,15 +765,12 @@ pub(crate) fn validate_git_identity_email(email: &str) -> Result<String, String>
     }
 
     let has_single_at_symbol = trimmed.matches('@').count() == 1;
-    let has_non_empty_segments = trimmed
-        .split_once('@')
-        .map(|(local, domain)| {
-            !local.is_empty()
-                && domain.contains('.')
-                && !domain.starts_with('.')
-                && !domain.ends_with('.')
-        })
-        .unwrap_or(false);
+    let has_non_empty_segments = trimmed.split_once('@').is_some_and(|(local, domain)| {
+        !local.is_empty()
+            && domain.contains('.')
+            && !domain.starts_with('.')
+            && !domain.ends_with('.')
+    });
 
     if !(has_single_at_symbol && has_non_empty_segments) {
         return Err("Enter a valid Git author email".to_string());
@@ -870,7 +895,10 @@ pub(crate) fn write_git_identity(
     Ok(())
 }
 
+// Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
+#[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
+/// Returns settings backend runtime capabilities.
 pub(crate) fn get_settings_backend_capabilities() -> Result<SettingsBackendCapabilities, String> {
     let secure_storage_available =
         keyring::Entry::new(AI_SECRET_SERVICE, "capability-check").is_ok();
@@ -895,7 +923,10 @@ pub(crate) fn get_settings_backend_capabilities() -> Result<SettingsBackendCapab
     })
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Saves an AI provider secret to secure storage with session fallback.
 pub(crate) fn save_ai_provider_secret(
     state: State<'_, SettingsState>,
     provider: String,
@@ -935,7 +966,10 @@ pub(crate) fn save_ai_provider_secret(
     })
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns whether an AI provider secret is currently stored.
 pub(crate) fn get_ai_provider_secret_status(
     state: State<'_, SettingsState>,
     provider: String,
@@ -957,12 +991,14 @@ pub(crate) fn get_ai_provider_secret_status(
     Ok(SecretStatusPayload {
         has_stored_value: status.is_some(),
         storage_mode: status
-            .map(|value| value.storage_mode.clone())
-            .unwrap_or_else(|| "session".to_string()),
+            .map_or_else(|| "session".to_string(), |value| value.storage_mode.clone()),
     })
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Clears an AI provider secret from secure and session storage.
 pub(crate) fn clear_ai_provider_secret(
     state: State<'_, SettingsState>,
     provider: String,
@@ -984,7 +1020,10 @@ pub(crate) fn clear_ai_provider_secret(
     Ok(())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Saves a GitHub token used for identity/avatar resolution.
 pub(crate) fn save_github_token(
     state: State<'_, SettingsState>,
     token: String,
@@ -1010,7 +1049,10 @@ pub(crate) fn save_github_token(
     )
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns whether a GitHub token is currently stored.
 pub(crate) fn get_github_token_status(
     state: State<'_, SettingsState>,
 ) -> Result<SecretStatusPayload, String> {
@@ -1031,12 +1073,14 @@ pub(crate) fn get_github_token_status(
     Ok(SecretStatusPayload {
         has_stored_value: status.is_some(),
         storage_mode: status
-            .map(|value| value.storage_mode.clone())
-            .unwrap_or_else(|| "session".to_string()),
+            .map_or_else(|| "session".to_string(), |value| value.storage_mode.clone()),
     })
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Clears the stored GitHub token and invalidates identity cache.
 pub(crate) fn clear_github_token(state: State<'_, SettingsState>) -> Result<(), String> {
     let _ = clear_keyring_entry(GITHUB_AVATAR_SERVICE, "token");
     set_session_github_token(state.inner(), None)
@@ -1089,7 +1133,10 @@ fn set_session_github_token(state: &SettingsState, token: Option<&str>) -> Resul
     Ok(())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Saves proxy authentication credentials.
 pub(crate) fn save_proxy_auth_secret(
     state: State<'_, SettingsState>,
     username: String,
@@ -1136,7 +1183,10 @@ pub(crate) fn save_proxy_auth_secret(
     })
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns whether proxy credentials exist for a username.
 pub(crate) fn get_proxy_auth_secret_status(
     state: State<'_, SettingsState>,
     username: String,
@@ -1172,7 +1222,10 @@ pub(crate) fn get_proxy_auth_secret_status(
     })
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Clears proxy credentials for a username.
 pub(crate) fn clear_proxy_auth_secret(
     state: State<'_, SettingsState>,
     username: String,
@@ -1215,7 +1268,10 @@ pub(crate) fn begin_network_operation<'a>(
     })
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Lists cached HTTP credential metadata entries.
 pub(crate) fn list_http_credential_entries(
     state: State<'_, SettingsState>,
 ) -> Result<Vec<HttpCredentialEntryMetadata>, String> {
@@ -1236,7 +1292,10 @@ pub(crate) fn list_http_credential_entries(
         .collect())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Removes one cached HTTP credential entry by identifier.
 pub(crate) fn clear_http_credential_entry(
     state: State<'_, SettingsState>,
     entry_id: String,
@@ -1251,7 +1310,8 @@ pub(crate) fn clear_http_credential_entry(
 }
 
 #[tauri::command]
-pub(crate) fn test_proxy_connection(
+/// Tests outbound connectivity through a proxy endpoint.
+pub(crate) async fn test_proxy_connection(
     host: String,
     port: u16,
     proxy_type: String,
@@ -1270,45 +1330,50 @@ pub(crate) fn test_proxy_connection(
         return Err("Unsupported proxy type".to_string());
     }
 
-    let proxy_url = if let (Some(username), Some(password)) = (username, password) {
-        format!(
-            "{}://{}:{}@{}:{}",
-            proxy_type, username, password, trimmed_host, port
-        )
-    } else {
-        format!("{}://{}:{}", proxy_type, trimmed_host, port)
-    };
-    let proxy =
-        Proxy::new(&proxy_url).map_err(|error| format!("Failed to configure proxy: {error}"))?;
-    let agent = ureq::AgentBuilder::new()
-        .proxy(proxy)
-        .timeout(Duration::from_secs(10))
-        .build();
+    let normalized_host = trimmed_host.to_string();
 
-    let response = agent
-        .get("https://example.com/")
-        .call()
-        .map_err(|error| format!("Proxy request failed: {error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let proxy_url = if let (Some(username), Some(password)) = (username, password) {
+            format!("{proxy_type}://{username}:{password}@{normalized_host}:{port}")
+        } else {
+            format!("{proxy_type}://{normalized_host}:{port}")
+        };
+        let proxy = Proxy::new(&proxy_url)
+            .map_err(|error| format!("Failed to configure proxy: {error}"))?;
+        let agent = ureq::AgentBuilder::new()
+            .proxy(proxy)
+            .timeout(Duration::from_secs(10))
+            .build();
 
-    let status = response.status();
+        let response = agent
+            .get("https://example.com/")
+            .call()
+            .map_err(|error| format!("Proxy request failed: {error}"))?;
 
-    if !(200..400).contains(&status) {
-        return Ok(ProxyTestResult {
-            message: format!("Proxy responded with unexpected status code {status}"),
-            ok: false,
-        });
-    }
+        let status = response.status();
 
-    Ok(ProxyTestResult {
-        message: format!(
-            "Proxy request to https://example.com/ succeeded via {}://{}:{}",
-            proxy_type, trimmed_host, port,
-        ),
-        ok: true,
+        if !(200..400).contains(&status) {
+            return Ok(ProxyTestResult {
+                message: format!("Proxy responded with unexpected status code {status}"),
+                ok: false,
+            });
+        }
+
+        Ok(ProxyTestResult {
+            message: format!(
+                "Proxy request to https://example.com/ succeeded via {proxy_type}://{normalized_host}:{port}"
+            ),
+            ok: true,
+        })
     })
+    .await
+    .map_err(|error| format!("Failed to test proxy connection: {error}"))?
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Starts or replaces the background auto-fetch scheduler for one repository.
 pub(crate) fn start_auto_fetch_scheduler(
     state: State<'_, SettingsState>,
     interval_minutes: u64,
@@ -1383,7 +1448,10 @@ pub(crate) fn start_auto_fetch_scheduler(
     Ok(())
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Stops the running auto-fetch scheduler if one exists.
 pub(crate) fn stop_auto_fetch_scheduler(state: State<'_, SettingsState>) -> Result<(), String> {
     let mut scheduler = state
         .auto_fetch_scheduler
@@ -1415,9 +1483,10 @@ fn run_network_git_command(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_git_preferences, apply_github_token_storage, normalize_git_identity_scope,
-        set_session_github_token, validate_git_identity_email, validate_git_identity_name,
-        GitHubTokenStorageTarget, RepoCommandPreferences, SettingsState,
+        apply_git_preferences, apply_github_token_storage, get_settings_backend_capabilities,
+        normalize_git_identity_scope, set_session_github_token, validate_git_identity_email,
+        validate_git_identity_name, GitHubTokenStorageTarget, RepoCommandPreferences,
+        SettingsState,
     };
     use crate::settings::GitHubIdentityCacheRecord;
     use std::process::Command;
@@ -1428,6 +1497,13 @@ mod tests {
             validate_git_identity_email("   ").unwrap_err(),
             "Git author email is required",
         );
+    }
+
+    #[test]
+    fn validate_git_identity_email_accepts_well_formed_address() {
+        let email = validate_git_identity_email("dev@example.com").expect("email should validate");
+
+        assert_eq!(email, "dev@example.com");
     }
 
     #[test]
@@ -1444,6 +1520,15 @@ mod tests {
             normalize_git_identity_scope("workspace").unwrap_err(),
             "Git identity scope must be global or local",
         );
+    }
+
+    #[test]
+    fn get_settings_backend_capabilities_reports_session_secret_support() {
+        let capabilities =
+            get_settings_backend_capabilities().expect("backend capabilities should resolve");
+
+        assert!(capabilities.session_secrets_supported);
+        assert!(!capabilities.runtime_platform.is_empty());
     }
 
     #[test]
@@ -1532,6 +1617,35 @@ mod tests {
                 "ssh -i '/tmp/id_test' -o IdentitiesOnly=yes -o IdentityAgent=none".to_string(),
             )),
         );
+    }
+
+    #[test]
+    fn apply_git_preferences_skips_proxy_env_when_proxy_is_disabled() {
+        let mut command = Command::new("git");
+        let preferences = RepoCommandPreferences {
+            enable_proxy: Some(false),
+            proxy_host: Some("proxy.example.com".to_string()),
+            proxy_port: Some(8080),
+            proxy_type: Some("https".to_string()),
+            ..RepoCommandPreferences::default()
+        };
+
+        apply_git_preferences(&mut command, &preferences, None)
+            .expect("git preferences should apply");
+
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|entry| entry.to_string_lossy().to_string()),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert!(!envs.contains_key("LITGIT_PROXY_HOST"));
+        assert!(!envs.contains_key("LITGIT_PROXY_PORT"));
+        assert!(!envs.contains_key("LITGIT_PROXY_TYPE"));
     }
 
     #[test]

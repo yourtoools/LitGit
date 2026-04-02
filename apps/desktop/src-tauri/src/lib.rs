@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::path::Path;
 use tauri::Manager;
 
 mod diff_preview;
@@ -31,10 +30,6 @@ use commit_messages::{
     initialize_github_identity_cache, list_ai_models,
 };
 mod git_support;
-use crate::git_support::{
-    encode_image_data_url, git_command, is_probably_text_content, resolve_file_extension,
-    resolve_image_mime_type, validate_git_repo,
-};
 mod history;
 mod repository;
 use repository::{
@@ -100,175 +95,9 @@ struct RepositoryCommitFileDiff {
     unsupported_extension: Option<String>,
 }
 
-struct DiffPreviewPayload {
-    viewer_kind: String,
-    old_text: String,
-    new_text: String,
-    old_image_data_url: Option<String>,
-    new_image_data_url: Option<String>,
-    unsupported_extension: Option<String>,
-}
-
-fn text_content_to_string(content: Option<&[u8]>) -> String {
-    content
-        .map(|bytes| String::from_utf8_lossy(bytes).to_string())
-        .unwrap_or_default()
-}
-
-fn build_diff_preview_payload(
-    file_path: &str,
-    old_content: Option<&[u8]>,
-    new_content: Option<&[u8]>,
-) -> DiffPreviewPayload {
-    let extension = resolve_file_extension(file_path);
-
-    if let Some(extension) = extension.clone() {
-        if let Some(mime_type) = resolve_image_mime_type(&extension) {
-            let old_image_data_url =
-                old_content.and_then(|content| encode_image_data_url(content, mime_type));
-            let new_image_data_url =
-                new_content.and_then(|content| encode_image_data_url(content, mime_type));
-
-            if old_image_data_url.is_some() || new_image_data_url.is_some() {
-                return DiffPreviewPayload {
-                    viewer_kind: "image".to_string(),
-                    old_text: String::new(),
-                    new_text: String::new(),
-                    old_image_data_url,
-                    new_image_data_url,
-                    unsupported_extension: None,
-                };
-            }
-
-            return DiffPreviewPayload {
-                viewer_kind: "unsupported".to_string(),
-                old_text: String::new(),
-                new_text: String::new(),
-                old_image_data_url: None,
-                new_image_data_url: None,
-                unsupported_extension: Some(extension),
-            };
-        }
-    }
-
-    if is_probably_text_content(old_content) && is_probably_text_content(new_content) {
-        return DiffPreviewPayload {
-            viewer_kind: "text".to_string(),
-            old_text: text_content_to_string(old_content),
-            new_text: text_content_to_string(new_content),
-            old_image_data_url: None,
-            new_image_data_url: None,
-            unsupported_extension: None,
-        };
-    }
-
-    DiffPreviewPayload {
-        viewer_kind: "unsupported".to_string(),
-        old_text: String::new(),
-        new_text: String::new(),
-        old_image_data_url: None,
-        new_image_data_url: None,
-        unsupported_extension: extension,
-    }
-}
-
-#[tauri::command]
-fn get_repository_commit_file_diff(
-    repo_path: String,
-    commit_hash: String,
-    file_path: String,
-) -> Result<RepositoryCommitFileDiff, String> {
-    validate_git_repo(Path::new(&repo_path))?;
-
-    let old_output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "show",
-            &format!("{commit_hash}^:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git show for previous commit file: {error}"))?;
-
-    let old_content = old_output.status.success().then_some(old_output.stdout);
-
-    let new_output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "show",
-            &format!("{commit_hash}:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git show for commit file: {error}"))?;
-
-    let new_content = new_output.status.success().then_some(new_output.stdout);
-    let preview_payload =
-        build_diff_preview_payload(&file_path, old_content.as_deref(), new_content.as_deref());
-
-    Ok(RepositoryCommitFileDiff {
-        commit_hash,
-        path: file_path,
-        old_text: preview_payload.old_text,
-        new_text: preview_payload.new_text,
-        viewer_kind: preview_payload.viewer_kind,
-        old_image_data_url: preview_payload.old_image_data_url,
-        new_image_data_url: preview_payload.new_image_data_url,
-        unsupported_extension: preview_payload.unsupported_extension,
-    })
-}
-
-#[tauri::command]
-fn get_repository_file_diff(
-    repo_path: String,
-    file_path: String,
-) -> Result<RepositoryFileDiff, String> {
-    validate_git_repo(Path::new(&repo_path))?;
-
-    let old_output = git_command()
-        .args(["-C", &repo_path, "show", &format!("HEAD:{file_path}")])
-        .output()
-        .map_err(|error| format!("Failed to run git show: {error}"))?;
-
-    let old_content = old_output.status.success().then_some(old_output.stdout);
-
-    let full_path = Path::new(&repo_path).join(&file_path);
-    let new_content = std::fs::read(&full_path).ok();
-    let preview_payload =
-        build_diff_preview_payload(&file_path, old_content.as_deref(), new_content.as_deref());
-
-    Ok(RepositoryFileDiff {
-        path: file_path,
-        old_text: preview_payload.old_text,
-        new_text: preview_payload.new_text,
-        viewer_kind: preview_payload.viewer_kind,
-        old_image_data_url: preview_payload.old_image_data_url,
-        new_image_data_url: preview_payload.new_image_data_url,
-        unsupported_extension: preview_payload.unsupported_extension,
-    })
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .manage(TerminalState::default())
-        .manage(SettingsState::default())
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-
-            let settings_state = app.state::<SettingsState>();
-            initialize_github_identity_cache(app.handle(), settings_state.inner());
-
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+macro_rules! desktop_invoke_handler {
+    () => {
+        tauri::generate_handler![
             pick_git_repository,
             pick_clone_destination_folder,
             pick_settings_file,
@@ -316,7 +145,6 @@ pub fn run() {
             cherry_pick_repository_commit,
             revert_repository_commit,
             create_repository_tag,
-            get_repository_file_diff,
             get_repository_file_preflight,
             get_repository_file_content,
             get_repository_file_hunks,
@@ -326,7 +154,6 @@ pub fn run() {
             detect_repository_file_encoding,
             save_repository_file_text,
             get_repository_commit_files,
-            get_repository_commit_file_diff,
             get_repository_commit_file_preflight,
             get_repository_commit_file_content,
             get_repository_commit_file_hunks,
@@ -356,7 +183,104 @@ pub fn run() {
             close_terminal_session,
             get_launcher_applications,
             open_path_with_application
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        ]
+    };
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Starts the Tauri desktop application and registers its commands and shared state.
+///
+/// If the Tauri runtime fails to initialize or run, the process exits with status code `1`.
+// Tauri command registration stays centralized here so the desktop entrypoint is easy to audit.
+pub fn run() {
+    let result = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(TerminalState::default())
+        .manage(SettingsState::default())
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+
+            let settings_state = app.state::<SettingsState>();
+            initialize_github_identity_cache(app.handle(), settings_state.inner());
+
+            Ok(())
+        })
+        .invoke_handler(desktop_invoke_handler!())
+        .run(tauri::generate_context!());
+
+    if let Err(error) = result {
+        eprintln!("error while running tauri application: {error}");
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RepositoryCommitFileDiff, RepositoryFileDiff};
+    use serde_json::json;
+
+    #[test]
+    fn repository_file_diff_serializes_camel_case_fields() {
+        let diff = RepositoryFileDiff {
+            path: "src/lib.rs".to_string(),
+            old_text: "old".to_string(),
+            new_text: "new".to_string(),
+            viewer_kind: "text".to_string(),
+            old_image_data_url: None,
+            new_image_data_url: None,
+            unsupported_extension: Some("bin".to_string()),
+        };
+
+        let value = serde_json::to_value(&diff).expect("repository file diff should serialize");
+
+        assert_eq!(
+            value,
+            json!({
+                "path": "src/lib.rs",
+                "oldText": "old",
+                "newText": "new",
+                "viewerKind": "text",
+                "oldImageDataUrl": null,
+                "newImageDataUrl": null,
+                "unsupportedExtension": "bin",
+            })
+        );
+    }
+
+    #[test]
+    fn repository_commit_file_diff_serializes_commit_hash_and_content_fields() {
+        let diff = RepositoryCommitFileDiff {
+            commit_hash: "abc123".to_string(),
+            path: "src/lib.rs".to_string(),
+            old_text: "before".to_string(),
+            new_text: "after".to_string(),
+            viewer_kind: "text".to_string(),
+            old_image_data_url: None,
+            new_image_data_url: None,
+            unsupported_extension: None,
+        };
+
+        let value =
+            serde_json::to_value(&diff).expect("repository commit file diff should serialize");
+
+        assert_eq!(
+            value,
+            json!({
+                "commitHash": "abc123",
+                "path": "src/lib.rs",
+                "oldText": "before",
+                "newText": "after",
+                "viewerKind": "text",
+                "oldImageDataUrl": null,
+                "newImageDataUrl": null,
+                "unsupportedExtension": null,
+            })
+        );
+    }
 }

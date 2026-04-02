@@ -4,6 +4,7 @@ use std::path::Path;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// A stash entry mapped from `git stash list`.
 pub(crate) struct RepositoryStash {
     anchor_commit_hash: String,
     message: String,
@@ -11,7 +12,47 @@ pub(crate) struct RepositoryStash {
     short_hash: String,
 }
 
+fn parse_stash_row(row: &str) -> Result<Option<RepositoryStash>, String> {
+    let trimmed = row.trim();
+
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let mut parts = trimmed.split('\x1f');
+    let stash_ref = parts
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Encountered stash entry without a reference".to_string())?;
+    let message = parts
+        .next()
+        .map(str::trim)
+        .ok_or_else(|| format!("Failed to parse message for stash {stash_ref}"))?;
+    let short_hash = parts
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("Failed to parse short hash for stash {stash_ref}"))?;
+    let anchor_commit_hash = parts
+        .next()
+        .map(str::trim)
+        .and_then(|value| value.split_whitespace().next())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("Failed to resolve anchor commit for stash {stash_ref}"))?;
+
+    Ok(Some(RepositoryStash {
+        anchor_commit_hash: anchor_commit_hash.to_string(),
+        message: message.to_string(),
+        r#ref: stash_ref.to_string(),
+        short_hash: short_hash.to_string(),
+    }))
+}
+
+// Tauri command arguments mirror the frontend invoke payload.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns all stash entries for the repository.
 pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -21,7 +62,7 @@ pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<Repository
             &repo_path,
             "stash",
             "list",
-            "--format=%gd%x1f%gs%x1f%h%x1f%H%x1e",
+            "--format=%gd%x1f%gs%x1f%h%x1f%P%x1e",
         ])
         .output()
         .map_err(|error| format!("Failed to run git stash list: {error}"))?;
@@ -34,56 +75,19 @@ pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<Repository
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-
-    let stashes = stdout
-        .split('\x1e')
-        .filter_map(|row| {
-            let trimmed = row.trim();
-
-            if trimmed.is_empty() {
-                return None;
-            }
-
-            let mut parts = trimmed.split('\x1f');
-            let stash_ref = parts.next().unwrap_or("").trim().to_string();
-            let message = parts.next().unwrap_or("").trim().to_string();
-            let short_hash = parts.next().unwrap_or("").trim().to_string();
-            let stash_hash = parts.next().unwrap_or("").trim().to_string();
-
-            if stash_ref.is_empty() || stash_hash.is_empty() {
-                return None;
-            }
-
-            let anchor_commit_output = git_command()
-                .args(["-C", &repo_path, "rev-parse", &format!("{stash_hash}^1")])
-                .output()
-                .ok()?;
-
-            if !anchor_commit_output.status.success() {
-                return None;
-            }
-
-            let anchor_commit_hash = String::from_utf8_lossy(&anchor_commit_output.stdout)
-                .trim()
-                .to_string();
-
-            if anchor_commit_hash.is_empty() {
-                return None;
-            }
-
-            Some(RepositoryStash {
-                anchor_commit_hash,
-                message,
-                r#ref: stash_ref,
-                short_hash,
-            })
-        })
-        .collect();
+    let mut stashes = Vec::new();
+    for row in stdout.split('\x1e') {
+        if let Some(stash) = parse_stash_row(row)? {
+            stashes.push(stash);
+        }
+    }
 
     Ok(stashes)
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Applies a stash entry without removing it from the stash stack.
 pub(crate) fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -99,7 +103,9 @@ pub(crate) fn apply_repository_stash(repo_path: String, stash_ref: String) -> Re
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Applies a stash entry and removes it from the stash stack.
 pub(crate) fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -115,7 +121,9 @@ pub(crate) fn pop_repository_stash(repo_path: String, stash_ref: String) -> Resu
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Removes a stash entry from the stash stack.
 pub(crate) fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -131,7 +139,9 @@ pub(crate) fn drop_repository_stash(repo_path: String, stash_ref: String) -> Res
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Creates a new stash entry, optionally including untracked files.
 pub(crate) fn create_repository_stash(
     repo_path: String,
     stash_message: Option<String>,
@@ -144,32 +154,34 @@ pub(crate) fn create_repository_stash(
         .map(str::trim)
         .filter(|message| !message.is_empty())
         .map(ToOwned::to_owned)
-        .map(Ok)
-        .unwrap_or_else(|| {
-            let branch_output = git_command()
-                .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
-                .output()
-                .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
+        .map_or_else(
+            || {
+                let branch_output = git_command()
+                    .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
+                    .output()
+                    .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
 
-            if !branch_output.status.success() {
-                return Err(git_error_message(
-                    &branch_output.stderr,
-                    "Failed to resolve current branch",
-                ));
-            }
+                if !branch_output.status.success() {
+                    return Err(git_error_message(
+                        &branch_output.stderr,
+                        "Failed to resolve current branch",
+                    ));
+                }
 
-            let branch_name = String::from_utf8_lossy(&branch_output.stdout)
-                .trim()
-                .to_string();
+                let branch_name = String::from_utf8_lossy(&branch_output.stdout)
+                    .trim()
+                    .to_string();
 
-            let safe_branch_name = if branch_name.is_empty() {
-                "HEAD"
-            } else {
-                branch_name.as_str()
-            };
+                let safe_branch_name = if branch_name.is_empty() {
+                    "HEAD"
+                } else {
+                    branch_name.as_str()
+                };
 
-            Ok(format!("WIP on {safe_branch_name}"))
-        })?;
+                Ok(format!("WIP on {safe_branch_name}"))
+            },
+            Ok,
+        )?;
 
     let mut stash_command = git_command();
     stash_command.args(["-C", &repo_path, "stash", "push"]);
@@ -193,12 +205,48 @@ pub(crate) fn create_repository_stash(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_repository_stash, get_repository_stashes};
+    use super::{create_repository_stash, get_repository_stashes, parse_stash_row};
     use crate::git_support::git_command;
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn parse_stash_row_returns_error_when_reference_is_missing() {
+        let Err(error) = parse_stash_row("\x1fExample stash\x1fabc123\x1fdeadbeef") else {
+            panic!("stash rows without a reference should fail");
+        };
+
+        assert_eq!(error, "Encountered stash entry without a reference");
+    }
+
+    #[test]
+    fn create_repository_stash_uses_default_branch_message_when_message_is_blank() {
+        let repo_path = create_temp_repository();
+
+        write_repo_file(&repo_path.path, "tracked.txt", "first version");
+        git_in(&repo_path.path, &["add", "tracked.txt"]);
+        git_in(&repo_path.path, &["commit", "-m", "Initial commit"]);
+
+        write_repo_file(&repo_path.path, "tracked.txt", "updated version");
+
+        create_repository_stash(
+            repo_path.path.to_string_lossy().to_string(),
+            Some("   ".to_string()),
+            false,
+        )
+        .expect("stash should be created");
+
+        let stashes = get_repository_stashes(repo_path.path.to_string_lossy().to_string())
+            .expect("stash list");
+
+        assert_eq!(stashes.len(), 1);
+        assert_eq!(stashes[0].message, "On main: WIP on main");
+        assert_eq!(stashes[0].r#ref, "stash@{0}");
+        assert!(!stashes[0].anchor_commit_hash.is_empty());
+        assert!(!stashes[0].short_hash.is_empty());
+    }
 
     #[test]
     fn get_repository_stashes_returns_created_entry_after_stash_is_saved() {

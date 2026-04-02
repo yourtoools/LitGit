@@ -2,13 +2,13 @@ use crate::git_support::{
     git_command, git_error_message, git_process_error_message, validate_git_repo,
 };
 use crate::settings::{
-    apply_git_preferences, load_keyring_entry, resolve_ai_provider_secret,
-    GitHubIdentityCacheRecord, RepoCommandPreferences, SettingsState, GITHUB_AVATAR_SERVICE,
+    apply_git_preferences, resolve_ai_provider_secret, GitHubIdentityCacheRecord,
+    RepoCommandPreferences, SettingsState,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
@@ -26,14 +26,19 @@ const GITHUB_IDENTITY_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 const GITHUB_IDENTITY_CACHE_FILE_NAME: &str = "github_identity_cache.json";
 const GITHUB_IDENTITY_CACHE_VERSION: u8 = 1;
 
-static AI_HTTP_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(AI_REQUEST_TIMEOUT_SECS))
-        .build()
-});
+static AI_HTTP_AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+fn ai_http_agent() -> &'static ureq::Agent {
+    AI_HTTP_AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout(Duration::from_secs(AI_REQUEST_TIMEOUT_SECS))
+            .build()
+    })
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// AI model descriptor returned by provider model-list endpoints.
 pub(crate) struct AiModelInfo {
     id: String,
     label: String,
@@ -41,12 +46,26 @@ pub(crate) struct AiModelInfo {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Generated commit message payload returned by AI-assisted commit flows.
 pub(crate) struct GeneratedCommitMessage {
     body: String,
     prompt_mode: String,
     provider_kind: String,
     schema_fallback_used: bool,
     title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Input payload for AI commit message generation.
+pub(crate) struct GenerateRepositoryCommitMessageRequest {
+    custom_endpoint: String,
+    instruction: String,
+    max_input_tokens: usize,
+    max_output_tokens: usize,
+    model: String,
+    provider: String,
+    repo_path: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +82,7 @@ enum AiRequestKind {
 }
 
 #[derive(Clone, Default)]
+/// Derived GitHub identity for commit author rendering.
 pub(crate) struct GitHubIdentity {
     pub(crate) avatar_url: Option<String>,
     pub(crate) username: Option<String>,
@@ -130,19 +150,23 @@ fn github_identity_cache_key(email: &str, author: &str) -> Option<String> {
 
 fn get_cached_github_identity(state: &SettingsState, key: &str) -> Option<GitHubIdentity> {
     let cached_entry = state
-        .mutate_github_identity_cache(|cache| cache.get(key).cloned())
+        .mutate_github_identity_cache(|cache| {
+            cache.get(key).map(|cached_entry| {
+                (
+                    cached_entry.stored_at_unix_seconds,
+                    GitHubIdentity {
+                        avatar_url: cached_entry.avatar_url.clone(),
+                        username: cached_entry.username.clone(),
+                    },
+                )
+            })
+        })
         .ok()
         .flatten()?;
     let now_unix_seconds_value = now_unix_seconds();
 
-    if is_github_identity_cache_entry_fresh(
-        cached_entry.stored_at_unix_seconds,
-        now_unix_seconds_value,
-    ) {
-        return Some(GitHubIdentity {
-            avatar_url: cached_entry.avatar_url,
-            username: cached_entry.username,
-        });
+    if is_github_identity_cache_entry_fresh(cached_entry.0, now_unix_seconds_value) {
+        return Some(cached_entry.1);
     }
 
     let _ = state.mutate_github_identity_cache(|cache| {
@@ -196,7 +220,7 @@ fn save_github_identity_cache_to_disk(state: &SettingsState) {
     };
 
     let now_unix_seconds_value = now_unix_seconds();
-    let mut entries = if let Ok(entries) = state.mutate_github_identity_cache(|cache| {
+    let Ok(mut entries) = state.mutate_github_identity_cache(|cache| {
         cache
             .iter()
             .filter_map(|(key, cached_entry)| {
@@ -215,9 +239,7 @@ fn save_github_identity_cache_to_disk(state: &SettingsState) {
                 })
             })
             .collect::<Vec<_>>()
-    }) {
-        entries
-    } else {
+    }) else {
         log::warn!("Failed to lock GitHub identity cache for disk persistence");
         return;
     };
@@ -254,14 +276,14 @@ pub(crate) fn initialize_github_identity_cache(app: &AppHandle, state: &Settings
 
     initialize_github_identity_cache_at_path(
         state,
-        app_data_dir.join(GITHUB_IDENTITY_CACHE_FILE_NAME),
+        app_data_dir.join(GITHUB_IDENTITY_CACHE_FILE_NAME).as_path(),
     );
 }
 
-fn initialize_github_identity_cache_at_path(state: &SettingsState, cache_file_path: PathBuf) {
-    state.set_github_identity_cache_file_path(Some(cache_file_path.clone()));
+fn initialize_github_identity_cache_at_path(state: &SettingsState, cache_file_path: &Path) {
+    state.set_github_identity_cache_file_path(Some(cache_file_path.to_path_buf()));
 
-    let contents = match fs::read_to_string(&cache_file_path) {
+    let contents = match fs::read_to_string(cache_file_path) {
         Ok(value) => value,
         Err(error) => {
             if error.kind() != std::io::ErrorKind::NotFound {
@@ -331,6 +353,7 @@ fn initialize_github_identity_cache_at_path(state: &SettingsState, cache_file_pa
     save_github_identity_cache_to_disk(state);
 }
 
+#[cfg(test)]
 fn cache_github_identity(state: &SettingsState, key: &str, identity: &GitHubIdentity) {
     let now_unix_seconds_value = now_unix_seconds();
     let cache_result = state.mutate_github_identity_cache(|cache| {
@@ -383,63 +406,7 @@ pub(crate) fn clear_github_identity_cache(state: &SettingsState) {
     }
 }
 
-fn get_github_token(state: &SettingsState) -> Option<String> {
-    if let Ok(Some(token)) = load_keyring_entry(GITHUB_AVATAR_SERVICE, "token") {
-        return Some(token);
-    }
-
-    state.github_session_token()
-}
-
-fn fetch_github_user_by_email(email: &str, token: &str) -> Option<GitHubIdentity> {
-    let query = ureq::get("https://api.github.com/search/users")
-        .query("q", &format!("{email} in:email"))
-        .query("per_page", "1")
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Accept", "application/vnd.github+json")
-        .set("X-GitHub-Api-Version", "2022-11-28")
-        .call()
-        .ok()?;
-
-    let body = query.into_string().ok()?;
-    let json: serde_json::Value = serde_json::from_str(&body).ok()?;
-    let items = json.get("items")?.as_array()?;
-    let user = items.first()?;
-    let login = user.get("login")?.as_str()?.to_string();
-    let avatar_url = user.get("avatar_url")?.as_str()?.to_string();
-
-    Some(GitHubIdentity {
-        avatar_url: Some(avatar_url),
-        username: Some(login),
-    })
-}
-
-fn fetch_github_user_by_name(name: &str, token: &str) -> Option<GitHubIdentity> {
-    let query = ureq::get("https://api.github.com/search/users")
-        .query("q", &format!("{name} in:name"))
-        .query("sort", "followers")
-        .query("order", "desc")
-        .query("per_page", "1")
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Accept", "application/vnd.github+json")
-        .set("X-GitHub-Api-Version", "2022-11-28")
-        .call()
-        .ok()?;
-
-    let body = query.into_string().ok()?;
-    let json: serde_json::Value = serde_json::from_str(&body).ok()?;
-    let items = json.get("items")?.as_array()?;
-    let user = items.first()?;
-    let login = user.get("login")?.as_str()?.to_string();
-    let avatar_url = user.get("avatar_url")?.as_str()?.to_string();
-
-    Some(GitHubIdentity {
-        avatar_url: Some(avatar_url),
-        username: Some(login),
-    })
-}
-
-pub(crate) fn resolve_commit_identity(
+pub(crate) fn resolve_commit_identity_for_history(
     state: &SettingsState,
     email: &str,
     author: &str,
@@ -454,45 +421,10 @@ pub(crate) fn resolve_commit_identity(
 
     let github_identity = resolve_github_identity_from_email(email);
     if github_identity.avatar_url.is_some() {
-        if let Some(key) = cache_key.as_deref() {
-            cache_github_identity(state, key, &github_identity);
-        }
         return github_identity;
     }
 
-    let token = match get_github_token(state) {
-        Some(token) => token,
-        None => {
-            let empty_identity = GitHubIdentity::default();
-            if let Some(key) = cache_key.as_deref() {
-                cache_github_identity(state, key, &empty_identity);
-            }
-            return empty_identity;
-        }
-    };
-
-    if !email.is_empty() {
-        if let Some(identity) = fetch_github_user_by_email(email, &token) {
-            if let Some(key) = cache_key.as_deref() {
-                cache_github_identity(state, key, &identity);
-            }
-            return identity;
-        }
-    }
-
-    if !author.is_empty() {
-        let identity = fetch_github_user_by_name(author, &token).unwrap_or_default();
-        if let Some(key) = cache_key.as_deref() {
-            cache_github_identity(state, key, &identity);
-        }
-        return identity;
-    }
-
-    let empty_identity = GitHubIdentity::default();
-    if let Some(key) = cache_key.as_deref() {
-        cache_github_identity(state, key, &empty_identity);
-    }
-    empty_identity
+    GitHubIdentity::default()
 }
 
 fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
@@ -540,7 +472,10 @@ fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
     GitHubIdentity::default()
 }
 
+// Tauri command arguments mirror the frontend invoke payload.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Creates a commit from staged changes using summary/description and command preferences.
 pub(crate) fn commit_repository_changes(
     repo_path: String,
     summary: String,
@@ -923,7 +858,7 @@ fn ai_request_kind_label(request_kind: AiRequestKind) -> &'static str {
 }
 
 fn create_ai_post_request(url: &str, request_kind: AiRequestKind, secret: &str) -> ureq::Request {
-    let request = AI_HTTP_AGENT
+    let request = ai_http_agent()
         .post(url)
         .set("Accept", "application/json")
         .set("Content-Type", "application/json");
@@ -1003,73 +938,17 @@ fn send_ai_json_request(
         .map_err(map_ai_http_error)
 }
 
-fn truncate_for_ai_budget(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
-        return value.to_string();
-    }
-
-    let truncated = value.chars().take(max_chars).collect::<String>();
-    format!("{truncated}\n...[truncated]")
+struct CommitPromptInputs {
+    changed_files: String,
+    diff_stat: String,
+    prompt_mode: CommitPromptMode,
+    recent_titles: String,
+    staged_diff: String,
 }
 
-#[tauri::command]
-pub(crate) fn list_ai_models(
-    state: State<'_, SettingsState>,
-    provider: String,
-    custom_endpoint: String,
-) -> Result<Vec<AiModelInfo>, String> {
-    let secret = resolve_ai_provider_secret(&state, &provider)?;
-    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
-    let models_url = format!("{base_url}/models");
-    let request_kind = get_ai_request_kind(&provider, &base_url);
-    let response = match request_kind {
-        AiRequestKind::Anthropic => AI_HTTP_AGENT
-            .get(&models_url)
-            .set("Accept", "application/json")
-            .set("x-api-key", &secret)
-            .set("anthropic-version", "2023-06-01")
-            .call()
-            .map_err(map_ai_http_error)?,
-        AiRequestKind::Gemini => AI_HTTP_AGENT
-            .get(&models_url)
-            .set("Accept", "application/json")
-            .set("x-goog-api-key", &secret)
-            .call()
-            .map_err(map_ai_http_error)?,
-        AiRequestKind::OpenAiCompatible => AI_HTTP_AGENT
-            .get(&models_url)
-            .set("Accept", "application/json")
-            .set("Authorization", &format!("Bearer {secret}"))
-            .call()
-            .map_err(map_ai_http_error)?,
-    };
-    let body = read_ureq_response_string(response)?;
-    let payload: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|_| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
-
-    parse_ai_model_list(&payload)
-}
-
-#[tauri::command]
-pub(crate) fn generate_repository_commit_message(
-    state: State<'_, SettingsState>,
-    repo_path: String,
-    provider: String,
-    custom_endpoint: String,
-    model: String,
-    instruction: String,
-    max_input_tokens: usize,
-    max_output_tokens: usize,
-) -> Result<GeneratedCommitMessage, String> {
-    validate_git_repo(Path::new(&repo_path))?;
-
-    let trimmed_model = model.trim();
-    if trimmed_model.is_empty() {
-        return Err("Select an AI model before generating a commit message".to_string());
-    }
-
+fn collect_commit_prompt_inputs(repo_path: &str) -> Result<CommitPromptInputs, String> {
     let diff_stat = run_git_text_command(
-        &repo_path,
+        repo_path,
         &["diff", "--cached", "--stat"],
         "Failed to inspect staged diff",
     )?;
@@ -1078,68 +957,86 @@ pub(crate) fn generate_repository_commit_message(
     }
 
     let changed_files = run_git_text_command(
-        &repo_path,
+        repo_path,
         &["diff", "--cached", "--name-status", "--find-renames"],
         "Failed to inspect staged files",
     )?;
     let staged_diff = run_git_text_command(
-        &repo_path,
+        repo_path,
         &["diff", "--cached", "--unified=0"],
         "Failed to inspect staged diff",
     )?;
     let recent_titles = run_git_text_command(
-        &repo_path,
+        repo_path,
         &["log", "-3", "--pretty=format:%s"],
         "Failed to inspect recent commits",
     )
     .unwrap_or_default();
     let prompt_mode = get_commit_prompt_mode(&staged_diff, &changed_files);
+
+    Ok(CommitPromptInputs {
+        changed_files,
+        diff_stat,
+        prompt_mode,
+        recent_titles,
+        staged_diff,
+    })
+}
+
+fn build_commit_generation_prompt_with_budget(
+    inputs: &CommitPromptInputs,
+    instruction: &str,
+    max_input_tokens: usize,
+) -> String {
     let input_budget_chars = max_input_tokens.clamp(256, 2048).saturating_mul(4);
     let staged_diff_budget = input_budget_chars.saturating_mul(68) / 100;
     let diff_stat_budget = input_budget_chars.saturating_mul(18) / 100;
     let changed_files_budget = input_budget_chars.saturating_mul(9) / 100;
     let recent_titles_budget = input_budget_chars.saturating_mul(5) / 100;
-    let truncated_staged_diff = if prompt_mode == CommitPromptMode::Fast {
+    let truncated_staged_diff = if inputs.prompt_mode == CommitPromptMode::Fast {
         String::new()
     } else {
         truncate_for_ai_budget(
-            &staged_diff,
+            &inputs.staged_diff,
             staged_diff_budget.max(COMMIT_STAGED_DIFF_MIN_BUDGET_CHARS),
         )
     };
     let truncated_diff_stat = truncate_for_ai_budget(
-        &diff_stat,
+        &inputs.diff_stat,
         diff_stat_budget.max(COMMIT_DIFF_STAT_MIN_BUDGET_CHARS),
     );
     let truncated_changed_files = truncate_for_ai_budget(
-        &changed_files,
+        &inputs.changed_files,
         changed_files_budget.max(COMMIT_CHANGED_FILES_MIN_BUDGET_CHARS),
     );
     let truncated_recent_titles = truncate_for_ai_budget(
-        &recent_titles,
+        &inputs.recent_titles,
         recent_titles_budget.max(COMMIT_RECENT_TITLES_MIN_BUDGET_CHARS),
     );
 
-    let prompt = build_commit_generation_prompt(
+    build_commit_generation_prompt(
         &truncated_diff_stat,
         &truncated_changed_files,
         &truncated_staged_diff,
         &truncated_recent_titles,
-        &instruction,
-        prompt_mode,
-    );
-    let secret = resolve_ai_provider_secret(&state, &provider)?;
-    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
-    let request_kind = get_ai_request_kind(&provider, &base_url);
-    let output_token_limit = max_output_tokens
-        .max(COMMIT_MESSAGE_DEFAULT_OUTPUT_TOKEN_LIMIT)
-        .clamp(32, COMMIT_MESSAGE_MAX_OUTPUT_TOKEN_LIMIT);
+        instruction,
+        inputs.prompt_mode,
+    )
+}
+
+fn build_commit_message_request_payload(
+    request_kind: AiRequestKind,
+    base_url: &str,
+    model: &str,
+    prompt: &str,
+    output_token_limit: usize,
+) -> (String, serde_json::Value) {
     let schema = build_commit_message_schema();
-    let (request_url, request_body) = match request_kind {
+    match request_kind {
         AiRequestKind::Anthropic => (
             format!("{base_url}/messages"),
             serde_json::json!({
-                "model": trimmed_model,
+                "model": model,
                 "system": [
                     {
                         "type": "text",
@@ -1169,7 +1066,7 @@ pub(crate) fn generate_repository_commit_message(
             }),
         ),
         AiRequestKind::Gemini => (
-            format!("{base_url}/models/{trimmed_model}:generateContent"),
+            format!("{base_url}/models/{model}:generateContent"),
             serde_json::json!({
                 "system_instruction": {
                     "parts": [
@@ -1201,7 +1098,7 @@ pub(crate) fn generate_repository_commit_message(
         AiRequestKind::OpenAiCompatible => (
             format!("{base_url}/chat/completions"),
             serde_json::json!({
-                "model": trimmed_model,
+                "model": model,
                 "messages": [
                     {
                         "role": "system",
@@ -1224,9 +1121,20 @@ pub(crate) fn generate_repository_commit_message(
                 }
             }),
         ),
-    };
+    }
+}
+
+fn request_generated_commit_message(
+    request_url: &str,
+    request_kind: AiRequestKind,
+    secret: &str,
+    request_body: &serde_json::Value,
+    model: &str,
+    prompt: &str,
+    output_token_limit: usize,
+) -> Result<(String, bool), String> {
     let mut schema_fallback_used = false;
-    let response = match send_ai_json_request(&request_url, request_kind, &secret, &request_body) {
+    let response = match send_ai_json_request(request_url, request_kind, secret, request_body) {
         Ok(response) => response,
         Err(error)
             if request_kind == AiRequestKind::OpenAiCompatible
@@ -1234,7 +1142,7 @@ pub(crate) fn generate_repository_commit_message(
         {
             schema_fallback_used = true;
             let fallback_body = serde_json::json!({
-                "model": trimmed_model,
+                "model": model,
                 "messages": [
                     {
                         "role": "system",
@@ -1242,18 +1150,123 @@ pub(crate) fn generate_repository_commit_message(
                     },
                     {
                         "role": "user",
-                        "content": build_legacy_json_commit_prompt(&prompt)
+                        "content": build_legacy_json_commit_prompt(prompt)
                     }
                 ],
                 "max_tokens": output_token_limit,
                 "temperature": 0.2
             });
 
-            send_ai_json_request(&request_url, request_kind, &secret, &fallback_body)?
+            send_ai_json_request(request_url, request_kind, secret, &fallback_body)?
         }
         Err(error) => return Err(error),
     };
     let body = read_ureq_response_string(response)?;
+    Ok((body, schema_fallback_used))
+}
+
+fn truncate_for_ai_budget(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let truncated = value.chars().take(max_chars).collect::<String>();
+    format!("{truncated}\n...[truncated]")
+}
+
+fn list_ai_models_with_secret(
+    provider: &str,
+    base_url: &str,
+    secret: &str,
+) -> Result<Vec<AiModelInfo>, String> {
+    let models_url = format!("{base_url}/models");
+    let request_kind = get_ai_request_kind(provider, base_url);
+    let response = match request_kind {
+        AiRequestKind::Anthropic => ai_http_agent()
+            .get(&models_url)
+            .set("Accept", "application/json")
+            .set("x-api-key", secret)
+            .set("anthropic-version", "2023-06-01")
+            .call()
+            .map_err(map_ai_http_error)?,
+        AiRequestKind::Gemini => ai_http_agent()
+            .get(&models_url)
+            .set("Accept", "application/json")
+            .set("x-goog-api-key", secret)
+            .call()
+            .map_err(map_ai_http_error)?,
+        AiRequestKind::OpenAiCompatible => ai_http_agent()
+            .get(&models_url)
+            .set("Accept", "application/json")
+            .set("Authorization", &format!("Bearer {secret}"))
+            .call()
+            .map_err(map_ai_http_error)?,
+    };
+    let body = read_ureq_response_string(response)?;
+    let payload: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|_| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+
+    parse_ai_model_list(&payload)
+}
+
+#[tauri::command]
+/// Lists available AI models for the selected provider and endpoint.
+pub(crate) async fn list_ai_models(
+    state: State<'_, SettingsState>,
+    provider: String,
+    custom_endpoint: String,
+) -> Result<Vec<AiModelInfo>, String> {
+    let secret = resolve_ai_provider_secret(&state, &provider)?;
+    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        list_ai_models_with_secret(&provider, &base_url, &secret)
+    })
+    .await
+    .map_err(|error| format!("Failed to list AI models: {error}"))?
+}
+
+#[expect(clippy::too_many_arguments)]
+fn generate_repository_commit_message_with_secret(
+    repo_path: &str,
+    provider: &str,
+    base_url: &str,
+    secret: &str,
+    model: &str,
+    instruction: &str,
+    max_input_tokens: usize,
+    max_output_tokens: usize,
+) -> Result<GeneratedCommitMessage, String> {
+    validate_git_repo(Path::new(repo_path))?;
+
+    let trimmed_model = model.trim();
+    if trimmed_model.is_empty() {
+        return Err("Select an AI model before generating a commit message".to_string());
+    }
+
+    let prompt_inputs = collect_commit_prompt_inputs(repo_path)?;
+    let prompt =
+        build_commit_generation_prompt_with_budget(&prompt_inputs, instruction, max_input_tokens);
+    let request_kind = get_ai_request_kind(provider, base_url);
+    let output_token_limit = max_output_tokens
+        .max(COMMIT_MESSAGE_DEFAULT_OUTPUT_TOKEN_LIMIT)
+        .clamp(32, COMMIT_MESSAGE_MAX_OUTPUT_TOKEN_LIMIT);
+    let (request_url, request_body) = build_commit_message_request_payload(
+        request_kind,
+        base_url,
+        trimmed_model,
+        &prompt,
+        output_token_limit,
+    );
+    let (body, schema_fallback_used) = request_generated_commit_message(
+        &request_url,
+        request_kind,
+        secret,
+        &request_body,
+        trimmed_model,
+        &prompt,
+        output_token_limit,
+    )?;
     let payload: serde_json::Value = serde_json::from_str(&body)
         .map_err(|_| "The configured AI endpoint returned invalid JSON.".to_string())?;
     let content = extract_ai_commit_message_content(&payload, request_kind).ok_or_else(|| {
@@ -1261,23 +1274,59 @@ pub(crate) fn generate_repository_commit_message(
     })?;
 
     let mut generated = parse_generated_commit_message(&content)?;
-    generated.prompt_mode = commit_prompt_mode_label(prompt_mode).to_string();
+    generated.prompt_mode = commit_prompt_mode_label(prompt_inputs.prompt_mode).to_string();
     generated.provider_kind = ai_request_kind_label(request_kind).to_string();
     generated.schema_fallback_used = schema_fallback_used;
 
     Ok(generated)
 }
 
+#[tauri::command]
+/// Generates a commit message from staged changes using the configured AI provider.
+pub(crate) async fn generate_repository_commit_message(
+    state: State<'_, SettingsState>,
+    input: GenerateRepositoryCommitMessageRequest,
+) -> Result<GeneratedCommitMessage, String> {
+    let GenerateRepositoryCommitMessageRequest {
+        custom_endpoint,
+        instruction,
+        max_input_tokens,
+        max_output_tokens,
+        model,
+        provider,
+        repo_path,
+    } = input;
+    let secret = resolve_ai_provider_secret(&state, &provider)?;
+    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        generate_repository_commit_message_with_secret(
+            &repo_path,
+            &provider,
+            &base_url,
+            &secret,
+            &model,
+            &instruction,
+            max_input_tokens,
+            max_output_tokens,
+        )
+    })
+    .await
+    .map_err(|error| format!("Failed to generate commit message: {error}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        cache_github_identity, clear_github_identity_cache, get_cached_github_identity,
-        get_commit_prompt_mode, github_identity_cache_key,
+        cache_github_identity, clear_github_identity_cache, extract_ai_message_content,
+        get_cached_github_identity, get_commit_prompt_mode, github_identity_cache_key,
         initialize_github_identity_cache_at_path, is_github_identity_cache_entry_fresh,
-        parse_ai_model_list, parse_generated_commit_message, resolve_github_identity_from_email,
-        truncate_for_ai_budget, CommitPromptMode, GitHubIdentity,
+        parse_ai_model_list, parse_generated_commit_message, resolve_ai_base_url,
+        resolve_github_identity_from_email, truncate_for_ai_budget, CommitPromptMode,
+        GenerateRepositoryCommitMessageRequest, GitHubIdentity,
     };
     use crate::settings::SettingsState;
+    use serde_json::json;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1341,9 +1390,56 @@ mod tests {
     }
 
     #[test]
-    fn parse_generated_commit_message_returns_error_for_invalid_payload() {
-        assert!(parse_generated_commit_message("not-json").is_err());
-        assert!(parse_generated_commit_message(r#"{"body":"Only body"}"#).is_err());
+    fn resolve_ai_base_url_returns_openai_default_when_endpoint_is_blank() {
+        let base_url = resolve_ai_base_url("openai", "   ").expect("openai default base url");
+
+        assert_eq!(base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn resolve_ai_base_url_rejects_custom_provider_without_endpoint() {
+        let error =
+            resolve_ai_base_url("custom", "   ").expect_err("custom endpoint should be required");
+
+        assert_eq!(error, "Custom AI endpoint is required");
+    }
+
+    #[test]
+    fn extract_ai_message_content_joins_openai_content_parts() {
+        let payload = json!({
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            { "text": "{\"title\":\"Add" },
+                            { "text": " tests\",\"body\":\"\"}" }
+                        ]
+                    }
+                }
+            ]
+        });
+
+        let content = extract_ai_message_content(&payload).expect("ai content should exist");
+
+        assert_eq!(content, "{\"title\":\"Add tests\",\"body\":\"\"}");
+    }
+
+    #[test]
+    fn parse_generated_commit_message_returns_error_when_payload_is_not_json() {
+        let Err(error) = parse_generated_commit_message("not-json") else {
+            panic!("payload should be rejected");
+        };
+
+        assert_eq!(error, "AI response was not valid JSON.");
+    }
+
+    #[test]
+    fn parse_generated_commit_message_returns_error_when_title_is_missing() {
+        let Err(error) = parse_generated_commit_message(r#"{"body":"Only body"}"#) else {
+            panic!("title-less payload should be rejected");
+        };
+
+        assert_eq!(error, "AI response did not include a valid commit title.");
     }
 
     #[test]
@@ -1361,6 +1457,30 @@ mod tests {
             generated.body,
             "Wire settings and repo composer.\n\nTrim prompt inputs."
         );
+    }
+
+    #[test]
+    fn generate_repository_commit_message_request_deserializes_frontend_camel_case_payload() {
+        let payload = json!({
+            "repoPath": "/tmp/repo",
+            "provider": "openai",
+            "customEndpoint": "https://api.openai.com/v1",
+            "model": "gpt-5-mini",
+            "instruction": "Focus on staged changes",
+            "maxInputTokens": 1200,
+            "maxOutputTokens": 96
+        });
+
+        let request: GenerateRepositoryCommitMessageRequest =
+            serde_json::from_value(payload).expect("request should deserialize");
+
+        assert_eq!(request.repo_path, "/tmp/repo");
+        assert_eq!(request.provider, "openai");
+        assert_eq!(request.custom_endpoint, "https://api.openai.com/v1");
+        assert_eq!(request.model, "gpt-5-mini");
+        assert_eq!(request.instruction, "Focus on staged changes");
+        assert_eq!(request.max_input_tokens, 1200);
+        assert_eq!(request.max_output_tokens, 96);
     }
 
     #[test]
@@ -1396,11 +1516,11 @@ mod tests {
             username: Some("litgit-tests".to_string()),
         };
 
-        initialize_github_identity_cache_at_path(&initial_state, cache_file_path.clone());
+        initialize_github_identity_cache_at_path(&initial_state, &cache_file_path);
         cache_github_identity(&initial_state, cache_key, &expected_identity);
 
         let restored_state = SettingsState::default();
-        initialize_github_identity_cache_at_path(&restored_state, cache_file_path.clone());
+        initialize_github_identity_cache_at_path(&restored_state, &cache_file_path);
         let restored_identity =
             get_cached_github_identity(&restored_state, cache_key).expect("cached identity");
 
@@ -1460,5 +1580,113 @@ mod tests {
             Some("https://avatars.githubusercontent.com/u/12345?v=4")
         );
         assert_eq!(identity.username.as_deref(), Some("litgit"));
+    }
+
+    #[test]
+    fn commit_repository_changes_rejects_empty_summary() {
+        let repo_path = create_temp_git_repo();
+
+        let error = super::commit_repository_changes(
+            repo_path.to_string_lossy().to_string(),
+            "   ".to_string(),
+            String::new(),
+            false,
+            false,
+            false,
+            None,
+        )
+        .expect_err("commit should fail with empty summary");
+
+        assert_eq!(error, "Commit summary is required");
+
+        remove_temp_path(&repo_path);
+    }
+
+    #[test]
+    fn commit_repository_changes_creates_commit_with_summary() {
+        let repo_path = create_temp_git_repo();
+        fs::write(repo_path.join("test.txt"), "content").expect("write file");
+        git_in(&repo_path, &["add", "test.txt"]);
+
+        super::commit_repository_changes(
+            repo_path.to_string_lossy().to_string(),
+            "Test commit".to_string(),
+            String::new(),
+            false,
+            false,
+            false,
+            None,
+        )
+        .expect("commit should succeed");
+
+        let log = git_output(&repo_path, &["log", "--oneline"]);
+        assert!(log.contains("Test commit"));
+
+        remove_temp_path(&repo_path);
+    }
+
+    #[test]
+    fn commit_repository_changes_includes_all_when_flag_is_set() {
+        let repo_path = create_temp_git_repo();
+        fs::write(repo_path.join("test.txt"), "initial").expect("write file");
+        git_in(&repo_path, &["add", "test.txt"]);
+        git_in(&repo_path, &["commit", "-m", "Initial"]);
+
+        fs::write(repo_path.join("test.txt"), "updated").expect("update file");
+
+        super::commit_repository_changes(
+            repo_path.to_string_lossy().to_string(),
+            "Update file".to_string(),
+            String::new(),
+            true,
+            false,
+            false,
+            None,
+        )
+        .expect("commit with include_all should succeed");
+
+        let log = git_output(&repo_path, &["log", "--oneline"]);
+        assert!(log.contains("Update file"));
+
+        remove_temp_path(&repo_path);
+    }
+
+    fn create_temp_git_repo() -> PathBuf {
+        let repo_path = create_temp_dir("commit-test");
+        git_in(&repo_path, &["init"]);
+        git_in(&repo_path, &["config", "user.name", "Test User"]);
+        git_in(&repo_path, &["config", "user.email", "test@example.com"]);
+        repo_path
+    }
+
+    fn git_in(repo_path: &Path, args: &[&str]) {
+        let output = crate::git_support::git_command()
+            .args(["-C", repo_path.to_string_lossy().as_ref()])
+            .args(args)
+            .output()
+            .expect("git command should run");
+
+        assert!(
+            output.status.success(),
+            "git failed: {}\nstderr: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn git_output(repo_path: &Path, args: &[&str]) -> String {
+        let output = crate::git_support::git_command()
+            .args(["-C", repo_path.to_string_lossy().as_ref()])
+            .args(args)
+            .output()
+            .expect("git command should run");
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        String::from_utf8_lossy(&output.stdout).to_string()
     }
 }

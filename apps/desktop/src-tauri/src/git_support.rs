@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use encoding_rs::{Encoding, UTF_8};
-use std::path::Path;
+use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 
 #[cfg(windows)]
@@ -13,7 +13,7 @@ pub(crate) fn resolve_file_extension(file_path: &str) -> Option<String> {
     Path::new(file_path)
         .extension()
         .and_then(|extension| extension.to_str())
-        .map(|extension| extension.to_ascii_lowercase())
+        .map(str::to_ascii_lowercase)
 }
 
 pub(crate) fn resolve_image_mime_type(extension: &str) -> Option<&'static str> {
@@ -173,11 +173,56 @@ pub(crate) fn validate_repository_path(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn is_git_repository_root(path: &Path) -> bool {
+    let canonical_path = match path.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+
+    let output = match git_command()
+        .args(["-C", canonical_path.to_string_lossy().as_ref(), "rev-parse", "--show-toplevel"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    let top_level = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let top_level_path = match Path::new(&top_level).canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+
+    top_level_path == canonical_path
+}
+
 pub(crate) fn validate_git_repo(path: &Path) -> Result<(), String> {
     validate_repository_path(path)?;
 
-    if !path.join(".git").exists() {
+    if !is_git_repository_root(path) {
         return Err("Selected folder is not a git repository".to_string());
+    }
+
+    Ok(())
+}
+
+pub(crate) fn validate_repo_relative_file_path(file_path: &str) -> Result<(), String> {
+    let path = Path::new(file_path);
+
+    if path.is_absolute() {
+        return Err("File path must be relative to repository root".to_string());
+    }
+
+    let contains_parent = path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir));
+
+    if contains_parent {
+        return Err("File path must not contain parent-directory traversal".to_string());
     }
 
     Ok(())
@@ -200,12 +245,14 @@ mod tests {
     use encoding_rs::UTF_8;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
         decode_text_content_with_encoding, encode_image_data_url, encode_text_with_encoding,
         git_error_message, git_process_error_message, is_git_authentication_message,
-        resolve_image_mime_type, resolve_text_encoding, validate_git_repo,
+        is_git_repository_root, is_probably_text_content, resolve_file_extension, resolve_image_mime_type,
+        resolve_text_encoding, validate_git_repo, validate_repo_relative_file_path,
         validate_repository_path,
     };
 
@@ -250,10 +297,27 @@ mod tests {
     }
 
     #[test]
+    fn resolve_file_extension_normalizes_mixed_case_suffixes() {
+        let extension = resolve_file_extension("assets/Logo.PNG");
+
+        assert_eq!(extension.as_deref(), Some("png"));
+    }
+
+    #[test]
     fn encode_image_data_url_returns_none_when_content_is_empty() {
         let encoded = encode_image_data_url(&[], "image/png");
 
         assert_eq!(encoded, None);
+    }
+
+    #[test]
+    fn is_probably_text_content_returns_true_when_bytes_are_missing() {
+        assert!(is_probably_text_content(None));
+    }
+
+    #[test]
+    fn is_probably_text_content_returns_false_for_binary_bytes() {
+        assert!(!is_probably_text_content(Some(b"hello\0world")));
     }
 
     #[test]
@@ -339,12 +403,27 @@ mod tests {
     #[test]
     fn validate_git_repo_accepts_directory_with_git_folder() {
         let temp_dir = create_temp_dir("validate-git");
-        fs::create_dir(temp_dir.join(".git")).expect(".git directory should be created");
+        Command::new("git")
+            .args(["init", "--quiet", temp_dir.to_string_lossy().as_ref()])
+            .output()
+            .expect("git init should run");
 
         let result = validate_git_repo(&temp_dir);
 
         remove_temp_path(&temp_dir);
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn is_git_repository_root_rejects_directory_with_invalid_git_file() {
+        let temp_dir = create_temp_dir("validate-invalid-git-file");
+        fs::write(temp_dir.join(".git"), "gitdir: /missing/location")
+            .expect("git file should be created");
+
+        let result = is_git_repository_root(&temp_dir);
+
+        remove_temp_path(&temp_dir);
+        assert!(!result);
     }
 
     #[test]
@@ -375,6 +454,19 @@ mod tests {
             result,
             Err("Unsupported encoding: not-a-real-encoding".to_string())
         );
+    }
+
+    #[test]
+    fn validate_repo_relative_file_path_rejects_parent_traversal() {
+        assert_eq!(
+            validate_repo_relative_file_path("../secret.txt"),
+            Err("File path must not contain parent-directory traversal".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_repo_relative_file_path_accepts_nested_repo_path() {
+        assert_eq!(validate_repo_relative_file_path("src/lib.rs"), Ok(()));
     }
 
     #[cfg(windows)]

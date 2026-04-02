@@ -17,6 +17,7 @@ pub(crate) struct TerminalSession {
 }
 
 #[derive(Default)]
+/// Shared terminal session registry for interactive shell sessions.
 pub(crate) struct TerminalState {
     sessions: Mutex<HashMap<String, TerminalSession>>,
 }
@@ -54,7 +55,10 @@ fn resolve_terminal_cwd(cwd: &str) -> Result<Option<PathBuf>, String> {
     Ok(Some(cwd_path))
 }
 
+// Tauri command arguments mirror the frontend invoke payload.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Creates a new interactive shell session and returns its session identifier.
 pub(crate) fn create_terminal_session(
     app: AppHandle,
     state: State<'_, TerminalState>,
@@ -101,9 +105,8 @@ pub(crate) fn create_terminal_session(
 
         loop {
             let bytes_read = match reader.read(&mut buffer) {
-                Ok(0) => break,
+                Ok(0) | Err(_) => break,
                 Ok(size) => size,
-                Err(_) => break,
             };
 
             let chunk = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
@@ -134,7 +137,9 @@ pub(crate) fn create_terminal_session(
     Ok(session_id)
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Writes input data to an active terminal session.
 pub(crate) fn write_terminal_session(
     state: State<'_, TerminalState>,
     session_id: String,
@@ -161,7 +166,9 @@ pub(crate) fn write_terminal_session(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Resizes an active terminal session pseudo-terminal.
 pub(crate) fn resize_terminal_session(
     state: State<'_, TerminalState>,
     session_id: String,
@@ -190,7 +197,9 @@ pub(crate) fn resize_terminal_session(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Closes an active terminal session and terminates its child process.
 pub(crate) fn close_terminal_session(
     state: State<'_, TerminalState>,
     session_id: String,
@@ -248,6 +257,18 @@ mod tests {
         assert!(resolve_terminal_cwd("   ")
             .expect("blank cwd should succeed")
             .is_none());
+    }
+
+    #[test]
+    fn resolve_terminal_cwd_returns_directory_when_path_exists() {
+        let temp_dir = create_temp_dir("existing-dir");
+
+        let cwd = resolve_terminal_cwd(temp_dir.to_string_lossy().as_ref())
+            .expect("existing cwd should resolve");
+
+        assert_eq!(cwd.as_deref(), Some(temp_dir.as_path()));
+
+        remove_temp_path(&temp_dir);
     }
 
     #[test]

@@ -11,6 +11,7 @@ use tauri::State;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Repository reference entry for local branches, remote branches, and tags.
 pub(crate) struct RepositoryBranch {
     ref_type: String,
     is_remote: bool,
@@ -18,7 +19,6 @@ pub(crate) struct RepositoryBranch {
     short_hash: String,
     last_commit_date: String,
     is_current: bool,
-    commit_count: Option<usize>,
     ahead_count: Option<usize>,
     behind_count: Option<usize>,
 }
@@ -100,7 +100,10 @@ fn get_github_token(state: &SettingsState) -> Option<String> {
     state.github_session_token()
 }
 
-fn fetch_github_owner_avatar_url(owner: &str, token: Option<&str>) -> Option<String> {
+fn fetch_github_owner_avatar_url(
+    owner: &str,
+    token: Option<&str>,
+) -> Result<Option<String>, String> {
     let endpoint = format!("https://api.github.com/users/{owner}");
     let mut request = ureq::get(&endpoint)
         .set("Accept", "application/vnd.github+json")
@@ -111,17 +114,85 @@ fn fetch_github_owner_avatar_url(owner: &str, token: Option<&str>) -> Option<Str
         request = request.set("Authorization", &format!("Bearer {token}"));
     }
 
-    let response = request.call().ok()?;
-    let body = response.into_string().ok()?;
-    let payload: serde_json::Value = serde_json::from_str(&body).ok()?;
+    let response = request
+        .call()
+        .map_err(|error| format!("Failed to fetch GitHub avatar for owner {owner}: {error}"))?;
+    let body = response.into_string().map_err(|error| {
+        format!("Failed to read GitHub avatar response for owner {owner}: {error}")
+    })?;
+    let payload: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
+        format!("Failed to parse GitHub avatar response for owner {owner}: {error}")
+    })?;
 
-    payload
+    Ok(payload
         .get("avatar_url")
         .and_then(serde_json::Value::as_str)
-        .map(ToOwned::to_owned)
+        .map(ToOwned::to_owned))
 }
 
+fn parse_branch_sync_counts(stdout: &str) -> Option<(usize, usize)> {
+    let mut values = stdout.split_whitespace();
+    let ahead = values.next()?.parse::<usize>().ok()?;
+    let behind = values.next()?.parse::<usize>().ok()?;
+    Some((ahead, behind))
+}
+
+fn parse_branch_row(
+    row: &str,
+    current_branch_sync_counts: Option<(usize, usize)>,
+) -> Option<RepositoryBranch> {
+    let mut parts = row.trim_end().split('\t');
+    let head = parts.next().unwrap_or(" ").trim();
+    let full_ref_name = parts.next().unwrap_or("").trim();
+    let name = parts.next().unwrap_or("").to_string();
+    let short_hash = parts.next().unwrap_or("").to_string();
+    let last_commit_date = parts.next().unwrap_or("").to_string();
+    let has_full_hash = !parts.next().unwrap_or("").trim().is_empty();
+    let upstream_ref = parts.next().unwrap_or("").trim();
+
+    if (full_ref_name.starts_with("refs/remotes/") && full_ref_name.ends_with("/HEAD"))
+        || name.is_empty()
+        || !has_full_hash
+    {
+        return None;
+    }
+
+    let ref_type = if full_ref_name.starts_with("refs/tags/") {
+        "tag".to_string()
+    } else {
+        "branch".to_string()
+    };
+    let is_remote = full_ref_name.starts_with("refs/remotes/");
+    let (ahead_count, behind_count) = if head == "*" && !upstream_ref.is_empty() && !is_remote {
+        current_branch_sync_counts.unwrap_or((0, 0))
+    } else {
+        (0, 0)
+    };
+
+    Some(RepositoryBranch {
+        ref_type,
+        is_remote,
+        name,
+        short_hash,
+        last_commit_date,
+        is_current: head == "*",
+        ahead_count: if head == "*" && !is_remote {
+            Some(ahead_count)
+        } else {
+            None
+        },
+        behind_count: if head == "*" && !is_remote {
+            Some(behind_count)
+        } else {
+            None
+        },
+    })
+}
+
+// Tauri command arguments mirror the frontend invoke payload.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns sorted repository refs with optional ahead/behind counts for current branch.
 pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -150,28 +221,19 @@ pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<Repositor
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    let mut current_branch_upstream: Option<String> = None;
-    for row in stdout.lines() {
-        let trimmed = row.trim_end();
-
-        if trimmed.is_empty() {
-            continue;
+    let current_branch_upstream = stdout.lines().map(str::trim_end).find_map(|row| {
+        if row.is_empty() {
+            return None;
         }
 
-        let mut parts = trimmed.split('\t');
-        let head = parts.next().unwrap_or(" ").trim();
-        let _full_ref_name = parts.next().unwrap_or("").trim();
-        let _name = parts.next().unwrap_or("").trim();
-        let _short_hash = parts.next().unwrap_or("").trim();
-        let _last_commit_date = parts.next().unwrap_or("").trim();
-        let _full_hash = parts.next().unwrap_or("").trim();
-        let upstream_ref = parts.next().unwrap_or("").trim();
-
-        if head == "*" && !upstream_ref.is_empty() {
-            current_branch_upstream = Some(upstream_ref.to_string());
-            break;
+        let mut parts = row.split('\t');
+        if parts.next().map(str::trim) != Some("*") {
+            return None;
         }
-    }
+
+        let upstream_ref = parts.nth(5).map(str::trim).unwrap_or_default();
+        (!upstream_ref.is_empty()).then(|| upstream_ref.to_string())
+    });
 
     let current_branch_sync_counts = if let Some(upstream_ref) = current_branch_upstream.as_deref()
     {
@@ -188,11 +250,7 @@ pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<Repositor
             .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
 
         if sync_count_output.status.success() {
-            let counts = String::from_utf8_lossy(&sync_count_output.stdout);
-            let mut values = counts.split_whitespace();
-            let ahead = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
-            let behind = values.next().unwrap_or("0").parse::<usize>().unwrap_or(0);
-            Some((ahead, behind))
+            parse_branch_sync_counts(&String::from_utf8_lossy(&sync_count_output.stdout))
         } else {
             None
         }
@@ -200,69 +258,15 @@ pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<Repositor
         None
     };
 
-    let mut branches = Vec::new();
-
-    for row in stdout.lines() {
-        let trimmed = row.trim_end();
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let mut parts = trimmed.split('\t');
-        let head = parts.next().unwrap_or(" ").trim();
-        let full_ref_name = parts.next().unwrap_or("").trim();
-        let name = parts.next().unwrap_or("").to_string();
-        let short_hash = parts.next().unwrap_or("").to_string();
-        let last_commit_date = parts.next().unwrap_or("").to_string();
-        let full_hash = parts.next().unwrap_or("").to_string();
-        let upstream_ref = parts.next().unwrap_or("").trim().to_string();
-
-        if full_ref_name.starts_with("refs/remotes/") && full_ref_name.ends_with("/HEAD") {
-            continue;
-        }
-
-        if name.is_empty() || full_hash.is_empty() {
-            continue;
-        }
-
-        let ref_type = if full_ref_name.starts_with("refs/tags/") {
-            "tag".to_string()
-        } else {
-            "branch".to_string()
-        };
-        let is_remote = full_ref_name.starts_with("refs/remotes/");
-        let (ahead_count, behind_count) = if head == "*" && !upstream_ref.is_empty() && !is_remote {
-            current_branch_sync_counts.unwrap_or((0, 0))
-        } else {
-            (0, 0)
-        };
-
-        branches.push(RepositoryBranch {
-            ref_type,
-            is_remote,
-            name,
-            short_hash,
-            last_commit_date,
-            is_current: head == "*",
-            commit_count: None,
-            ahead_count: if head == "*" && !is_remote {
-                Some(ahead_count)
-            } else {
-                None
-            },
-            behind_count: if head == "*" && !is_remote {
-                Some(behind_count)
-            } else {
-                None
-            },
-        });
-    }
-
-    Ok(branches)
+    Ok(stdout
+        .lines()
+        .filter_map(|row| parse_branch_row(row, current_branch_sync_counts))
+        .collect())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns configured remote names for the repository.
 pub(crate) fn get_repository_remote_names(repo_path: String) -> Result<Vec<String>, String> {
     validate_git_repo(Path::new(&repo_path))?;
 
@@ -284,38 +288,59 @@ pub(crate) fn get_repository_remote_names(repo_path: String) -> Result<Vec<Strin
 }
 
 #[tauri::command]
-pub(crate) fn get_repository_remote_avatars(
+/// Resolves GitHub avatar URLs for remotes that point to GitHub repositories.
+pub(crate) async fn get_repository_remote_avatars(
     repo_path: String,
     state: State<'_, SettingsState>,
 ) -> Result<HashMap<String, Option<String>>, String> {
     validate_git_repo(Path::new(&repo_path))?;
-
-    let output = git_command()
-        .args(["-C", &repo_path, "remote", "-v"])
-        .output()
-        .map_err(|error| format!("Failed to run git remote -v: {error}"))?;
-
-    if !output.status.success() {
-        return Err(git_error_message(
-            &output.stderr,
-            "Failed to read repository remotes",
-        ));
-    }
-
-    let remote_urls = parse_remote_urls_output(&String::from_utf8_lossy(&output.stdout));
     let github_token = get_github_token(state.inner());
-    let mut avatars_by_remote = HashMap::new();
 
-    for (remote_name, remote_url) in remote_urls {
-        let avatar_url = parse_github_owner_from_remote_url(&remote_url)
-            .and_then(|owner| fetch_github_owner_avatar_url(&owner, github_token.as_deref()));
-        avatars_by_remote.insert(remote_name, avatar_url);
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = git_command()
+            .args(["-C", &repo_path, "remote", "-v"])
+            .output()
+            .map_err(|error| format!("Failed to run git remote -v: {error}"))?;
 
-    Ok(avatars_by_remote)
+        if !output.status.success() {
+            return Err(git_error_message(
+                &output.stderr,
+                "Failed to read repository remotes",
+            ));
+        }
+
+        let remote_urls = parse_remote_urls_output(&String::from_utf8_lossy(&output.stdout));
+        let mut avatars_by_owner: HashMap<String, Option<String>> = HashMap::new();
+        let mut avatars_by_remote = HashMap::new();
+
+        for (remote_name, remote_url) in remote_urls {
+            let avatar_url = if let Some(owner) = parse_github_owner_from_remote_url(&remote_url) {
+                if let Some(cached_avatar_url) = avatars_by_owner.get(&owner) {
+                    cached_avatar_url.clone()
+                } else {
+                    let fetched_avatar_url =
+                        fetch_github_owner_avatar_url(&owner, github_token.as_deref())
+                            .inspect_err(|error| log::warn!("{error}"))
+                            .ok()
+                            .flatten();
+                    avatars_by_owner.insert(owner, fetched_avatar_url.clone());
+                    fetched_avatar_url
+                }
+            } else {
+                None
+            };
+            avatars_by_remote.insert(remote_name, avatar_url);
+        }
+
+        Ok(avatars_by_remote)
+    })
+    .await
+    .map_err(|error| format!("Failed to load repository remote avatars: {error}"))?
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Creates a new local branch from the current HEAD.
 pub(crate) fn create_repository_branch(
     repo_path: String,
     branch_name: String,
@@ -347,7 +372,9 @@ pub(crate) fn create_repository_branch(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Creates a new local branch at a specific target reference.
 pub(crate) fn create_repository_branch_at_reference(
     repo_path: String,
     branch_name: String,
@@ -392,7 +419,9 @@ pub(crate) fn create_repository_branch_at_reference(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Deletes a local branch.
 pub(crate) fn delete_repository_branch(
     repo_path: String,
     branch_name: String,
@@ -424,7 +453,9 @@ pub(crate) fn delete_repository_branch(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Renames a local branch.
 pub(crate) fn rename_repository_branch(
     repo_path: String,
     branch_name: String,
@@ -470,7 +501,9 @@ pub(crate) fn rename_repository_branch(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Deletes a branch from a remote.
 pub(crate) fn delete_remote_repository_branch(
     state: State<'_, SettingsState>,
     repo_path: String,
@@ -519,7 +552,9 @@ pub(crate) fn delete_remote_repository_branch(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Sets or publishes upstream tracking for a local branch.
 pub(crate) fn set_repository_branch_upstream(
     state: State<'_, SettingsState>,
     repo_path: String,
@@ -610,7 +645,9 @@ pub(crate) fn set_repository_branch_upstream(
     Ok(())
 }
 
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Switches to a local branch or tracks a remote branch.
 pub(crate) fn switch_repository_branch(
     repo_path: String,
     branch_name: String,
@@ -688,8 +725,10 @@ pub(crate) fn switch_repository_branch(
 #[cfg(test)]
 mod tests {
     use super::{
-        create_repository_branch, parse_github_owner_from_remote_url, parse_remote_names_output,
-        parse_remote_urls_output,
+        create_repository_branch, create_repository_branch_at_reference, delete_repository_branch,
+        get_repository_branches, get_repository_remote_names, parse_branch_row,
+        parse_branch_sync_counts, parse_github_owner_from_remote_url, parse_remote_names_output,
+        parse_remote_urls_output, rename_repository_branch, switch_repository_branch,
     };
     use crate::git_support::git_command;
     use std::env;
@@ -754,7 +793,35 @@ mod tests {
     }
 
     #[test]
-    fn create_repository_branch_creates_a_new_branch_and_rejects_duplicates() {
+    fn parse_branch_sync_counts_returns_none_for_incomplete_or_invalid_output() {
+        assert_eq!(parse_branch_sync_counts(""), None);
+        assert_eq!(parse_branch_sync_counts("2"), None);
+        assert_eq!(parse_branch_sync_counts("left right"), None);
+    }
+
+    #[test]
+    fn parse_branch_row_sets_sync_counts_only_for_current_local_branch_with_upstream() {
+        let row =
+            "*\trefs/heads/main\tmain\tabc123\t2026-04-02T00:00:00+00:00\tdeadbeef\torigin/main";
+
+        let branch = parse_branch_row(row, Some((3, 1))).expect("branch row should parse");
+
+        assert_eq!(branch.name, "main");
+        assert_eq!(branch.ahead_count, Some(3));
+        assert_eq!(branch.behind_count, Some(1));
+        assert!(!branch.is_remote);
+        assert!(branch.is_current);
+    }
+
+    #[test]
+    fn parse_branch_row_skips_remote_head_alias_rows() {
+        let row = " \trefs/remotes/origin/HEAD\torigin/HEAD\tabc123\t2026-04-02T00:00:00+00:00\tdeadbeef\t";
+
+        assert!(parse_branch_row(row, Some((1, 1))).is_none());
+    }
+
+    #[test]
+    fn create_repository_branch_creates_a_new_branch() {
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
         repo.git(&["add", "tracked.txt"]);
@@ -768,6 +835,16 @@ mod tests {
 
         let current_branch = repo.git_output(&["rev-parse", "--abbrev-ref", "HEAD"]);
         assert_eq!(current_branch.trim(), "feature");
+    }
+
+    #[test]
+    fn create_repository_branch_rejects_duplicate_names() {
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&["switch", "-c", "feature"]);
+        repo.git(&["switch", "main"]);
 
         let error = create_repository_branch(
             repo.path.to_string_lossy().to_string(),
@@ -778,22 +855,214 @@ mod tests {
         assert!(error.contains("already exists"), "{error}");
     }
 
+    #[test]
+    fn create_repository_branch_at_reference_uses_requested_target() {
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "first");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        let initial_commit = repo.git_output(&["rev-parse", "HEAD"]);
+
+        repo.write_file("tracked.txt", "second");
+        repo.git(&["commit", "-am", "Second commit"]);
+
+        create_repository_branch_at_reference(
+            repo.path.to_string_lossy().to_string(),
+            "release".to_string(),
+            initial_commit.trim().to_string(),
+        )
+        .expect("branch at reference should be created");
+
+        let release_commit = repo.git_output(&["rev-parse", "release"]);
+        assert_eq!(release_commit.trim(), initial_commit.trim());
+    }
+
+    #[test]
+    fn delete_repository_branch_removes_non_current_branch() {
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&["switch", "-c", "feature"]);
+        repo.git(&["switch", "main"]);
+
+        delete_repository_branch(
+            repo.path.to_string_lossy().to_string(),
+            "feature".to_string(),
+        )
+        .expect("branch should be deleted");
+
+        let branches = repo.git_output(&["branch", "--format=%(refname:short)"]);
+        assert!(!branches.lines().any(|branch| branch == "feature"));
+    }
+
+    #[test]
+    fn rename_repository_branch_renames_existing_branch() {
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&["switch", "-c", "feature"]);
+        repo.git(&["switch", "main"]);
+
+        rename_repository_branch(
+            repo.path.to_string_lossy().to_string(),
+            "feature".to_string(),
+            "release".to_string(),
+        )
+        .expect("branch should be renamed");
+
+        let branches = repo.git_output(&["branch", "--format=%(refname:short)"]);
+        assert!(branches.lines().any(|branch| branch == "release"));
+        assert!(!branches.lines().any(|branch| branch == "feature"));
+    }
+
+    #[test]
+    fn switch_repository_branch_switches_existing_local_branch() {
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&["switch", "-c", "feature"]);
+        repo.git(&["switch", "main"]);
+
+        switch_repository_branch(
+            repo.path.to_string_lossy().to_string(),
+            "feature".to_string(),
+        )
+        .expect("local branch switch should succeed");
+
+        let current_branch = repo.git_output(&["rev-parse", "--abbrev-ref", "HEAD"]);
+        assert_eq!(current_branch.trim(), "feature");
+    }
+
+    #[test]
+    fn switch_repository_branch_tracks_remote_branch_when_local_branch_is_missing() {
+        let remote = TempRepository::create_bare("remote");
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+        repo.git(&["push", "-u", "origin", "main"]);
+
+        repo.git(&["switch", "-c", "feature"]);
+        repo.git(&["push", "-u", "origin", "feature"]);
+        repo.git(&["switch", "main"]);
+        repo.git(&["branch", "-D", "feature"]);
+        repo.git(&["fetch", "origin"]);
+
+        switch_repository_branch(
+            repo.path.to_string_lossy().to_string(),
+            "origin/feature".to_string(),
+        )
+        .expect("remote branch switch should create a tracking branch");
+
+        let current_branch = repo.git_output(&["rev-parse", "--abbrev-ref", "HEAD"]);
+        assert_eq!(current_branch.trim(), "feature");
+
+        let upstream = repo.git_output(&[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ]);
+        assert_eq!(upstream.trim(), "origin/feature");
+    }
+
+    #[test]
+    fn get_repository_remote_names_returns_configured_remotes() {
+        let remote = TempRepository::create_bare("origin");
+        let repo = TempRepository::create();
+        repo.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+        repo.git(&[
+            "remote",
+            "add",
+            "upstream",
+            "https://github.com/litgit/litgit.git",
+        ]);
+
+        let remote_names =
+            get_repository_remote_names(repo.path.to_string_lossy().to_string()).expect("remotes");
+
+        assert_eq!(
+            remote_names,
+            vec!["origin".to_string(), "upstream".to_string()]
+        );
+    }
+
+    #[test]
+    fn get_repository_branches_includes_current_branch_tag_and_remote_branch() {
+        let remote = TempRepository::create_bare("origin");
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&["tag", "v1.0.0"]);
+        repo.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+        repo.git(&["push", "-u", "origin", "main"]);
+        repo.git(&["fetch", "origin"]);
+
+        let branches =
+            get_repository_branches(repo.path.to_string_lossy().to_string()).expect("branches");
+
+        assert!(branches.iter().any(|branch| {
+            branch.name == "main"
+                && branch.is_current
+                && !branch.is_remote
+                && branch.ref_type == "branch"
+        }));
+        assert!(branches
+            .iter()
+            .any(|branch| branch.name == "origin/main" && branch.is_remote));
+        assert!(branches
+            .iter()
+            .any(|branch| branch.name == "v1.0.0" && branch.ref_type == "tag"));
+    }
+
     struct TempRepository {
         path: PathBuf,
     }
 
     impl TempRepository {
         fn create() -> Self {
+            Self::create_with_args("repo", &["init", "-b", "main"])
+        }
+
+        fn create_bare(label: &str) -> Self {
+            Self::create_with_args(label, &["init", "--bare"])
+        }
+
+        fn create_with_args(label: &str, init_args: &[&str]) -> Self {
             let unique_suffix = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("clock should be after unix epoch")
                 .as_nanos();
-            let path = env::temp_dir().join(format!("litgit-branches-test-{unique_suffix}"));
+            let path =
+                env::temp_dir().join(format!("litgit-branches-test-{label}-{unique_suffix}"));
 
             fs::create_dir_all(&path).expect("temp repo directory should be created");
-            Self::git_in(&path, &["init", "-b", "main"]);
-            Self::git_in(&path, &["config", "user.name", "LitGit Tests"]);
-            Self::git_in(&path, &["config", "user.email", "tests@example.com"]);
+            Self::git_in(&path, init_args);
+
+            if !init_args.contains(&"--bare") {
+                Self::git_in(&path, &["config", "user.name", "LitGit Tests"]);
+                Self::git_in(&path, &["config", "user.email", "tests@example.com"]);
+            }
 
             Self { path }
         }

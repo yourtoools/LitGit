@@ -167,16 +167,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isNullableString(value: unknown): value is string | null {
-  return typeof value === "string" || value === null;
-}
-
-function isDiffViewerKind(
-  value: unknown
-): value is "image" | "text" | "unsupported" {
-  return value === "image" || value === "text" || value === "unsupported";
-}
-
 function parseStringArray(value: unknown, errorMessage: string): string[] {
   if (
     !(
@@ -1262,14 +1252,16 @@ export async function createLocalRepo(input: CreateLocalRepositoryInput) {
   }
 
   const result = await invoke("create_local_repository", {
-    defaultBranch: input.defaultBranch,
-    destinationParent: input.destinationParent,
-    gitIdentity: input.gitIdentity ?? null,
-    gitignoreTemplateContent: input.gitignoreTemplateContent,
-    gitignoreTemplateKey: input.gitignoreTemplateKey,
-    licenseTemplateContent: input.licenseTemplateContent,
-    licenseTemplateKey: input.licenseTemplateKey,
-    name: input.name,
+    input: {
+      defaultBranch: input.defaultBranch,
+      destinationParent: input.destinationParent,
+      gitIdentity: input.gitIdentity ?? null,
+      gitignoreTemplateContent: input.gitignoreTemplateContent,
+      gitignoreTemplateKey: input.gitignoreTemplateKey,
+      licenseTemplateContent: input.licenseTemplateContent,
+      licenseTemplateKey: input.licenseTemplateKey,
+      name: input.name,
+    },
   });
 
   return parsePickedRepository(result);
@@ -1868,122 +1860,16 @@ export async function saveRepoFileText(
   });
 }
 
-export async function getRepoCommitFileDiff(
+export function getRepoCommitFileDiff(
   path: string,
   commitHash: string,
   filePath: string
 ): Promise<RepositoryCommitFileDiff> {
-  const invoke = getTauriInvoke();
-
-  if (!invoke) {
-    throw new Error("Commit diff works in Tauri desktop app only");
-  }
-
-  const result = await invokeRepoCommandWithSystemLog<unknown>({
-    command: `git show ${commitHash}:${filePath}`,
-    invoke,
-    invokeArgs: {
-      repoPath: path,
-      commitHash,
-      filePath,
-    },
-    invokeCommand: "get_repository_commit_file_diff",
-    repoPath: path,
-  });
-
-  if (!isRecord(result)) {
-    throw new Error("Invalid repository commit file diff payload");
-  }
-
-  const {
-    commitHash: parsedCommitHash,
-    path: diffPath,
-    oldText,
-    newText,
-    viewerKind,
-    oldImageDataUrl,
-    newImageDataUrl,
-    unsupportedExtension,
-  } = result;
-
-  if (
-    typeof parsedCommitHash !== "string" ||
-    typeof diffPath !== "string" ||
-    typeof oldText !== "string" ||
-    typeof newText !== "string" ||
-    !isDiffViewerKind(viewerKind) ||
-    !isNullableString(oldImageDataUrl) ||
-    !isNullableString(newImageDataUrl) ||
-    !isNullableString(unsupportedExtension)
-  ) {
-    throw new Error("Invalid repository commit file diff payload");
-  }
-
-  return {
-    commitHash: parsedCommitHash,
-    path: diffPath,
-    oldText,
-    newText,
-    viewerKind,
-    oldImageDataUrl,
-    newImageDataUrl,
-    unsupportedExtension,
-  } satisfies RepositoryCommitFileDiff;
+  return getRepoCommitFileContent(path, commitHash, filePath, "diff", false);
 }
 
-export async function getRepoFileDiff(path: string, filePath: string) {
-  const invoke = getTauriInvoke();
-
-  if (!invoke) {
-    throw new Error("File diff works in Tauri desktop app only");
-  }
-
-  const result = await invokeRepoCommandWithSystemLog<unknown>({
-    command: `git show HEAD:${filePath}`,
-    invoke,
-    invokeArgs: {
-      repoPath: path,
-      filePath,
-    },
-    invokeCommand: "get_repository_file_diff",
-    repoPath: path,
-  });
-
-  if (!isRecord(result)) {
-    throw new Error("Invalid repository file diff payload");
-  }
-
-  const {
-    path: diffPath,
-    oldText,
-    newText,
-    viewerKind,
-    oldImageDataUrl,
-    newImageDataUrl,
-    unsupportedExtension,
-  } = result;
-
-  if (
-    typeof diffPath !== "string" ||
-    typeof oldText !== "string" ||
-    typeof newText !== "string" ||
-    !isDiffViewerKind(viewerKind) ||
-    !isNullableString(oldImageDataUrl) ||
-    !isNullableString(newImageDataUrl) ||
-    !isNullableString(unsupportedExtension)
-  ) {
-    throw new Error("Invalid repository file diff payload");
-  }
-
-  return {
-    path: diffPath,
-    oldText,
-    newText,
-    viewerKind,
-    oldImageDataUrl,
-    newImageDataUrl,
-    unsupportedExtension,
-  } satisfies RepositoryFileDiff;
+export function getRepoFileDiff(path: string, filePath: string) {
+  return getRepoFileContent(path, filePath, "diff", false);
 }
 
 export async function getRepositoryFiles(path: string) {

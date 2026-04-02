@@ -1,9 +1,11 @@
-use crate::git_support::{git_command, git_error_message, validate_repository_path};
+use crate::git_support::{
+    git_command, git_error_message, is_git_repository_root, validate_repository_path,
+};
 use crate::settings::{
     apply_git_preferences, normalize_git_identity_scope, write_git_identity,
     GitIdentityWriteRequest, RepoCommandPreferences, SettingsState,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -12,6 +14,7 @@ use tauri::{AppHandle, Emitter, State};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Metadata returned when a repository folder is picked or created.
 pub(crate) struct PickedRepository {
     has_initial_commit: bool,
     is_git_repository: bool,
@@ -21,6 +24,7 @@ pub(crate) struct PickedRepository {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Generic picked file payload returned from native file dialogs.
 pub(crate) struct PickedFilePath {
     pub(crate) path: String,
 }
@@ -36,11 +40,25 @@ struct CloneRepositoryProgress {
     total_objects: Option<usize>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Input payload used to initialize a new local repository.
+pub(crate) struct CreateLocalRepositoryRequest {
+    default_branch: String,
+    destination_parent: String,
+    git_identity: Option<GitIdentityWriteRequest>,
+    gitignore_template_content: Option<String>,
+    gitignore_template_key: Option<String>,
+    license_template_content: Option<String>,
+    license_template_key: Option<String>,
+    name: String,
+}
+
 #[tauri::command]
+/// Opens a native folder picker and inspects whether the selected folder is a Git repository.
 pub(crate) fn pick_git_repository() -> Result<Option<PickedRepository>, String> {
-    let folder = match rfd::FileDialog::new().pick_folder() {
-        Some(folder) => folder,
-        None => return Ok(None),
+    let Some(folder) = rfd::FileDialog::new().pick_folder() else {
+        return Ok(None);
     };
 
     let path = folder.to_string_lossy().to_string();
@@ -60,21 +78,25 @@ pub(crate) fn pick_git_repository() -> Result<Option<PickedRepository>, String> 
     }))
 }
 
+// Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
+#[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
+/// Opens a native folder picker for clone destination selection.
 pub(crate) fn pick_clone_destination_folder() -> Result<Option<String>, String> {
-    let folder = match rfd::FileDialog::new().pick_folder() {
-        Some(folder) => folder,
-        None => return Ok(None),
+    let Some(folder) = rfd::FileDialog::new().pick_folder() else {
+        return Ok(None);
     };
 
     Ok(Some(folder.to_string_lossy().to_string()))
 }
 
+// Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
+#[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
+/// Opens a native file picker used by settings flows.
 pub(crate) fn pick_settings_file() -> Result<Option<PickedFilePath>, String> {
-    let file = match rfd::FileDialog::new().pick_file() {
-        Some(file) => file,
-        None => return Ok(None),
+    let Some(file) = rfd::FileDialog::new().pick_file() else {
+        return Ok(None);
     };
 
     Ok(Some(PickedFilePath {
@@ -83,16 +105,20 @@ pub(crate) fn pick_settings_file() -> Result<Option<PickedFilePath>, String> {
 }
 
 #[tauri::command]
+/// Creates a new local Git repository with optional templates and initial commit.
 pub(crate) fn create_local_repository(
-    name: String,
-    destination_parent: String,
-    default_branch: String,
-    gitignore_template_key: Option<String>,
-    gitignore_template_content: Option<String>,
-    license_template_key: Option<String>,
-    license_template_content: Option<String>,
-    git_identity: Option<GitIdentityWriteRequest>,
+    input: CreateLocalRepositoryRequest,
 ) -> Result<PickedRepository, String> {
+    let CreateLocalRepositoryRequest {
+        default_branch,
+        destination_parent,
+        git_identity,
+        gitignore_template_content,
+        gitignore_template_key,
+        license_template_content,
+        license_template_key,
+        name,
+    } = input;
     let trimmed_name = name.trim();
     let trimmed_parent = destination_parent.trim();
     let trimmed_branch = default_branch.trim();
@@ -156,6 +182,7 @@ pub(crate) fn create_local_repository(
 }
 
 #[tauri::command]
+/// Clones a repository into a destination folder and emits progress events.
 pub(crate) async fn clone_git_repository(
     app: AppHandle,
     state: State<'_, SettingsState>,
@@ -273,27 +300,33 @@ pub(crate) async fn clone_git_repository(
     })
 }
 
+// Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
+#[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
+/// Filters repository paths and returns only existing folders that contain `.git`.
 pub(crate) fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, String> {
     let valid_paths = repo_paths
         .into_iter()
         .filter(|repo_path| {
             let path = Path::new(repo_path);
-            path.exists() && path.join(".git").exists()
+            path.exists() && is_git_repository_root(path)
         })
         .collect();
 
     Ok(valid_paths)
 }
 
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Creates an initial commit in an existing repository folder.
 pub(crate) fn create_repository_initial_commit(
     repo_path: String,
     git_identity: Option<GitIdentityWriteRequest>,
 ) -> Result<(), String> {
     validate_repository_path(Path::new(&repo_path))?;
 
-    if !Path::new(&repo_path).join(".git").exists() {
+    if !is_git_repository_root(Path::new(&repo_path)) {
         let init_output = git_command()
             .args(["-C", &repo_path, "init"])
             .output()
@@ -640,9 +673,11 @@ fn folder_name(path: &Path) -> Option<String> {
 mod tests {
     use super::{
         create_repository_initial_commit, parse_clone_progress, validate_clone_repository_url,
+        validate_opened_repositories, CreateLocalRepositoryRequest,
     };
     use crate::git_support::git_command;
     use crate::settings::GitIdentityWriteRequest;
+    use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -680,6 +715,14 @@ mod tests {
     }
 
     #[test]
+    fn validate_clone_repository_url_rejects_local_file_clone_urls() {
+        let error = validate_clone_repository_url("file:///tmp/repo.git")
+            .expect_err("local file clone urls should be rejected");
+
+        assert_eq!(error, "Local file clone URLs are not supported");
+    }
+
+    #[test]
     fn parse_clone_progress_returns_receiving_counts() {
         let progress =
             parse_clone_progress("Receiving objects:  42% (21/50), 12.00 KiB | 120.00 KiB/s")
@@ -689,6 +732,85 @@ mod tests {
         assert_eq!(progress.percent, Some(42));
         assert_eq!(progress.received_objects, Some(21));
         assert_eq!(progress.total_objects, Some(50));
+    }
+
+    #[test]
+    fn parse_clone_progress_returns_resolving_counts() {
+        let progress = parse_clone_progress("Resolving deltas:  75% (15/20)")
+            .expect("resolving progress should parse");
+
+        assert_eq!(progress.phase, "resolving");
+        assert_eq!(progress.percent, Some(75));
+        assert_eq!(progress.resolved_objects, Some(15));
+        assert_eq!(progress.total_objects, Some(20));
+    }
+
+    #[test]
+    fn create_local_repository_request_deserializes_frontend_camel_case_payload() {
+        let payload = json!({
+            "name": "litgit",
+            "destinationParent": "/tmp",
+            "defaultBranch": "main",
+            "gitignoreTemplateKey": "node",
+            "gitignoreTemplateContent": "dist/",
+            "licenseTemplateKey": "mit",
+            "licenseTemplateContent": "MIT",
+            "gitIdentity": {
+                "name": "Lit Git",
+                "email": "litgit@example.com",
+                "scope": "local"
+            }
+        });
+
+        let request: CreateLocalRepositoryRequest =
+            serde_json::from_value(payload).expect("request should deserialize");
+
+        assert_eq!(request.name, "litgit");
+        assert_eq!(request.destination_parent, "/tmp");
+        assert_eq!(request.default_branch, "main");
+        assert_eq!(request.gitignore_template_key.as_deref(), Some("node"));
+        assert_eq!(request.gitignore_template_content.as_deref(), Some("dist/"));
+        assert_eq!(request.license_template_key.as_deref(), Some("mit"));
+        assert_eq!(request.license_template_content.as_deref(), Some("MIT"));
+        assert_eq!(
+            request
+                .git_identity
+                .as_ref()
+                .map(|identity| identity.name.as_str()),
+            Some("Lit Git")
+        );
+    }
+
+    #[test]
+    fn validate_opened_repositories_returns_only_existing_git_directories() {
+        let git_repo = TempTestDirectory::new("opened-repo");
+        let plain_dir = TempTestDirectory::new("plain-dir");
+        let missing_path = plain_dir.path.join("missing");
+        git_command()
+            .args(["init", "--quiet", git_repo.path.to_string_lossy().as_ref()])
+            .output()
+            .expect("git init should run");
+
+        let valid_paths = validate_opened_repositories(vec![
+            git_repo.path_string(),
+            plain_dir.path_string(),
+            missing_path.to_string_lossy().to_string(),
+        ])
+        .expect("opened repositories should validate");
+
+        assert_eq!(valid_paths, vec![git_repo.path_string()]);
+    }
+
+    #[test]
+    fn validate_opened_repositories_rejects_invalid_git_file_markers() {
+        let fake_repo = TempTestDirectory::new("fake-git-file");
+        fs::write(fake_repo.path.join(".git"), "gitdir: /missing/location")
+            .expect("fake git file should be written");
+
+        let valid_paths =
+            validate_opened_repositories(vec![fake_repo.path_string()]).expect("validation");
+
+        assert!(valid_paths.is_empty());
     }
 
     #[test]

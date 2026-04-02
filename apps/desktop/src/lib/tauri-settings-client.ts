@@ -420,7 +420,7 @@ export const generateRepositoryCommitMessage = async (input: {
   }
 
   const result = parseRecord(
-    await invoke("generate_repository_commit_message", input),
+    await invoke("generate_repository_commit_message", { input }),
     "Invalid AI commit message payload"
   );
 

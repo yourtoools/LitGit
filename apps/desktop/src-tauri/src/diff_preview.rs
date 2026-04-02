@@ -7,11 +7,15 @@ use super::{RepositoryCommitFileDiff, RepositoryFileDiff};
 use crate::git_support::{
     decode_text_content_with_encoding, encode_image_data_url, git_command,
     is_probably_text_content, resolve_file_extension, resolve_image_mime_type, validate_git_repo,
+    validate_repo_relative_file_path,
 };
 
 const DIFF_CHANGED_LINE_LIMIT: usize = 500;
 const FILE_LINE_LIMIT: usize = 20_000;
 const NON_TEXT_SIZE_LIMIT_BYTES: usize = 10 * 1024 * 1024;
+
+type FileContentPair = (Option<Vec<u8>>, Option<Vec<u8>>);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PreviewMode {
     Diff,
@@ -72,6 +76,7 @@ impl PreviewGate {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Additional information describing why a preview gate was triggered.
 pub(crate) struct PreviewGateDetails {
     current: Option<usize>,
     limit: Option<usize>,
@@ -79,6 +84,7 @@ pub(crate) struct PreviewGateDetails {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Preflight metadata for a working-tree file preview.
 pub(crate) struct RepositoryFilePreflight {
     file_size_bytes: Option<usize>,
     gate: String,
@@ -96,6 +102,7 @@ pub(crate) struct RepositoryFilePreflight {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Preflight metadata for a historical commit file preview.
 pub(crate) struct RepositoryCommitFilePreflight {
     commit_hash: String,
     file_size_bytes: Option<usize>,
@@ -124,12 +131,27 @@ struct PreflightMetadata {
     viewer_kind: &'static str,
 }
 
+struct PreviewContentPayload {
+    new_image_data_url: Option<String>,
+    new_text: String,
+    old_image_data_url: Option<String>,
+    old_text: String,
+    unsupported_extension: Option<String>,
+    viewer_kind: String,
+}
+
 fn count_text_lines(content: &[u8]) -> usize {
     if content.is_empty() {
         return 0;
     }
 
-    let line_break_count = content.iter().filter(|byte| **byte == b'\n').count();
+    let mut line_break_count = 0;
+
+    for &byte in content {
+        if byte == b'\n' {
+            line_break_count += 1;
+        }
+    }
 
     if content.last().copied() == Some(b'\n') {
         line_break_count
@@ -282,12 +304,10 @@ fn build_preflight_metadata(
         "unsupported"
     };
     let is_binary = viewer_kind == "unsupported";
-    let old_side_bytes = old_content.map(|content| content.len());
-    let new_side_bytes = new_content.map(|content| content.len());
+    let old_side_bytes = old_content.map(<[u8]>::len);
+    let new_side_bytes = new_content.map(<[u8]>::len);
     let file_size_bytes = match mode {
-        PreviewMode::File => {
-            resolve_file_target_bytes(old_content, new_content).map(|content| content.len())
-        }
+        PreviewMode::File => resolve_file_target_bytes(old_content, new_content).map(<[u8]>::len),
         PreviewMode::Diff => match (old_side_bytes, new_side_bytes) {
             (Some(old_bytes), Some(new_bytes)) => Some(old_bytes.max(new_bytes)),
             (Some(old_bytes), None) => Some(old_bytes),
@@ -327,10 +347,9 @@ fn build_preflight_metadata(
     }
 }
 
-fn load_working_tree_contents(
-    repo_path: &str,
-    file_path: &str,
-) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>), String> {
+fn load_working_tree_contents(repo_path: &str, file_path: &str) -> Result<FileContentPair, String> {
+    validate_repo_relative_file_path(file_path)?;
+
     let old_output = git_command()
         .args(["-C", repo_path, "show", &format!("HEAD:{file_path}")])
         .output()
@@ -345,7 +364,9 @@ fn load_commit_contents(
     repo_path: &str,
     commit_hash: &str,
     file_path: &str,
-) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>), String> {
+) -> Result<FileContentPair, String> {
+    validate_repo_relative_file_path(file_path)?;
+
     let old_output = git_command()
         .args([
             "-C",
@@ -377,17 +398,7 @@ fn build_content_payload(
     old_content: Option<&[u8]>,
     new_content: Option<&[u8]>,
     encoding: Option<&str>,
-) -> Result<
-    (
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ),
-    String,
-> {
+) -> Result<PreviewContentPayload, String> {
     let extension = resolve_file_extension(file_path);
     let image_mime_type = extension.as_deref().and_then(resolve_image_mime_type);
 
@@ -408,39 +419,39 @@ fn build_content_payload(
             return Err("Failed to render image preview".to_string());
         }
 
-        return Ok((
-            String::new(),
-            String::new(),
-            "image".to_string(),
-            old_side,
-            new_side,
-            None,
-        ));
+        return Ok(PreviewContentPayload {
+            old_text: String::new(),
+            new_text: String::new(),
+            viewer_kind: "image".to_string(),
+            old_image_data_url: old_side,
+            new_image_data_url: new_side,
+            unsupported_extension: None,
+        });
     }
 
     if is_probably_text_content(old_content) && is_probably_text_content(new_content) {
         return match mode {
-            PreviewMode::Diff => Ok((
-                decode_text_content_with_encoding(old_content, encoding)?,
-                decode_text_content_with_encoding(new_content, encoding)?,
-                "text".to_string(),
-                None,
-                None,
-                None,
-            )),
+            PreviewMode::Diff => Ok(PreviewContentPayload {
+                old_text: decode_text_content_with_encoding(old_content, encoding)?,
+                new_text: decode_text_content_with_encoding(new_content, encoding)?,
+                viewer_kind: "text".to_string(),
+                old_image_data_url: None,
+                new_image_data_url: None,
+                unsupported_extension: None,
+            }),
             PreviewMode::File => {
                 let target_text = decode_text_content_with_encoding(
                     resolve_file_target_bytes(old_content, new_content),
                     encoding,
                 )?;
-                Ok((
-                    String::new(),
-                    target_text,
-                    "text".to_string(),
-                    None,
-                    None,
-                    None,
-                ))
+                Ok(PreviewContentPayload {
+                    old_text: String::new(),
+                    new_text: target_text,
+                    viewer_kind: "text".to_string(),
+                    old_image_data_url: None,
+                    new_image_data_url: None,
+                    unsupported_extension: None,
+                })
             }
         };
     }
@@ -448,7 +459,10 @@ fn build_content_payload(
     Err("Binary file not supported".to_string())
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Evaluates whether a working-tree file can be safely rendered in the selected preview mode.
 pub(crate) fn get_repository_file_preflight(
     repo_path: String,
     file_path: String,
@@ -480,7 +494,10 @@ pub(crate) fn get_repository_file_preflight(
     })
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Evaluates whether a commit file can be safely rendered in the selected preview mode.
 pub(crate) fn get_repository_commit_file_preflight(
     repo_path: String,
     commit_hash: String,
@@ -514,7 +531,10 @@ pub(crate) fn get_repository_commit_file_preflight(
     })
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns working-tree file content for diff/file preview modes.
 pub(crate) fn get_repository_file_content(
     repo_path: String,
     file_path: String,
@@ -553,14 +573,7 @@ pub(crate) fn get_repository_file_content(
         }
     }
 
-    let (
-        old_text,
-        new_text,
-        viewer_kind,
-        old_image_data_url,
-        new_image_data_url,
-        unsupported_extension,
-    ) = build_content_payload(
+    let content_payload = build_content_payload(
         &file_path,
         preview_mode,
         old_content.as_deref(),
@@ -570,16 +583,19 @@ pub(crate) fn get_repository_file_content(
 
     Ok(RepositoryFileDiff {
         path: file_path,
-        old_text,
-        new_text,
-        viewer_kind,
-        old_image_data_url,
-        new_image_data_url,
-        unsupported_extension,
+        old_text: content_payload.old_text,
+        new_text: content_payload.new_text,
+        viewer_kind: content_payload.viewer_kind,
+        old_image_data_url: content_payload.old_image_data_url,
+        new_image_data_url: content_payload.new_image_data_url,
+        unsupported_extension: content_payload.unsupported_extension,
     })
 }
 
+// Tauri command arguments are owned because the IPC boundary deserializes them.
+#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
+/// Returns commit file content for diff/file preview modes.
 pub(crate) fn get_repository_commit_file_content(
     repo_path: String,
     commit_hash: String,
@@ -619,14 +635,7 @@ pub(crate) fn get_repository_commit_file_content(
         }
     }
 
-    let (
-        old_text,
-        new_text,
-        viewer_kind,
-        old_image_data_url,
-        new_image_data_url,
-        unsupported_extension,
-    ) = build_content_payload(
+    let content_payload = build_content_payload(
         &file_path,
         preview_mode,
         old_content.as_deref(),
@@ -637,12 +646,12 @@ pub(crate) fn get_repository_commit_file_content(
     Ok(RepositoryCommitFileDiff {
         commit_hash,
         path: file_path,
-        old_text,
-        new_text,
-        viewer_kind,
-        old_image_data_url,
-        new_image_data_url,
-        unsupported_extension,
+        old_text: content_payload.old_text,
+        new_text: content_payload.new_text,
+        viewer_kind: content_payload.viewer_kind,
+        old_image_data_url: content_payload.old_image_data_url,
+        new_image_data_url: content_payload.new_image_data_url,
+        unsupported_extension: content_payload.unsupported_extension,
     })
 }
 
