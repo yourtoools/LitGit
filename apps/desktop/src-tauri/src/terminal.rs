@@ -7,6 +7,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
+use thiserror::Error;
+
+const DEFAULT_TERMINAL_ROWS: u16 = 24;
+const DEFAULT_TERMINAL_COLS: u16 = 80;
+const TERMINAL_READ_BUFFER_SIZE: usize = 8192;
 
 static NEXT_TERMINAL_SESSION_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -28,6 +33,17 @@ struct TerminalOutputPayload {
     data: String,
 }
 
+#[derive(Debug, Error)]
+enum TerminalError {
+    #[error("{0}")]
+    Message(String),
+    #[error("Failed to {action}: {detail}")]
+    Io {
+        action: &'static str,
+        detail: String,
+    },
+}
+
 fn default_shell() -> String {
     if cfg!(windows) {
         env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
@@ -36,7 +52,7 @@ fn default_shell() -> String {
     }
 }
 
-fn resolve_terminal_cwd(cwd: &str) -> Result<Option<PathBuf>, String> {
+fn resolve_terminal_cwd(cwd: &str) -> Result<Option<PathBuf>, TerminalError> {
     let trimmed_cwd = cwd.trim();
     if trimmed_cwd.is_empty() {
         return Ok(None);
@@ -45,18 +61,20 @@ fn resolve_terminal_cwd(cwd: &str) -> Result<Option<PathBuf>, String> {
     let cwd_path = PathBuf::from(trimmed_cwd);
 
     if !cwd_path.exists() {
-        return Err("Terminal working directory does not exist".to_string());
+        return Err(TerminalError::Message(
+            "Terminal working directory does not exist".to_string(),
+        ));
     }
 
     if !cwd_path.is_dir() {
-        return Err("Terminal working directory is not a folder".to_string());
+        return Err(TerminalError::Message(
+            "Terminal working directory is not a folder".to_string(),
+        ));
     }
 
     Ok(Some(cwd_path))
 }
 
-// Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Creates a new interactive shell session and returns its session identifier.
 pub(crate) fn create_terminal_session(
@@ -64,15 +82,26 @@ pub(crate) fn create_terminal_session(
     state: State<'_, TerminalState>,
     cwd: String,
 ) -> Result<String, String> {
+    create_terminal_session_inner(app, state, cwd).map_err(|e| e.to_string())
+}
+
+fn create_terminal_session_inner(
+    app: AppHandle,
+    state: State<'_, TerminalState>,
+    cwd: String,
+) -> Result<String, TerminalError> {
     let pty_system = native_pty_system();
     let pty_pair = pty_system
         .openpty(PtySize {
-            rows: 24,
-            cols: 80,
+            rows: DEFAULT_TERMINAL_ROWS,
+            cols: DEFAULT_TERMINAL_COLS,
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|error| format!("Failed to open pty: {error}"))?;
+        .map_err(|error| TerminalError::Io {
+            action: "open pty",
+            detail: error.to_string(),
+        })?;
 
     let mut command = CommandBuilder::new(default_shell());
 
@@ -83,15 +112,24 @@ pub(crate) fn create_terminal_session(
     let child = pty_pair
         .slave
         .spawn_command(command)
-        .map_err(|error| format!("Failed to start shell: {error}"))?;
+        .map_err(|error| TerminalError::Io {
+            action: "start shell",
+            detail: error.to_string(),
+        })?;
     let writer = pty_pair
         .master
         .take_writer()
-        .map_err(|error| format!("Failed to create terminal writer: {error}"))?;
+        .map_err(|error| TerminalError::Io {
+            action: "create terminal writer",
+            detail: error.to_string(),
+        })?;
     let mut reader = pty_pair
         .master
         .try_clone_reader()
-        .map_err(|error| format!("Failed to create terminal reader: {error}"))?;
+        .map_err(|error| TerminalError::Io {
+            action: "create terminal reader",
+            detail: error.to_string(),
+        })?;
 
     let session_id = format!(
         "terminal-{}",
@@ -101,7 +139,7 @@ pub(crate) fn create_terminal_session(
     let output_app = app.clone();
 
     std::thread::spawn(move || {
-        let mut buffer = vec![0_u8; 8192];
+        let mut buffer = vec![0_u8; TERMINAL_READ_BUFFER_SIZE];
 
         loop {
             let bytes_read = match reader.read(&mut buffer) {
@@ -123,7 +161,7 @@ pub(crate) fn create_terminal_session(
     let mut sessions = state
         .sessions
         .lock()
-        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+        .map_err(|_| TerminalError::Message("Failed to acquire terminal state lock".to_string()))?;
 
     sessions.insert(
         session_id.clone(),
@@ -137,7 +175,6 @@ pub(crate) fn create_terminal_session(
     Ok(session_id)
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Writes input data to an active terminal session.
 pub(crate) fn write_terminal_session(
@@ -145,28 +182,38 @@ pub(crate) fn write_terminal_session(
     session_id: String,
     data: String,
 ) -> Result<(), String> {
+    write_terminal_session_inner(state, session_id, data).map_err(|e| e.to_string())
+}
+
+fn write_terminal_session_inner(
+    state: State<'_, TerminalState>,
+    session_id: String,
+    data: String,
+) -> Result<(), TerminalError> {
     let mut sessions = state
         .sessions
         .lock()
-        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+        .map_err(|_| TerminalError::Message("Failed to acquire terminal state lock".to_string()))?;
 
     let session = sessions
         .get_mut(&session_id)
-        .ok_or_else(|| "Terminal session not found".to_string())?;
+        .ok_or_else(|| TerminalError::Message("Terminal session not found".to_string()))?;
 
     session
         .writer
         .write_all(data.as_bytes())
-        .map_err(|error| format!("Failed to write to terminal: {error}"))?;
-    session
-        .writer
-        .flush()
-        .map_err(|error| format!("Failed to flush terminal input: {error}"))?;
+        .map_err(|error| TerminalError::Io {
+            action: "write to terminal",
+            detail: error.to_string(),
+        })?;
+    session.writer.flush().map_err(|error| TerminalError::Io {
+        action: "flush terminal input",
+        detail: error.to_string(),
+    })?;
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Resizes an active terminal session pseudo-terminal.
 pub(crate) fn resize_terminal_session(
@@ -175,14 +222,23 @@ pub(crate) fn resize_terminal_session(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    resize_terminal_session_inner(state, session_id, cols, rows).map_err(|e| e.to_string())
+}
+
+fn resize_terminal_session_inner(
+    state: State<'_, TerminalState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), TerminalError> {
     let mut sessions = state
         .sessions
         .lock()
-        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+        .map_err(|_| TerminalError::Message("Failed to acquire terminal state lock".to_string()))?;
 
     let session = sessions
         .get_mut(&session_id)
-        .ok_or_else(|| "Terminal session not found".to_string())?;
+        .ok_or_else(|| TerminalError::Message("Terminal session not found".to_string()))?;
 
     session
         .master
@@ -192,26 +248,35 @@ pub(crate) fn resize_terminal_session(
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|error| format!("Failed to resize terminal: {error}"))?;
+        .map_err(|error| TerminalError::Io {
+            action: "resize terminal",
+            detail: error.to_string(),
+        })?;
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Closes an active terminal session and terminates its child process.
 pub(crate) fn close_terminal_session(
     state: State<'_, TerminalState>,
     session_id: String,
 ) -> Result<(), String> {
+    close_terminal_session_inner(state, session_id).map_err(|e| e.to_string())
+}
+
+fn close_terminal_session_inner(
+    state: State<'_, TerminalState>,
+    session_id: String,
+) -> Result<(), TerminalError> {
     let mut sessions = state
         .sessions
         .lock()
-        .map_err(|_| "Failed to acquire terminal state lock".to_string())?;
+        .map_err(|_| TerminalError::Message("Failed to acquire terminal state lock".to_string()))?;
 
     let mut session = sessions
         .remove(&session_id)
-        .ok_or_else(|| "Terminal session not found".to_string())?;
+        .ok_or_else(|| TerminalError::Message("Terminal session not found".to_string()))?;
 
     let _ = session.child.kill();
     let _ = session.child.wait();
@@ -276,7 +341,9 @@ mod tests {
         let missing_path = create_temp_path("missing-dir");
 
         assert_eq!(
-            resolve_terminal_cwd(missing_path.to_string_lossy().as_ref()).unwrap_err(),
+            resolve_terminal_cwd(missing_path.to_string_lossy().as_ref())
+                .unwrap_err()
+                .to_string(),
             "Terminal working directory does not exist"
         );
     }
@@ -288,7 +355,9 @@ mod tests {
         fs::write(&file_path, "cwd").expect("temp file should be written");
 
         assert_eq!(
-            resolve_terminal_cwd(file_path.to_string_lossy().as_ref()).unwrap_err(),
+            resolve_terminal_cwd(file_path.to_string_lossy().as_ref())
+                .unwrap_err()
+                .to_string(),
             "Terminal working directory is not a folder"
         );
 

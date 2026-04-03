@@ -8,6 +8,8 @@ use std::path::Path;
 use std::process::Output;
 use thiserror::Error;
 
+const MIN_PORCELAIN_ENTRY_BYTES: usize = 4;
+
 #[derive(Debug, PartialEq, Eq)]
 struct ParsedWorkingTreeEntry {
     path: String,
@@ -128,7 +130,7 @@ fn parse_porcelain_status_entries(bytes: &[u8]) -> WorkingTreeResult<Vec<ParsedW
     let mut cursor = 0;
 
     while cursor < bytes.len() {
-        if bytes.len().saturating_sub(cursor) < 4 {
+        if bytes.len().saturating_sub(cursor) < MIN_PORCELAIN_ENTRY_BYTES {
             return Err(WorkingTreeError::message(
                 "Failed to parse repository status output",
             ));

@@ -11,6 +11,35 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Stdio;
 use tauri::{AppHandle, Emitter, State};
+use thiserror::Error;
+
+/// Error type for repository operations.
+#[derive(Debug, Error)]
+pub(crate) enum RepositoryError {
+    /// A generic error message.
+    #[error("{0}")]
+    Message(String),
+
+    /// An error occurred while running a git command.
+    #[error("Failed to {action}: {source}")]
+    GitCommand {
+        /// The action that was being attempted.
+        action: &'static str,
+        /// The underlying I/O error.
+        source: std::io::Error,
+    },
+
+    /// An error occurred during path operations.
+    #[expect(dead_code)]
+    #[error("Path error: {0}")]
+    Path(String),
+}
+
+impl From<RepositoryError> for String {
+    fn from(error: RepositoryError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +55,7 @@ pub(crate) struct PickedRepository {
 #[serde(rename_all = "camelCase")]
 /// Generic picked file payload returned from native file dialogs.
 pub(crate) struct PickedFilePath {
+    /// Absolute file system path of the picked file.
     pub(crate) path: String,
 }
 
@@ -388,11 +418,14 @@ pub(crate) fn create_repository_initial_commit(
     Ok(())
 }
 
-fn repository_has_initial_commit(repo_path: &str) -> Result<bool, String> {
+fn repository_has_initial_commit(repo_path: &str) -> Result<bool, RepositoryError> {
     let output = git_command()
         .args(["-C", repo_path, "rev-parse", "--verify", "HEAD"])
         .output()
-        .map_err(|error| format!("Failed to check repository history: {error}"))?;
+        .map_err(|error| RepositoryError::GitCommand {
+            action: "check repository history",
+            source: error,
+        })?;
 
     Ok(output.status.success())
 }
@@ -458,38 +491,57 @@ fn parse_progress_counts(line: &str, prefix: &str) -> Option<(u8, usize, usize)>
     Some((percent, current, total))
 }
 
-pub(crate) fn validate_repository_name(name: &str) -> Result<(), String> {
+/// Validates that a repository name does not contain path separators or invalid characters.
+///
+/// Rejects `.`, `..`, and any characters that are unsafe for file system paths.
+pub(crate) fn validate_repository_name(name: &str) -> Result<(), RepositoryError> {
     if name == "." || name == ".." {
-        return Err("Repository name must be more specific".to_string());
+        return Err(RepositoryError::Message(
+            "Repository name must be more specific".to_string(),
+        ));
     }
 
     if name.contains('/') || name.contains('\\') {
-        return Err("Repository name cannot contain path separators".to_string());
+        return Err(RepositoryError::Message(
+            "Repository name cannot contain path separators".to_string(),
+        ));
     }
 
     if name.chars().any(is_invalid_path_character) {
-        return Err("Repository name contains unsupported characters".to_string());
+        return Err(RepositoryError::Message(
+            "Repository name contains unsupported characters".to_string(),
+        ));
     }
 
     Ok(())
 }
 
-pub(crate) fn validate_branch_name(name: &str) -> Result<(), String> {
+/// Validates a branch name using `git check-ref-format`.
+///
+/// Returns an error when the name does not follow Git branch naming conventions.
+pub(crate) fn validate_branch_name(name: &str) -> Result<(), RepositoryError> {
     let output = git_command()
         .args(["check-ref-format", "--branch", name])
         .output()
-        .map_err(|error| format!("Failed to validate default branch name: {error}"))?;
+        .map_err(|error| RepositoryError::GitCommand {
+            action: "validate default branch name",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err("Enter a valid Git branch name".to_string());
+        return Err(RepositoryError::Message(
+            "Enter a valid Git branch name".to_string(),
+        ));
     }
 
     Ok(())
 }
 
-fn validate_clone_repository_url(repository_url: &str) -> Result<(), String> {
+fn validate_clone_repository_url(repository_url: &str) -> Result<(), RepositoryError> {
     if repository_url.starts_with("file://") {
-        return Err("Local file clone URLs are not supported".to_string());
+        return Err(RepositoryError::Message(
+            "Local file clone URLs are not supported".to_string(),
+        ));
     }
 
     if repository_url.starts_with("https://")
@@ -499,14 +551,18 @@ fn validate_clone_repository_url(repository_url: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    Err("Enter a valid HTTPS or SSH repository URL".to_string())
+    Err(RepositoryError::Message(
+        "Enter a valid HTTPS or SSH repository URL".to_string(),
+    ))
 }
 
-fn validate_clone_destination_folder_name(name: &str) -> Result<(), String> {
+fn validate_clone_destination_folder_name(name: &str) -> Result<(), RepositoryError> {
     validate_repository_name(name)?;
 
     if name.ends_with('.') || name.ends_with(' ') {
-        return Err("Folder name cannot end with a dot or space".to_string());
+        return Err(RepositoryError::Message(
+            "Folder name cannot end with a dot or space".to_string(),
+        ));
     }
 
     Ok(())
@@ -541,37 +597,66 @@ fn remove_partial_clone_destination(path: &Path) {
     }
 }
 
-fn initialize_git_repository(repo_path: &Path, default_branch: &str) -> Result<(), String> {
+fn initialize_git_repository(repo_path: &Path, default_branch: &str) -> Result<(), RepositoryError> {
     let init_output = git_command()
         .args(["-C", repo_path.to_string_lossy().as_ref(), "init"])
         .output()
-        .map_err(|error| format!("Failed to run git init: {error}"))?;
+        .map_err(|error| RepositoryError::GitCommand {
+            action: "run git init",
+            source: error,
+        })?;
 
     if !init_output.status.success() {
-        return Err(git_error_message(
+        return Err(RepositoryError::Message(git_error_message(
             &init_output.stderr,
             "Failed to initialize repository",
-        ));
+        )));
     }
 
-    let default_head = format!("refs/heads/{default_branch}");
-    let head_output = git_command()
+    let branch_output = git_command()
         .args([
             "-C",
             repo_path.to_string_lossy().as_ref(),
-            "symbolic-ref",
-            "HEAD",
-            &default_head,
+            "checkout",
+            "-b",
+            default_branch,
         ])
         .output()
-        .map_err(|error| format!("Failed to set default branch: {error}"))?;
+        .map_err(|error| RepositoryError::GitCommand {
+            action: "run git checkout",
+            source: error,
+        })?;
 
-    if !head_output.status.success() {
-        return Err(git_error_message(
-            &head_output.stderr,
+    if !branch_output.status.success() {
+        return Err(RepositoryError::Message(git_error_message(
+            &branch_output.stderr,
             "Failed to set default branch",
-        ));
+        )));
     }
+
+    Ok(())
+}
+
+fn apply_git_identity_to_repository(
+    repo_path: &Path,
+    git_identity: Option<&GitIdentityWriteRequest>,
+) -> Result<(), RepositoryError> {
+    let Some(identity) = git_identity else {
+        return Ok(());
+    };
+
+    let scope = normalize_git_identity_scope(identity.scope.as_str())
+        .map_err(|message| RepositoryError::Message(message.to_string()))?;
+
+    let local_name = repo_path.to_string_lossy().to_string();
+    let repo_path_for_scope = if scope == "local" {
+        Some(local_name.as_str())
+    } else {
+        None
+    };
+
+    write_git_identity(repo_path_for_scope, scope, identity.name.as_str(), identity.email.as_str())
+        .map_err(|e| RepositoryError::Message(e.to_string()))?;
 
     Ok(())
 }
@@ -583,84 +668,70 @@ fn write_repository_files(
     gitignore_template_content: Option<&str>,
     license_template_key: Option<&str>,
     license_template_content: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), RepositoryError> {
     let readme_path = repo_path.join("README.md");
     fs::write(&readme_path, format!("# {repository_name}\n"))
-        .map_err(|error| format!("Failed to create README.md: {error}"))?;
+        .map_err(|error| RepositoryError::Message(format!("Failed to create README.md: {error}")))?;
 
     if let Some(gitignore_contents) =
         gitignore_template_content.filter(|value| !value.trim().is_empty())
     {
         fs::write(repo_path.join(".gitignore"), gitignore_contents)
-            .map_err(|error| format!("Failed to create .gitignore: {error}"))?;
+            .map_err(|error| RepositoryError::Message(format!("Failed to create .gitignore: {error}")))?;
     } else if gitignore_template_key.is_some() {
-        return Err("Selected .gitignore template content is empty".to_string());
+        return Err(RepositoryError::Message(
+            "Selected .gitignore template content is empty".to_string(),
+        ));
     }
 
     if let Some(license_contents) =
         license_template_content.filter(|value| !value.trim().is_empty())
     {
         fs::write(repo_path.join("LICENSE"), license_contents)
-            .map_err(|error| format!("Failed to create LICENSE: {error}"))?;
+            .map_err(|error| RepositoryError::Message(format!("Failed to create LICENSE: {error}")))?;
     } else if license_template_key.is_some() {
-        return Err("Selected license template content is empty".to_string());
+        return Err(RepositoryError::Message(
+            "Selected license template content is empty".to_string(),
+        ));
     }
 
     Ok(())
 }
 
-fn create_initial_commit(repo_path: &Path) -> Result<(), String> {
+fn create_initial_commit(repo_path: &Path) -> Result<(), RepositoryError> {
     let repo_path_string = repo_path.to_string_lossy().to_string();
 
     let add_output = git_command()
         .args(["-C", &repo_path_string, "add", "-A"])
         .output()
-        .map_err(|error| format!("Failed to run git add: {error}"))?;
+        .map_err(|error| RepositoryError::GitCommand {
+            action: "run git add",
+            source: error,
+        })?;
 
     if !add_output.status.success() {
-        return Err(git_error_message(
+        return Err(RepositoryError::Message(git_error_message(
             &add_output.stderr,
             "Failed to stage repository files",
-        ));
+        )));
     }
 
     let commit_output = git_command()
         .args(["-C", &repo_path_string, "commit", "-m", "Initial commit"])
         .output()
-        .map_err(|error| format!("Failed to run git commit: {error}"))?;
+        .map_err(|error| RepositoryError::GitCommand {
+            action: "run git commit",
+            source: error,
+        })?;
 
     if !commit_output.status.success() {
-        return Err(git_error_message(
+        return Err(RepositoryError::Message(git_error_message(
             &commit_output.stderr,
             "Failed to create initial commit",
-        ));
+        )));
     }
 
     Ok(())
-}
-
-fn apply_git_identity_to_repository(
-    repo_path: &Path,
-    git_identity: Option<&GitIdentityWriteRequest>,
-) -> Result<(), String> {
-    let Some(git_identity) = git_identity else {
-        return Ok(());
-    };
-
-    let scope = normalize_git_identity_scope(&git_identity.scope)?;
-    let repo_path_string = repo_path.to_string_lossy().to_string();
-    let repo_path_for_scope = if scope == "local" {
-        Some(repo_path_string.as_str())
-    } else {
-        None
-    };
-
-    write_git_identity(
-        repo_path_for_scope,
-        scope,
-        &git_identity.name,
-        &git_identity.email,
-    )
 }
 
 fn folder_name(path: &Path) -> Option<String> {
@@ -719,7 +790,7 @@ mod tests {
         let error = validate_clone_repository_url("file:///tmp/repo.git")
             .expect_err("local file clone urls should be rejected");
 
-        assert_eq!(error, "Local file clone URLs are not supported");
+        assert_eq!(error.to_string(), "Local file clone URLs are not supported");
     }
 
     #[test]

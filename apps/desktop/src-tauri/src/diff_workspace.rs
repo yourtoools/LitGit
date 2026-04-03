@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::git_support::{
-    decode_text_content_with_encoding, encode_text_with_encoding, git_command, validate_git_repo,
-    validate_repo_relative_file_path,
+    decode_text_content_with_encoding, encode_text_with_encoding, git_command,
+    load_commit_contents, load_working_tree_contents, validate_git_repo,
+    validate_repo_relative_file_path, write_temp_bytes, GitSupportError,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 200;
@@ -17,7 +17,6 @@ const HISTORY_CACHE_LIMIT: usize = 128;
 const BLAME_CACHE_LIMIT: usize = 128;
 
 type CachedPayloadMap<T> = Mutex<LimitedPayloadCache<T>>;
-type FileContentPair = (Option<Vec<u8>>, Option<Vec<u8>>);
 
 struct LimitedPayloadCache<T> {
     entries: HashMap<String, CachedPayloadEntry<T>>,
@@ -199,62 +198,6 @@ struct BlameLineBuilder {
     commit_hash: String,
     final_line_number: Option<usize>,
     summary: String,
-}
-
-fn write_temp_bytes(prefix: &str, content: &[u8]) -> Option<std::path::PathBuf> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    let path = std::env::temp_dir().join(format!(
-        "litgit-workspace-{prefix}-{}-{}.tmp",
-        std::process::id(),
-        now.as_nanos()
-    ));
-    fs::write(&path, content).ok()?;
-    Some(path)
-}
-
-fn load_working_tree_contents(repo_path: &str, file_path: &str) -> Result<FileContentPair, String> {
-    validate_repo_relative_file_path(file_path)?;
-
-    let old_output = git_command()
-        .args(["-C", repo_path, "show", &format!("HEAD:{file_path}")])
-        .output()
-        .map_err(|error| format!("Failed to run git show: {error}"))?;
-    let old_content = old_output.status.success().then_some(old_output.stdout);
-
-    let new_content = fs::read(Path::new(repo_path).join(file_path)).ok();
-    Ok((old_content, new_content))
-}
-
-fn load_commit_contents(
-    repo_path: &str,
-    commit_hash: &str,
-    file_path: &str,
-) -> Result<FileContentPair, String> {
-    validate_repo_relative_file_path(file_path)?;
-
-    let old_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "show",
-            &format!("{commit_hash}^:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git show for previous commit file: {error}"))?;
-    let old_content = old_output.status.success().then_some(old_output.stdout);
-
-    let new_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "show",
-            &format!("{commit_hash}:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git show for commit file: {error}"))?;
-    let new_content = new_output.status.success().then_some(new_output.stdout);
-
-    Ok((old_content, new_content))
 }
 
 fn parse_hunk_range(token: &str) -> Option<(usize, usize)> {
@@ -486,22 +429,26 @@ fn read_file_text_with_encoding(
     repo_path: &str,
     file_path: &str,
     encoding: Option<&str>,
-) -> Result<String, String> {
+) -> Result<String, GitSupportError> {
     validate_repo_relative_file_path(file_path)?;
 
     let target_path = Path::new(repo_path).join(file_path);
-    let raw_content =
-        fs::read(target_path).map_err(|error| format!("Failed to read file: {error}"))?;
+    let raw_content = fs::read(target_path).map_err(|error| GitSupportError::Io {
+        action: "read file",
+        source: error,
+    })?;
     decode_text_content_with_encoding(Some(&raw_content), encoding)
 }
 
-fn detect_text_encoding_label(content: &[u8]) -> Result<String, String> {
+fn detect_text_encoding_label(content: &[u8]) -> Result<String, GitSupportError> {
     if content.is_empty() {
         return Ok("utf-8".to_string());
     }
 
     if content.contains(&0) {
-        return Err("Binary file not supported".to_string());
+        return Err(GitSupportError::Message(
+            "Binary file not supported".to_string(),
+        ));
     }
 
     if content.starts_with(&[0xEF, 0xBB, 0xBF]) {
@@ -763,9 +710,10 @@ pub(crate) fn get_repository_file_text(
     file_path: String,
     encoding: Option<String>,
 ) -> Result<String, String> {
-    validate_git_repo(Path::new(&repo_path))?;
-    validate_repo_relative_file_path(&file_path)?;
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    validate_repo_relative_file_path(&file_path).map_err(|e| e.to_string())?;
     read_file_text_with_encoding(&repo_path, &file_path, encoding.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 // Tauri command arguments are owned because the IPC boundary deserializes them.

@@ -1,6 +1,25 @@
 use crate::git_support::{git_command, git_error_message, validate_git_repo};
 use serde::Serialize;
 use std::path::Path;
+use thiserror::Error;
+
+/// Error type for stash operations.
+#[derive(Debug, Error)]
+pub(crate) enum StashError {
+    #[error("{0}")]
+    Message(String),
+    #[error("Failed to {action}: {source}")]
+    GitCommand {
+        action: &'static str,
+        source: std::io::Error,
+    },
+}
+
+impl From<StashError> for String {
+    fn from(error: StashError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,7 +31,7 @@ pub(crate) struct RepositoryStash {
     short_hash: String,
 }
 
-fn parse_stash_row(row: &str) -> Result<Option<RepositoryStash>, String> {
+fn parse_stash_row(row: &str) -> Result<Option<RepositoryStash>, StashError> {
     let trimmed = row.trim();
 
     if trimmed.is_empty() {
@@ -24,22 +43,29 @@ fn parse_stash_row(row: &str) -> Result<Option<RepositoryStash>, String> {
         .next()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "Encountered stash entry without a reference".to_string())?;
-    let message = parts
-        .next()
-        .map(str::trim)
-        .ok_or_else(|| format!("Failed to parse message for stash {stash_ref}"))?;
+        .ok_or_else(|| {
+            StashError::Message("Encountered stash entry without a reference".to_string())
+        })?;
+    let message = parts.next().map(str::trim).ok_or_else(|| {
+        StashError::Message(format!("Failed to parse message for stash {stash_ref}"))
+    })?;
     let short_hash = parts
         .next()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("Failed to parse short hash for stash {stash_ref}"))?;
+        .ok_or_else(|| {
+            StashError::Message(format!("Failed to parse short hash for stash {stash_ref}"))
+        })?;
     let anchor_commit_hash = parts
         .next()
         .map(str::trim)
         .and_then(|value| value.split_whitespace().next())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("Failed to resolve anchor commit for stash {stash_ref}"))?;
+        .ok_or_else(|| {
+            StashError::Message(format!(
+                "Failed to resolve anchor commit for stash {stash_ref}"
+            ))
+        })?;
 
     Ok(Some(RepositoryStash {
         anchor_commit_hash: anchor_commit_hash.to_string(),
@@ -49,12 +75,14 @@ fn parse_stash_row(row: &str) -> Result<Option<RepositoryStash>, String> {
     }))
 }
 
-// Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Returns all stash entries for the repository.
 pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_stashes_inner(repo_path).map_err(|e| e.to_string())
+}
+
+fn get_repository_stashes_inner(repo_path: String) -> Result<Vec<RepositoryStash>, StashError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
     let output = git_command()
         .args([
@@ -65,13 +93,16 @@ pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<Repository
             "--format=%gd%x1f%gs%x1f%h%x1f%P%x1e",
         ])
         .output()
-        .map_err(|error| format!("Failed to run git stash list: {error}"))?;
+        .map_err(|error| StashError::GitCommand {
+            action: "run git stash list",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(
+        return Err(StashError::Message(git_error_message(
             &output.stderr,
             "Failed to read repository stashes",
-        ));
+        )));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -85,61 +116,87 @@ pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<Repository
     Ok(stashes)
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Applies a stash entry without removing it from the stash stack.
 pub(crate) fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    apply_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
+}
+
+fn apply_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<(), StashError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
     let output = git_command()
         .args(["-C", &repo_path, "stash", "apply", &stash_ref])
         .output()
-        .map_err(|error| format!("Failed to run git stash apply: {error}"))?;
+        .map_err(|error| StashError::GitCommand {
+            action: "run git stash apply",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(&output.stderr, "Failed to apply stash"));
+        return Err(StashError::Message(git_error_message(
+            &output.stderr,
+            "Failed to apply stash",
+        )));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Applies a stash entry and removes it from the stash stack.
 pub(crate) fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    pop_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
+}
+
+fn pop_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<(), StashError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
     let output = git_command()
         .args(["-C", &repo_path, "stash", "pop", &stash_ref])
         .output()
-        .map_err(|error| format!("Failed to run git stash pop: {error}"))?;
+        .map_err(|error| StashError::GitCommand {
+            action: "run git stash pop",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(&output.stderr, "Failed to pop stash"));
+        return Err(StashError::Message(git_error_message(
+            &output.stderr,
+            "Failed to pop stash",
+        )));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Removes a stash entry from the stash stack.
 pub(crate) fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    drop_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
+}
+
+fn drop_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<(), StashError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
     let output = git_command()
         .args(["-C", &repo_path, "stash", "drop", &stash_ref])
         .output()
-        .map_err(|error| format!("Failed to run git stash drop: {error}"))?;
+        .map_err(|error| StashError::GitCommand {
+            action: "run git stash drop",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(&output.stderr, "Failed to delete stash"));
+        return Err(StashError::Message(git_error_message(
+            &output.stderr,
+            "Failed to delete stash",
+        )));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Creates a new stash entry, optionally including untracked files.
 pub(crate) fn create_repository_stash(
@@ -147,7 +204,16 @@ pub(crate) fn create_repository_stash(
     stash_message: Option<String>,
     include_untracked: bool,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    create_repository_stash_inner(repo_path, stash_message, include_untracked)
+        .map_err(|e| e.to_string())
+}
+
+fn create_repository_stash_inner(
+    repo_path: String,
+    stash_message: Option<String>,
+    include_untracked: bool,
+) -> Result<(), StashError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
     let message_to_use = stash_message
         .as_deref()
@@ -159,13 +225,16 @@ pub(crate) fn create_repository_stash(
                 let branch_output = git_command()
                     .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
                     .output()
-                    .map_err(|error| format!("Failed to resolve current branch: {error}"))?;
+                    .map_err(|error| StashError::GitCommand {
+                        action: "resolve current branch",
+                        source: error,
+                    })?;
 
                 if !branch_output.status.success() {
-                    return Err(git_error_message(
+                    return Err(StashError::Message(git_error_message(
                         &branch_output.stderr,
                         "Failed to resolve current branch",
-                    ));
+                    )));
                 }
 
                 let branch_name = String::from_utf8_lossy(&branch_output.stdout)
@@ -194,10 +263,16 @@ pub(crate) fn create_repository_stash(
 
     let output = stash_command
         .output()
-        .map_err(|error| format!("Failed to run git stash push: {error}"))?;
+        .map_err(|error| StashError::GitCommand {
+            action: "run git stash push",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(&output.stderr, "Failed to create stash"));
+        return Err(StashError::Message(git_error_message(
+            &output.stderr,
+            "Failed to create stash",
+        )));
     }
 
     Ok(())
@@ -205,7 +280,7 @@ pub(crate) fn create_repository_stash(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_repository_stash, get_repository_stashes, parse_stash_row};
+    use super::{create_repository_stash, get_repository_stashes, parse_stash_row, StashError};
     use crate::git_support::git_command;
     use std::env;
     use std::fs;
@@ -218,7 +293,9 @@ mod tests {
             panic!("stash rows without a reference should fail");
         };
 
-        assert_eq!(error, "Encountered stash entry without a reference");
+        assert!(
+            matches!(error, StashError::Message(msg) if msg == "Encountered stash entry without a reference")
+        );
     }
 
     #[test]

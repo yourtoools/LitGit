@@ -429,6 +429,7 @@ struct LinuxDesktopContext {
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(clippy::enum_variant_names)]
 enum LinuxFileManagerStrategy {
     KdeOpen,
     GioOpen,
@@ -486,13 +487,12 @@ fn linux_desktop_kind_with(
         .or_else(|| LinuxDesktopContext::kind_from_value(desktop_session))
         .or_else(|| LinuxDesktopContext::kind_from_value(gdm_session));
 
-    if kind.is_some() {
-        return kind.unwrap_or(LinuxDesktopKind::Unknown);
+    if let Some(kind) = kind {
+        return kind;
     }
 
-    let kde_session = kde_full_session.is_some_and(|value| {
-        value.eq_ignore_ascii_case("true") || value == "1"
-    });
+    let kde_session =
+        kde_full_session.is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
 
     if kde_session || has_kde_globals {
         LinuxDesktopKind::Kde
@@ -532,6 +532,7 @@ fn apply_kde_child_environment(command: &mut std::process::Command) {
 
 #[cfg(target_os = "linux")]
 impl LinuxDesktopContext {
+    #[cfg_attr(not(test), allow(dead_code))]
     fn from_values(
         xdg_current_desktop: Option<&str>,
         xdg_session_desktop: Option<&str>,
@@ -1938,10 +1939,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(envs.contains(&("GTK_THEME".to_string(), None)));
-        assert!(envs.contains(&(
-            "QT_QPA_PLATFORMTHEME".to_string(),
-            Some("kde".to_string())
-        )));
+        assert!(envs.contains(&("QT_QPA_PLATFORMTHEME".to_string(), Some("kde".to_string()))));
     }
 
     #[test]

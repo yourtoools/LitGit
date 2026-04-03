@@ -11,6 +11,39 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
+use thiserror::Error;
+
+/// Error type for commit message operations.
+#[derive(Debug, Error)]
+pub(crate) enum CommitMessageError {
+    /// A generic error message.
+    #[error("{0}")]
+    Message(String),
+
+    /// An error occurred while running a git command.
+    #[error("Failed to {action}: {source}")]
+    GitCommand {
+        /// The action that was being attempted.
+        action: &'static str,
+        /// The underlying I/O error.
+        source: std::io::Error,
+    },
+
+    /// An HTTP error occurred.
+    #[error("Failed to {action}: {detail}")]
+    Http {
+        /// The action that was being attempted.
+        action: &'static str,
+        /// The error detail.
+        detail: String,
+    },
+}
+
+impl From<CommitMessageError> for String {
+    fn from(error: CommitMessageError) -> Self {
+        error.to_string()
+    }
+}
 
 const AI_REQUEST_TIMEOUT_SECS: u64 = 20;
 const COMMIT_MESSAGE_DEFAULT_OUTPUT_TOKEN_LIMIT: usize = 96;
@@ -25,6 +58,12 @@ const GITHUB_IDENTITY_CACHE_MAX_ENTRIES: usize = 1024;
 const GITHUB_IDENTITY_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 const GITHUB_IDENTITY_CACHE_FILE_NAME: &str = "github_identity_cache.json";
 const GITHUB_IDENTITY_CACHE_VERSION: u8 = 1;
+const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+const PROMPT_BUDGET_PERCENTAGE_STAGED_DIFF: usize = 68;
+const PROMPT_BUDGET_PERCENTAGE_DIFF_STAT: usize = 18;
+const PROMPT_BUDGET_PERCENTAGE_CHANGED_FILES: usize = 9;
+const PROMPT_BUDGET_PERCENTAGE_RECENT_TITLES: usize = 5;
+const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 
 static AI_HTTP_AGENT: OnceLock<ureq::Agent> = OnceLock::new();
 
@@ -179,11 +218,11 @@ fn github_identity_cache_file_path(state: &SettingsState) -> Option<PathBuf> {
     state.github_identity_cache_file_path()
 }
 
-fn write_text_file_atomically(path: &Path, contents: &str) -> Result<(), String> {
+fn write_text_file_atomically(path: &Path, contents: &str) -> Result<(), CommitMessageError> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            format!("Failed to create GitHub identity cache directory: {error}")
-        })?;
+        fs::create_dir_all(parent).map_err(|error| CommitMessageError::Message(format!(
+            "Failed to create GitHub identity cache directory: {error}"
+        )))?;
     }
 
     let file_name = path
@@ -198,7 +237,7 @@ fn write_text_file_atomically(path: &Path, contents: &str) -> Result<(), String>
     let temp_file_path = path.with_file_name(temp_file_name);
 
     fs::write(&temp_file_path, contents)
-        .map_err(|error| format!("Failed to write temporary cache file: {error}"))?;
+        .map_err(|error| CommitMessageError::Message(format!("Failed to write temporary cache file: {error}")))?;
 
     match fs::rename(&temp_file_path, path) {
         Ok(()) => Ok(()),
@@ -206,9 +245,9 @@ fn write_text_file_atomically(path: &Path, contents: &str) -> Result<(), String>
             let _ = fs::remove_file(path);
             fs::rename(&temp_file_path, path).map_err(|fallback_error| {
                 let _ = fs::remove_file(&temp_file_path);
-                format!(
+                CommitMessageError::Message(format!(
                     "Failed to replace cache file (rename error: {rename_error}; fallback error: {fallback_error})"
-                )
+                ))
             })
         }
     }
@@ -473,7 +512,6 @@ fn resolve_github_identity_from_email(email: &str) -> GitHubIdentity {
 }
 
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Creates a commit from staged changes using summary/description and command preferences.
 pub(crate) fn commit_repository_changes(
@@ -485,36 +523,54 @@ pub(crate) fn commit_repository_changes(
     skip_hooks: bool,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    commit_repository_changes_inner(
+        repo_path, summary, description, include_all, amend, skip_hooks, preferences,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn commit_repository_changes_inner(
+    repo_path: String,
+    summary: String,
+    description: String,
+    include_all: bool,
+    amend: bool,
+    skip_hooks: bool,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<(), CommitMessageError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| CommitMessageError::Message(e.to_string()))?;
     let command_preferences = preferences.unwrap_or_default();
 
     let summary_trimmed = summary.trim();
     if summary_trimmed.is_empty() {
-        return Err("Commit summary is required".to_string());
+        return Err(CommitMessageError::Message("Commit summary is required".to_string()));
     }
 
     if include_all {
         let add_output = git_command()
             .args(["-C", &repo_path, "add", "-A"])
             .output()
-            .map_err(|error| format!("Failed to run git add: {error}"))?;
+            .map_err(|error| CommitMessageError::GitCommand {
+                action: "run git add",
+                source: error,
+            })?;
 
         if !add_output.status.success() {
             let stderr = String::from_utf8_lossy(&add_output.stderr)
                 .trim()
                 .to_string();
-            return Err(if stderr.is_empty() {
+            return Err(CommitMessageError::Message(if stderr.is_empty() {
                 "Failed to stage changes".to_string()
             } else {
                 stderr
-            });
+            }));
         }
     }
 
     let description_trimmed = description.trim();
     let mut commit_command = git_command();
     commit_command.args(["-C", &repo_path]);
-    apply_git_preferences(&mut commit_command, &command_preferences, None)?;
+    apply_git_preferences(&mut commit_command, &command_preferences, None).map_err(|e| CommitMessageError::Message(e.to_string()))?;
 
     if let Some(signing_format) = command_preferences
         .signing_format
@@ -552,20 +608,23 @@ pub(crate) fn commit_repository_changes(
 
     let output = commit_command
         .output()
-        .map_err(|error| format!("Failed to run git commit: {error}"))?;
+        .map_err(|error| CommitMessageError::GitCommand {
+            action: "run git commit",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_process_error_message(
+        return Err(CommitMessageError::Message(git_process_error_message(
             &output.stdout,
             &output.stderr,
             "Failed to create commit",
-        ));
+        )));
     }
 
     Ok(())
 }
 
-fn resolve_ai_base_url(provider: &str, custom_endpoint: &str) -> Result<String, String> {
+fn resolve_ai_base_url(provider: &str, custom_endpoint: &str) -> Result<String, CommitMessageError> {
     let trimmed_provider = provider.trim();
     let trimmed_endpoint = custom_endpoint.trim().trim_end_matches('/');
 
@@ -600,21 +659,21 @@ fn resolve_ai_base_url(provider: &str, custom_endpoint: &str) -> Result<String, 
         }
         "azure" => {
             if trimmed_endpoint.is_empty() {
-                return Err("Azure requires a custom OpenAI-compatible base URL".to_string());
+                return Err(CommitMessageError::Message("Azure requires a custom OpenAI-compatible base URL".to_string()));
             }
 
             trimmed_endpoint
         }
         "custom" => {
             if trimmed_endpoint.is_empty() {
-                return Err("Custom AI endpoint is required".to_string());
+                return Err(CommitMessageError::Message("Custom AI endpoint is required".to_string()));
             }
 
             trimmed_endpoint
         }
         _ => {
             if trimmed_endpoint.is_empty() {
-                return Err("Unsupported AI provider".to_string());
+                return Err(CommitMessageError::Message("Unsupported AI provider".to_string()));
             }
 
             trimmed_endpoint
@@ -622,16 +681,19 @@ fn resolve_ai_base_url(provider: &str, custom_endpoint: &str) -> Result<String, 
     };
 
     if !(base_url.starts_with("http://") || base_url.starts_with("https://")) {
-        return Err("AI endpoint must start with http:// or https://".to_string());
+        return Err(CommitMessageError::Message("AI endpoint must start with http:// or https://".to_string()));
     }
 
     Ok(base_url.to_string())
 }
 
-fn read_ureq_response_string(response: ureq::Response) -> Result<String, String> {
+fn read_ureq_response_string(response: ureq::Response) -> Result<String, CommitMessageError> {
     response
         .into_string()
-        .map_err(|error| format!("Failed to read AI response body: {error}"))
+        .map_err(|error| CommitMessageError::Http {
+            action: "read AI response body",
+            detail: format!("{error}"),
+        })
 }
 
 fn map_ai_http_error(error: ureq::Error) -> String {
@@ -655,14 +717,14 @@ fn map_ai_http_error(error: ureq::Error) -> String {
     }
 }
 
-fn parse_ai_model_list(value: &serde_json::Value) -> Result<Vec<AiModelInfo>, String> {
+fn parse_ai_model_list(value: &serde_json::Value) -> Result<Vec<AiModelInfo>, CommitMessageError> {
     let data = value
         .get("data")
         .and_then(serde_json::Value::as_array)
         .or_else(|| value.get("models").and_then(serde_json::Value::as_array))
-        .ok_or_else(|| {
+        .ok_or_else(|| CommitMessageError::Message(
             "The configured AI endpoint did not return a supported model list.".to_string()
-        })?;
+        ))?;
 
     let mut models = data
         .iter()
@@ -714,15 +776,15 @@ fn extract_ai_message_content(value: &serde_json::Value) -> Option<String> {
     Some(combined)
 }
 
-fn parse_generated_commit_message(content: &str) -> Result<GeneratedCommitMessage, String> {
+fn parse_generated_commit_message(content: &str) -> Result<GeneratedCommitMessage, CommitMessageError> {
     let parsed: serde_json::Value = serde_json::from_str(content.trim())
-        .map_err(|_| "AI response was not valid JSON.".to_string())?;
+        .map_err(|_| CommitMessageError::Message("AI response was not valid JSON.".to_string()))?;
     let title = parsed
         .get("title")
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "AI response did not include a valid commit title.".to_string())?;
+        .ok_or_else(|| CommitMessageError::Message("AI response did not include a valid commit title.".to_string()))?;
     let body = parsed
         .get("body")
         .and_then(serde_json::Value::as_str)
@@ -738,15 +800,18 @@ fn parse_generated_commit_message(content: &str) -> Result<GeneratedCommitMessag
     })
 }
 
-fn run_git_text_command(repo_path: &str, args: &[&str], fallback: &str) -> Result<String, String> {
+fn run_git_text_command(repo_path: &str, args: &[&str], fallback: &str) -> Result<String, CommitMessageError> {
     let output = git_command()
         .args(["-C", repo_path])
         .args(args)
         .output()
-        .map_err(|error| format!("Failed to run git command: {error}"))?;
+        .map_err(|error| CommitMessageError::GitCommand {
+            action: "run git command",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(&output.stderr, fallback));
+        return Err(CommitMessageError::Message(git_error_message(&output.stderr, fallback)));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -866,7 +931,7 @@ fn create_ai_post_request(url: &str, request_kind: AiRequestKind, secret: &str) 
     match request_kind {
         AiRequestKind::Anthropic => request
             .set("x-api-key", secret)
-            .set("anthropic-version", "2023-06-01"),
+            .set("anthropic-version", ANTHROPIC_API_VERSION),
         AiRequestKind::Gemini => request.set("x-goog-api-key", secret),
         AiRequestKind::OpenAiCompatible => {
             request.set("Authorization", &format!("Bearer {secret}"))
@@ -932,10 +997,10 @@ fn send_ai_json_request(
     request_kind: AiRequestKind,
     secret: &str,
     request_body: &serde_json::Value,
-) -> Result<ureq::Response, String> {
+) -> Result<ureq::Response, CommitMessageError> {
     create_ai_post_request(url, request_kind, secret)
         .send_string(&request_body.to_string())
-        .map_err(map_ai_http_error)
+        .map_err(|e| CommitMessageError::Message(map_ai_http_error(e)))
 }
 
 struct CommitPromptInputs {
@@ -946,14 +1011,14 @@ struct CommitPromptInputs {
     staged_diff: String,
 }
 
-fn collect_commit_prompt_inputs(repo_path: &str) -> Result<CommitPromptInputs, String> {
+fn collect_commit_prompt_inputs(repo_path: &str) -> Result<CommitPromptInputs, CommitMessageError> {
     let diff_stat = run_git_text_command(
         repo_path,
         &["diff", "--cached", "--stat"],
         "Failed to inspect staged diff",
     )?;
     if diff_stat.trim().is_empty() {
-        return Err("Stage changes before generating a commit message".to_string());
+        return Err(CommitMessageError::Message("Stage changes before generating a commit message".to_string()));
     }
 
     let changed_files = run_git_text_command(
@@ -988,11 +1053,11 @@ fn build_commit_generation_prompt_with_budget(
     instruction: &str,
     max_input_tokens: usize,
 ) -> String {
-    let input_budget_chars = max_input_tokens.clamp(256, 2048).saturating_mul(4);
-    let staged_diff_budget = input_budget_chars.saturating_mul(68) / 100;
-    let diff_stat_budget = input_budget_chars.saturating_mul(18) / 100;
-    let changed_files_budget = input_budget_chars.saturating_mul(9) / 100;
-    let recent_titles_budget = input_budget_chars.saturating_mul(5) / 100;
+    let input_budget_chars = max_input_tokens.clamp(256, 2048).saturating_mul(CHARS_PER_TOKEN_ESTIMATE);
+    let staged_diff_budget = input_budget_chars.saturating_mul(PROMPT_BUDGET_PERCENTAGE_STAGED_DIFF) / 100;
+    let diff_stat_budget = input_budget_chars.saturating_mul(PROMPT_BUDGET_PERCENTAGE_DIFF_STAT) / 100;
+    let changed_files_budget = input_budget_chars.saturating_mul(PROMPT_BUDGET_PERCENTAGE_CHANGED_FILES) / 100;
+    let recent_titles_budget = input_budget_chars.saturating_mul(PROMPT_BUDGET_PERCENTAGE_RECENT_TITLES) / 100;
     let truncated_staged_diff = if inputs.prompt_mode == CommitPromptMode::Fast {
         String::new()
     } else {
@@ -1132,13 +1197,13 @@ fn request_generated_commit_message(
     model: &str,
     prompt: &str,
     output_token_limit: usize,
-) -> Result<(String, bool), String> {
+) -> Result<(String, bool), CommitMessageError> {
     let mut schema_fallback_used = false;
     let response = match send_ai_json_request(request_url, request_kind, secret, request_body) {
         Ok(response) => response,
         Err(error)
             if request_kind == AiRequestKind::OpenAiCompatible
-                && (error.contains("response_format") || error.contains("json_schema")) =>
+                && (error.to_string().contains("response_format") || error.to_string().contains("json_schema")) =>
         {
             schema_fallback_used = true;
             let fallback_body = serde_json::json!({
@@ -1166,19 +1231,21 @@ fn request_generated_commit_message(
 }
 
 fn truncate_for_ai_budget(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
-        return value.to_string();
+    for (char_count, (byte_idx, _)) in value.char_indices().enumerate() {
+        if char_count >= max_chars {
+            return format!("{}\n...[truncated]", &value[..byte_idx]);
+        }
     }
-
-    let truncated = value.chars().take(max_chars).collect::<String>();
-    format!("{truncated}\n...[truncated]")
+    
+    // If we processed all chars without exceeding limit, return original
+    value.to_string()
 }
 
 fn list_ai_models_with_secret(
     provider: &str,
     base_url: &str,
     secret: &str,
-) -> Result<Vec<AiModelInfo>, String> {
+) -> Result<Vec<AiModelInfo>, CommitMessageError> {
     let models_url = format!("{base_url}/models");
     let request_kind = get_ai_request_kind(provider, base_url);
     let response = match request_kind {
@@ -1186,25 +1253,25 @@ fn list_ai_models_with_secret(
             .get(&models_url)
             .set("Accept", "application/json")
             .set("x-api-key", secret)
-            .set("anthropic-version", "2023-06-01")
+            .set("anthropic-version", ANTHROPIC_API_VERSION)
             .call()
-            .map_err(map_ai_http_error)?,
+            .map_err(|e| CommitMessageError::Message(map_ai_http_error(e)))?,
         AiRequestKind::Gemini => ai_http_agent()
             .get(&models_url)
             .set("Accept", "application/json")
             .set("x-goog-api-key", secret)
             .call()
-            .map_err(map_ai_http_error)?,
+            .map_err(|e| CommitMessageError::Message(map_ai_http_error(e)))?,
         AiRequestKind::OpenAiCompatible => ai_http_agent()
             .get(&models_url)
             .set("Accept", "application/json")
             .set("Authorization", &format!("Bearer {secret}"))
             .call()
-            .map_err(map_ai_http_error)?,
+            .map_err(|e| CommitMessageError::Message(map_ai_http_error(e)))?,
     };
     let body = read_ureq_response_string(response)?;
     let payload: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|_| "The configured AI endpoint is not OpenAI-compatible.".to_string())?;
+        .map_err(|_| CommitMessageError::Message("The configured AI endpoint is not OpenAI-compatible.".to_string()))?;
 
     parse_ai_model_list(&payload)
 }
@@ -1216,11 +1283,11 @@ pub(crate) async fn list_ai_models(
     provider: String,
     custom_endpoint: String,
 ) -> Result<Vec<AiModelInfo>, String> {
-    let secret = resolve_ai_provider_secret(&state, &provider)?;
-    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
+    let secret = resolve_ai_provider_secret(&state, &provider).map_err(|e| e.to_string())?;
+    let base_url = resolve_ai_base_url(&provider, &custom_endpoint).map_err(|e| e.to_string())?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        list_ai_models_with_secret(&provider, &base_url, &secret)
+        list_ai_models_with_secret(&provider, &base_url, &secret).map_err(|e| e.to_string())
     })
     .await
     .map_err(|error| format!("Failed to list AI models: {error}"))?
@@ -1236,12 +1303,12 @@ fn generate_repository_commit_message_with_secret(
     instruction: &str,
     max_input_tokens: usize,
     max_output_tokens: usize,
-) -> Result<GeneratedCommitMessage, String> {
-    validate_git_repo(Path::new(repo_path))?;
+) -> Result<GeneratedCommitMessage, CommitMessageError> {
+    validate_git_repo(Path::new(repo_path)).map_err(|e| CommitMessageError::Message(e.to_string()))?;
 
     let trimmed_model = model.trim();
     if trimmed_model.is_empty() {
-        return Err("Select an AI model before generating a commit message".to_string());
+        return Err(CommitMessageError::Message("Select an AI model before generating a commit message".to_string()));
     }
 
     let prompt_inputs = collect_commit_prompt_inputs(repo_path)?;
@@ -1268,9 +1335,9 @@ fn generate_repository_commit_message_with_secret(
         output_token_limit,
     )?;
     let payload: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|_| "The configured AI endpoint returned invalid JSON.".to_string())?;
+        .map_err(|_| CommitMessageError::Message("The configured AI endpoint returned invalid JSON.".to_string()))?;
     let content = extract_ai_commit_message_content(&payload, request_kind).ok_or_else(|| {
-        "The configured AI endpoint did not return a parseable commit message.".to_string()
+        CommitMessageError::Message("The configured AI endpoint did not return a parseable commit message.".to_string())
     })?;
 
     let mut generated = parse_generated_commit_message(&content)?;
@@ -1296,8 +1363,8 @@ pub(crate) async fn generate_repository_commit_message(
         provider,
         repo_path,
     } = input;
-    let secret = resolve_ai_provider_secret(&state, &provider)?;
-    let base_url = resolve_ai_base_url(&provider, &custom_endpoint)?;
+    let secret = resolve_ai_provider_secret(&state, &provider).map_err(|e| e.to_string())?;
+    let base_url = resolve_ai_base_url(&provider, &custom_endpoint).map_err(|e| e.to_string())?;
 
     tauri::async_runtime::spawn_blocking(move || {
         generate_repository_commit_message_with_secret(
@@ -1309,7 +1376,7 @@ pub(crate) async fn generate_repository_commit_message(
             &instruction,
             max_input_tokens,
             max_output_tokens,
-        )
+        ).map_err(|e| e.to_string())
     })
     .await
     .map_err(|error| format!("Failed to generate commit message: {error}"))?
@@ -1401,7 +1468,7 @@ mod tests {
         let error =
             resolve_ai_base_url("custom", "   ").expect_err("custom endpoint should be required");
 
-        assert_eq!(error, "Custom AI endpoint is required");
+        assert_eq!(error.to_string(), "Custom AI endpoint is required");
     }
 
     #[test]
@@ -1430,7 +1497,7 @@ mod tests {
             panic!("payload should be rejected");
         };
 
-        assert_eq!(error, "AI response was not valid JSON.");
+        assert_eq!(error.to_string(), "AI response was not valid JSON.");
     }
 
     #[test]
@@ -1439,7 +1506,7 @@ mod tests {
             panic!("title-less payload should be rejected");
         };
 
-        assert_eq!(error, "AI response did not include a valid commit title.");
+        assert_eq!(error.to_string(), "AI response did not include a valid commit title.");
     }
 
     #[test]
@@ -1555,6 +1622,13 @@ mod tests {
 
         assert!(truncated.starts_with("abcdefghij"));
         assert!(truncated.contains("[truncated]"));
+    }
+
+    #[test]
+    fn truncate_for_ai_budget_preserves_utf8_boundaries_for_multibyte_text() {
+        let truncated = truncate_for_ai_budget("naive cafe e\u{301}lan", 12);
+
+        assert_eq!(truncated, "naive cafe e\n...[truncated]");
     }
 
     #[test]

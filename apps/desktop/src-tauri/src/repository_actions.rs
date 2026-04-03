@@ -92,8 +92,7 @@ fn ensure_repo(repo_path: &str) -> RepositoryActionsResult<()> {
 
 fn resolve_publish_visibility_flag(publish_visibility: Option<&str>) -> &'static str {
     match publish_visibility
-        .map(str::trim)
-        .map(str::to_lowercase)
+        .map(|v| v.trim().to_lowercase())
         .as_deref()
     {
         Some("public") => "--public",

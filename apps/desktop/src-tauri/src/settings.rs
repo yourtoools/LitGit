@@ -11,11 +11,42 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tauri::State;
+use thiserror::Error;
 use ureq::Proxy;
+
+/// Error type for settings operations.
+#[derive(Debug, Error)]
+pub(crate) enum SettingsError {
+    /// A generic error message.
+    #[error("{0}")]
+    Message(String),
+
+    /// An error occurred while running a git command.
+    #[error("Failed to {action}: {source}")]
+    GitCommand {
+        /// The action that was being attempted.
+        action: &'static str,
+        /// The underlying I/O error.
+        source: std::io::Error,
+    },
+
+    /// An error occurred during a proxy operation.
+    #[expect(dead_code)]
+    #[error("Proxy error: {0}")]
+    Proxy(String),
+}
+
+impl From<SettingsError> for String {
+    fn from(error: SettingsError) -> Self {
+        error.to_string()
+    }
+}
 
 const AI_SECRET_SERVICE: &str = "litgit.ai.provider";
 const PROXY_SECRET_SERVICE: &str = "litgit.proxy.auth";
 pub(crate) const GITHUB_AVATAR_SERVICE: &str = "litgit.github.avatar";
+const DEFAULT_PROXY_PORT: u16 = 80;
+const PROXY_TEST_TIMEOUT_SECS: u64 = 10;
 
 #[derive(Clone, Copy)]
 enum GitHubTokenStorageTarget {
@@ -26,8 +57,11 @@ enum GitHubTokenStorageTarget {
 #[derive(Clone)]
 /// In-memory GitHub identity cache record used by history author enrichment.
 pub(crate) struct GitHubIdentityCacheRecord {
+    /// The avatar URL returned by the GitHub API.
     pub(crate) avatar_url: Option<String>,
+    /// The Unix timestamp (seconds) when this record was stored.
     pub(crate) stored_at_unix_seconds: u64,
+    /// The GitHub username associated with this identity.
     pub(crate) username: Option<String>,
 }
 
@@ -37,7 +71,9 @@ struct GitHubIdentityCacheStore {
     file_path: Option<PathBuf>,
 }
 
+/// Shared application state for settings, secrets, and scheduler handles.
 pub(crate) struct SettingsState {
+    /// In-memory AI provider secrets keyed by provider name.
     pub(crate) ai_secrets: Mutex<HashMap<String, StoredSecretValue>>,
     http_credentials: Mutex<HashMap<String, StoredHttpCredential>>,
     github_identity_cache: Mutex<GitHubIdentityCacheStore>,
@@ -158,6 +194,7 @@ pub(crate) struct SigningKeyInfo {
 #[serde(rename_all = "camelCase")]
 /// System font family descriptor.
 pub(crate) struct SystemFontFamily {
+    /// The font family name as reported by the system.
     pub(crate) family: String,
 }
 
@@ -185,8 +222,11 @@ pub(crate) struct GitIdentityStatusPayload {
 #[serde(rename_all = "camelCase")]
 /// Input payload for writing Git identity settings.
 pub(crate) struct GitIdentityWriteRequest {
+    /// The Git author email address to write.
     pub(crate) email: String,
+    /// The Git author name to write.
     pub(crate) name: String,
+    /// The config scope ("global" or "local") to write to.
     pub(crate) scope: String,
 }
 
@@ -194,21 +234,37 @@ pub(crate) struct GitIdentityWriteRequest {
 #[serde(rename_all = "camelCase")]
 /// Repository command behavior preferences applied to git subprocesses.
 pub(crate) struct RepoCommandPreferences {
+    /// Whether to enable proxy usage for git operations.
     pub(crate) enable_proxy: Option<bool>,
+    /// Custom path to the GPG signing program.
     pub(crate) gpg_program_path: Option<String>,
+    /// Proxy authentication password.
     pub(crate) proxy_auth_password: Option<String>,
+    /// Whether proxy authentication is enabled.
     pub(crate) proxy_auth_enabled: Option<bool>,
+    /// Proxy server hostname.
     pub(crate) proxy_host: Option<String>,
+    /// Proxy server port number.
     pub(crate) proxy_port: Option<u16>,
+    /// Proxy protocol type (http, https, socks5).
     pub(crate) proxy_type: Option<String>,
+    /// Proxy authentication username.
     pub(crate) proxy_username: Option<String>,
+    /// Path to the SSH private key file.
     pub(crate) ssh_private_key_path: Option<String>,
+    /// Path to the SSH public key file.
     pub(crate) ssh_public_key_path: Option<String>,
+    /// Commit signing format (e.g. "openpgp", "ssh").
     pub(crate) signing_format: Option<String>,
+    /// The signing key identifier (GPG key ID or SSH key path).
     pub(crate) signing_key: Option<String>,
+    /// Whether to sign commits by default.
     pub(crate) sign_commits_by_default: Option<bool>,
+    /// Whether to disable SSL certificate verification.
     pub(crate) ssl_verification: Option<bool>,
+    /// Whether to use the Git Credential Manager.
     pub(crate) use_git_credential_manager: Option<bool>,
+    /// Whether to bypass the system SSH agent.
     pub(crate) use_local_ssh_agent: Option<bool>,
 }
 
@@ -222,7 +278,9 @@ pub(crate) struct PickedFilePath {
 #[derive(Clone)]
 /// Secret value plus storage mode marker.
 pub(crate) struct StoredSecretValue {
+    /// The storage mode ("secure" or "session").
     pub(crate) storage_mode: String,
+    /// The raw secret value string.
     pub(crate) value: String,
 }
 
@@ -331,11 +389,11 @@ pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
 
                 match parts[0] {
                     "sec" => {
-                        current_key_id = parts.get(4).map(|value| (*value).to_string());
+                        current_key_id = parts.get(4).map(|&s| s.to_string());
                     }
                     "uid" => {
                         if let Some(key_id) = current_key_id.take() {
-                            let label = (*parts.get(9).unwrap_or(&"GPG key")).to_string();
+                            let label = parts.get(9).copied().unwrap_or("GPG key").to_string();
                             keys.push(SigningKeyInfo {
                                 id: key_id,
                                 label,
@@ -349,7 +407,7 @@ pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
         }
     }
 
-    let home = env::var("HOME").unwrap_or_default();
+    let home = env::var("HOME").map_err(|_| "HOME is not available".to_string())?;
     let ssh_dir = Path::new(&home).join(".ssh");
 
     if ssh_dir.exists() {
@@ -411,7 +469,7 @@ pub(crate) fn list_system_font_families(
         })
         .collect::<Vec<_>>();
 
-    font_families.sort_by(|left, right| left.family.cmp(&right.family));
+    font_families.sort_unstable_by(|left, right| left.family.cmp(&right.family));
 
     *cached_fonts = Some(font_families.clone());
 
@@ -437,7 +495,7 @@ pub(crate) fn get_git_identity(
         validate_git_repo(Path::new(path))?;
     }
 
-    build_git_identity_status(repo_path.as_deref())
+    build_git_identity_status(repo_path.as_deref()).map_err(|e| e.to_string())
 }
 
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
@@ -478,7 +536,7 @@ pub(crate) fn set_git_identity(
         &git_identity.email,
     )?;
 
-    build_git_identity_status(normalized_repo_path.as_deref())
+    build_git_identity_status(normalized_repo_path.as_deref()).map_err(|e| e.to_string())
 }
 
 fn build_http_credential_entry_id(
@@ -499,44 +557,44 @@ fn build_http_credential_entry_id(
     format!("{:x}", hasher.finalize())
 }
 
-pub(crate) fn load_keyring_entry(service: &str, account: &str) -> Result<Option<String>, String> {
+pub(crate) fn load_keyring_entry(service: &str, account: &str) -> Result<Option<String>, SettingsError> {
     let entry = keyring::Entry::new(service, account)
-        .map_err(|error| format!("Failed to access secure storage: {error}"))?;
+        .map_err(|error| SettingsError::Message(format!("Failed to access secure storage: {error}")))?;
 
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Failed to read secure storage: {error}")),
+        Err(error) => Err(SettingsError::Message(format!("Failed to read secure storage: {error}"))),
     }
 }
 
-fn save_keyring_entry(service: &str, account: &str, secret: &str) -> Result<(), String> {
+fn save_keyring_entry(service: &str, account: &str, secret: &str) -> Result<(), SettingsError> {
     let entry = keyring::Entry::new(service, account)
-        .map_err(|error| format!("Failed to access secure storage: {error}"))?;
+        .map_err(|error| SettingsError::Message(format!("Failed to access secure storage: {error}")))?;
 
     entry
         .set_password(secret)
-        .map_err(|error| format!("Failed to save secure secret: {error}"))
+        .map_err(|error| SettingsError::Message(format!("Failed to save secure secret: {error}")))
 }
 
-fn clear_keyring_entry(service: &str, account: &str) -> Result<(), String> {
+fn clear_keyring_entry(service: &str, account: &str) -> Result<(), SettingsError> {
     let entry = keyring::Entry::new(service, account)
-        .map_err(|error| format!("Failed to access secure storage: {error}"))?;
+        .map_err(|error| SettingsError::Message(format!("Failed to access secure storage: {error}")))?;
 
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Failed to clear secure secret: {error}")),
+        Err(error) => Err(SettingsError::Message(format!("Failed to clear secure secret: {error}"))),
     }
 }
 
 fn get_ai_secret_from_session(
     state: &SettingsState,
     provider: &str,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, SettingsError> {
     let secrets = state
         .ai_secrets
         .lock()
-        .map_err(|_| "Failed to access settings state".to_string())?;
+        .map_err(|_| SettingsError::Message("Failed to access settings state".to_string()))?;
 
     Ok(secrets.get(provider).map(|secret| secret.value.clone()))
 }
@@ -544,11 +602,11 @@ fn get_ai_secret_from_session(
 pub(crate) fn resolve_ai_provider_secret(
     state: &State<'_, SettingsState>,
     provider: &str,
-) -> Result<String, String> {
+) -> Result<String, SettingsError> {
     let trimmed_provider = provider.trim();
 
     if trimmed_provider.is_empty() {
-        return Err("AI provider is required".to_string());
+        return Err(SettingsError::Message("AI provider is required".to_string()));
     }
 
     if let Some(secret) = load_keyring_entry(AI_SECRET_SERVICE, trimmed_provider)? {
@@ -559,19 +617,19 @@ pub(crate) fn resolve_ai_provider_secret(
         return Ok(secret);
     }
 
-    Err(format!(
+    Err(SettingsError::Message(format!(
         "No API key saved for the '{trimmed_provider}' AI provider"
-    ))
+    )))
 }
 
 fn get_proxy_secret_from_session(
     state: &SettingsState,
     username: &str,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, SettingsError> {
     let credentials = state
         .http_credentials
         .lock()
-        .map_err(|_| "Failed to access settings state".to_string())?;
+        .map_err(|_| SettingsError::Message("Failed to access settings state".to_string()))?;
 
     Ok(credentials
         .values()
@@ -583,7 +641,7 @@ fn resolve_proxy_secret(
     state: Option<&State<'_, SettingsState>>,
     username: &str,
     supplied_secret: Option<&str>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, SettingsError> {
     if let Some(secret) = supplied_secret.filter(|value| !value.trim().is_empty()) {
         return Ok(Some(secret.trim().to_string()));
     }
@@ -662,7 +720,7 @@ pub(crate) fn apply_git_preferences(
                 .proxy_type
                 .clone()
                 .unwrap_or_else(|| "http".to_string());
-            let port = preferences.proxy_port.unwrap_or(80);
+            let port = preferences.proxy_port.unwrap_or(DEFAULT_PROXY_PORT);
 
             if preferences.proxy_auth_enabled == Some(true) {
                 if let Some(username) = preferences
@@ -698,7 +756,7 @@ pub(crate) fn apply_git_preferences(
     Ok(())
 }
 
-fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatusPayload, String> {
+fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatusPayload, SettingsError> {
     let global = read_git_identity_value(None, "global")?;
     let local = if let Some(path) = repo_path {
         Some(read_git_identity_value(Some(path), "local")?)
@@ -735,33 +793,33 @@ fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatu
         effective_scope,
         global,
         local,
-        repo_path: repo_path.map(std::string::ToString::to_string),
+        repo_path: repo_path.map(str::to_string),
     })
 }
 
-pub(crate) fn normalize_git_identity_scope(scope: &str) -> Result<&str, String> {
+pub(crate) fn normalize_git_identity_scope(scope: &str) -> Result<&str, SettingsError> {
     match scope.trim() {
         "global" => Ok("global"),
         "local" => Ok("local"),
-        _ => Err("Git identity scope must be global or local".to_string()),
+        _ => Err(SettingsError::Message("Git identity scope must be global or local".to_string())),
     }
 }
 
-pub(crate) fn validate_git_identity_name(name: &str) -> Result<String, String> {
+pub(crate) fn validate_git_identity_name(name: &str) -> Result<String, SettingsError> {
     let trimmed = name.trim();
 
     if trimmed.is_empty() {
-        return Err("Git author name is required".to_string());
+        return Err(SettingsError::Message("Git author name is required".to_string()));
     }
 
     Ok(trimmed.to_string())
 }
 
-pub(crate) fn validate_git_identity_email(email: &str) -> Result<String, String> {
+pub(crate) fn validate_git_identity_email(email: &str) -> Result<String, SettingsError> {
     let trimmed = email.trim();
 
     if trimmed.is_empty() {
-        return Err("Git author email is required".to_string());
+        return Err(SettingsError::Message("Git author email is required".to_string()));
     }
 
     let has_single_at_symbol = trimmed.matches('@').count() == 1;
@@ -773,7 +831,7 @@ pub(crate) fn validate_git_identity_email(email: &str) -> Result<String, String>
     });
 
     if !(has_single_at_symbol && has_non_empty_segments) {
-        return Err("Enter a valid Git author email".to_string());
+        return Err(SettingsError::Message("Enter a valid Git author email".to_string()));
     }
 
     Ok(trimmed.to_string())
@@ -783,7 +841,7 @@ fn read_git_config_value(
     repo_path: Option<&str>,
     scope: &str,
     key: &str,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, SettingsError> {
     let mut command = git_command();
 
     match scope {
@@ -792,7 +850,7 @@ fn read_git_config_value(
         }
         "local" => {
             let repo_path = repo_path
-                .ok_or_else(|| "A repository path is required for local Git config".to_string())?;
+                .ok_or_else(|| SettingsError::Message("A repository path is required for local Git config".to_string()))?;
             command.args(["-C", repo_path, "config", "--local", "--get", key]);
         }
         "effective" => {
@@ -802,12 +860,15 @@ fn read_git_config_value(
                 command.args(["config", "--global", "--get", key]);
             }
         }
-        _ => return Err("Unsupported Git config scope".to_string()),
+        _ => return Err(SettingsError::Message("Unsupported Git config scope".to_string())),
     }
 
     let output = command
         .output()
-        .map_err(|error| format!("Failed to run git config: {error}"))?;
+        .map_err(|error| SettingsError::GitCommand {
+            action: "run git config",
+            source: error,
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -816,10 +877,10 @@ fn read_git_config_value(
             return Ok(None);
         }
 
-        return Err(git_error_message(
+        return Err(SettingsError::Message(git_error_message(
             &output.stderr,
             "Failed to read Git identity",
-        ));
+        )));
     }
 
     let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -834,7 +895,7 @@ fn read_git_config_value(
 fn read_git_identity_value(
     repo_path: Option<&str>,
     scope: &str,
-) -> Result<GitIdentityValue, String> {
+) -> Result<GitIdentityValue, SettingsError> {
     let name = read_git_config_value(repo_path, scope, "user.name")?;
     let email = read_git_config_value(repo_path, scope, "user.email")?;
     let is_complete = name.is_some() && email.is_some();
@@ -851,7 +912,7 @@ fn write_git_config_value(
     scope: &str,
     key: &str,
     value: &str,
-) -> Result<(), String> {
+) -> Result<(), SettingsError> {
     let mut command = git_command();
 
     match scope {
@@ -860,21 +921,24 @@ fn write_git_config_value(
         }
         "local" => {
             let repo_path = repo_path
-                .ok_or_else(|| "A repository path is required for local Git config".to_string())?;
+                .ok_or_else(|| SettingsError::Message("A repository path is required for local Git config".to_string()))?;
             command.args(["-C", repo_path, "config", "--local", key, value]);
         }
-        _ => return Err("Unsupported Git config scope".to_string()),
+        _ => return Err(SettingsError::Message("Unsupported Git config scope".to_string())),
     }
 
     let output = command
         .output()
-        .map_err(|error| format!("Failed to run git config: {error}"))?;
+        .map_err(|error| SettingsError::GitCommand {
+            action: "run git config",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(
+        return Err(SettingsError::Message(git_error_message(
             &output.stderr,
             "Failed to save Git identity",
-        ));
+        )));
     }
 
     Ok(())
@@ -885,7 +949,7 @@ pub(crate) fn write_git_identity(
     scope: &str,
     name: &str,
     email: &str,
-) -> Result<(), String> {
+) -> Result<(), SettingsError> {
     let validated_name = validate_git_identity_name(name)?;
     let validated_email = validate_git_identity_email(email)?;
 
@@ -1342,7 +1406,7 @@ pub(crate) async fn test_proxy_connection(
             .map_err(|error| format!("Failed to configure proxy: {error}"))?;
         let agent = ureq::AgentBuilder::new()
             .proxy(proxy)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(PROXY_TEST_TIMEOUT_SECS))
             .build();
 
         let response = agent
@@ -1494,7 +1558,7 @@ mod tests {
     #[test]
     fn validate_git_identity_email_returns_error_when_input_is_blank() {
         assert_eq!(
-            validate_git_identity_email("   ").unwrap_err(),
+            validate_git_identity_email("   ").unwrap_err().to_string(),
             "Git author email is required",
         );
     }
@@ -1517,7 +1581,7 @@ mod tests {
     #[test]
     fn normalize_git_identity_scope_rejects_unknown_values() {
         assert_eq!(
-            normalize_git_identity_scope("workspace").unwrap_err(),
+            normalize_git_identity_scope("workspace").unwrap_err().to_string(),
             "Git identity scope must be global or local",
         );
     }

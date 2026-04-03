@@ -1,3 +1,10 @@
+//! LitGit desktop application — a Tauri-based Git client.
+//!
+//! This crate exposes a `run` function that bootstraps the Tauri app
+//! and registers all IPC commands for the frontend.
+
+#![deny(missing_docs)]
+
 use serde::Serialize;
 use tauri::Manager;
 

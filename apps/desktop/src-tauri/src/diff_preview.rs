@@ -1,20 +1,18 @@
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{RepositoryCommitFileDiff, RepositoryFileDiff};
 use crate::git_support::{
     decode_text_content_with_encoding, encode_image_data_url, git_command,
-    is_probably_text_content, resolve_file_extension, resolve_image_mime_type, validate_git_repo,
-    validate_repo_relative_file_path,
+    is_probably_text_content, load_commit_contents, load_working_tree_contents,
+    resolve_file_extension, resolve_image_mime_type, validate_git_repo, write_temp_bytes,
+    GitSupportError,
 };
 
 const DIFF_CHANGED_LINE_LIMIT: usize = 500;
 const FILE_LINE_LIMIT: usize = 20_000;
 const NON_TEXT_SIZE_LIMIT_BYTES: usize = 10 * 1024 * 1024;
-
-type FileContentPair = (Option<Vec<u8>>, Option<Vec<u8>>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PreviewMode {
@@ -23,11 +21,13 @@ enum PreviewMode {
 }
 
 impl PreviewMode {
-    fn from_str(value: &str) -> Result<Self, String> {
+    fn from_str(value: &str) -> Result<Self, GitSupportError> {
         match value.trim().to_ascii_lowercase().as_str() {
             "diff" => Ok(Self::Diff),
             "file" => Ok(Self::File),
-            _ => Err("Invalid preview mode. Expected 'file' or 'diff'.".to_string()),
+            _ => Err(GitSupportError::Message(
+                "Invalid preview mode. Expected 'file' or 'diff'.".to_string(),
+            )),
         }
     }
 
@@ -158,17 +158,6 @@ fn count_text_lines(content: &[u8]) -> usize {
     } else {
         line_break_count + 1
     }
-}
-
-fn write_temp_bytes(prefix: &str, content: &[u8]) -> Option<std::path::PathBuf> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    let path = std::env::temp_dir().join(format!(
-        "litgit-preview-{prefix}-{}-{}.tmp",
-        std::process::id(),
-        now.as_nanos()
-    ));
-    fs::write(&path, content).ok()?;
-    Some(path)
 }
 
 fn compute_changed_line_count_with_git(old: &[u8], new: &[u8]) -> Option<usize> {
@@ -347,58 +336,13 @@ fn build_preflight_metadata(
     }
 }
 
-fn load_working_tree_contents(repo_path: &str, file_path: &str) -> Result<FileContentPair, String> {
-    validate_repo_relative_file_path(file_path)?;
-
-    let old_output = git_command()
-        .args(["-C", repo_path, "show", &format!("HEAD:{file_path}")])
-        .output()
-        .map_err(|error| format!("Failed to run git show: {error}"))?;
-    let old_content = old_output.status.success().then_some(old_output.stdout);
-
-    let new_content = fs::read(Path::new(repo_path).join(file_path)).ok();
-    Ok((old_content, new_content))
-}
-
-fn load_commit_contents(
-    repo_path: &str,
-    commit_hash: &str,
-    file_path: &str,
-) -> Result<FileContentPair, String> {
-    validate_repo_relative_file_path(file_path)?;
-
-    let old_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "show",
-            &format!("{commit_hash}^:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git show for previous commit file: {error}"))?;
-    let old_content = old_output.status.success().then_some(old_output.stdout);
-
-    let new_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "show",
-            &format!("{commit_hash}:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git show for commit file: {error}"))?;
-    let new_content = new_output.status.success().then_some(new_output.stdout);
-
-    Ok((old_content, new_content))
-}
-
 fn build_content_payload(
     file_path: &str,
     mode: PreviewMode,
     old_content: Option<&[u8]>,
     new_content: Option<&[u8]>,
     encoding: Option<&str>,
-) -> Result<PreviewContentPayload, String> {
+) -> Result<PreviewContentPayload, GitSupportError> {
     let extension = resolve_file_extension(file_path);
     let image_mime_type = extension.as_deref().and_then(resolve_image_mime_type);
 
@@ -416,7 +360,9 @@ fn build_content_payload(
         };
 
         if old_side.is_none() && new_side.is_none() {
-            return Err("Failed to render image preview".to_string());
+            return Err(GitSupportError::Message(
+                "Failed to render image preview".to_string(),
+            ));
         }
 
         return Ok(PreviewContentPayload {
@@ -456,11 +402,11 @@ fn build_content_payload(
         };
     }
 
-    Err("Binary file not supported".to_string())
+    Err(GitSupportError::Message(
+        "Binary file not supported".to_string(),
+    ))
 }
 
-// Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Evaluates whether a working-tree file can be safely rendered in the selected preview mode.
 pub(crate) fn get_repository_file_preflight(
@@ -468,7 +414,16 @@ pub(crate) fn get_repository_file_preflight(
     file_path: String,
     mode: String,
 ) -> Result<RepositoryFilePreflight, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_file_preflight_inner(repo_path, file_path, mode).map_err(|e| e.to_string())
+}
+
+fn get_repository_file_preflight_inner(
+    repo_path: String,
+    file_path: String,
+    mode: String,
+) -> Result<RepositoryFilePreflight, GitSupportError> {
+    validate_git_repo(Path::new(&repo_path))
+        .map_err(|e| GitSupportError::Message(e.to_string()))?;
     let preview_mode = PreviewMode::from_str(&mode)?;
     let (old_content, new_content) = load_working_tree_contents(&repo_path, &file_path)?;
     let metadata = build_preflight_metadata(
@@ -494,8 +449,6 @@ pub(crate) fn get_repository_file_preflight(
     })
 }
 
-// Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Evaluates whether a commit file can be safely rendered in the selected preview mode.
 pub(crate) fn get_repository_commit_file_preflight(
@@ -504,7 +457,18 @@ pub(crate) fn get_repository_commit_file_preflight(
     file_path: String,
     mode: String,
 ) -> Result<RepositoryCommitFilePreflight, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_commit_file_preflight_inner(repo_path, commit_hash, file_path, mode)
+        .map_err(|e| e.to_string())
+}
+
+fn get_repository_commit_file_preflight_inner(
+    repo_path: String,
+    commit_hash: String,
+    file_path: String,
+    mode: String,
+) -> Result<RepositoryCommitFilePreflight, GitSupportError> {
+    validate_git_repo(Path::new(&repo_path))
+        .map_err(|e| GitSupportError::Message(e.to_string()))?;
     let preview_mode = PreviewMode::from_str(&mode)?;
     let (old_content, new_content) = load_commit_contents(&repo_path, &commit_hash, &file_path)?;
     let metadata = build_preflight_metadata(
@@ -531,8 +495,6 @@ pub(crate) fn get_repository_commit_file_preflight(
     })
 }
 
-// Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Returns working-tree file content for diff/file preview modes.
 pub(crate) fn get_repository_file_content(
@@ -542,7 +504,19 @@ pub(crate) fn get_repository_file_content(
     force_render: bool,
     encoding: Option<String>,
 ) -> Result<RepositoryFileDiff, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_file_content_inner(repo_path, file_path, mode, force_render, encoding)
+        .map_err(|e| e.to_string())
+}
+
+fn get_repository_file_content_inner(
+    repo_path: String,
+    file_path: String,
+    mode: String,
+    force_render: bool,
+    encoding: Option<String>,
+) -> Result<RepositoryFileDiff, GitSupportError> {
+    validate_git_repo(Path::new(&repo_path))
+        .map_err(|e| GitSupportError::Message(e.to_string()))?;
     let preview_mode = PreviewMode::from_str(&mode)?;
     let (old_content, new_content) = load_working_tree_contents(&repo_path, &file_path)?;
     let metadata = build_preflight_metadata(
@@ -553,11 +527,15 @@ pub(crate) fn get_repository_file_content(
     );
 
     if metadata.gate == PreviewGate::BinaryUnsupported {
-        return Err("Binary file not supported".to_string());
+        return Err(GitSupportError::Message(
+            "Binary file not supported".to_string(),
+        ));
     }
 
     if metadata.gate == PreviewGate::DiffLineCountUnavailable {
-        return Err("Unable to compute changed line count".to_string());
+        return Err(GitSupportError::Message(
+            "Unable to compute changed line count".to_string(),
+        ));
     }
 
     if !force_render {
@@ -565,7 +543,9 @@ pub(crate) fn get_repository_file_content(
             PreviewGate::FileLineLimit { .. }
             | PreviewGate::DiffChangedLineLimit { .. }
             | PreviewGate::NonTextSizeLimit { .. } => {
-                return Err("Render blocked by preview safety limits".to_string());
+                return Err(GitSupportError::Message(
+                    "Render blocked by preview safety limits".to_string(),
+                ));
             }
             PreviewGate::BinaryUnsupported
             | PreviewGate::DiffLineCountUnavailable
@@ -592,8 +572,6 @@ pub(crate) fn get_repository_file_content(
     })
 }
 
-// Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Returns commit file content for diff/file preview modes.
 pub(crate) fn get_repository_commit_file_content(
@@ -604,7 +582,27 @@ pub(crate) fn get_repository_commit_file_content(
     force_render: bool,
     encoding: Option<String>,
 ) -> Result<RepositoryCommitFileDiff, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_commit_file_content_inner(
+        repo_path,
+        commit_hash,
+        file_path,
+        mode,
+        force_render,
+        encoding,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn get_repository_commit_file_content_inner(
+    repo_path: String,
+    commit_hash: String,
+    file_path: String,
+    mode: String,
+    force_render: bool,
+    encoding: Option<String>,
+) -> Result<RepositoryCommitFileDiff, GitSupportError> {
+    validate_git_repo(Path::new(&repo_path))
+        .map_err(|e| GitSupportError::Message(e.to_string()))?;
     let preview_mode = PreviewMode::from_str(&mode)?;
     let (old_content, new_content) = load_commit_contents(&repo_path, &commit_hash, &file_path)?;
     let metadata = build_preflight_metadata(
@@ -615,11 +613,15 @@ pub(crate) fn get_repository_commit_file_content(
     );
 
     if metadata.gate == PreviewGate::BinaryUnsupported {
-        return Err("Binary file not supported".to_string());
+        return Err(GitSupportError::Message(
+            "Binary file not supported".to_string(),
+        ));
     }
 
     if metadata.gate == PreviewGate::DiffLineCountUnavailable {
-        return Err("Unable to compute changed line count".to_string());
+        return Err(GitSupportError::Message(
+            "Unable to compute changed line count".to_string(),
+        ));
     }
 
     if !force_render {
@@ -627,7 +629,9 @@ pub(crate) fn get_repository_commit_file_content(
             PreviewGate::FileLineLimit { .. }
             | PreviewGate::DiffChangedLineLimit { .. }
             | PreviewGate::NonTextSizeLimit { .. } => {
-                return Err("Render blocked by preview safety limits".to_string());
+                return Err(GitSupportError::Message(
+                    "Render blocked by preview safety limits".to_string(),
+                ));
             }
             PreviewGate::BinaryUnsupported
             | PreviewGate::DiffLineCountUnavailable

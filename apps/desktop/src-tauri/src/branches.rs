@@ -8,6 +8,32 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 use tauri::State;
+use thiserror::Error;
+
+const GITHUB_API_VERSION: &str = "2022-11-28";
+
+/// Error type for branch operations.
+#[derive(Debug, Error)]
+pub(crate) enum BranchError {
+    #[error("{0}")]
+    Message(String),
+    #[error("Failed to {action}: {source}")]
+    GitCommand {
+        action: &'static str,
+        source: std::io::Error,
+    },
+    #[error("Failed to {action}: {detail}")]
+    Http {
+        action: &'static str,
+        detail: String,
+    },
+}
+
+impl From<BranchError> for String {
+    fn from(error: BranchError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,12 +129,12 @@ fn get_github_token(state: &SettingsState) -> Option<String> {
 fn fetch_github_owner_avatar_url(
     owner: &str,
     token: Option<&str>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, BranchError> {
     let endpoint = format!("https://api.github.com/users/{owner}");
     let mut request = ureq::get(&endpoint)
         .set("Accept", "application/vnd.github+json")
         .set("User-Agent", "LitGit")
-        .set("X-GitHub-Api-Version", "2022-11-28");
+        .set("X-GitHub-Api-Version", GITHUB_API_VERSION);
 
     if let Some(token) = token {
         request = request.set("Authorization", &format!("Bearer {token}"));
@@ -116,12 +142,17 @@ fn fetch_github_owner_avatar_url(
 
     let response = request
         .call()
-        .map_err(|error| format!("Failed to fetch GitHub avatar for owner {owner}: {error}"))?;
-    let body = response.into_string().map_err(|error| {
-        format!("Failed to read GitHub avatar response for owner {owner}: {error}")
+        .map_err(|error| BranchError::Http {
+            action: "fetch GitHub avatar",
+            detail: format!("Failed to fetch GitHub avatar for owner {owner}: {error}"),
+        })?;
+    let body = response.into_string().map_err(|error| BranchError::Http {
+        action: "read GitHub avatar response",
+        detail: format!("Failed to read GitHub avatar response for owner {owner}: {error}"),
     })?;
-    let payload: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
-        format!("Failed to parse GitHub avatar response for owner {owner}: {error}")
+    let payload: serde_json::Value = serde_json::from_str(&body).map_err(|error| BranchError::Http {
+        action: "parse GitHub avatar response",
+        detail: format!("Failed to parse GitHub avatar response for owner {owner}: {error}"),
     })?;
 
     Ok(payload
@@ -189,12 +220,14 @@ fn parse_branch_row(
     })
 }
 
-// Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Returns sorted repository refs with optional ahead/behind counts for current branch.
 pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_branches_inner(repo_path).map_err(|e| e.to_string())
+}
+
+fn get_repository_branches_inner(repo_path: String) -> Result<Vec<RepositoryBranch>, BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = git_command()
         .args([
@@ -208,15 +241,18 @@ pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<Repositor
             "refs/tags",
         ])
         .output()
-        .map_err(|error| format!("Failed to run git for-each-ref: {error}"))?;
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git for-each-ref",
+            source: error,
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(BranchError::Message(if stderr.is_empty() {
             "Failed to read repository branches".to_string()
         } else {
             stderr
-        });
+        }));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -247,7 +283,10 @@ pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<Repositor
                 &format!("HEAD...{upstream_ref}"),
             ])
             .output()
-            .map_err(|error| format!("Failed to run git rev-list: {error}"))?;
+            .map_err(|error| BranchError::GitCommand {
+                action: "run git rev-list",
+                source: error,
+            })?;
 
         if sync_count_output.status.success() {
             parse_branch_sync_counts(&String::from_utf8_lossy(&sync_count_output.stdout))
@@ -264,22 +303,28 @@ pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<Repositor
         .collect())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Returns configured remote names for the repository.
 pub(crate) fn get_repository_remote_names(repo_path: String) -> Result<Vec<String>, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_remote_names_inner(repo_path).map_err(|e| e.to_string())
+}
+
+fn get_repository_remote_names_inner(repo_path: String) -> Result<Vec<String>, BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = git_command()
         .args(["-C", &repo_path, "remote"])
         .output()
-        .map_err(|error| format!("Failed to run git remote: {error}"))?;
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git remote",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(
+        return Err(BranchError::Message(git_error_message(
             &output.stderr,
             "Failed to read repository remotes",
-        ));
+        )));
     }
 
     Ok(parse_remote_names_output(&String::from_utf8_lossy(
@@ -293,20 +338,32 @@ pub(crate) async fn get_repository_remote_avatars(
     repo_path: String,
     state: State<'_, SettingsState>,
 ) -> Result<HashMap<String, Option<String>>, String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    get_repository_remote_avatars_inner(repo_path, state)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn get_repository_remote_avatars_inner(
+    repo_path: String,
+    state: State<'_, SettingsState>,
+) -> Result<HashMap<String, Option<String>>, BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
     let github_token = get_github_token(state.inner());
 
     tauri::async_runtime::spawn_blocking(move || {
         let output = git_command()
             .args(["-C", &repo_path, "remote", "-v"])
             .output()
-            .map_err(|error| format!("Failed to run git remote -v: {error}"))?;
+            .map_err(|error| BranchError::GitCommand {
+                action: "run git remote -v",
+                source: error,
+            })?;
 
         if !output.status.success() {
-            return Err(git_error_message(
+            return Err(BranchError::Message(git_error_message(
                 &output.stderr,
                 "Failed to read repository remotes",
-            ));
+            )));
         }
 
         let remote_urls = parse_remote_urls_output(&String::from_utf8_lossy(&output.stdout));
@@ -335,44 +392,52 @@ pub(crate) async fn get_repository_remote_avatars(
         Ok(avatars_by_remote)
     })
     .await
-    .map_err(|error| format!("Failed to load repository remote avatars: {error}"))?
+    .map_err(|error| BranchError::Message(format!("Failed to load repository remote avatars: {error}")))?
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Creates a new local branch from the current HEAD.
 pub(crate) fn create_repository_branch(
     repo_path: String,
     branch_name: String,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    create_repository_branch_inner(repo_path, branch_name).map_err(|e| e.to_string())
+}
+
+fn create_repository_branch_inner(
+    repo_path: String,
+    branch_name: String,
+) -> Result<(), BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let trimmed_branch_name = branch_name.trim();
 
     if trimmed_branch_name.is_empty() {
-        return Err("Branch name is required".to_string());
+        return Err(BranchError::Message("Branch name is required".to_string()));
     }
 
-    validate_branch_name(trimmed_branch_name)?;
+    validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = git_command()
         .args(["-C", &repo_path, "switch", "-c", trimmed_branch_name])
         .output()
-        .map_err(|error| format!("Failed to run git switch: {error}"))?;
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git switch",
+            source: error,
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(BranchError::Message(if stderr.is_empty() {
             "Failed to create branch".to_string()
         } else {
             stderr
-        });
+        }));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Creates a new local branch at a specific target reference.
 pub(crate) fn create_repository_branch_at_reference(
@@ -380,20 +445,29 @@ pub(crate) fn create_repository_branch_at_reference(
     branch_name: String,
     target: String,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    create_repository_branch_at_reference_inner(repo_path, branch_name, target)
+        .map_err(|e| e.to_string())
+}
+
+fn create_repository_branch_at_reference_inner(
+    repo_path: String,
+    branch_name: String,
+    target: String,
+) -> Result<(), BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let trimmed_branch_name = branch_name.trim();
     let trimmed_target = target.trim();
 
     if trimmed_branch_name.is_empty() {
-        return Err("Branch name is required".to_string());
+        return Err(BranchError::Message("Branch name is required".to_string()));
     }
 
     if trimmed_target.is_empty() {
-        return Err("Target reference is required".to_string());
+        return Err(BranchError::Message("Target reference is required".to_string()));
     }
 
-    validate_branch_name(trimmed_branch_name)?;
+    validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = git_command()
         .args([
@@ -405,55 +479,66 @@ pub(crate) fn create_repository_branch_at_reference(
             trimmed_target,
         ])
         .output()
-        .map_err(|error| format!("Failed to run git switch: {error}"))?;
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git switch",
+            source: error,
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(BranchError::Message(if stderr.is_empty() {
             "Failed to create branch".to_string()
         } else {
             stderr
-        });
+        }));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Deletes a local branch.
 pub(crate) fn delete_repository_branch(
     repo_path: String,
     branch_name: String,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    delete_repository_branch_inner(repo_path, branch_name).map_err(|e| e.to_string())
+}
+
+fn delete_repository_branch_inner(
+    repo_path: String,
+    branch_name: String,
+) -> Result<(), BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let trimmed_branch_name = branch_name.trim();
 
     if trimmed_branch_name.is_empty() {
-        return Err("Branch name is required".to_string());
+        return Err(BranchError::Message("Branch name is required".to_string()));
     }
 
-    validate_branch_name(trimmed_branch_name)?;
+    validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = git_command()
         .args(["-C", &repo_path, "branch", "-d", trimmed_branch_name])
         .output()
-        .map_err(|error| format!("Failed to run git branch: {error}"))?;
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git branch",
+            source: error,
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(BranchError::Message(if stderr.is_empty() {
             "Failed to delete branch".to_string()
         } else {
             stderr
-        });
+        }));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Renames a local branch.
 pub(crate) fn rename_repository_branch(
@@ -461,21 +546,30 @@ pub(crate) fn rename_repository_branch(
     branch_name: String,
     new_branch_name: String,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    rename_repository_branch_inner(repo_path, branch_name, new_branch_name)
+        .map_err(|e| e.to_string())
+}
+
+fn rename_repository_branch_inner(
+    repo_path: String,
+    branch_name: String,
+    new_branch_name: String,
+) -> Result<(), BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let trimmed_branch_name = branch_name.trim();
     let trimmed_new_branch_name = new_branch_name.trim();
 
     if trimmed_branch_name.is_empty() {
-        return Err("Branch name is required".to_string());
+        return Err(BranchError::Message("Branch name is required".to_string()));
     }
 
     if trimmed_new_branch_name.is_empty() {
-        return Err("New branch name is required".to_string());
+        return Err(BranchError::Message("New branch name is required".to_string()));
     }
 
-    validate_branch_name(trimmed_branch_name)?;
-    validate_branch_name(trimmed_new_branch_name)?;
+    validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
+    validate_branch_name(trimmed_new_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = git_command()
         .args([
@@ -487,21 +581,23 @@ pub(crate) fn rename_repository_branch(
             trimmed_new_branch_name,
         ])
         .output()
-        .map_err(|error| format!("Failed to run git branch: {error}"))?;
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git branch",
+            source: error,
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(BranchError::Message(if stderr.is_empty() {
             "Failed to rename branch".to_string()
         } else {
             stderr
-        });
+        }));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Deletes a branch from a remote.
 pub(crate) fn delete_remote_repository_branch(
@@ -510,26 +606,38 @@ pub(crate) fn delete_remote_repository_branch(
     remote_name: String,
     branch_name: String,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    delete_remote_repository_branch_inner(state, repo_path, remote_name, branch_name)
+        .map_err(|e| e.to_string())
+}
+
+fn delete_remote_repository_branch_inner(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    remote_name: String,
+    branch_name: String,
+) -> Result<(), BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let trimmed_remote_name = remote_name.trim();
     let trimmed_branch_name = branch_name.trim();
 
     if trimmed_remote_name.is_empty() {
-        return Err("Remote name is required".to_string());
+        return Err(BranchError::Message("Remote name is required".to_string()));
     }
 
     if trimmed_branch_name.is_empty() {
-        return Err("Branch name is required".to_string());
+        return Err(BranchError::Message("Branch name is required".to_string()));
     }
 
-    validate_branch_name(trimmed_branch_name)?;
+    validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let command_preferences = RepoCommandPreferences::default();
-    let _network_operation = begin_network_operation(&state, &repo_path)?;
+    let _network_operation = begin_network_operation(&state, &repo_path)
+        .map_err(|e| BranchError::Message(e.to_string()))?;
 
     let mut command = git_command();
-    apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+    apply_git_preferences(&mut command, &command_preferences, Some(&state))
+        .map_err(|e| BranchError::Message(e.to_string()))?;
     let output = command
         .args([
             "-C",
@@ -540,19 +648,21 @@ pub(crate) fn delete_remote_repository_branch(
             trimmed_branch_name,
         ])
         .output()
-        .map_err(|error| format!("Failed to run git push --delete: {error}"))?;
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git push --delete",
+            source: error,
+        })?;
 
     if !output.status.success() {
-        return Err(git_error_message(
+        return Err(BranchError::Message(git_error_message(
             &output.stderr,
             "Failed to delete remote branch",
-        ));
+        )));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Sets or publishes upstream tracking for a local branch.
 pub(crate) fn set_repository_branch_upstream(
@@ -563,26 +673,45 @@ pub(crate) fn set_repository_branch_upstream(
     remote_branch_name: String,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    set_repository_branch_upstream_inner(
+        state,
+        repo_path,
+        local_branch_name,
+        remote_name,
+        remote_branch_name,
+        preferences,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn set_repository_branch_upstream_inner(
+    state: State<'_, SettingsState>,
+    repo_path: String,
+    local_branch_name: String,
+    remote_name: String,
+    remote_branch_name: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<(), BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let trimmed_local_branch_name = local_branch_name.trim();
     let trimmed_remote_name = remote_name.trim();
     let trimmed_remote_branch_name = remote_branch_name.trim();
 
     if trimmed_local_branch_name.is_empty() {
-        return Err("Local branch name is required".to_string());
+        return Err(BranchError::Message("Local branch name is required".to_string()));
     }
 
     if trimmed_remote_name.is_empty() {
-        return Err("Remote name is required".to_string());
+        return Err(BranchError::Message("Remote name is required".to_string()));
     }
 
     if trimmed_remote_branch_name.is_empty() {
-        return Err("Remote branch name is required".to_string());
+        return Err(BranchError::Message("Remote branch name is required".to_string()));
     }
 
-    validate_branch_name(trimmed_local_branch_name)?;
-    validate_branch_name(trimmed_remote_branch_name)?;
+    validate_branch_name(trimmed_local_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
+    validate_branch_name(trimmed_remote_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let remote_ref = format!("refs/remotes/{trimmed_remote_name}/{trimmed_remote_branch_name}");
     let has_remote_branch = git_command()
@@ -595,15 +724,20 @@ pub(crate) fn set_repository_branch_upstream(
             &remote_ref,
         ])
         .status()
-        .map_err(|error| format!("Failed to inspect remote branch: {error}"))?
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git show-ref",
+            source: error,
+        })?
         .success();
 
     let command_preferences = preferences.unwrap_or_default();
-    let _network_operation = begin_network_operation(&state, &repo_path)?;
+    let _network_operation = begin_network_operation(&state, &repo_path)
+        .map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = if has_remote_branch {
         let mut command = git_command();
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))
+            .map_err(|e| BranchError::Message(e.to_string()))?;
 
         let upstream = format!("{trimmed_remote_name}/{trimmed_remote_branch_name}");
         command
@@ -616,10 +750,14 @@ pub(crate) fn set_repository_branch_upstream(
                 trimmed_local_branch_name,
             ])
             .output()
-            .map_err(|error| format!("Failed to run git branch --set-upstream-to: {error}"))?
+            .map_err(|error| BranchError::GitCommand {
+                action: "run git branch --set-upstream-to",
+                source: error,
+            })?
     } else {
         let mut command = git_command();
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))?;
+        apply_git_preferences(&mut command, &command_preferences, Some(&state))
+            .map_err(|e| BranchError::Message(e.to_string()))?;
 
         let destination = format!("{trimmed_local_branch_name}:{trimmed_remote_branch_name}");
         command
@@ -632,27 +770,36 @@ pub(crate) fn set_repository_branch_upstream(
                 &destination,
             ])
             .output()
-            .map_err(|error| format!("Failed to run git push -u: {error}"))?
+            .map_err(|error| BranchError::GitCommand {
+                action: "run git push -u",
+                source: error,
+            })?
     };
 
     if !output.status.success() {
-        return Err(git_error_message(
+        return Err(BranchError::Message(git_error_message(
             &output.stderr,
             "Failed to set branch upstream",
-        ));
+        )));
     }
 
     Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
 /// Switches to a local branch or tracks a remote branch.
 pub(crate) fn switch_repository_branch(
     repo_path: String,
     branch_name: String,
 ) -> Result<(), String> {
-    validate_git_repo(Path::new(&repo_path))?;
+    switch_repository_branch_inner(repo_path, branch_name).map_err(|e| e.to_string())
+}
+
+fn switch_repository_branch_inner(
+    repo_path: String,
+    branch_name: String,
+) -> Result<(), BranchError> {
+    validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let is_remote_ref = git_command()
         .args([
@@ -664,7 +811,10 @@ pub(crate) fn switch_repository_branch(
             &format!("refs/remotes/{branch_name}"),
         ])
         .status()
-        .map_err(|error| format!("Failed to run git show-ref: {error}"))?
+        .map_err(|error| BranchError::GitCommand {
+            action: "run git show-ref",
+            source: error,
+        })?
         .success();
 
     let output = if is_remote_ref {
@@ -681,14 +831,20 @@ pub(crate) fn switch_repository_branch(
                 &format!("refs/heads/{local_name}"),
             ])
             .status()
-            .map_err(|error| format!("Failed to run git show-ref: {error}"))?
+            .map_err(|error| BranchError::GitCommand {
+                action: "run git show-ref",
+                source: error,
+            })?
             .success();
 
         if local_branch_exists {
             git_command()
                 .args(["-C", &repo_path, "switch", local_name])
                 .output()
-                .map_err(|error| format!("Failed to run git switch: {error}"))?
+                .map_err(|error| BranchError::GitCommand {
+                    action: "run git switch",
+                    source: error,
+                })?
         } else {
             git_command()
                 .args([
@@ -701,22 +857,28 @@ pub(crate) fn switch_repository_branch(
                     &branch_name,
                 ])
                 .output()
-                .map_err(|error| format!("Failed to run git switch: {error}"))?
+                .map_err(|error| BranchError::GitCommand {
+                    action: "run git switch",
+                    source: error,
+                })?
         }
     } else {
         git_command()
             .args(["-C", &repo_path, "switch", &branch_name])
             .output()
-            .map_err(|error| format!("Failed to run git switch: {error}"))?
+            .map_err(|error| BranchError::GitCommand {
+                action: "run git switch",
+                source: error,
+            })?
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(BranchError::Message(if stderr.is_empty() {
             "Failed to switch branch".to_string()
         } else {
             stderr
-        });
+        }));
     }
 
     Ok(())

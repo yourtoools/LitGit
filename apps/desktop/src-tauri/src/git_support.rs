@@ -1,14 +1,50 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use encoding_rs::{Encoding, UTF_8};
+use std::fs;
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 const MAX_IMAGE_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
 
+/// Error type for git support operations.
+#[derive(Debug, Error)]
+pub(crate) enum GitSupportError {
+    #[error("{0}")]
+    Message(String),
+    #[error("Failed to {action}: {source}")]
+    Io {
+        action: &'static str,
+        source: std::io::Error,
+    },
+}
+
+impl PartialEq for GitSupportError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Message(a), Self::Message(b)) => a == b,
+            (Self::Io { action: a, .. }, Self::Io { action: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl From<GitSupportError> for String {
+    fn from(error: GitSupportError) -> Self {
+        error.to_string()
+    }
+}
+
+/// Extracts and lowercases the file extension from a path string.
+///
+/// Returns `None` when the path has no extension or the extension contains
+/// non-UTF-8 bytes.
+#[must_use]
 pub(crate) fn resolve_file_extension(file_path: &str) -> Option<String> {
     Path::new(file_path)
         .extension()
@@ -16,6 +52,10 @@ pub(crate) fn resolve_file_extension(file_path: &str) -> Option<String> {
         .map(str::to_ascii_lowercase)
 }
 
+/// Maps a lowercase file extension to its MIME type for image formats.
+///
+/// Returns `None` for non-image extensions.
+#[must_use]
 pub(crate) fn resolve_image_mime_type(extension: &str) -> Option<&'static str> {
     match extension {
         "png" => Some("image/png"),
@@ -30,6 +70,10 @@ pub(crate) fn resolve_image_mime_type(extension: &str) -> Option<&'static str> {
     }
 }
 
+/// Encodes binary image content as a base64 data URL.
+///
+/// Returns `None` when content is empty or exceeds `MAX_IMAGE_PREVIEW_BYTES`.
+#[must_use]
 pub(crate) fn encode_image_data_url(content: &[u8], mime_type: &str) -> Option<String> {
     if content.is_empty() || content.len() > MAX_IMAGE_PREVIEW_BYTES {
         return None;
@@ -39,6 +83,11 @@ pub(crate) fn encode_image_data_url(content: &[u8], mime_type: &str) -> Option<S
     Some(format!("data:{mime_type};base64,{encoded}"))
 }
 
+/// Heuristic check for whether bytes likely represent human-readable text.
+///
+/// Returns `true` for `None` or empty slices. Returns `false` if any byte
+/// is a NUL character or if the content is not valid UTF-8.
+#[must_use]
 pub(crate) fn is_probably_text_content(content: Option<&[u8]>) -> bool {
     let Some(content) = content else {
         return true;
@@ -51,7 +100,12 @@ pub(crate) fn is_probably_text_content(content: Option<&[u8]>) -> bool {
     !content.contains(&0) && std::str::from_utf8(content).is_ok()
 }
 
-pub(crate) fn resolve_text_encoding(encoding: Option<&str>) -> Result<&'static Encoding, String> {
+/// Resolves a text encoding label to an `encoding_rs` static encoding.
+///
+/// Defaults to UTF-8 when `encoding` is `None` or blank.
+pub(crate) fn resolve_text_encoding(
+    encoding: Option<&str>,
+) -> Result<&'static Encoding, GitSupportError> {
     let normalized = encoding.map(str::trim).filter(|value| !value.is_empty());
     let Some(encoding_label) = normalized else {
         return Ok(UTF_8);
@@ -62,13 +116,17 @@ pub(crate) fn resolve_text_encoding(encoding: Option<&str>) -> Result<&'static E
     }
 
     Encoding::for_label(encoding_label.as_bytes())
-        .ok_or_else(|| format!("Unsupported encoding: {encoding_label}"))
+        .ok_or_else(|| GitSupportError::Message(format!("Unsupported encoding: {encoding_label}")))
 }
 
+/// Decodes raw bytes into a `String` using the specified text encoding.
+///
+/// Returns an empty string for `None` or empty content. Returns an error
+/// when the encoding label is unknown or decoding produces errors.
 pub(crate) fn decode_text_content_with_encoding(
     content: Option<&[u8]>,
     encoding: Option<&str>,
-) -> Result<String, String> {
+) -> Result<String, GitSupportError> {
     let Some(bytes) = content else {
         return Ok(String::new());
     };
@@ -81,21 +139,28 @@ pub(crate) fn decode_text_content_with_encoding(
     let (decoded, _, had_errors) = selected_encoding.decode(bytes);
 
     if had_errors {
-        return Err("Failed to decode file with selected encoding".to_string());
+        return Err(GitSupportError::Message(
+            "Failed to decode file with selected encoding".to_string(),
+        ));
     }
 
     Ok(decoded.into_owned())
 }
 
+/// Encodes a `String` into raw bytes using the specified text encoding.
+///
+/// Returns an error when the encoding label is unknown or encoding fails.
 pub(crate) fn encode_text_with_encoding(
     text: &str,
     encoding: Option<&str>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, GitSupportError> {
     let selected_encoding = resolve_text_encoding(encoding)?;
     let (encoded, _, had_errors) = selected_encoding.encode(text);
 
     if had_errors {
-        return Err("Failed to encode file with selected encoding".to_string());
+        return Err(GitSupportError::Message(
+            "Failed to encode file with selected encoding".to_string(),
+        ));
     }
 
     Ok(encoded.into_owned())
@@ -117,18 +182,26 @@ fn apply_background_process_flags(command: &mut Command) {
 #[cfg(not(windows))]
 fn apply_background_process_flags(_command: &mut Command) {}
 
+/// Creates a `Command` for the given program with platform-specific flags
+/// to suppress console windows on Windows.
 pub(crate) fn background_command(program: &str) -> Command {
     let mut command = Command::new(program);
     apply_background_process_flags(&mut command);
     command
 }
 
+/// Creates a `Command` preconfigured for running `git` with stdin suppressed.
 pub(crate) fn git_command() -> Command {
     let mut command = background_command("git");
     command.stdin(Stdio::null());
     command
 }
 
+/// Extracts a human-readable error message from git stderr.
+///
+/// Detects authentication failures and returns a user-friendly message.
+/// Falls back to the provided `fallback` string when stderr is empty.
+#[must_use]
 pub(crate) fn git_error_message(stderr: &[u8], fallback: &str) -> String {
     let message = String::from_utf8_lossy(stderr).trim().to_string();
 
@@ -143,8 +216,12 @@ pub(crate) fn git_error_message(stderr: &[u8], fallback: &str) -> String {
     message
 }
 
-// Git subprocesses are non-interactive by default so the desktop app fails
-// fast instead of hanging on hidden stdin prompts.
+/// Extracts an error message from git stdout and stderr.
+///
+/// Prioritises stderr over stdout. Detects authentication failures and
+/// returns a user-friendly message. Falls back to `fallback` when both
+/// streams are empty.
+#[must_use]
 pub(crate) fn git_process_error_message(stdout: &[u8], stderr: &[u8], fallback: &str) -> String {
     let stderr_message = String::from_utf8_lossy(stderr).trim().to_string();
 
@@ -161,18 +238,27 @@ pub(crate) fn git_process_error_message(stdout: &[u8], stderr: &[u8], fallback: 
     fallback.to_string()
 }
 
-pub(crate) fn validate_repository_path(path: &Path) -> Result<(), String> {
+/// Validates that a path exists and is a directory.
+pub(crate) fn validate_repository_path(path: &Path) -> Result<(), GitSupportError> {
     if !path.exists() {
-        return Err("Repository path does not exist".to_string());
+        return Err(GitSupportError::Message(
+            "Repository path does not exist".to_string(),
+        ));
     }
 
     if !path.is_dir() {
-        return Err("Repository path is not a folder".to_string());
+        return Err(GitSupportError::Message(
+            "Repository path is not a folder".to_string(),
+        ));
     }
 
     Ok(())
 }
 
+/// Checks whether the given path is the root of a Git repository.
+///
+/// Uses `git rev-parse --show-toplevel` to verify that the canonical top-level
+/// directory matches the supplied path.
 pub(crate) fn is_git_repository_root(path: &Path) -> bool {
     let canonical_path = match path.canonicalize() {
         Ok(path) => path,
@@ -205,25 +291,32 @@ pub(crate) fn is_git_repository_root(path: &Path) -> bool {
     top_level_path == canonical_path
 }
 
-pub(crate) fn validate_git_repo(path: &Path) -> Result<(), String> {
+/// Validates that a path exists, is a directory, and contains a Git repo.
+pub(crate) fn validate_git_repo(path: &Path) -> Result<(), GitSupportError> {
     validate_repository_path(path)?;
 
     if !is_git_repository_root(path) {
-        return Err("Selected folder is not a git repository".to_string());
+        return Err(GitSupportError::Message(
+            "Selected folder is not a git repository".to_string(),
+        ));
     }
 
     Ok(())
 }
 
-pub(crate) fn validate_launcher_repository_root(path: &Path) -> Result<(), String> {
+/// Alias for `validate_git_repo`, used by the launcher module.
+pub(crate) fn validate_launcher_repository_root(path: &Path) -> Result<(), GitSupportError> {
     validate_git_repo(path)
 }
 
-pub(crate) fn validate_repo_relative_file_path(file_path: &str) -> Result<(), String> {
+/// Validates that a file path is relative and does not traverse parent directories.
+pub(crate) fn validate_repo_relative_file_path(file_path: &str) -> Result<(), GitSupportError> {
     let path = Path::new(file_path);
 
     if path.is_absolute() {
-        return Err("File path must be relative to repository root".to_string());
+        return Err(GitSupportError::Message(
+            "File path must be relative to repository root".to_string(),
+        ));
     }
 
     let contains_parent = path
@@ -231,12 +324,18 @@ pub(crate) fn validate_repo_relative_file_path(file_path: &str) -> Result<(), St
         .any(|component| matches!(component, Component::ParentDir));
 
     if contains_parent {
-        return Err("File path must not contain parent-directory traversal".to_string());
+        return Err(GitSupportError::Message(
+            "File path must not contain parent-directory traversal".to_string(),
+        ));
     }
 
     Ok(())
 }
 
+/// Detects whether an error message indicates a Git authentication failure.
+///
+/// Checks for common credential-prompt and HTTP 401/403 response patterns.
+#[must_use]
 pub(crate) fn is_git_authentication_message(message: &str) -> bool {
     let normalized = message.to_lowercase();
 
@@ -247,6 +346,89 @@ pub(crate) fn is_git_authentication_message(message: &str) -> bool {
         || normalized.contains("authentication failed")
         || normalized.contains("the requested url returned error: 401")
         || normalized.contains("the requested url returned error: 403")
+}
+
+/// Type alias for a pair of old/new file content blobs.
+pub(crate) type FileContentPair = (Option<Vec<u8>>, Option<Vec<u8>>);
+
+/// Writes bytes to a temporary file and returns its path.
+///
+/// Returns `None` when the system temp directory is unavailable or the write fails.
+/// The caller is responsible for cleaning up the file.
+pub(crate) fn write_temp_bytes(prefix: &str, content: &[u8]) -> Option<std::path::PathBuf> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+    let path = std::env::temp_dir().join(format!(
+        "litgit-{prefix}-{}-{}.tmp",
+        std::process::id(),
+        now.as_nanos()
+    ));
+    fs::write(&path, content).ok()?;
+    Some(path)
+}
+
+/// Loads the HEAD version and working-tree version of a file.
+///
+/// Returns `(old_content, new_content)` where each side is `None` if the file
+/// doesn't exist in that state.
+pub(crate) fn load_working_tree_contents(
+    repo_path: &str,
+    file_path: &str,
+) -> Result<FileContentPair, GitSupportError> {
+    validate_repo_relative_file_path(file_path)?;
+
+    let old_output = git_command()
+        .args(["-C", repo_path, "show", &format!("HEAD:{file_path}")])
+        .output()
+        .map_err(|error| GitSupportError::Io {
+            action: "run git show",
+            source: error,
+        })?;
+    let old_content = old_output.status.success().then_some(old_output.stdout);
+
+    let new_content = fs::read(Path::new(repo_path).join(file_path)).ok();
+    Ok((old_content, new_content))
+}
+
+/// Loads the previous-commit version and current-commit version of a file.
+///
+/// Returns `(old_content, new_content)` where each side is `None` if the file
+/// doesn't exist in that state.
+pub(crate) fn load_commit_contents(
+    repo_path: &str,
+    commit_hash: &str,
+    file_path: &str,
+) -> Result<FileContentPair, GitSupportError> {
+    validate_repo_relative_file_path(file_path)?;
+
+    let old_output = git_command()
+        .args([
+            "-C",
+            repo_path,
+            "show",
+            &format!("{commit_hash}^:{file_path}"),
+        ])
+        .output()
+        .map_err(|error| GitSupportError::Io {
+            action: "run git show for previous commit file",
+            source: error,
+        })?;
+    let old_content = old_output.status.success().then_some(old_output.stdout);
+
+    let new_output = git_command()
+        .args([
+            "-C",
+            repo_path,
+            "show",
+            &format!("{commit_hash}:{file_path}"),
+        ])
+        .output()
+        .map_err(|error| GitSupportError::Io {
+            action: "run git show for commit file",
+            source: error,
+        })?;
+    let new_content = new_output.status.success().then_some(new_output.stdout);
+
+    Ok((old_content, new_content))
 }
 
 #[cfg(test)]
@@ -260,10 +442,11 @@ mod tests {
     use super::{
         decode_text_content_with_encoding, encode_image_data_url, encode_text_with_encoding,
         git_error_message, git_process_error_message, is_git_authentication_message,
-        is_git_repository_root, is_probably_text_content, resolve_file_extension,
+        is_git_repository_root, is_probably_text_content, load_commit_contents,
+        load_working_tree_contents, resolve_file_extension,
         resolve_image_mime_type, resolve_text_encoding, validate_git_repo,
         validate_launcher_repository_root, validate_repo_relative_file_path,
-        validate_repository_path,
+        validate_repository_path, write_temp_bytes, GitSupportError,
     };
 
     fn create_temp_path(name: &str) -> PathBuf {
@@ -394,7 +577,12 @@ mod tests {
         let result = validate_repository_path(&temp_file);
 
         remove_temp_path(&temp_file);
-        assert_eq!(result, Err("Repository path is not a folder".to_string()));
+        assert_eq!(
+            result,
+            Err(GitSupportError::Message(
+                "Repository path is not a folder".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -406,7 +594,9 @@ mod tests {
         remove_temp_path(&temp_dir);
         assert_eq!(
             result,
-            Err("Selected folder is not a git repository".to_string())
+            Err(GitSupportError::Message(
+                "Selected folder is not a git repository".to_string()
+            ))
         );
     }
 
@@ -430,18 +620,12 @@ mod tests {
 
         let result = validate_launcher_repository_root(&missing_path);
 
-        assert_eq!(result, Err("Repository path does not exist".to_string()));
-    }
-
-    #[test]
-    fn validate_launcher_repository_root_rejects_file_paths() {
-        let temp_file = create_temp_path("validate-launcher-file");
-        fs::write(&temp_file, "content").expect("temp file should be written");
-
-        let result = validate_launcher_repository_root(&temp_file);
-
-        remove_temp_path(&temp_file);
-        assert_eq!(result, Err("Repository path is not a folder".to_string()));
+        assert_eq!(
+            result,
+            Err(GitSupportError::Message(
+                "Repository path does not exist".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -472,7 +656,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Failed to decode file with selected encoding".to_string())
+            Err(GitSupportError::Message(
+                "Failed to decode file with selected encoding".to_string()
+            ))
         );
     }
 
@@ -482,7 +668,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Unsupported encoding: not-a-real-encoding".to_string())
+            Err(GitSupportError::Message(
+                "Unsupported encoding: not-a-real-encoding".to_string()
+            ))
         );
     }
 
@@ -490,13 +678,185 @@ mod tests {
     fn validate_repo_relative_file_path_rejects_parent_traversal() {
         assert_eq!(
             validate_repo_relative_file_path("../secret.txt"),
-            Err("File path must not contain parent-directory traversal".to_string())
+            Err(GitSupportError::Message(
+                "File path must not contain parent-directory traversal".to_string()
+            ))
         );
     }
 
     #[test]
     fn validate_repo_relative_file_path_accepts_nested_repo_path() {
         assert_eq!(validate_repo_relative_file_path("src/lib.rs"), Ok(()));
+    }
+
+    #[test]
+    fn write_temp_bytes_persists_content_to_temp_file() {
+        let temp_path = write_temp_bytes("git-support-test", b"preview payload")
+            .expect("temp file path should be created");
+        let written = fs::read(&temp_path).expect("temp file should be readable");
+
+        remove_temp_path(&temp_path);
+        assert_eq!(written, b"preview payload");
+    }
+
+    #[test]
+    fn load_working_tree_contents_returns_head_and_working_tree_versions() {
+        let temp_dir = create_temp_dir("working-tree-contents");
+        Command::new("git")
+            .args(["init", "--quiet", temp_dir.to_string_lossy().as_ref()])
+            .output()
+            .expect("git init should run");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "config",
+                "user.name",
+                "LitGit Tests",
+            ])
+            .output()
+            .expect("git config name should run");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "config",
+                "user.email",
+                "tests@example.com",
+            ])
+            .output()
+            .expect("git config email should run");
+
+        let tracked_path = temp_dir.join("tracked.txt");
+        fs::write(&tracked_path, "before").expect("tracked file should be written");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "add",
+                "tracked.txt",
+            ])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "commit",
+                "--quiet",
+                "-m",
+                "Initial",
+            ])
+            .output()
+            .expect("git commit should run");
+
+        fs::write(&tracked_path, "after").expect("tracked file should update");
+
+        let (old_content, new_content) = load_working_tree_contents(
+            temp_dir.to_string_lossy().as_ref(),
+            "tracked.txt",
+        )
+        .expect("working tree contents should load");
+
+        remove_temp_path(&temp_dir);
+        assert_eq!(old_content.as_deref(), Some("before".as_bytes()));
+        assert_eq!(new_content.as_deref(), Some("after".as_bytes()));
+    }
+
+    #[test]
+    fn load_commit_contents_returns_previous_and_current_commit_versions() {
+        let temp_dir = create_temp_dir("commit-contents");
+        Command::new("git")
+            .args(["init", "--quiet", temp_dir.to_string_lossy().as_ref()])
+            .output()
+            .expect("git init should run");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "config",
+                "user.name",
+                "LitGit Tests",
+            ])
+            .output()
+            .expect("git config name should run");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "config",
+                "user.email",
+                "tests@example.com",
+            ])
+            .output()
+            .expect("git config email should run");
+
+        let tracked_path = temp_dir.join("tracked.txt");
+        fs::write(&tracked_path, "before").expect("tracked file should be written");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "add",
+                "tracked.txt",
+            ])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "commit",
+                "--quiet",
+                "-m",
+                "Initial",
+            ])
+            .output()
+            .expect("git commit should run");
+
+        fs::write(&tracked_path, "after").expect("tracked file should update");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "add",
+                "tracked.txt",
+            ])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "commit",
+                "--quiet",
+                "-m",
+                "Update",
+            ])
+            .output()
+            .expect("git commit should run");
+
+        let head_commit = Command::new("git")
+            .args([
+                "-C",
+                temp_dir.to_string_lossy().as_ref(),
+                "rev-parse",
+                "HEAD",
+            ])
+            .output()
+            .expect("git rev-parse should run");
+        let commit_hash = String::from_utf8_lossy(&head_commit.stdout).trim().to_string();
+
+        let (old_content, new_content) = load_commit_contents(
+            temp_dir.to_string_lossy().as_ref(),
+            &commit_hash,
+            "tracked.txt",
+        )
+        .expect("commit contents should load");
+
+        remove_temp_path(&temp_dir);
+        assert_eq!(old_content.as_deref(), Some("before".as_bytes()));
+        assert_eq!(new_content.as_deref(), Some("after".as_bytes()));
     }
 
     #[cfg(windows)]
