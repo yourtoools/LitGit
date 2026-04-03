@@ -180,7 +180,12 @@ pub(crate) fn is_git_repository_root(path: &Path) -> bool {
     };
 
     let output = match git_command()
-        .args(["-C", canonical_path.to_string_lossy().as_ref(), "rev-parse", "--show-toplevel"])
+        .args([
+            "-C",
+            canonical_path.to_string_lossy().as_ref(),
+            "rev-parse",
+            "--show-toplevel",
+        ])
         .output()
     {
         Ok(output) => output,
@@ -208,6 +213,10 @@ pub(crate) fn validate_git_repo(path: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+pub(crate) fn validate_launcher_repository_root(path: &Path) -> Result<(), String> {
+    validate_git_repo(path)
 }
 
 pub(crate) fn validate_repo_relative_file_path(file_path: &str) -> Result<(), String> {
@@ -251,8 +260,9 @@ mod tests {
     use super::{
         decode_text_content_with_encoding, encode_image_data_url, encode_text_with_encoding,
         git_error_message, git_process_error_message, is_git_authentication_message,
-        is_git_repository_root, is_probably_text_content, resolve_file_extension, resolve_image_mime_type,
-        resolve_text_encoding, validate_git_repo, validate_repo_relative_file_path,
+        is_git_repository_root, is_probably_text_content, resolve_file_extension,
+        resolve_image_mime_type, resolve_text_encoding, validate_git_repo,
+        validate_launcher_repository_root, validate_repo_relative_file_path,
         validate_repository_path,
     };
 
@@ -412,6 +422,26 @@ mod tests {
 
         remove_temp_path(&temp_dir);
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn validate_launcher_repository_root_rejects_missing_path() {
+        let missing_path = create_temp_path("validate-launcher-missing");
+
+        let result = validate_launcher_repository_root(&missing_path);
+
+        assert_eq!(result, Err("Repository path does not exist".to_string()));
+    }
+
+    #[test]
+    fn validate_launcher_repository_root_rejects_file_paths() {
+        let temp_file = create_temp_path("validate-launcher-file");
+        fs::write(&temp_file, "content").expect("temp file should be written");
+
+        let result = validate_launcher_repository_root(&temp_file);
+
+        remove_temp_path(&temp_file);
+        assert_eq!(result, Err("Repository path is not a folder".to_string()));
     }
 
     #[test]

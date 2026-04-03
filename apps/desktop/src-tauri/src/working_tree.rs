@@ -139,13 +139,12 @@ fn parse_porcelain_status_entries(bytes: &[u8]) -> WorkingTreeResult<Vec<ParsedW
         cursor += 3;
 
         let path = read_nul_terminated_path(bytes, &mut cursor)?;
-        let previous_path = if matches!(staged_status, 'R' | 'C')
-            || matches!(unstaged_status, 'R' | 'C')
-        {
-            Some(read_nul_terminated_path(bytes, &mut cursor)?)
-        } else {
-            None
-        };
+        let previous_path =
+            if matches!(staged_status, 'R' | 'C') || matches!(unstaged_status, 'R' | 'C') {
+                Some(read_nul_terminated_path(bytes, &mut cursor)?)
+            } else {
+                None
+            };
 
         entries.push(ParsedWorkingTreeEntry {
             path,
@@ -501,7 +500,13 @@ pub(crate) fn get_repository_files(repo_path: String) -> Result<Vec<RepositoryFi
 
         let output = run_git_output(
             &repo_path,
-            &["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            &[
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+            ],
             "run git ls-files",
         )?;
         ensure_output_success_with_git_error(&output, "Failed to list repository files")?;
@@ -653,7 +658,10 @@ mod tests {
     fn parse_ls_files_output_preserves_newlines_inside_file_names() {
         let files =
             parse_ls_files_output(b"line\nbreak.txt\0tracked.txt\0").expect("ls-files output");
-        let mut paths = files.into_iter().map(|entry| entry.path).collect::<Vec<_>>();
+        let mut paths = files
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect::<Vec<_>>();
         paths.sort();
 
         assert_eq!(paths, vec!["line\nbreak.txt", "tracked.txt"]);
