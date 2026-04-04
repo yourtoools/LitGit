@@ -109,65 +109,63 @@ interface TerminalTheme {
 }
 
 const createTerminalTheme = (mode: "light" | "dark") => {
-  // Design system colors matching CodeMirror theme
   const themes: Record<"light" | "dark", TerminalTheme> = {
     light: {
-      // Background/foreground - using actual design system values (not transparent)
-      background: "oklch(0.9818 0.0054 95.0986)", // --background
-      foreground: "oklch(0.3438 0.0269 95.7226)", // --foreground
-      // ANSI colors matching CodeMirror light theme (GitHub-inspired)
-      black: "oklch(0.25 0 0)",
-      red: "oklch(0.55 0.18 25)", // GitHub red cf222e
-      green: "oklch(0.55 0.15 145)", // GitHub green 0a7f32
-      yellow: "oklch(0.65 0.14 85)", // GitHub yellow/brown 9a6700
-      blue: "oklch(0.55 0.15 250)", // GitHub blue 0550ae
-      magenta: "oklch(0.55 0.18 310)", // GitHub purple 8250df
-      cyan: "oklch(0.55 0.12 195)", // Cyan variant
-      white: "oklch(0.95 0.005 95)",
+      // Background/foreground - using new design system values
+      background: "oklch(0.985 0.002 95)", // --background
+      foreground: "oklch(0.31 0.028 95)", // --foreground
+      // ANSI colors harmonized with the new design system
+      black: "oklch(0.25 0.02 95)",
+      red: "oklch(0.55 0.18 25)", // Destructive-adjacent red
+      green: "oklch(0.55 0.14 145)", // Success green
+      yellow: "oklch(0.65 0.13 85)", // Warning yellow
+      blue: "oklch(0.55 0.145 250)", // Primary blue
+      magenta: "oklch(0.55 0.16 310)", // Purple accent
+      cyan: "oklch(0.55 0.11 195)", // Cyan variant
+      white: "oklch(0.95 0.008 95)",
       // Bright variants
-      brightBlack: "oklch(0.45 0.01 95)",
+      brightBlack: "oklch(0.45 0.025 95)",
       brightRed: "oklch(0.65 0.2 25)",
       brightGreen: "oklch(0.65 0.18 145)",
       brightYellow: "oklch(0.75 0.16 85)",
-      brightBlue: "oklch(0.65 0.18 250)",
-      brightMagenta: "oklch(0.65 0.22 310)",
-      brightCyan: "oklch(0.65 0.15 195)",
+      brightBlue: "oklch(0.65 0.17 250)",
+      brightMagenta: "oklch(0.65 0.2 310)",
+      brightCyan: "oklch(0.65 0.14 195)",
       brightWhite: "oklch(1 0 0)",
       // Cursor and selection
-      cursor: "oklch(0.3438 0.0269 95.7226)", // --foreground
-      cursorAccent: "oklch(0.9818 0.0054 95.0986)", // --background
+      cursor: "oklch(0.31 0.028 95)", // --foreground
+      cursorAccent: "oklch(0.985 0.002 95)", // --background
       selectionBackground:
-        "color-mix(in oklab, oklch(0.7623 0.1519 229.9901) 22%, transparent)", // primary with opacity
-      selectionForeground: "oklch(0.3438 0.0269 95.7226)", // --foreground
+        "color-mix(in oklab, oklch(0.55 0.145 250) 20%, transparent)", // primary with opacity
+      selectionForeground: "oklch(0.31 0.028 95)", // --foreground
     },
     dark: {
-      // Background/foreground - using actual design system values (not transparent)
-      background: "oklch(0.2679 0.0036 106.6427)", // --background
-      foreground: "oklch(0.8074 0.0142 93.0137)", // --foreground
-      // ANSI colors matching CodeMirror dark theme (Ayu-mirage inspired)
-      black: "oklch(0.2 0.01 95)",
-      red: "oklch(0.65 0.2 25)", // ffad66 orange-red
-      green: "oklch(0.65 0.18 145)", // aad94c lime green
-      yellow: "oklch(0.75 0.15 85)", // ffd173 yellow
-      blue: "oklch(0.65 0.15 250)", // 73d0ff cyan
-      magenta: "oklch(0.65 0.18 310)", // d4bfff purple
-      cyan: "oklch(0.7 0.14 195)", // 5ccfe6 cyan
-      white: "oklch(0.85 0.02 95)",
+      background: "oklch(0.21 0.012 250)", // --background
+      foreground: "oklch(0.85 0.02 95)", // --foreground
+      // ANSI colors harmonized with the new design system
+      black: "oklch(0.18 0.015 250)",
+      red: "oklch(0.65 0.16 25)", // Destructive-adjacent red
+      green: "oklch(0.65 0.14 145)", // Success green
+      yellow: "oklch(0.75 0.12 85)", // Warning yellow
+      blue: "oklch(0.65 0.13 250)", // Primary blue (adjusted for dark)
+      magenta: "oklch(0.65 0.15 310)", // Purple accent
+      cyan: "oklch(0.7 0.12 195)", // Cyan variant
+      white: "oklch(0.85 0.025 95)",
       // Bright variants
-      brightBlack: "oklch(0.4 0.02 95)",
-      brightRed: "oklch(0.75 0.22 25)",
-      brightGreen: "oklch(0.75 0.2 145)", // bae67e green
-      brightYellow: "oklch(0.85 0.18 85)",
-      brightBlue: "oklch(0.75 0.18 250)",
-      brightMagenta: "oklch(0.75 0.2 310)",
-      brightCyan: "oklch(0.8 0.16 195)",
+      brightBlack: "oklch(0.4 0.03 250)",
+      brightRed: "oklch(0.75 0.18 25)",
+      brightGreen: "oklch(0.75 0.18 145)",
+      brightYellow: "oklch(0.85 0.15 85)",
+      brightBlue: "oklch(0.75 0.16 250)",
+      brightMagenta: "oklch(0.75 0.18 310)",
+      brightCyan: "oklch(0.8 0.14 195)",
       brightWhite: "oklch(1 0 0)",
       // Cursor and selection
-      cursor: "oklch(0.8074 0.0142 93.0137)", // --foreground
-      cursorAccent: "oklch(0.2679 0.0036 106.6427)", // --background
+      cursor: "oklch(0.85 0.02 95)", // --foreground
+      cursorAccent: "oklch(0.21 0.012 250)", // --background
       selectionBackground:
-        "color-mix(in oklab, oklch(0.7623 0.1519 229.9901) 28%, transparent)", // primary with opacity
-      selectionForeground: "oklch(0.8074 0.0142 93.0137)", // --foreground
+        "color-mix(in oklab, oklch(0.65 0.13 250) 25%, transparent)", // primary with opacity
+      selectionForeground: "oklch(0.85 0.02 95)", // --foreground
     },
   };
 
