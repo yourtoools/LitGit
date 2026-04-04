@@ -56,11 +56,7 @@ import {
   DropdownMenuTrigger,
 } from "@litgit/ui/components/dropdown-menu";
 import { Input } from "@litgit/ui/components/input";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@litgit/ui/components/input-group";
+import { InputGroupInput } from "@litgit/ui/components/input-group";
 import { Label } from "@litgit/ui/components/label";
 import {
   Select,
@@ -9793,7 +9789,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleUndoAction().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon"}
                         type="button"
                         variant="ghost"
                       />
@@ -9819,7 +9815,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleRedoAction().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon"}
                         type="button"
                         variant="ghost"
                       />
@@ -9836,65 +9832,67 @@ export function RepoInfo() {
                   </TooltipContent>
                 </Tooltip>
                 <DropdownMenu>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <InputGroup className="h-7 w-auto border-border/60 bg-transparent">
+                  <div className="flex items-stretch">
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
                           <Button
                             aria-label={`Run ${selectedPullActionLabel}`}
-                            className="focus-visible:desktop-focus h-7 border-0 px-2 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                            className="focus-visible:desktop-focus h-7 gap-1 rounded-r-none border-border/60 px-2 text-[0.7rem] focus-visible:ring-0! focus-visible:ring-offset-0!"
                             disabled={isPulling}
                             onClick={handlePullWithSelectedMode}
                             size="sm"
                             type="button"
-                            variant="ghost"
+                            variant="outline"
                           >
                             {isPulling ? (
                               <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
                             ) : (
                               <ArrowDownIcon className="size-4 text-muted-foreground" />
                             )}
-                            <span className={cn(!toolbarLabels && "hidden")}>
+                            <span
+                              className={cn(
+                                "text-xs",
+                                !toolbarLabels && "hidden"
+                              )}
+                            >
                               Pull
                             </span>
                           </Button>
-                          <InputGroupAddon align="inline-end" className="pr-0">
-                            <DropdownMenuTrigger
-                              render={
-                                <Button
-                                  aria-label="Select pull mode"
-                                  className="focus-visible:desktop-focus-strong h-7 border-0 border-border/60 border-l px-1.5 focus-visible:ring-0! focus-visible:ring-offset-0!"
-                                  disabled={isPulling}
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                />
-                              }
-                            >
-                              <CaretDownIcon className="size-3 text-muted-foreground" />
-                            </DropdownMenuTrigger>
-                          </InputGroupAddon>
-                        </InputGroup>
+                        }
+                      />
+                      <TooltipContent
+                        className={cn(toolbarLabels && "hidden")}
+                        side="bottom"
+                      >
+                        {selectedPullActionLabel}
+                      </TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          aria-label="Select pull mode"
+                          className="focus-visible:desktop-focus-strong h-7 min-w-0 rounded-l-none border-border/60 border-l-0 px-1.5 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                          disabled={isPulling}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <CaretDownIcon className="size-3" />
+                        </Button>
                       }
                     />
-                    <TooltipContent
-                      className={cn(toolbarLabels && "hidden")}
-                      side="bottom"
-                    >
-                      {selectedPullActionLabel}
-                    </TooltipContent>
-                  </Tooltip>
+                  </div>
                   <DropdownMenuContent
-                    align="center"
-                    className="w-72"
+                    align="end"
+                    className="min-w-44"
                     side="bottom"
-                    sideOffset={6}
                   >
                     <DropdownMenuItem
                       className={cn(
-                        "gap-1.5",
+                        "cursor-pointer gap-1.5",
                         pullActionMode === "fetch-all" &&
-                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                          "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
                       onClick={() => setPullActionMode("fetch-all")}
@@ -9903,9 +9901,9 @@ export function RepoInfo() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className={cn(
-                        "gap-1.5",
+                        "cursor-pointer gap-1.5",
                         pullActionMode === "pull-ff-possible" &&
-                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                          "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
                       onClick={() => setPullActionMode("pull-ff-possible")}
@@ -9914,9 +9912,9 @@ export function RepoInfo() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className={cn(
-                        "gap-1.5",
+                        "cursor-pointer gap-1.5",
                         pullActionMode === "pull-ff-only" &&
-                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                          "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
                       onClick={() => setPullActionMode("pull-ff-only")}
@@ -9925,9 +9923,9 @@ export function RepoInfo() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className={cn(
-                        "gap-1.5",
+                        "cursor-pointer gap-1.5",
                         pullActionMode === "pull-rebase" &&
-                          "bg-emerald-600/25 focus:bg-emerald-600/30"
+                          "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
                       onClick={() => setPullActionMode("pull-rebase")}
@@ -9946,7 +9944,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePushAction().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon"}
                         type="button"
                         variant="ghost"
                       />
@@ -9976,7 +9974,7 @@ export function RepoInfo() {
                           !activeRepoId || isCreatingBranch || isSwitchingBranch
                         }
                         onClick={openBranchCreateInput}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon"}
                         type="button"
                         variant="ghost"
                       />
@@ -10004,7 +10002,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleCreateStash().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon"}
                         type="button"
                         variant="ghost"
                       />
@@ -10036,7 +10034,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePopCurrentStash().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon"}
                         type="button"
                         variant="ghost"
                       />
@@ -10301,7 +10299,7 @@ export function RepoInfo() {
                                       () => undefined
                                     );
                                   }}
-                                  size="sm"
+                                  size={toolbarLabels ? "sm" : "icon"}
                                   style={{
                                     borderColor: `${currentBranchLaneColor}66`,
                                     boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}22`,
@@ -10315,7 +10313,7 @@ export function RepoInfo() {
                                   className="focus-visible:desktop-focus h-7 px-3 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   disabled={isCreatingBranch}
                                   onClick={closeBranchCreateInput}
-                                  size="sm"
+                                  size={toolbarLabels ? "sm" : "icon"}
                                   type="button"
                                   variant="ghost"
                                 >
@@ -11215,7 +11213,7 @@ export function RepoInfo() {
                                     () => undefined
                                   );
                                 }}
-                                size="sm"
+                                size={toolbarLabels ? "sm" : "icon"}
                                 type="button"
                               >
                                 Retry
@@ -11266,7 +11264,7 @@ export function RepoInfo() {
                                 onClick={() => {
                                   handleSaveEditedFile().catch(() => undefined);
                                 }}
-                                size="sm"
+                                size={toolbarLabels ? "sm" : "icon"}
                                 type="button"
                                 variant="secondary"
                               >
@@ -11419,7 +11417,7 @@ export function RepoInfo() {
                                       () => undefined
                                     );
                                   }}
-                                  size="sm"
+                                  size={toolbarLabels ? "sm" : "icon"}
                                   type="button"
                                   variant="outline"
                                 >
@@ -11440,7 +11438,7 @@ export function RepoInfo() {
                                       selectedCommit.messageDescription
                                     );
                                   }}
-                                  size="sm"
+                                  size={toolbarLabels ? "sm" : "icon"}
                                   type="button"
                                   variant="ghost"
                                 >
@@ -11702,7 +11700,7 @@ export function RepoInfo() {
                                                 selectedCommitTree
                                               );
                                             }}
-                                            size="sm"
+                                            size={toolbarLabels ? "sm" : "icon"}
                                             type="button"
                                             variant="ghost"
                                           >
@@ -11887,7 +11885,7 @@ export function RepoInfo() {
                                     type: "stash",
                                   }).catch(() => undefined);
                                 }}
-                                size="sm"
+                                size={toolbarLabels ? "sm" : "icon"}
                                 type="button"
                                 variant="outline"
                               >
@@ -11908,7 +11906,7 @@ export function RepoInfo() {
                                     type: "stash",
                                   }).catch(() => undefined);
                                 }}
-                                size="sm"
+                                size={toolbarLabels ? "sm" : "icon"}
                                 type="button"
                                 variant="outline"
                               >
@@ -11929,7 +11927,7 @@ export function RepoInfo() {
                                     type: "stash",
                                   }).catch(() => undefined);
                                 }}
-                                size="sm"
+                                size={toolbarLabels ? "sm" : "icon"}
                                 type="button"
                                 variant="outline"
                               >
@@ -12090,7 +12088,7 @@ export function RepoInfo() {
                                           selectedReferenceTree
                                         );
                                       }}
-                                      size="sm"
+                                      size={toolbarLabels ? "sm" : "icon"}
                                       type="button"
                                       variant="ghost"
                                     >
@@ -12338,7 +12336,7 @@ export function RepoInfo() {
                                             })
                                           );
                                         }}
-                                        size="sm"
+                                        size={toolbarLabels ? "sm" : "icon"}
                                         type="button"
                                         variant="ghost"
                                       >
@@ -12398,7 +12396,7 @@ export function RepoInfo() {
                                     onClick={() => {
                                       handleStageAll().catch(() => undefined);
                                     }}
-                                    size="sm"
+                                    size={toolbarLabels ? "sm" : "icon"}
                                     type="button"
                                     variant="ghost"
                                   >
@@ -12462,7 +12460,7 @@ export function RepoInfo() {
                                     onClick={() => {
                                       handleUnstageAll().catch(() => undefined);
                                     }}
-                                    size="sm"
+                                    size={toolbarLabels ? "sm" : "icon"}
                                     type="button"
                                     variant="ghost"
                                   >
@@ -12670,7 +12668,7 @@ export function RepoInfo() {
                           className="focus-visible:desktop-focus mt-3 h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                           disabled={isCommitting || !canCommit}
                           onClick={handleCommit}
-                          size="sm"
+                          size={toolbarLabels ? "sm" : "icon"}
                           type="button"
                         >
                           <DotOutlineIcon className="size-3.5" />
