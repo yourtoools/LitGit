@@ -172,26 +172,29 @@ export function TabBarRender({
                   />
                 </div>
 
-                <div className="shrink-0" ref={addTabButtonWrapperRef}>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          aria-label="Add new tab"
-                          className="focus-visible:desktop-focus h-8 w-8 focus-visible:ring-0! focus-visible:ring-offset-0!"
-                          onClick={handleAddTab}
-                          size="icon"
-                          variant="outline"
-                        >
-                          <PlusIcon />
-                        </Button>
-                      }
-                    />
-                    <TooltipContent side="bottom" sideOffset={8}>
-                      {`New Tab (${getNewTabShortcutLabel()})`}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
+                {/* Inline add tab button - visible when no overflow */}
+                {!canScrollRight && (
+                  <div className="shrink-0" ref={addTabButtonWrapperRef}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            aria-label="Add new tab"
+                            className="focus-visible:desktop-focus h-8 w-8 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                            onClick={handleAddTab}
+                            size="icon"
+                            variant="ghost"
+                          >
+                            <PlusIcon />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent side="bottom" sideOffset={8}>
+                        {`New Tab (${getNewTabShortcutLabel()})`}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -205,6 +208,30 @@ export function TabBarRender({
               >
                 <CaretRightIcon />
               </Button>
+            )}
+
+            {/* Fixed add tab button - visible when overflow */}
+            {canScrollRight && (
+              <div className="shrink-0" ref={addTabButtonWrapperRef}>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Add new tab"
+                        className="focus-visible:desktop-focus h-8 w-8 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                        onClick={handleAddTab}
+                        size="icon"
+                        variant="ghost"
+                      >
+                        <PlusIcon />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom" sideOffset={8}>
+                    {`New Tab (${getNewTabShortcutLabel()})`}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             )}
           </TooltipProvider>
 

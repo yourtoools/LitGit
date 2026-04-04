@@ -35,6 +35,20 @@ export function TabStripContent({
   onRequestCloseTab,
   onRequestUngroupTab,
 }: TabStripContentProps) {
+  // Find the first tab ID in the entire tab strip
+  const getFirstTabId = (): string | null => {
+    if (renderItems.length === 0) {
+      return null;
+    }
+    const firstItem = renderItems[0];
+    if (firstItem.type === "group") {
+      return firstItem.tabs[0]?.id ?? null;
+    }
+    return firstItem.tab.id;
+  };
+
+  const firstTabId = getFirstTabId();
+
   const renderTabNode = (tab: Tab, groupColor?: string) => {
     return (
       <TabContextMenu
@@ -47,6 +61,7 @@ export function TabStripContent({
           disabled={isGroupDragActive}
           groupColor={groupColor}
           isActive={tab.id === activeTabId}
+          isFirst={tab.id === firstTabId}
           isGhost={!isGroupDragActive && activeDragId === tab.id}
           isHoveredForGroup={hoveredTabId === tab.id}
           isLoading={tab.id === activeLoadingTabId}

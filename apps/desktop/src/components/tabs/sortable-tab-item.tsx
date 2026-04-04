@@ -8,6 +8,7 @@ interface SortableTabItemProps {
   disabled?: boolean;
   groupColor?: string;
   isActive: boolean;
+  isFirst?: boolean;
   isGhost?: boolean;
   isHoveredForGroup?: boolean;
   isLoading?: boolean;
@@ -22,6 +23,7 @@ export function SortableTabItem({
   disabled = false,
   isGhost = false,
   isActive,
+  isFirst = false,
   isLoading = false,
   isSingleTab,
   groupColor,
@@ -70,6 +72,7 @@ export function SortableTabItem({
       <TabItem
         groupColor={groupColor}
         isActive={isActive}
+        isFirst={isFirst}
         isLoading={isLoading}
         isSingleTab={isSingleTab}
         onActivate={onActivate}

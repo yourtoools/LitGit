@@ -19,6 +19,7 @@ import { useRepoStore } from "@/stores/repo/use-repo-store";
 interface TabItemProps {
   groupColor?: string;
   isActive: boolean;
+  isFirst?: boolean;
   isLoading?: boolean;
   isSingleTab: boolean;
   onActivate: (id: string) => void;
@@ -31,6 +32,7 @@ export function TabItem({
   isActive,
   isLoading = false,
   isSingleTab,
+  isFirst = false,
   groupColor,
   onActivate,
   onClose,
@@ -57,13 +59,17 @@ export function TabItem({
   const tabLabel = tab.title;
   const showBranchIcon = tab.repoId !== null;
 
+  const inactiveTabClasses = isFirst
+    ? "border-0 bg-background/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+    : "border-0 border-r border-r-border/40 bg-background/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground";
+
   return (
     <div
       className={cn(
-        "group/tab relative inline-flex h-8 w-36 min-w-28 shrink items-center border transition-colors duration-150",
+        "group/tab relative inline-flex h-8 w-36 min-w-28 shrink items-center transition-colors duration-150",
         isActive
-          ? "border-border bg-muted/80 text-foreground"
-          : "border-transparent bg-background/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+          ? "border border-border bg-muted/80 text-foreground"
+          : inactiveTabClasses,
         props.className
       )}
       data-state={isActive ? "active" : "inactive"}
