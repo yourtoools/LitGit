@@ -30,7 +30,6 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
-import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
 import { WindowTitlebar } from "@/components/shell/window-titlebar";
 import { TabBar } from "@/components/tabs/tab-bar";
 import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
@@ -427,8 +426,6 @@ export default function Header() {
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <HeaderTabsSearch />
-
           {/* Open With Dropdown */}
           {tauriRuntime ? (
             <div className="flex items-stretch">

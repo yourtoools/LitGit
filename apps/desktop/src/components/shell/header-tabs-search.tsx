@@ -1,4 +1,3 @@
-import { Button } from "@litgit/ui/components/button";
 import {
   Combobox,
   ComboboxGroup,
@@ -7,26 +6,11 @@ import {
   ComboboxLabel,
   ComboboxList,
 } from "@litgit/ui/components/combobox";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@litgit/ui/components/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@litgit/ui/components/tooltip";
+import { PopoverContent } from "@litgit/ui/components/popover";
 import { useWindowEvent } from "@mantine/hooks";
-import {
-  CaretDownIcon,
-  FileIcon,
-  GraphIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { FileIcon, GitBranchIcon, XIcon } from "@phosphor-icons/react";
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { UngroupConfirmDialog } from "@/components/tabs/ungroup-confirm-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
@@ -37,11 +21,11 @@ import {
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
 import {
-  getSearchTabsShortcutLabel,
   isEditableTarget,
   isSearchTabsShortcut,
 } from "@/lib/keyboard-shortcuts";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
+import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
 
 interface SearchTabItem {
   groupId: string | null;
@@ -56,8 +40,18 @@ const SCROLLBAR_CLASSES =
   "[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2";
 
 export function HeaderTabsSearch() {
-  const [open, setOpen] = useState(false);
+  const isOpen = useTabSearchStore((state) => state.isOpen);
+  const toggle = useTabSearchStore((state) => state.toggle);
+  const closeSearch = useTabSearchStore((state) => state.close);
   const [query, setQuery] = useState("");
+
+  // Clear query when search is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery("");
+    }
+  }, [isOpen]);
+
   const normalizedDebouncedQuery = useDebouncedValue(
     query,
     COMBOBOX_DEBOUNCE_DELAY_MS,
@@ -177,14 +171,14 @@ export function HeaderTabsSearch() {
     }
 
     event.preventDefault();
-    setOpen((prev) => !prev);
+    toggle();
   });
 
   const handleSelect = async (val: SearchTabItem | null) => {
     if (!val) {
       return;
     }
-    setOpen(false);
+    closeSearch();
     if (val.type === "open") {
       setActiveTabFromUrl(val.tabId);
     } else if (val.repoId) {
@@ -208,133 +202,99 @@ export function HeaderTabsSearch() {
 
   return (
     <>
-      <Popover
-        onOpenChange={(isOpen) => {
-          setOpen(isOpen);
-          if (!isOpen) {
-            setQuery("");
-          }
-        }}
-        open={open}
-      >
-        <TooltipProvider delay={1000}>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <PopoverTrigger
-                  render={
-                    <Button
-                      aria-label="Search Opened Tabs"
-                      className="focus-visible:desktop-focus text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
-                      size="icon"
-                      variant="ghost"
-                    />
-                  }
-                />
-              }
-            >
-              <CaretDownIcon />
-            </TooltipTrigger>
-            <TooltipContent>
-              Search Opened Tabs ({getSearchTabsShortcutLabel()})
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <PopoverContent align="end" className="w-88 p-0" sideOffset={8}>
-          <Combobox
-            filter={null}
-            inputValue={query}
-            itemToStringLabel={(item: SearchTabItem) => item.title}
-            onInputValueChange={(nextInputValue) => {
-              setQuery(nextInputValue);
-            }}
-            onValueChange={(val) => {
-              handleSelect(val).catch(() => {
-                return;
-              });
-            }}
-            open
+      <PopoverContent align="center" className="w-88 p-0" sideOffset={4}>
+        <Combobox
+          filter={null}
+          inputValue={query}
+          itemToStringLabel={(item: SearchTabItem) => item.title}
+          onInputValueChange={(nextInputValue) => {
+            setQuery(nextInputValue);
+          }}
+          onValueChange={(val) => {
+            handleSelect(val).catch(() => {
+              return;
+            });
+          }}
+          open
+        >
+          <div className="border-b px-3 py-1.5">
+            <ComboboxInput
+              autoFocus
+              className="flex h-7 w-full bg-transparent text-xs outline-hidden placeholder:text-muted-foreground"
+              placeholder={"Search tabs"}
+              showClear
+              showTrigger={false}
+            />
+          </div>
+          <ComboboxList
+            className={`overflow-x-hidden overscroll-contain p-1 ${SCROLLBAR_CLASSES}`}
+            style={{ maxHeight: "min(40vh, 280px)" }}
           >
-            <div className="border-b px-3 py-2">
-              <ComboboxInput
-                autoFocus
-                className="flex h-7 w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
-                placeholder={`Search tabs (${getSearchTabsShortcutLabel()})`}
-                showClear
-                showTrigger={false}
-              />
-            </div>
-            <ComboboxList
-              className={`overflow-x-hidden overscroll-contain p-1.5 ${SCROLLBAR_CLASSES}`}
-              style={{ maxHeight: "min(40vh, 320px)" }}
-            >
-              {!hasResults && (
-                <div className="py-6 text-center text-muted-foreground text-sm">
-                  No matching tabs found.
-                </div>
-              )}
+            {!hasResults && (
+              <div className="py-4 text-center text-muted-foreground text-xs">
+                No matching tabs found.
+              </div>
+            )}
 
-              {filteredOpen.length > 0 && (
+            {filteredOpen.length > 0 && (
+              <ComboboxGroup>
+                <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
+                  Open Tabs
+                </ComboboxLabel>
+                {filteredOpen.map((item) => (
+                  <ComboboxItem
+                    className="group/tab-item relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                    key={item.id}
+                    value={item}
+                  >
+                    {item.repoId ? (
+                      <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="flex-1 truncate">{item.title}</span>
+                    <button
+                      aria-label={`Close ${item.title}`}
+                      className="focus-visible:desktop-focus-strong ml-auto flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-data-highlighted/tab-item:opacity-100"
+                      onClick={(e) => handleCloseTab(e, item)}
+                      type="button"
+                    >
+                      <XIcon className="size-3 text-muted-foreground" />
+                    </button>
+                  </ComboboxItem>
+                ))}
+              </ComboboxGroup>
+            )}
+
+            {filteredClosed.length > 0 && (
+              <>
+                {filteredOpen.length > 0 && (
+                  <div className="-mx-1 my-0.5 h-px bg-border" />
+                )}
                 <ComboboxGroup>
-                  <ComboboxLabel className="px-2 py-1.5 font-semibold text-muted-foreground text-xs">
-                    Open Tabs
+                  <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
+                    Closed Recently
                   </ComboboxLabel>
-                  {filteredOpen.map((item) => (
+                  {filteredClosed.map((item) => (
                     <ComboboxItem
-                      className="group/tab-item relative flex w-full cursor-default select-none items-center px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                      className="relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
                       key={item.id}
                       value={item}
                     >
                       {item.repoId ? (
-                        <GraphIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
+                        <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                       ) : (
-                        <FileIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
+                        <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                       )}
                       <span className="flex-1 truncate">{item.title}</span>
-                      <button
-                        aria-label={`Close ${item.title}`}
-                        className="focus-visible:desktop-focus-strong ml-auto flex size-6 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-data-highlighted/tab-item:opacity-100"
-                        onClick={(e) => handleCloseTab(e, item)}
-                        type="button"
-                      >
-                        <XIcon className="size-3.5 text-muted-foreground" />
-                      </button>
                     </ComboboxItem>
                   ))}
                 </ComboboxGroup>
-              )}
-
-              {filteredClosed.length > 0 && (
-                <>
-                  {filteredOpen.length > 0 && (
-                    <div className="-mx-1 my-1 h-px bg-border" />
-                  )}
-                  <ComboboxGroup>
-                    <ComboboxLabel className="px-2 py-1.5 font-semibold text-muted-foreground text-xs">
-                      Closed Recently
-                    </ComboboxLabel>
-                    {filteredClosed.map((item) => (
-                      <ComboboxItem
-                        className="relative flex w-full cursor-default select-none items-center px-2 py-1.5 text-sm outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
-                        key={item.id}
-                        value={item}
-                      >
-                        {item.repoId ? (
-                          <GraphIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <FileIcon className="mr-2 size-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="flex-1 truncate">{item.title}</span>
-                      </ComboboxItem>
-                    ))}
-                  </ComboboxGroup>
-                </>
-              )}
-            </ComboboxList>
-          </Combobox>
-        </PopoverContent>
-      </Popover>
+              </>
+            )}
+          </ComboboxList>
+        </Combobox>
+      </PopoverContent>
 
       <UngroupConfirmDialog
         actionText={dialogContent.actionText}

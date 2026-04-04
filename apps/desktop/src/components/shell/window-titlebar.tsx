@@ -1,7 +1,11 @@
+import { Popover, PopoverTrigger } from "@litgit/ui/components/popover";
 import { CopyIcon, MinusIcon, SquareIcon, XIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
+import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
+import { getSearchTabsShortcutLabel } from "@/lib/keyboard-shortcuts";
 import { isWindowsPlatform } from "@/lib/runtime-platform";
+import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
 
 const TITLEBAR_HEIGHT_CLASS = "h-7";
 const CONTROL_BUTTON_BASE_CLASS =
@@ -15,6 +19,10 @@ export function WindowTitlebar() {
   const isWindows = isWindowsPlatform();
   const tauriRuntime = isTauri();
   const [isMaximized, setIsMaximized] = useState(false);
+  const isOpen = useTabSearchStore((state) => state.isOpen);
+  const openSearch = useTabSearchStore((state) => state.open);
+  const closeSearch = useTabSearchStore((state) => state.close);
+  const toggleSearch = useTabSearchStore((state) => state.toggle);
 
   const syncMaximizedState = useCallback(async () => {
     if (!tauriRuntime) {
@@ -105,7 +113,7 @@ export function WindowTitlebar() {
 
   return (
     <div
-      className="flex h-7 shrink-0 select-none items-center justify-between border-border/70 border-b bg-muted/25 pl-3"
+      className="relative flex h-7 shrink-0 select-none items-center justify-between border-border/70 border-b bg-muted/25 pl-3"
       data-tauri-drag-region
     >
       <div
@@ -116,6 +124,36 @@ export function WindowTitlebar() {
           LitGit Desktop
         </span>
       </div>
+
+      {/* Centered Command Trigger with Popover */}
+      <Popover
+        onOpenChange={(nextOpen: boolean) => {
+          if (nextOpen) {
+            openSearch();
+          } else {
+            closeSearch();
+          }
+        }}
+        open={isOpen}
+      >
+        <PopoverTrigger
+          render={
+            <button
+              aria-label={`Search opened tabs (${getSearchTabsShortcutLabel()})`}
+              className="tauri-no-drag focus-visible:desktop-focus absolute left-1/2 flex h-5 -translate-x-1/2 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+              data-tauri-drag-region="false"
+              onClick={toggleSearch}
+              type="button"
+            >
+              <span>Search opened tabs</span>
+              <span className="hidden text-muted-foreground/60 sm:inline">
+                {getSearchTabsShortcutLabel()}
+              </span>
+            </button>
+          }
+        />
+        <HeaderTabsSearch />
+      </Popover>
 
       {tauriRuntime ? (
         <div
