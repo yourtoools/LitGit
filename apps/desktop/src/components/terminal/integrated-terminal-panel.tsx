@@ -99,14 +99,36 @@ const formatActivityLogLine = (entry: OperationLogEntry) => {
 
 const getLogLevelClassName = (level: OperationLogEntry["level"]): string => {
   if (level === "error") {
-    return "text-red-400";
+    return "text-[oklch(0.55_0.18_25)] dark:text-[oklch(0.65_0.2_25)]";
   }
 
   if (level === "warn") {
-    return "text-amber-400";
+    return "text-[oklch(0.65_0.14_85)] dark:text-[oklch(0.75_0.15_85)]";
   }
 
-  return "text-foreground/85";
+  if (level === "info") {
+    return "text-[oklch(0.55_0.15_250)] dark:text-[oklch(0.65_0.15_250)]";
+  }
+
+  return "text-muted-foreground";
+};
+
+const getLogLevelBorderClassName = (
+  level: OperationLogEntry["level"]
+): string => {
+  if (level === "error") {
+    return "border-[oklch(0.55_0.18_25)] dark:border-[oklch(0.65_0.2_25)]";
+  }
+
+  if (level === "warn") {
+    return "border-[oklch(0.65_0.14_85)] dark:border-[oklch(0.75_0.15_85)]";
+  }
+
+  if (level === "info") {
+    return "border-[oklch(0.55_0.15_250)] dark:border-[oklch(0.65_0.15_250)]";
+  }
+
+  return "border-[oklch(0.6059_0.0075_97.4233)] dark:border-[oklch(0.7713_0.0169_99.0657)]";
 };
 
 const getSelectedTextInContainer = (container: HTMLElement | null): string => {
@@ -381,7 +403,7 @@ export function IntegratedTerminalPanel({
 
           <div
             className={cn(
-              "h-full overflow-auto p-3 font-mono text-xs",
+              "h-full overflow-auto bg-background p-3 font-mono text-xs",
               activeTab === "output" ? "block" : "hidden"
             )}
           >
@@ -390,7 +412,7 @@ export function IntegratedTerminalPanel({
                 {renderedSystemLogs.length > 0 ? (
                   <div className="space-y-2">
                     {hiddenSystemLogCount > 0 ? (
-                      <p className="text-muted-foreground">
+                      <p className="text-[oklch(0.6059_0.0075_97.4233)] italic dark:text-[oklch(0.7713_0.0169_99.0657)]">
                         Showing latest {renderedSystemLogs.length} logs (
                         {hiddenSystemLogCount} older logs hidden)
                       </p>
@@ -408,18 +430,25 @@ export function IntegratedTerminalPanel({
                       return (
                         <div
                           className={cn(
-                            "whitespace-pre-wrap break-words",
-                            getLogLevelClassName(entry.level)
+                            "whitespace-pre-wrap break-words border-l-2 pl-2",
+                            getLogLevelClassName(entry.level),
+                            getLogLevelBorderClassName(entry.level)
                           )}
                           key={entry.id}
                         >
-                          <p>
+                          <p className="text-[oklch(0.6059_0.0075_97.4233)] dark:text-[oklch(0.7713_0.0169_99.0657)]">
                             {formatLogTimestamp(entry.timestampMs)} [
                             {entry.level}]
                           </p>
-                          {entry.command ? <p>{`> ${entry.command}`}</p> : null}
+                          {entry.command ? (
+                            <p className="text-[oklch(0.55_0.15_250)] dark:text-[oklch(0.65_0.15_250)]">
+                              {`> ${entry.command}`}
+                            </p>
+                          ) : null}
                           {typeof entry.durationMs === "number" ? (
-                            <p className="text-[0.7rem] opacity-80">{`[${entry.durationMs}ms]`}</p>
+                            <p className="text-[0.7rem] text-[oklch(0.6059_0.0075_97.4233)] opacity-80 dark:text-[oklch(0.7713_0.0169_99.0657)]">
+                              {`[${entry.durationMs}ms]`}
+                            </p>
                           ) : null}
                           {detailContent}
                         </div>
@@ -427,7 +456,9 @@ export function IntegratedTerminalPanel({
                     })}
                   </div>
                 ) : (
-                  <p className="text-muted-foreground">No system output yet.</p>
+                  <p className="text-[oklch(0.6059_0.0075_97.4233)] dark:text-[oklch(0.7713_0.0169_99.0657)]">
+                    No system output yet.
+                  </p>
                 )}
               </ContextMenuTrigger>
               <ContextMenuContent>
@@ -449,26 +480,39 @@ export function IntegratedTerminalPanel({
 
           <div
             className={cn(
-              "h-full overflow-auto p-3 font-mono text-xs",
+              "h-full overflow-auto bg-background p-3 font-mono text-xs",
               activeTab === "activity" ? "block" : "hidden"
             )}
           >
             <ContextMenu>
               <ContextMenuTrigger className="h-full w-full select-text">
                 {renderedActivityLogs.length > 0 ? (
-                  <div className="space-y-1 text-foreground/85">
+                  <div className="space-y-1">
                     {hiddenActivityLogCount > 0 ? (
-                      <p className="text-muted-foreground">
+                      <p className="text-[oklch(0.6059_0.0075_97.4233)] italic dark:text-[oklch(0.7713_0.0169_99.0657)]">
                         Showing latest {renderedActivityLogs.length} logs (
                         {hiddenActivityLogCount} older logs hidden)
                       </p>
                     ) : null}
                     {renderedActivityLogs.map((entry) => (
-                      <p key={entry.id}>{formatActivityLogLine(entry)}</p>
+                      <p
+                        className={cn(
+                          "text-[oklch(0.3438_0.0269_95.7226)] dark:text-[oklch(0.8074_0.0142_93.0137)]",
+                          entry.level === "error" &&
+                            "text-[oklch(0.55_0.18_25)] dark:text-[oklch(0.65_0.2_25)]",
+                          entry.level === "warn" &&
+                            "text-[oklch(0.65_0.14_85)] dark:text-[oklch(0.75_0.15_85)]"
+                        )}
+                        key={entry.id}
+                      >
+                        {formatActivityLogLine(entry)}
+                      </p>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-muted-foreground">No user activity yet.</p>
+                  <p className="text-[oklch(0.6059_0.0075_97.4233)] dark:text-[oklch(0.7713_0.0169_99.0657)]">
+                    No user activity yet.
+                  </p>
                 )}
               </ContextMenuTrigger>
               <ContextMenuContent>

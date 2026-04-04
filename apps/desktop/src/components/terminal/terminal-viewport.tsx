@@ -7,14 +7,14 @@ import {
 } from "@litgit/ui/components/context-menu";
 import { cn } from "@litgit/ui/lib/utils";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Terminal } from "@xterm/xterm";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Terminal } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
-import "xterm/css/xterm.css";
+import "@xterm/xterm/css/xterm.css";
 
 import { TerminalPlaceholder } from "@/components/terminal/terminal-placeholder";
 import {
@@ -65,19 +65,14 @@ const appendOutputChunk = (
   entry.outputBuffer = next.slice(next.length - MAX_BUFFER_SIZE);
 };
 
-const resolveThemeColor = (
-  styles: CSSStyleDeclaration,
-  variableName: string,
-  fallback: string
-): string => {
-  const token = styles.getPropertyValue(variableName).trim();
-
-  if (token.length === 0 || typeof document === "undefined") {
-    return fallback;
+const resolveOkLchToRgb = (oklchValue: string): string => {
+  // Create a temporary element to convert oklch to rgb
+  if (typeof document === "undefined") {
+    return oklchValue;
   }
 
   const probe = document.createElement("span");
-  probe.style.color = token;
+  probe.style.color = oklchValue;
   probe.style.position = "absolute";
   probe.style.visibility = "hidden";
   document.body.appendChild(probe);
@@ -85,41 +80,123 @@ const resolveThemeColor = (
   const resolved = window.getComputedStyle(probe).color;
   probe.remove();
 
-  return resolved || fallback;
+  return resolved || oklchValue;
 };
 
+interface TerminalTheme {
+  background: string;
+  black: string;
+  blue: string;
+  brightBlack: string;
+  brightBlue: string;
+  brightCyan: string;
+  brightGreen: string;
+  brightMagenta: string;
+  brightRed: string;
+  brightWhite: string;
+  brightYellow: string;
+  cursor: string;
+  cursorAccent: string;
+  cyan: string;
+  foreground: string;
+  green: string;
+  magenta: string;
+  red: string;
+  selectionBackground: string;
+  selectionForeground: string;
+  white: string;
+  yellow: string;
+}
+
 const createTerminalTheme = (mode: "light" | "dark") => {
-  if (typeof document === "undefined") {
-    return {
-      background: "rgba(0, 0, 0, 0)",
-      cursor: mode === "light" ? "rgb(17, 24, 39)" : "rgb(243, 244, 246)",
-      foreground: mode === "light" ? "rgb(17, 24, 39)" : "rgb(243, 244, 246)",
+  // Design system colors matching CodeMirror theme
+  const themes: Record<"light" | "dark", TerminalTheme> = {
+    light: {
+      // Background/foreground - using actual design system values (not transparent)
+      background: "oklch(0.9818 0.0054 95.0986)", // --background
+      foreground: "oklch(0.3438 0.0269 95.7226)", // --foreground
+      // ANSI colors matching CodeMirror light theme (GitHub-inspired)
+      black: "oklch(0.25 0 0)",
+      red: "oklch(0.55 0.18 25)", // GitHub red cf222e
+      green: "oklch(0.55 0.15 145)", // GitHub green 0a7f32
+      yellow: "oklch(0.65 0.14 85)", // GitHub yellow/brown 9a6700
+      blue: "oklch(0.55 0.15 250)", // GitHub blue 0550ae
+      magenta: "oklch(0.55 0.18 310)", // GitHub purple 8250df
+      cyan: "oklch(0.55 0.12 195)", // Cyan variant
+      white: "oklch(0.95 0.005 95)",
+      // Bright variants
+      brightBlack: "oklch(0.45 0.01 95)",
+      brightRed: "oklch(0.65 0.2 25)",
+      brightGreen: "oklch(0.65 0.18 145)",
+      brightYellow: "oklch(0.75 0.16 85)",
+      brightBlue: "oklch(0.65 0.18 250)",
+      brightMagenta: "oklch(0.65 0.22 310)",
+      brightCyan: "oklch(0.65 0.15 195)",
+      brightWhite: "oklch(1 0 0)",
+      // Cursor and selection
+      cursor: "oklch(0.3438 0.0269 95.7226)", // --foreground
+      cursorAccent: "oklch(0.9818 0.0054 95.0986)", // --background
       selectionBackground:
-        mode === "light"
-          ? "rgba(59, 130, 246, 0.18)"
-          : "rgba(148, 163, 184, 0.24)",
-    };
-  }
+        "color-mix(in oklab, oklch(0.7623 0.1519 229.9901) 22%, transparent)", // primary with opacity
+      selectionForeground: "oklch(0.3438 0.0269 95.7226)", // --foreground
+    },
+    dark: {
+      // Background/foreground - using actual design system values (not transparent)
+      background: "oklch(0.2679 0.0036 106.6427)", // --background
+      foreground: "oklch(0.8074 0.0142 93.0137)", // --foreground
+      // ANSI colors matching CodeMirror dark theme (Ayu-mirage inspired)
+      black: "oklch(0.2 0.01 95)",
+      red: "oklch(0.65 0.2 25)", // ffad66 orange-red
+      green: "oklch(0.65 0.18 145)", // aad94c lime green
+      yellow: "oklch(0.75 0.15 85)", // ffd173 yellow
+      blue: "oklch(0.65 0.15 250)", // 73d0ff cyan
+      magenta: "oklch(0.65 0.18 310)", // d4bfff purple
+      cyan: "oklch(0.7 0.14 195)", // 5ccfe6 cyan
+      white: "oklch(0.85 0.02 95)",
+      // Bright variants
+      brightBlack: "oklch(0.4 0.02 95)",
+      brightRed: "oklch(0.75 0.22 25)",
+      brightGreen: "oklch(0.75 0.2 145)", // bae67e green
+      brightYellow: "oklch(0.85 0.18 85)",
+      brightBlue: "oklch(0.75 0.18 250)",
+      brightMagenta: "oklch(0.75 0.2 310)",
+      brightCyan: "oklch(0.8 0.16 195)",
+      brightWhite: "oklch(1 0 0)",
+      // Cursor and selection
+      cursor: "oklch(0.8074 0.0142 93.0137)", // --foreground
+      cursorAccent: "oklch(0.2679 0.0036 106.6427)", // --background
+      selectionBackground:
+        "color-mix(in oklab, oklch(0.7623 0.1519 229.9901) 28%, transparent)", // primary with opacity
+      selectionForeground: "oklch(0.8074 0.0142 93.0137)", // --foreground
+    },
+  };
 
-  const rootStyles = window.getComputedStyle(document.documentElement);
-  const foregroundFallback =
-    mode === "light" ? "rgb(17, 24, 39)" : "rgb(243, 244, 246)";
-  const selectionFallback =
-    mode === "light" ? "rgba(59, 130, 246, 0.18)" : "rgba(148, 163, 184, 0.24)";
+  const theme = themes[mode];
 
+  // Convert all oklch colors to rgb for xterm.js compatibility
   return {
-    background: "rgba(0, 0, 0, 0)",
-    cursor: resolveThemeColor(rootStyles, "--foreground", foregroundFallback),
-    foreground: resolveThemeColor(
-      rootStyles,
-      "--foreground",
-      foregroundFallback
-    ),
-    selectionBackground: resolveThemeColor(
-      rootStyles,
-      "--accent",
-      selectionFallback
-    ),
+    background: resolveOkLchToRgb(theme.background),
+    black: resolveOkLchToRgb(theme.black),
+    blue: resolveOkLchToRgb(theme.blue),
+    brightBlack: resolveOkLchToRgb(theme.brightBlack),
+    brightBlue: resolveOkLchToRgb(theme.brightBlue),
+    brightCyan: resolveOkLchToRgb(theme.brightCyan),
+    brightGreen: resolveOkLchToRgb(theme.brightGreen),
+    brightMagenta: resolveOkLchToRgb(theme.brightMagenta),
+    brightRed: resolveOkLchToRgb(theme.brightRed),
+    brightWhite: resolveOkLchToRgb(theme.brightWhite),
+    brightYellow: resolveOkLchToRgb(theme.brightYellow),
+    cursor: resolveOkLchToRgb(theme.cursor),
+    cursorAccent: resolveOkLchToRgb(theme.cursorAccent),
+    cyan: resolveOkLchToRgb(theme.cyan),
+    foreground: resolveOkLchToRgb(theme.foreground),
+    green: resolveOkLchToRgb(theme.green),
+    magenta: resolveOkLchToRgb(theme.magenta),
+    red: resolveOkLchToRgb(theme.red),
+    selectionBackground: theme.selectionBackground, // Keep as color-mix
+    selectionForeground: resolveOkLchToRgb(theme.selectionForeground),
+    white: resolveOkLchToRgb(theme.white),
+    yellow: resolveOkLchToRgb(theme.yellow),
   };
 };
 
@@ -344,7 +421,6 @@ export function TerminalViewport({
     );
 
     const terminal = new Terminal({
-      allowTransparency: true,
       cols: INITIAL_COLS,
       convertEol: true,
       cursorBlink: true,
@@ -352,7 +428,11 @@ export function TerminalViewport({
       fontFamily,
       fontSize,
       lineHeight,
+      overviewRuler: {
+        width: 0,
+      },
       rows: INITIAL_ROWS,
+      scrollback: 1000,
       theme: terminalTheme,
     });
     const fitAddon = new FitAddon();
@@ -486,7 +566,7 @@ export function TerminalViewport({
         return `${completion.slice(currentWord.length)} `;
       };
 
-      terminal.attachCustomKeyEventHandler((event) => {
+      terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
         const state = suggestionStateRef.current;
         if (!state.active) {
           return true;
@@ -593,7 +673,7 @@ export function TerminalViewport({
         }
       );
 
-      const inputSubscription = terminal.onData((input) => {
+      const inputSubscription = terminal.onData((input: string) => {
         const currentEntry = sessionCacheByContext.get(contextKey);
 
         if (!currentEntry) {
@@ -748,9 +828,20 @@ export function TerminalViewport({
 
   return (
     <div className="relative h-full">
+      <style>{`
+        .terminal-theme .xterm .xterm-viewport {
+          background-color: transparent !important;
+        }
+        .terminal-theme .xterm .xterm-screen {
+          background-color: transparent !important;
+        }
+        .terminal-theme .xterm canvas {
+          background-color: transparent !important;
+        }
+      `}</style>
       <ContextMenu>
         <ContextMenuTrigger className="h-full pt-2 pl-2">
-          <div className="relative h-full overflow-hidden bg-background">
+          <div className="terminal-theme relative h-full overflow-hidden bg-background">
             <div className="h-full" ref={mountRef} />
             {isReady ? null : (
               <div className="absolute inset-0">
