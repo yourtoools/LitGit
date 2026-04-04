@@ -37,7 +37,7 @@ export function QuickActionButton({
         render={
           <Button
             aria-keyshortcuts={shortcutAriaLabel}
-            className="focus-visible:desktop-focus group h-auto w-full flex-col items-start justify-start gap-3 border border-primary/20 bg-primary/10 px-4 py-4 text-left shadow-none transition-colors hover:border-primary/45 hover:bg-primary/20 focus-visible:ring-0! focus-visible:ring-offset-0!"
+            className="focus-visible:desktop-focus group h-auto w-full flex-col items-start justify-start gap-2 border border-border/60 bg-card px-4 py-3 text-left shadow-sm transition-all duration-200 hover:border-primary/30 hover:bg-primary/5 hover:shadow-md focus-visible:ring-0! focus-visible:ring-offset-0!"
             disabled={disabled}
             onClick={onClick}
             type="button"
@@ -45,22 +45,24 @@ export function QuickActionButton({
           />
         }
       >
-        {icon}
+        <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/15">
+          {icon}
+        </div>
         <span className="w-full">
-          <span className="block font-mono text-primary/80 text-xs uppercase tracking-[0.2em] transition-colors group-hover:text-primary">
+          <span className="block text-muted-foreground text-xs tracking-wide transition-colors group-hover:text-primary/80">
             Execute
           </span>
-          <span className="mt-1 flex items-center gap-2 font-mono font-semibold text-sm tracking-tight">
+          <span className="mt-0.5 flex items-center gap-2 font-semibold text-sm tracking-tight">
             {label}
             {shortcut && (
-              <span className="border border-current/35 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wider">
+              <span className="rounded border border-border/80 bg-muted/80 px-1.5 py-0.5 font-mono text-muted-foreground text-xs">
                 {shortcut}
               </span>
             )}
           </span>
         </span>
       </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={8}>
+      <TooltipContent className="rounded-lg" side="bottom" sideOffset={8}>
         {tooltip}
       </TooltipContent>
     </Tooltip>
@@ -88,10 +90,10 @@ export function QuickActionsLauncher({
 }: QuickActionsLauncherProps) {
   const getOpenRepoButtonLabel = () => {
     if (isPickingRepo) {
-      return "Opening…";
+      return "Opening...";
     }
     if (isInitializingRepository) {
-      return "Initializing…";
+      return "Initializing...";
     }
     return "Open repository";
   };
@@ -104,7 +106,8 @@ export function QuickActionsLauncher({
           icon={
             <FolderSimpleIcon
               aria-hidden="true"
-              className="size-5 text-primary transition-colors group-hover:text-primary"
+              className="size-5 text-primary"
+              weight="duotone"
             />
           }
           label={getOpenRepoButtonLabel()}
@@ -117,7 +120,8 @@ export function QuickActionsLauncher({
           icon={
             <DownloadSimpleIcon
               aria-hidden="true"
-              className="size-5 text-primary transition-colors group-hover:text-primary"
+              className="size-5 text-primary"
+              weight="regular"
             />
           }
           label="Clone Repository"
@@ -128,7 +132,8 @@ export function QuickActionsLauncher({
           icon={
             <DesktopIcon
               aria-hidden="true"
-              className="size-5 text-primary transition-colors group-hover:text-primary"
+              className="size-5 text-primary"
+              weight="duotone"
             />
           }
           label="Start Local Repo"

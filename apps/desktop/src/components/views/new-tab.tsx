@@ -432,22 +432,37 @@ export function NewTabContent() {
   const openRepoButtonLabel = getOpenRepoButtonLabel();
 
   return (
-    <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-300">
-      <PageContainer className="relative flex w-full flex-1 flex-col gap-8">
-        <header className="flex flex-col gap-4">
-          <h1 className="font-extrabold font-mono text-4xl text-foreground leading-none tracking-tight">
-            LitGit
-          </h1>
-          <p className="max-w-3xl text-muted-foreground text-sm leading-relaxed">
-            A fast, fluent, and minimal Git client designed for developers who
-            demand speed and a clutter-free workflow.
+    <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-500">
+      <PageContainer className="relative flex w-full flex-1 flex-col gap-6">
+        {/* Hero Section with enhanced typography */}
+        <header className="flex flex-col gap-3 pt-2">
+          <div className="flex items-center gap-3">
+            <img
+              alt="LitGit logo"
+              className="h-10 w-auto"
+              height="40"
+              src="/src/assets/litgit-logo.png"
+              width="40"
+            />
+            <h1 className="font-bold font-mono text-4xl text-foreground leading-none tracking-tight">
+              LitGit
+            </h1>
+          </div>
+          <p className="max-w-xl text-muted-foreground text-sm leading-relaxed">
+            A fast, fluent Git client designed for developers who demand speed
+            and a clutter-free workflow.
           </p>
         </header>
 
-        <section aria-label="Quick actions" className="space-y-4">
-          <h2 className="border-primary border-l-4 pl-3 font-mono font-semibold text-primary text-xs uppercase tracking-[0.22em]">
-            Quick Actions
-          </h2>
+        {/* Quick Actions with asymmetric layout */}
+        <section aria-label="Quick actions" className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+            <h2 className="font-medium font-mono text-muted-foreground text-xs tracking-wide">
+              Quick Actions
+            </h2>
+            <div className="h-px flex-1 bg-gradient-to-l from-border to-transparent" />
+          </div>
           <TooltipProvider delay={900}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <QuickActionButton
@@ -455,7 +470,8 @@ export function NewTabContent() {
                 icon={
                   <FolderSimpleIcon
                     aria-hidden="true"
-                    className="size-5 text-primary transition-colors group-hover:text-primary"
+                    className="size-5 text-primary"
+                    weight="duotone"
                   />
                 }
                 label={openRepoButtonLabel}
@@ -472,7 +488,8 @@ export function NewTabContent() {
                 icon={
                   <DownloadSimpleIcon
                     aria-hidden="true"
-                    className="size-5 text-primary transition-colors group-hover:text-primary"
+                    className="size-5 text-primary"
+                    weight="regular"
                   />
                 }
                 label="Clone Repository"
@@ -483,7 +500,8 @@ export function NewTabContent() {
                 icon={
                   <DesktopIcon
                     aria-hidden="true"
-                    className="size-5 text-primary transition-colors group-hover:text-primary"
+                    className="size-5 text-primary"
+                    weight="duotone"
                   />
                 }
                 label="Start Local Repo"
@@ -494,35 +512,39 @@ export function NewTabContent() {
           </TooltipProvider>
         </section>
 
-        <section aria-label="Recent repositories" className="space-y-4">
-          <div className="flex items-center justify-between border-primary border-l-4 pl-3">
-            <h2 className="font-mono font-semibold text-primary text-xs uppercase tracking-[0.22em]">
+        {/* Recent Repositories with enhanced visual hierarchy */}
+        <section aria-label="Recent repositories" className="flex-1 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+            <h2 className="font-medium font-mono text-muted-foreground text-xs tracking-wide">
               Recent Repositories
             </h2>
+            <div className="h-px flex-1 bg-gradient-to-l from-border to-transparent" />
             {hasMoreThanLimit && !isSearching ? (
               <Button
-                className="focus-visible:desktop-focus h-6 gap-1 px-1 font-mono text-primary/70 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
+                className="focus-visible:desktop-focus h-6 gap-1.5 px-2 text-muted-foreground text-xs tracking-wide hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                 onClick={() => setIsExpanded((prev) => !prev)}
                 type="button"
                 variant="ghost"
               >
-                {isExpanded ? "View Less" : "View All Repositories"}
+                {isExpanded ? "Show Less" : "View All"}
               </Button>
             ) : null}
           </div>
 
+          {/* Search input with refined styling */}
           <div className="relative">
             <Label className="sr-only" htmlFor={RECENT_REPO_SEARCH_INPUT_ID}>
               Search recent repositories
             </Label>
             <MagnifyingGlassIcon
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary/65"
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground/70"
             />
             <Input
               aria-describedby={`${RECENT_REPO_SEARCH_HINT_ID} ${RECENT_REPO_SEARCH_STATUS_ID}`}
               aria-keyshortcuts={searchShortcutAria}
-              className="focus-visible:desktop-focus h-10 border-primary/25 bg-primary/5 pr-16 pl-9 font-mono text-sm focus-visible:ring-0! focus-visible:ring-offset-0!"
+              className="focus-visible:desktop-focus h-9 border-border/60 bg-card pr-16 pl-10 text-sm shadow-sm transition-all duration-200 hover:border-border focus-visible:ring-0! focus-visible:ring-offset-0!"
               id={RECENT_REPO_SEARCH_INPUT_ID}
               onChange={(event) => {
                 setSearchInputValue(event.target.value);
@@ -544,23 +566,23 @@ export function NewTabContent() {
                   }
                 }
               }}
-              placeholder="search recent repositories..."
+              placeholder="Search repositories..."
               type="search"
               value={searchInputValue}
             />
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 border border-primary/35 bg-primary/10 px-1.5 py-0.5 font-mono text-primary/80 text-xs uppercase tracking-wider"
+              className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 rounded-md border border-border/70 bg-muted/60 px-1.5 py-0.5 font-mono text-muted-foreground text-xs"
             >
               {searchInputValue ? "ESC" : searchShortcutLabel}
             </span>
           </div>
 
           <p
-            className="font-mono text-muted-foreground/80 text-xs leading-relaxed"
+            className="text-muted-foreground/70 text-xs leading-normal"
             id={RECENT_REPO_SEARCH_HINT_ID}
           >
-            Search by repository name or path. Use {searchShortcutLabel} to
+            Search by repository name or path. Press {searchShortcutLabel} to
             focus quickly.
           </p>
 
@@ -572,21 +594,23 @@ export function NewTabContent() {
             {searchStatusMessage}
           </output>
 
-          <div className="relative overflow-hidden border border-primary/20 bg-primary/5">
+          {/* Repository list with refined card styling */}
+          <div className="relative overflow-hidden border border-border/80 bg-card shadow-sm">
             {showRecentTopFade && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 top-8 z-10 h-5 bg-linear-to-b from-background/95 to-transparent"
+                className="pointer-events-none absolute inset-x-0 top-8 z-10 h-5 bg-gradient-to-b from-background/95 to-transparent"
               />
             )}
             {showRecentBottomFade && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-linear-to-t from-background/95 to-transparent"
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-gradient-to-t from-background/95 to-transparent"
               />
             )}
 
-            <div className="grid grid-cols-[minmax(0,0.75fr)_minmax(0,0.5fr)_minmax(0,1.5fr)_minmax(0,1fr)] border-primary/20 border-b bg-primary/10 px-4 py-2 font-mono text-primary/80 text-xs uppercase tracking-[0.18em]">
+            {/* Table header with refined styling */}
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,1.2fr)_minmax(0,1fr)] gap-4 border-border/60 border-b bg-muted/40 px-4 py-2 font-medium text-muted-foreground text-xs uppercase tracking-wider">
               <span>Repository</span>
               <span>Branch</span>
               <span>Last Commit</span>
@@ -613,23 +637,34 @@ export function NewTabContent() {
               {visibleRepos.length === 0 ? (
                 <div
                   aria-selected={false}
-                  className="px-4 py-8 text-center font-mono text-muted-foreground text-sm"
+                  className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center"
                   role="option"
                   tabIndex={-1}
                 >
-                  {searchInputValue
-                    ? `No repositories found matching "${searchInputValue}"`
-                    : "No recent repositories"}
+                  <FolderSimpleIcon
+                    className="size-7 text-muted-foreground/40"
+                    weight="light"
+                  />
+                  <p className="text-muted-foreground text-sm">
+                    {searchInputValue
+                      ? `No repositories found matching "${searchInputValue}"`
+                      : "No recent repositories"}
+                  </p>
+                  <p className="text-muted-foreground/60 text-xs">
+                    {searchInputValue
+                      ? "Try a different search term"
+                      : "Open or clone a repository to get started"}
+                  </p>
                 </div>
               ) : (
                 visibleRepos.map((repo, index) => (
                   <div
                     aria-selected={focusedRepoIndex === index}
                     className={cn(
-                      "grid cursor-pointer grid-cols-[minmax(0,0.75fr)_minmax(0,0.5fr)_minmax(0,1.5fr)_minmax(0,1fr)] items-center gap-3 border-primary/10 border-b px-4 py-2.5 transition-colors",
+                      "group grid cursor-pointer grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,1.2fr)_minmax(0,1fr)] items-center gap-4 border-border/40 border-b px-4 py-2 transition-all duration-150",
                       focusedRepoIndex === index
-                        ? "bg-primary/12"
-                        : "hover:bg-primary/10"
+                        ? "bg-primary/5"
+                        : "hover:bg-muted/50"
                     )}
                     id={`repo-${repo.id}`}
                     key={repo.id}
@@ -652,22 +687,25 @@ export function NewTabContent() {
                     role="option"
                     tabIndex={focusedRepoIndex === index ? 0 : -1}
                   >
-                    <div className="group flex min-w-0 items-center gap-2 font-mono text-sm">
-                      <FolderSimpleIcon
-                        aria-hidden="true"
-                        className="size-4 shrink-0 text-primary"
-                      />
-                      <span className="truncate font-semibold text-foreground">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                        <FolderSimpleIcon
+                          aria-hidden="true"
+                          className="size-3.5 text-primary"
+                          weight="fill"
+                        />
+                      </div>
+                      <span className="truncate font-medium text-foreground text-sm">
                         {repo.name}
                       </span>
                     </div>
-                    <span className="truncate font-mono text-muted-foreground/85 text-xs">
+                    <span className="truncate text-muted-foreground text-xs">
                       {getRepoBranchLabel(repo.id)}
                     </span>
-                    <span className="truncate font-mono text-muted-foreground/85 text-xs">
+                    <span className="truncate text-muted-foreground/80 text-xs">
                       {getLastCommitLabel(repo.id)}
                     </span>
-                    <span className="truncate font-mono text-muted-foreground/85 text-xs">
+                    <span className="truncate text-muted-foreground/70 text-xs">
                       {repo.path}
                     </span>
                   </div>
@@ -677,28 +715,27 @@ export function NewTabContent() {
           </div>
         </section>
 
-        <footer className="mt-auto flex flex-col gap-5 border-primary/15 border-t pt-6 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-5 font-mono text-muted-foreground/80 text-xs">
+        {/* Footer with refined styling */}
+        <footer className="mt-auto flex flex-col gap-4 border-border/60 border-t pt-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-4 text-muted-foreground/70 text-xs">
             <div className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-primary" />
-              <span>Repos: {openedRepos.length}</span>
+              <span className="size-1.5 rounded-full bg-primary/70" />
+              <span>{openedRepos.length} repositories</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-primary/60" />
-              <span>Filtered: {filteredRepos.length}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-primary" />
-              <span>Search: {normalizedSearchQuery || "idle"}</span>
-            </div>
+            {isSearching && (
+              <div className="flex items-center gap-2">
+                <span className="size-1.5 rounded-full bg-primary/40" />
+                <span>{filteredRepos.length} matching</span>
+              </div>
+            )}
           </div>
 
           <nav aria-label="External resources">
-            <ul className="flex flex-wrap items-center gap-1.5">
+            <ul className="flex flex-wrap items-center gap-1">
               <li>
                 <Button
                   aria-label="View source code (opens in new window)"
-                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
+                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 text-muted-foreground text-xs tracking-wide hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => {
                     openExternalUrl(SOURCE_CODE_URL).catch(() => {
                       return;
@@ -707,14 +744,18 @@ export function NewTabContent() {
                   type="button"
                   variant="ghost"
                 >
-                  <CodeIcon aria-hidden="true" className="size-3.5" />
-                  Source code
+                  <CodeIcon
+                    aria-hidden="true"
+                    className="size-3.5"
+                    weight="regular"
+                  />
+                  Source
                 </Button>
               </li>
               <li>
                 <Button
                   aria-label="Report a bug (opens in new window)"
-                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
+                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 text-muted-foreground text-xs tracking-wide hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => {
                     openExternalUrl(BUG_REPORT_URL).catch(() => {
                       return;
@@ -723,13 +764,17 @@ export function NewTabContent() {
                   type="button"
                   variant="ghost"
                 >
-                  <BugIcon aria-hidden="true" className="size-3.5" />
-                  Report a bug
+                  <BugIcon
+                    aria-hidden="true"
+                    className="size-3.5"
+                    weight="regular"
+                  />
+                  Issues
                 </Button>
               </li>
               <li>
                 <Button
-                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 font-mono text-primary/85 text-xs uppercase tracking-[0.14em] hover:text-primary focus-visible:ring-0! focus-visible:ring-offset-0!"
+                  className="focus-visible:desktop-focus h-7 gap-1.5 px-2 text-muted-foreground text-xs tracking-wide hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                   onClick={() => {
                     resetSettingsSearch();
                     setSection("general");
@@ -738,7 +783,11 @@ export function NewTabContent() {
                   type="button"
                   variant="ghost"
                 >
-                  <GearIcon aria-hidden="true" className="size-3.5" />
+                  <GearIcon
+                    aria-hidden="true"
+                    className="size-3.5"
+                    weight="regular"
+                  />
                   Settings
                 </Button>
               </li>
