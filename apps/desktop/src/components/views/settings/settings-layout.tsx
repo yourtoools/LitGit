@@ -162,7 +162,7 @@ export function SettingsLayout({
         id="settings-content-panel"
         ref={contentPanelRef}
       >
-        <div className="px-6 py-6 sm:px-8 sm:py-8">
+        <div className="px-6 py-6 pb-12 sm:px-8 sm:py-8 sm:pb-16">
           <header className="mb-6">
             <div className="border-primary border-l-4 pl-3">
               <h2 className="font-mono font-semibold text-foreground text-xl tracking-tight transition-colors sm:text-2xl">
