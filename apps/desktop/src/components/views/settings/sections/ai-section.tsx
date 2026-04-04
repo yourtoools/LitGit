@@ -1,3 +1,14 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@litgit/ui/components/alert-dialog";
 import { Button } from "@litgit/ui/components/button";
 import { Input } from "@litgit/ui/components/input";
 import {
@@ -21,7 +32,6 @@ import {
   AI_PROVIDER_OPTIONS,
 } from "@/components/views/settings/settings-store";
 import {
-  type AiModelInfo,
   clearAiProviderSecret,
   getAiProviderSecretStatus,
   getSettingsBackendCapabilities,
@@ -64,8 +74,13 @@ function AiSection({ query }: { query: string }) {
   );
   const setAiModel = usePreferencesStore((state) => state.setAiModel);
   const setAiProvider = usePreferencesStore((state) => state.setAiProvider);
+  const availableModels = usePreferencesStore(
+    (state) => state.ai.availableModels
+  );
+  const setAiAvailableModels = usePreferencesStore(
+    (state) => state.setAiAvailableModels
+  );
   const [aiSecretInput, setAiSecretInput] = useState("");
-  const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
   const [isLoadingAiModels, setIsLoadingAiModels] = useState(false);
   const [aiModelsMessage, setAiModelsMessage] = useState<string | null>(null);
   const [aiSecretStatus, setAiSecretStatus] = useState<null | {
@@ -76,7 +91,25 @@ function AiSection({ query }: { query: string }) {
   const [capabilitiesMessage, setCapabilitiesMessage] = useState<string | null>(
     null
   );
+  const [isClearingAiSecret, setIsClearingAiSecret] = useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const hasStoredAiSecret = aiSecretStatus?.hasStoredValue ?? false;
+
+  const hasConfiguredAiSettings =
+    hasStoredAiSecret ||
+    model.trim().length > 0 ||
+    provider !== DEFAULT_PREFERENCES.ai.provider ||
+    customEndpoint.trim().length > 0 ||
+    commitInstruction !== DEFAULT_PREFERENCES.ai.commitInstruction ||
+    maxInputTokens !== DEFAULT_PREFERENCES.ai.maxInputTokens ||
+    maxOutputTokens !== DEFAULT_PREFERENCES.ai.maxOutputTokens;
+
+  // Provider is locked when fully configured (API key + model + optional URL for custom/ollama)
+  const showCustomUrl = provider === "custom" || provider === "ollama";
+  const isProviderLocked =
+    hasStoredAiSecret &&
+    model.trim().length > 0 &&
+    (!showCustomUrl || customEndpoint.trim().length > 0);
 
   const resetAiSettings = () => {
     clearAiProviderSecret(provider)
@@ -88,7 +121,7 @@ function AiSection({ query }: { query: string }) {
         setAiMaxInputTokens(DEFAULT_PREFERENCES.ai.maxInputTokens);
         setAiMaxOutputTokens(DEFAULT_PREFERENCES.ai.maxOutputTokens);
         setAiModel(DEFAULT_PREFERENCES.ai.model);
-        setAiModels([]);
+        setAiAvailableModels([]);
         setAiModelsMessage(null);
         setAiSecretInput("");
         setAiSecretStatus({
@@ -108,7 +141,7 @@ function AiSection({ query }: { query: string }) {
       provider,
     })
       .then((models) => {
-        setAiModels(models);
+        setAiAvailableModels(models);
 
         if (models.length === 0) {
           setAiModel("");
@@ -123,7 +156,7 @@ function AiSection({ query }: { query: string }) {
         setAiModelsMessage(`Loaded ${models.length} model(s).`);
       })
       .catch((error: unknown) => {
-        setAiModels([]);
+        setAiAvailableModels([]);
         setAiModel("");
         setAiModelsMessage(
           error instanceof Error ? error.message : "Failed to load AI models"
@@ -132,11 +165,10 @@ function AiSection({ query }: { query: string }) {
       .finally(() => {
         setIsLoadingAiModels(false);
       });
-  }, [customEndpoint, model, provider, setAiModel]);
+  }, [customEndpoint, model, provider, setAiModel, setAiAvailableModels]);
 
   useEffect(() => {
     setAiSecretMessage(null);
-    setAiModels([]);
     setAiModelsMessage(null);
 
     getAiProviderSecretStatus(provider)
@@ -187,6 +219,7 @@ function AiSection({ query }: { query: string }) {
         >
           <SelectTrigger
             className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+            disabled={isProviderLocked}
             size="sm"
           >
             <DefaultSelectValue />
@@ -255,17 +288,22 @@ function AiSection({ query }: { query: string }) {
         <div className="grid gap-1.5">
           <Input
             className="h-7 text-xs"
+            disabled={hasStoredAiSecret || isClearingAiSecret}
             onChange={(event) => {
               setAiSecretInput(event.target.value);
               setAiSecretMessage(null);
             }}
             placeholder="sk-..."
             type="password"
-            value={aiSecretInput}
+            value={hasStoredAiSecret ? "********************" : aiSecretInput}
           />
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-3">
             <Button
-              disabled={aiSecretInput.trim().length === 0}
+              disabled={
+                aiSecretInput.trim().length === 0 ||
+                hasStoredAiSecret ||
+                isClearingAiSecret
+              }
               onClick={() => {
                 saveAiProviderSecret(provider, aiSecretInput)
                   .then((status) => {
@@ -298,12 +336,38 @@ function AiSection({ query }: { query: string }) {
           {hasStoredAiSecret ? (
             <SectionActionRow>
               <Button
-                onClick={resetAiSettings}
+                disabled={isClearingAiSecret}
+                onClick={() => {
+                  setIsClearingAiSecret(true);
+                  setAiSecretMessage(null);
+
+                  clearAiProviderSecret(provider)
+                    .then(() => {
+                      setAiSecretStatus({
+                        hasStoredValue: false,
+                        storageMode: "session",
+                      });
+                      setAiSecretInput("");
+                      setAiSecretMessage(
+                        "API key cleared. You can now enter a new one."
+                      );
+                    })
+                    .catch((error: unknown) => {
+                      setAiSecretMessage(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to clear API key"
+                      );
+                    })
+                    .finally(() => {
+                      setIsClearingAiSecret(false);
+                    });
+                }}
                 size="sm"
                 type="button"
                 variant="ghost"
               >
-                Reset AI settings
+                {isClearingAiSecret ? "Clearing..." : "Clear to change"}
               </Button>
             </SectionActionRow>
           ) : null}
@@ -341,7 +405,7 @@ function AiSection({ query }: { query: string }) {
           </div>
           <Select
             items={Object.fromEntries(
-              aiModels.map((entry) => [entry.id, entry.label])
+              availableModels.map((entry) => [entry.id, entry.label])
             )}
             onValueChange={(value) => {
               if (typeof value === "string") {
@@ -358,7 +422,7 @@ function AiSection({ query }: { query: string }) {
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                {aiModels.map((entry) => (
+                {availableModels.map((entry) => (
                   <SelectItem key={entry.id} value={entry.id}>
                     {entry.label}
                   </SelectItem>
@@ -385,6 +449,7 @@ function AiSection({ query }: { query: string }) {
           />
           <SectionActionRow>
             <Button
+              disabled={commitInstruction === DEFAULT_AI_COMMIT_INSTRUCTION}
               onClick={() =>
                 setAiCommitInstruction(DEFAULT_AI_COMMIT_INSTRUCTION)
               }
@@ -396,6 +461,47 @@ function AiSection({ query }: { query: string }) {
             </Button>
           </SectionActionRow>
         </div>
+      </SettingsField>
+      <SettingsField
+        description="Clear all AI settings including API key, provider, model, and custom configurations. This action cannot be undone."
+        label="Danger Zone"
+        query={query}
+      >
+        <AlertDialog
+          onOpenChange={setIsResetDialogOpen}
+          open={isResetDialogOpen}
+        >
+          <AlertDialogTrigger
+            disabled={!hasConfiguredAiSettings}
+            render={
+              <Button size="sm" type="button" variant="destructive">
+                Reset AI settings
+              </Button>
+            }
+          />
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reset AI Settings?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will clear your API key, provider, model, custom endpoint,
+                and all AI configurations. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel size="sm">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  resetAiSettings();
+                  setIsResetDialogOpen(false);
+                }}
+                size="sm"
+                variant="destructive"
+              >
+                Reset
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SettingsField>
     </div>
   );

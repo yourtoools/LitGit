@@ -433,9 +433,6 @@ function GitHubTokenFields() {
       </div>
       {hasStoredToken ? (
         <SectionActionRow>
-          <SettingsHelpText>
-            Clear the saved token to replace it with a different one.
-          </SettingsHelpText>
           <Button
             onClick={() => {
               clearGitHubToken()

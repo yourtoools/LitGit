@@ -67,6 +67,8 @@ function NetworkSection({ query }: { query: string }) {
   const [proxyTestMessage, setProxyTestMessage] = useState<string | null>(null);
   const [proxyPasswordInput, setProxyPasswordInput] = useState("");
   const [proxyAuthMessage, setProxyAuthMessage] = useState<string | null>(null);
+  const [isClearingProxyPassword, setIsClearingProxyPassword] = useState(false);
+  const hasStoredProxyPassword = proxyAuthSecretStored;
   const [proxyTargetDraft, setProxyTargetDraft] = useState(() => ({
     host: proxyHost,
     port: String(proxyPort),
@@ -420,9 +422,53 @@ function NetworkSection({ query }: { query: string }) {
           </label>
           {proxyAuthEnabled ? (
             <>
+              <div className="flex h-7 items-center justify-between">
+                <span className="text-muted-foreground text-xs">
+                  {hasStoredProxyPassword
+                    ? `Stored (${proxyAuthSecretStorageMode ?? "session"})`
+                    : "No proxy password saved"}
+                </span>
+                {hasStoredProxyPassword && (
+                  <Button
+                    disabled={isClearingProxyPassword}
+                    onClick={() => {
+                      setIsClearingProxyPassword(true);
+                      setProxyAuthMessage(null);
+
+                      clearProxyAuthSecret(proxyUsername)
+                        .then(() => {
+                          setNetworkProxyAuthSecretStatus({
+                            hasStoredValue: false,
+                            storageMode: null,
+                          });
+                          setProxyPasswordInput("");
+                          setProxyAuthMessage(
+                            "Password cleared. You can now enter a new one."
+                          );
+                        })
+                        .catch((error: unknown) => {
+                          setProxyAuthMessage(
+                            error instanceof Error
+                              ? error.message
+                              : "Failed to clear proxy password"
+                          );
+                        })
+                        .finally(() => {
+                          setIsClearingProxyPassword(false);
+                        });
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    {isClearingProxyPassword ? "Clearing..." : "Clear password"}
+                  </Button>
+                )}
+              </div>
               <div className="grid gap-1.5 md:grid-cols-2">
                 <Input
                   className="h-7 text-xs"
+                  disabled={hasStoredProxyPassword || isClearingProxyPassword}
                   onChange={(event) => {
                     setNetworkProxy({ proxyUsername: event.target.value });
                     setProxyAuthMessage(null);
@@ -432,20 +478,27 @@ function NetworkSection({ query }: { query: string }) {
                 />
                 <Input
                   className="h-7 text-xs"
+                  disabled={hasStoredProxyPassword || isClearingProxyPassword}
                   onChange={(event) => {
                     setProxyPasswordInput(event.target.value);
                     setProxyAuthMessage(null);
                   }}
                   placeholder="Enter proxy password"
                   type="password"
-                  value={proxyPasswordInput}
+                  value={
+                    hasStoredProxyPassword
+                      ? "********************"
+                      : proxyPasswordInput
+                  }
                 />
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   disabled={
                     proxyUsername.trim().length === 0 ||
-                    proxyPasswordInput.trim().length === 0
+                    proxyPasswordInput.trim().length === 0 ||
+                    hasStoredProxyPassword ||
+                    isClearingProxyPassword
                   }
                   onClick={() => {
                     saveProxyAuthSecret(proxyUsername, proxyPasswordInput)
@@ -471,39 +524,8 @@ function NetworkSection({ query }: { query: string }) {
                   type="button"
                   variant="outline"
                 >
-                  Save password
+                  Save credentials
                 </Button>
-                <Button
-                  disabled={proxyUsername.trim().length === 0}
-                  onClick={() => {
-                    clearProxyAuthSecret(proxyUsername)
-                      .then(() => {
-                        setNetworkProxyAuthSecretStatus({
-                          hasStoredValue: false,
-                          storageMode: null,
-                        });
-                        setProxyPasswordInput("");
-                        setProxyAuthMessage("Cleared stored proxy password.");
-                      })
-                      .catch((error: unknown) => {
-                        setProxyAuthMessage(
-                          error instanceof Error
-                            ? error.message
-                            : "Failed to clear proxy password"
-                        );
-                      });
-                  }}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  Clear password
-                </Button>
-                <span className="text-muted-foreground text-xs">
-                  {proxyAuthSecretStored
-                    ? `Stored (${proxyAuthSecretStorageMode ?? "session"})`
-                    : "No proxy password saved"}
-                </span>
               </div>
               {proxyAuthMessage ? (
                 <SettingsHelpText>{proxyAuthMessage}</SettingsHelpText>

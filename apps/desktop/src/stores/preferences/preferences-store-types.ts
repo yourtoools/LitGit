@@ -139,6 +139,7 @@ export interface NetworkPreferences {
 }
 
 export interface AiPreferences {
+  availableModels: Array<{ id: string; label: string }>;
   commitInstruction: string;
   customEndpoint: string;
   maxInputTokens: number;
@@ -276,6 +277,7 @@ export const getDefaultAiMaxOutputTokens = (provider: AiProvider): number => {
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
   ai: {
+    availableModels: [],
     commitInstruction: DEFAULT_AI_COMMIT_INSTRUCTION,
     provider: "openai",
     customEndpoint: "",

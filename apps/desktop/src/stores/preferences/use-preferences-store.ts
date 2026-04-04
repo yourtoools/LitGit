@@ -28,6 +28,7 @@ import { TAB_STORE_KEY } from "@/stores/tabs/tab-store.helpers";
 
 interface PreferencesStoreState extends AppPreferences {
   resetSettingsSearch: () => void;
+  setAiAvailableModels: (models: Array<{ id: string; label: string }>) => void;
   setAiCommitInstruction: (commitInstruction: string) => void;
   setAiCustomEndpoint: (customEndpoint: string) => void;
   setAiMaxInputTokens: (maxInputTokens: number) => void;
@@ -131,6 +132,14 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
   persist(
     (set) => ({
       ...DEFAULT_PREFERENCES,
+      setAiAvailableModels: (models) => {
+        set((state) => ({
+          ai: {
+            ...state.ai,
+            availableModels: models,
+          },
+        }));
+      },
       setAiCommitInstruction: (commitInstruction) => {
         set((state) => ({
           ai: {
