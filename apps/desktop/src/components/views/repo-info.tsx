@@ -114,7 +114,6 @@ import {
   SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
-  TerminalWindowIcon,
   TrashIcon,
   UploadSimpleIcon,
   XIcon,
@@ -1712,7 +1711,6 @@ export function RepoInfo() {
   const [, startSidebarFilterTransition] = useTransition();
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
   const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
-  const toggleTerminalPanel = useTerminalPanelStore((state) => state.toggle);
   const dateFormatPreference = usePreferencesStore(
     (state) => state.ui.dateFormat
   );
@@ -10056,31 +10054,6 @@ export function RepoInfo() {
                     side="bottom"
                   >
                     Pop
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        aria-label="Terminal"
-                        className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
-                        onClick={toggleTerminalPanel}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      />
-                    }
-                  >
-                    <TerminalWindowIcon className="size-4 text-muted-foreground" />
-                    <span className={cn(!toolbarLabels && "hidden")}>
-                      Terminal
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    className={cn(toolbarLabels && "hidden")}
-                    side="bottom"
-                  >
-                    {isTerminalPanelOpen ? "Hide terminal" : "Show terminal"}
                   </TooltipContent>
                 </Tooltip>
               </div>
