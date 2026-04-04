@@ -28,7 +28,7 @@ import {
   PREVIEW_SAMPLE_DATE,
   type ThemePreference,
   ThemeSelector,
-} from "@/components/views/settings/settings-previews";
+} from "@/components/views/settings/settings-previews-codemirror";
 import {
   DefaultSelectValue,
   SettingsField,

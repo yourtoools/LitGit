@@ -102,9 +102,13 @@ export interface EditorPreferences {
   fontFamily: string;
   fontSize: number;
   fontVisibility: "monospace-only" | "all-fonts";
+  ignoreTrimWhitespace: boolean;
   lineNumbers: "on" | "off";
+  renderSideBySide: boolean;
+  showTrailingWhitespace: boolean;
   syntaxHighlighting: boolean;
   tabSize: number;
+  theme: "light" | "dark";
   wordWrap: "off" | "on";
 }
 
@@ -284,9 +288,13 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
     fontSize: 13,
     fontVisibility: "monospace-only",
+    ignoreTrimWhitespace: true,
     lineNumbers: "on",
-    tabSize: 2,
+    renderSideBySide: true,
+    showTrailingWhitespace: true,
     syntaxHighlighting: true,
+    tabSize: 2,
+    theme: "light",
     wordWrap: "off",
   },
   general: {

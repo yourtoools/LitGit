@@ -16,19 +16,25 @@ import type {
 } from "@/stores/repo/repo-store-types";
 
 interface DiffEditorProps {
+  collapseUnchanged?: {
+    margin: number;
+    minSize: number;
+  } | null;
   fontFamily: string;
   fontSize: number;
   ignoreTrimWhitespace: boolean;
   language: string;
   lineNumbers: "off" | "on";
-  modelPathBase: string;
+  mode: "diff";
+  modelPath: string;
   modified: string;
   onMount: (editor: unknown) => void;
   original: string;
   renderSideBySide: boolean;
   syntaxHighlighting: boolean;
-  theme: "vs" | "vs-dark";
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+  tabSize: number;
+  theme: "light" | "dark";
+  wordWrap: "off" | "on";
 }
 
 interface DiffWorkspaceHistorySurfaceProps {
@@ -54,8 +60,9 @@ interface DiffWorkspaceHistorySurfaceProps {
   renderSideBySide: boolean;
   selectedCommitHash: string | null;
   syntaxHighlighting: boolean;
-  theme: "vs" | "vs-dark";
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+  tabSize: number;
+  theme: "light" | "dark";
+  wordWrap: "off" | "on";
 }
 
 const AUTHOR_SPLIT_PATTERN = /\s+/;
@@ -148,6 +155,7 @@ export function DiffWorkspaceHistorySurface({
   renderSideBySide,
   selectedCommitHash,
   syntaxHighlighting,
+  tabSize,
   theme,
   wordWrap,
 }: DiffWorkspaceHistorySurfaceProps) {
@@ -268,17 +276,20 @@ export function DiffWorkspaceHistorySurface({
 
           {shouldRenderTextDiff ? (
             <DiffEditorComponent
+              collapseUnchanged={null}
               fontFamily={fontFamily}
               fontSize={fontSize}
               ignoreTrimWhitespace={ignoreTrimWhitespace}
               language={language}
               lineNumbers={lineNumbers}
-              modelPathBase={diffModelPathBase}
+              mode="diff"
+              modelPath={diffModelPathBase}
               modified={diff.newText}
               onMount={onDiffEditorMount}
               original={diff.oldText}
               renderSideBySide={renderSideBySide}
               syntaxHighlighting={syntaxHighlighting}
+              tabSize={tabSize}
               theme={theme}
               wordWrap={wordWrap}
             />

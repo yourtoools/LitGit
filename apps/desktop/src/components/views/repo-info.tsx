@@ -1,3 +1,6 @@
+import type { MergeView } from "@codemirror/merge";
+import { goToNextChunk, goToPreviousChunk } from "@codemirror/merge";
+import type { EditorView } from "@codemirror/view";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -118,7 +121,6 @@ import {
 } from "@phosphor-icons/react";
 import { useSearch } from "@tanstack/react-router";
 import { intlFormat } from "date-fns";
-import type { editor as MonacoEditor } from "monaco-editor";
 import { useTheme } from "next-themes";
 import {
   Fragment,
@@ -134,6 +136,7 @@ import {
   useTransition,
 } from "react";
 import { toast } from "sonner";
+import { resolveLanguage } from "@/components/code-editor/utils/language-resolver";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import {
   type GitTimelineRow,
@@ -155,7 +158,6 @@ import {
   resolveDiffWorkspaceEncodingValue,
   resolveDiffWorkspaceRequestedEncoding,
 } from "@/components/views/repo-info/diff-workspace-encoding";
-import { buildMonacoModelBasePath } from "@/components/views/repo-info/diff-workspace-monaco-model";
 import {
   resolvePresentationForViewerKind,
   resolveToolbarControlState,
@@ -394,46 +396,6 @@ function writeCachedValue<T>(
   }
 }
 
-const LazyDiffPreviewMonacoSurface = lazy(async () => {
-  const module = await import(
-    "@/components/views/repo-info/diff-preview-monaco-surface"
-  );
-
-  return {
-    default: module.DiffPreviewMonacoSurface,
-  };
-});
-
-const LazyDiffWorkspaceMonacoFileSurface = lazy(async () => {
-  const module = await import(
-    "@/components/views/repo-info/diff-workspace-monaco-file-surface"
-  );
-
-  return {
-    default: module.DiffWorkspaceMonacoFileSurface,
-  };
-});
-
-const LazyDiffWorkspaceMonacoEditSurface = lazy(async () => {
-  const module = await import(
-    "@/components/views/repo-info/diff-workspace-monaco-edit-surface"
-  );
-
-  return {
-    default: module.DiffWorkspaceMonacoEditSurface,
-  };
-});
-
-const LazyDiffWorkspaceHunkSurface = lazy(async () => {
-  const module = await import(
-    "@/components/views/repo-info/diff-workspace-hunk-surface"
-  );
-
-  return {
-    default: module.DiffWorkspaceHunkSurface,
-  };
-});
-
 const LazyDiffWorkspaceHistorySurface = lazy(async () => {
   const module = await import(
     "@/components/views/repo-info/diff-workspace-history-surface"
@@ -464,11 +426,49 @@ const LazyDiffWorkspaceMarkdownPreviewSurface = lazy(async () => {
   };
 });
 
+const LazyDiffWorkspaceHunkSurface = lazy(async () => {
+  const module = await import(
+    "@/components/views/repo-info/diff-workspace-hunk-surface"
+  );
+
+  return {
+    default: module.DiffWorkspaceHunkSurface,
+  };
+});
+
 const LazyGitGraphOverlay = lazy(async () => {
   const module = await import("@/components/views/git-graph-overlay");
 
   return {
     default: module.GitGraphOverlay,
+  };
+});
+
+// Add these new lazy imports near existing lazy imports
+const LazyCodeEditorView = lazy(async () => {
+  const module = await import("@/components/code-editor/code-editor");
+  return {
+    default: (props: React.ComponentProps<typeof module.CodeEditor>) => (
+      <module.CodeEditor {...props} />
+    ),
+  };
+});
+
+const LazyCodeEditorDiff = lazy(async () => {
+  const module = await import("@/components/code-editor/code-editor");
+  return {
+    default: (props: React.ComponentProps<typeof module.CodeEditor>) => (
+      <module.CodeEditor {...props} />
+    ),
+  };
+});
+
+const LazyCodeEditorEdit = lazy(async () => {
+  const module = await import("@/components/code-editor/code-editor");
+  return {
+    default: (props: React.ComponentProps<typeof module.CodeEditor>) => (
+      <module.CodeEditor {...props} />
+    ),
   };
 });
 
@@ -1053,103 +1053,45 @@ const TIMELINE_COMPACT_LAYOUT_PREFERENCES: RepoTimelinePreferences = {
   visibleColumns: DEFAULT_REPO_TIMELINE_PREFERENCES.visibleColumns,
 };
 
-const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
-  c: "c",
-  cpp: "cpp",
-  css: "css",
-  go: "go",
-  h: "c",
-  hpp: "cpp",
-  html: "html",
-  java: "java",
-  js: "javascript",
-  json: "json",
-  jsx: "javascript",
-  md: "markdown",
-  mjs: "javascript",
-  py: "python",
-  rs: "rust",
-  sh: "shell",
-  sql: "sql",
-  svg: "xml",
-  ts: "typescript",
-  tsx: "typescript",
-  xml: "xml",
-  yaml: "yaml",
-  yml: "yaml",
-};
+type DiffEditorInstance = EditorView | MergeView;
 
-const resolveSystemMonacoEol = (): MonacoEditor.EndOfLineSequence => {
-  if (getRuntimePlatform() === "windows") {
-    return 1;
-  }
-
-  return 0;
-};
-
-const resolveMonacoEol = (
-  preference: "system" | "lf" | "crlf"
-): MonacoEditor.EndOfLineSequence => {
-  if (preference === "lf") {
-    return 0;
-  }
-
-  if (preference === "crlf") {
-    return 1;
-  }
-
-  return resolveSystemMonacoEol();
-};
-
-interface MinimalDiffEditor {
-  getModifiedEditor: () => MinimalCodeEditor;
-  getOriginalEditor: () => MinimalCodeEditor;
-  goToDiff?: (direction: "previous" | "next") => void;
+function isEditorViewInstance(
+  value: DiffEditorInstance | null
+): value is EditorView {
+  return value !== null && "dispatch" in value && "state" in value;
 }
 
-interface MinimalCodeEditor {
-  getModel: () => { setEOL: (eol: number) => void } | null;
-  revealLineInCenter?: (line: number) => void;
-  updateOptions: (options: {
-    lineNumbers?: "on" | "off";
-    tabSize?: number;
-  }) => void;
+function isMergeViewInstance(
+  value: DiffEditorInstance | null
+): value is MergeView {
+  return value !== null && "a" in value && "b" in value;
 }
 
-const applyDiffEditorPreferences = (
-  editor: MinimalDiffEditor,
-  lineNumbers: "on" | "off",
-  tabSize: number,
-  eolPreference: "system" | "lf" | "crlf"
-) => {
-  editor.getOriginalEditor().updateOptions({
-    lineNumbers,
-    tabSize,
-  });
-  editor.getModifiedEditor().updateOptions({
-    lineNumbers,
-    tabSize,
-  });
-  const eol = resolveMonacoEol(eolPreference);
+function navigateDiffEditor(
+  editor: DiffEditorInstance | null,
+  direction: "next" | "previous"
+): void {
+  const command = direction === "next" ? goToNextChunk : goToPreviousChunk;
 
-  editor.getOriginalEditor().getModel()?.setEOL(eol);
-  editor.getModifiedEditor().getModel()?.setEOL(eol);
-};
+  if (isMergeViewInstance(editor)) {
+    command({
+      dispatch: editor.a.dispatch,
+      state: editor.a.state,
+    });
+    editor.a.focus();
+    return;
+  }
 
-const applyCodeEditorPreferences = (
-  editor: MinimalCodeEditor,
-  lineNumbers: "on" | "off",
-  tabSize: number,
-  eolPreference: "system" | "lf" | "crlf"
-) => {
-  editor.updateOptions({
-    lineNumbers,
-    tabSize,
+  if (!isEditorViewInstance(editor)) {
+    return;
+  }
+
+  command({
+    dispatch: editor.dispatch,
+    state: editor.state,
   });
-
-  const eol = resolveMonacoEol(eolPreference);
-  editor.getModel()?.setEOL(eol);
-};
+  editor.focus();
+}
 
 function formatStashLabel(stash: RepositoryStash): string {
   const rawMessage = stash.message.trim();
@@ -1209,17 +1151,6 @@ function parseStashDraft(message: string): {
     description: descriptionParts.join("\n\n").trim(),
     summary: summaryLine.trim(),
   };
-}
-
-function resolveMonacoLanguage(filePath: string): string {
-  const normalizedPath = filePath.toLowerCase();
-  const extension = FILE_EXTENSION_PATTERN.exec(normalizedPath)?.[1] ?? "";
-
-  if (extension.length === 0) {
-    return "plaintext";
-  }
-
-  return MONACO_LANGUAGE_BY_EXTENSION[extension] ?? "plaintext";
 }
 
 function resolveFileExtension(filePath: string): string | null {
@@ -1668,7 +1599,6 @@ export function RepoInfo() {
   const [hasRequestedDiffSurface, setHasRequestedDiffSurface] = useState(false);
   const [isDiffEditorReady, setIsDiffEditorReady] = useState(false);
   const [hasRequestedFileSurface, setHasRequestedFileSurface] = useState(false);
-  const [hasRequestedEditSurface, setHasRequestedEditSurface] = useState(false);
   const [openedDiff, setOpenedDiff] = useState<RepositoryFileDiff | null>(null);
   const [openedDiffPath, setOpenedDiffPath] = useState<string | null>(null);
   const [openedDiffStatusCode, setOpenedDiffStatusCode] = useState<
@@ -1676,8 +1606,8 @@ export function RepoInfo() {
   >(null);
   const [activeHunks, setActiveHunks] = useState<RepositoryFileHunk[]>([]);
   const [_activeHunkIndex, setActiveHunkIndex] = useState(0);
-  const [isLoadingHunks, setIsLoadingHunks] = useState(false);
-  const [hunkLoadError, setHunkLoadError] = useState<string | null>(null);
+  const [isLoadingDiffHunks, setIsLoadingHunks] = useState(false);
+  const [diffHunksError, setHunkLoadError] = useState<string | null>(null);
   const [historyEntries, setHistoryEntries] = useState<
     RepositoryFileHistoryEntry[]
   >([]);
@@ -1805,9 +1735,9 @@ export function RepoInfo() {
   );
   const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const editorPreferences = usePreferencesStore((state) => state.editor);
-  const openedDiffEditorRef = useRef<MinimalDiffEditor | null>(null);
-  const openedFileEditorRef = useRef<MinimalCodeEditor | null>(null);
-  const openedEditEditorRef = useRef<MinimalCodeEditor | null>(null);
+  const openedDiffEditorRef = useRef<DiffEditorInstance | null>(null);
+  const openedFileEditorRef = useRef<EditorView | null>(null);
+  const openedEditEditorRef = useRef<EditorView | null>(null);
   const previousWorkspaceEncodingRef = useRef(workspaceEncoding);
   const resolvedWorkspaceEncoding =
     resolveDiffWorkspaceEncodingValue(workspaceEncoding);
@@ -2852,43 +2782,6 @@ export function RepoInfo() {
     },
     [currentBranch, graphEntryTypeByReferenceName, hiddenSidebarGraphEntryKeys]
   );
-
-  useEffect(() => {
-    const diffEditor = openedDiffEditorRef.current;
-    const fileEditor = openedFileEditorRef.current;
-    const editEditor = openedEditEditorRef.current;
-
-    if (diffEditor) {
-      applyDiffEditorPreferences(
-        diffEditor,
-        editorPreferences.lineNumbers,
-        editorPreferences.tabSize,
-        editorPreferences.eol
-      );
-    }
-
-    if (fileEditor) {
-      applyCodeEditorPreferences(
-        fileEditor,
-        editorPreferences.lineNumbers,
-        editorPreferences.tabSize,
-        editorPreferences.eol
-      );
-    }
-
-    if (editEditor) {
-      applyCodeEditorPreferences(
-        editEditor,
-        editorPreferences.lineNumbers,
-        editorPreferences.tabSize,
-        editorPreferences.eol
-      );
-    }
-  }, [
-    editorPreferences.eol,
-    editorPreferences.lineNumbers,
-    editorPreferences.tabSize,
-  ]);
 
   useEffect(() => {
     if (activeRepoId === null) {
@@ -7366,7 +7259,6 @@ export function RepoInfo() {
     setHasRequestedDiffSurface(false);
     setIsDiffEditorReady(false);
     setHasRequestedFileSurface(false);
-    setHasRequestedEditSurface(false);
     setOpenedDiff(null);
     setOpenedDiffPath(null);
     setOpenedDiffStatusCode(null);
@@ -8050,36 +7942,17 @@ export function RepoInfo() {
       ? openedCommitDiff
       : (openedDiff ?? openedCommitDiff);
   const activeDiffPath = activeDiff?.path ?? openedDiffContext?.filePath ?? "";
-  const monacoModelBasePath = useMemo(() => {
-    if (openedDiffContext === null) {
-      return null;
-    }
-
-    if (openedDiffContext.source === "commit") {
-      return buildMonacoModelBasePath({
-        commitHash: openedDiffContext.commitHash,
-        filePath: activeDiffPath,
-        source: "commit",
-      });
-    }
-
-    return buildMonacoModelBasePath({
-      filePath: activeDiffPath,
-      source: "working",
-    });
-  }, [activeDiffPath, openedDiffContext]);
+  const modelBasePath = activeDiffPath
+    ? `inmemory://litgit/${activeDiffPath}`
+    : null;
   const diffMonacoModelBasePath =
-    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=diff`;
-  const hunkMonacoModelBasePath =
-    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=hunk`;
+    modelBasePath === null ? null : `${modelBasePath}?surface=diff`;
   const fileMonacoModelPath =
-    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=file`;
+    modelBasePath === null ? null : `${modelBasePath}?surface=file`;
   const editMonacoModelPath =
-    monacoModelBasePath === null ? null : `${monacoModelBasePath}?surface=edit`;
+    modelBasePath === null ? null : `${modelBasePath}?surface=edit`;
   const blameMonacoModelPath =
-    monacoModelBasePath === null
-      ? null
-      : `${monacoModelBasePath}?surface=blame`;
+    modelBasePath === null ? null : `${modelBasePath}?surface=blame`;
   const isWorkspaceAttributionMode =
     openedDiffContext !== null &&
     (workspaceMode === "blame" || workspaceMode === "history");
@@ -8205,12 +8078,6 @@ export function RepoInfo() {
       setHasRequestedFileSurface(true);
     }
   }, [shouldMountFileMonacoSurface]);
-
-  useEffect(() => {
-    if (shouldMountEditMonacoSurface) {
-      setHasRequestedEditSurface(true);
-    }
-  }, [shouldMountEditMonacoSurface]);
 
   useEffect(() => {
     if (
@@ -8339,21 +8206,7 @@ export function RepoInfo() {
       return;
     }
 
-    if (resolvedPresentation === "hunk") {
-      setActiveHunkIndex((current) => {
-        if (activeHunks.length === 0) {
-          return 0;
-        }
-
-        if (current <= 0) {
-          return activeHunks.length - 1;
-        }
-
-        return current - 1;
-      });
-    }
-
-    openedDiffEditorRef.current?.goToDiff?.("previous");
+    navigateDiffEditor(openedDiffEditorRef.current, "previous");
   };
 
   const handleNextChange = () => {
@@ -8361,21 +8214,7 @@ export function RepoInfo() {
       return;
     }
 
-    if (resolvedPresentation === "hunk") {
-      setActiveHunkIndex((current) => {
-        if (activeHunks.length === 0) {
-          return 0;
-        }
-
-        if (current >= activeHunks.length - 1) {
-          return 0;
-        }
-
-        return current + 1;
-      });
-    }
-
-    openedDiffEditorRef.current?.goToDiff?.("next");
+    navigateDiffEditor(openedDiffEditorRef.current, "next");
   };
 
   const handleOpenHistoryEntry = async (entry: RepositoryFileHistoryEntry) => {
@@ -11049,49 +10888,38 @@ export function RepoInfo() {
                         activeDiffViewerKind === "text" ? (
                           <Suspense
                             fallback={
-                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
-                                Loading hunk surface...
-                              </div>
+                              <div className="h-full w-full bg-muted/30" />
                             }
                           >
                             <LazyDiffWorkspaceHunkSurface
+                              DiffEditorComponent={LazyCodeEditorDiff}
                               fontFamily={editorPreferences.fontFamily}
                               fontSize={editorPreferences.fontSize}
                               hunks={activeHunks}
                               ignoreTrimWhitespace={ignoreTrimWhitespace}
-                              isLoading={isLoadingHunks}
-                              language={
-                                editorPreferences.syntaxHighlighting
-                                  ? resolveMonacoLanguage(activeDiffPath)
-                                  : "plaintext"
-                              }
+                              isLoading={isLoadingDiffHunks}
+                              language={resolveLanguage(activeDiffPath)}
                               lineNumbers={editorPreferences.lineNumbers}
                               modelPathBase={
-                                hunkMonacoModelBasePath ??
-                                "inmemory://litgit/unknown?hunk"
+                                diffMonacoModelBasePath ??
+                                "inmemory://litgit/unknown?diff-hunks"
                               }
                               modified={activeDiff.newText}
                               onMount={(editor) => {
-                                openedDiffEditorRef.current = editor;
-                                setIsDiffEditorReady(true);
-                                applyDiffEditorPreferences(
-                                  editor,
-                                  editorPreferences.lineNumbers,
-                                  editorPreferences.tabSize,
-                                  editorPreferences.eol
-                                );
+                                openedDiffEditorRef.current =
+                                  editor as DiffEditorInstance;
                               }}
                               onRetry={() => {
                                 handleRetryDiffPreview().catch(() => undefined);
                               }}
                               original={activeDiff.oldText}
-                              renderError={hunkLoadError}
+                              renderError={diffHunksError}
                               syntaxHighlighting={
                                 editorPreferences.syntaxHighlighting
                               }
+                              tabSize={editorPreferences.tabSize}
                               theme={
-                                resolvedTheme === "light" ? "vs" : "vs-dark"
+                                resolvedTheme === "light" ? "light" : "dark"
                               }
                               wordWrap={editorPreferences.wordWrap}
                             />
@@ -11102,36 +10930,27 @@ export function RepoInfo() {
                         hasRequestedDiffSurface ? (
                           <Suspense
                             fallback={
-                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
-                                Loading diff surface...
-                              </div>
+                              <div className="h-full w-full bg-muted/30" />
                             }
                           >
-                            <LazyDiffPreviewMonacoSurface
+                            <LazyCodeEditorDiff
                               fontFamily={editorPreferences.fontFamily}
                               fontSize={editorPreferences.fontSize}
                               ignoreTrimWhitespace={ignoreTrimWhitespace}
                               language={
                                 editorPreferences.syntaxHighlighting
-                                  ? resolveMonacoLanguage(activeDiffPath)
+                                  ? resolveLanguage(activeDiffPath)
                                   : "plaintext"
                               }
                               lineNumbers={editorPreferences.lineNumbers}
-                              modelPathBase={
+                              mode="diff"
+                              modelPath={
                                 diffMonacoModelBasePath ??
                                 "inmemory://litgit/unknown?diff"
                               }
                               modified={activeDiff.newText}
-                              onMount={(editor) => {
-                                openedDiffEditorRef.current = editor;
-                                setIsDiffEditorReady(true);
-                                applyDiffEditorPreferences(
-                                  editor,
-                                  editorPreferences.lineNumbers,
-                                  editorPreferences.tabSize,
-                                  editorPreferences.eol
-                                );
+                              onMount={(mergeView) => {
+                                openedDiffEditorRef.current = mergeView;
                               }}
                               original={activeDiff.oldText}
                               renderSideBySide={
@@ -11140,8 +10959,9 @@ export function RepoInfo() {
                               syntaxHighlighting={
                                 editorPreferences.syntaxHighlighting
                               }
+                              tabSize={editorPreferences.tabSize}
                               theme={
-                                resolvedTheme === "light" ? "vs" : "vs-dark"
+                                resolvedTheme === "light" ? "light" : "dark"
                               }
                               wordWrap={editorPreferences.wordWrap}
                             />
@@ -11211,41 +11031,28 @@ export function RepoInfo() {
                         hasRequestedFileSurface ? (
                           <Suspense
                             fallback={
-                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
-                                Loading file view...
-                              </div>
+                              <div className="h-full w-full bg-muted/30" />
                             }
                           >
-                            <LazyDiffWorkspaceMonacoFileSurface
+                            <LazyCodeEditorView
+                              blameDecorations={undefined}
                               fontFamily={editorPreferences.fontFamily}
                               fontSize={editorPreferences.fontSize}
-                              language={
-                                editorPreferences.syntaxHighlighting
-                                  ? resolveMonacoLanguage(activeDiffPath)
-                                  : "plaintext"
-                              }
+                              language={resolveLanguage(activeDiffPath)}
                               lineNumbers={editorPreferences.lineNumbers}
-                              modelPath={
-                                fileMonacoModelPath ??
-                                "inmemory://litgit/unknown?file"
-                              }
+                              mode="view"
+                              modelPath={fileMonacoModelPath ?? "untitled"}
                               onMount={(editor) => {
                                 openedFileEditorRef.current = editor;
-                                applyCodeEditorPreferences(
-                                  editor,
-                                  editorPreferences.lineNumbers,
-                                  editorPreferences.tabSize,
-                                  editorPreferences.eol
-                                );
                               }}
                               syntaxHighlighting={
                                 editorPreferences.syntaxHighlighting
                               }
+                              tabSize={editorPreferences.tabSize}
                               theme={
-                                resolvedTheme === "light" ? "vs" : "vs-dark"
+                                resolvedTheme === "light" ? "light" : "dark"
                               }
-                              value={activeDiff.newText}
+                              value={activeDiff.newText ?? "Loading..."}
                               wordWrap={editorPreferences.wordWrap}
                             />
                           </Suspense>
@@ -11297,7 +11104,7 @@ export function RepoInfo() {
                       >
                         <LazyDiffWorkspaceHistorySurface
                           avatarUrlByCommitHash={commitAvatarUrlByHash}
-                          DiffEditorComponent={LazyDiffPreviewMonacoSurface}
+                          DiffEditorComponent={LazyCodeEditorDiff}
                           diff={
                             activeDiff && openedDiffContext?.source === "commit"
                               ? {
@@ -11314,7 +11121,7 @@ export function RepoInfo() {
                               : null
                           }
                           diffModelPathBase={
-                            monacoModelBasePath ??
+                            modelBasePath ??
                             "inmemory://litgit/unknown?history-diff"
                           }
                           diffState={diffPreviewPanelState}
@@ -11325,18 +11132,14 @@ export function RepoInfo() {
                           isLoading={isLoadingFileHistory}
                           language={
                             editorPreferences.syntaxHighlighting
-                              ? resolveMonacoLanguage(activeDiffPath)
+                              ? resolveLanguage(activeDiffPath)
                               : "plaintext"
                           }
                           lineNumbers={editorPreferences.lineNumbers}
                           onCancelDiff={handleWorkspaceCloseRequest}
                           onDiffEditorMount={(editor) => {
-                            applyDiffEditorPreferences(
-                              editor as MinimalDiffEditor,
-                              editorPreferences.lineNumbers,
-                              editorPreferences.tabSize,
-                              editorPreferences.eol
-                            );
+                            openedDiffEditorRef.current =
+                              editor as DiffEditorInstance;
                           }}
                           onRenderDiffAnyway={() => {
                             handleRenderDiffPreviewAnyway().catch(
@@ -11367,8 +11170,9 @@ export function RepoInfo() {
                           syntaxHighlighting={
                             editorPreferences.syntaxHighlighting
                           }
-                          theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
-                          wordWrap={editorPreferences.wordWrap}
+                          tabSize={editorPreferences.tabSize}
+                          theme={resolvedTheme === "light" ? "light" : "dark"}
+                          wordWrap={editorPreferences.wordWrap as "off" | "on"}
                         />
                       </Suspense>
                     ) : null}
@@ -11383,13 +11187,13 @@ export function RepoInfo() {
                       >
                         <LazyDiffWorkspaceBlameSurface
                           avatarUrlByCommitHash={commitAvatarUrlByHash}
-                          EditorComponent={LazyDiffWorkspaceMonacoFileSurface}
+                          EditorComponent={LazyCodeEditorView}
                           fontFamily={editorPreferences.fontFamily}
                           fontSize={editorPreferences.fontSize}
                           isLoading={isLoadingBlame}
                           language={
                             editorPreferences.syntaxHighlighting
-                              ? resolveMonacoLanguage(activeDiffPath)
+                              ? resolveLanguage(activeDiffPath)
                               : "plaintext"
                           }
                           lineNumbers={editorPreferences.lineNumbers}
@@ -11399,14 +11203,7 @@ export function RepoInfo() {
                             "inmemory://litgit/unknown?blame"
                           }
                           onPreviewEditorMount={(editor) => {
-                            openedFileEditorRef.current =
-                              editor as MinimalCodeEditor;
-                            applyCodeEditorPreferences(
-                              editor as MinimalCodeEditor,
-                              editorPreferences.lineNumbers,
-                              editorPreferences.tabSize,
-                              editorPreferences.eol
-                            );
+                            openedFileEditorRef.current = editor as EditorView;
                           }}
                           onRetry={() => {
                             handleRetryDiffPreview().catch(() => undefined);
@@ -11415,8 +11212,9 @@ export function RepoInfo() {
                           syntaxHighlighting={
                             editorPreferences.syntaxHighlighting
                           }
-                          theme={resolvedTheme === "light" ? "vs" : "vs-dark"}
-                          wordWrap={editorPreferences.wordWrap}
+                          tabSize={editorPreferences.tabSize}
+                          theme={resolvedTheme === "light" ? "light" : "dark"}
+                          wordWrap={editorPreferences.wordWrap as "off" | "on"}
                         />
                       </Suspense>
                     ) : null}
@@ -11454,37 +11252,22 @@ export function RepoInfo() {
                         ) : null}
                         {isLoadingEditBuffer || editLoadError ? null : (
                           <>
-                            {hasRequestedEditSurface ? (
+                            {shouldMountEditMonacoSurface && (
                               <Suspense
                                 fallback={
-                                  <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                                    <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
-                                    Loading editor...
-                                  </div>
+                                  <div className="h-full w-full bg-muted/30" />
                                 }
                               >
-                                <LazyDiffWorkspaceMonacoEditSurface
+                                <LazyCodeEditorEdit
                                   fontFamily={editorPreferences.fontFamily}
                                   fontSize={editorPreferences.fontSize}
-                                  language={
-                                    editorPreferences.syntaxHighlighting
-                                      ? resolveMonacoLanguage(activeDiffPath)
-                                      : "plaintext"
-                                  }
+                                  language={resolveLanguage(activeDiffPath)}
                                   lineNumbers={editorPreferences.lineNumbers}
-                                  modelPath={
-                                    editMonacoModelPath ??
-                                    "inmemory://litgit/unknown?edit"
-                                  }
+                                  mode="edit"
+                                  modelPath={editMonacoModelPath ?? "untitled"}
                                   onChange={setEditBuffer}
                                   onMount={(editor) => {
                                     openedEditEditorRef.current = editor;
-                                    applyCodeEditorPreferences(
-                                      editor,
-                                      editorPreferences.lineNumbers,
-                                      editorPreferences.tabSize,
-                                      editorPreferences.eol
-                                    );
                                   }}
                                   onSave={() => {
                                     handleSaveEditedFile().catch(
@@ -11494,18 +11277,14 @@ export function RepoInfo() {
                                   syntaxHighlighting={
                                     editorPreferences.syntaxHighlighting
                                   }
+                                  tabSize={editorPreferences.tabSize}
                                   theme={
-                                    resolvedTheme === "light" ? "vs" : "vs-dark"
+                                    resolvedTheme === "light" ? "light" : "dark"
                                   }
                                   value={editBuffer}
                                   wordWrap={editorPreferences.wordWrap}
                                 />
                               </Suspense>
-                            ) : (
-                              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                                <SpinnerGapIcon className="mr-2 size-4 animate-spin" />
-                                Preparing editor...
-                              </div>
                             )}
                             <div className="absolute top-2 right-2 z-20 flex items-center gap-2">
                               <Button

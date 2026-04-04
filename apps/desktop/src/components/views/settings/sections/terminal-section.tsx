@@ -17,7 +17,7 @@ import {
   runWhenBrowserIsIdle,
   type SystemFontReadResult,
 } from "@/components/views/settings/settings-font-picker";
-import { TerminalPreview } from "@/components/views/settings/settings-previews";
+import { TerminalPreview } from "@/components/views/settings/settings-previews-codemirror";
 import {
   DefaultSelectValue,
   SettingsField,

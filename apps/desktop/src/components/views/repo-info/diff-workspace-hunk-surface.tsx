@@ -1,14 +1,32 @@
 import { Button } from "@litgit/ui/components/button";
-import { DiffEditor } from "@monaco-editor/react";
 import { SpinnerGapIcon } from "@phosphor-icons/react";
-import type { editor as MonacoEditor } from "monaco-editor";
-import {
-  buildDiffModelPaths,
-  resolveDiffSplitBehavior,
-} from "@/components/views/repo-info/diff-workspace-monaco-model";
+import type { ComponentType } from "react";
 import type { RepositoryFileHunk } from "@/stores/repo/repo-store-types";
 
+interface DiffEditorProps {
+  collapseUnchanged?: {
+    margin: number;
+    minSize: number;
+  } | null;
+  fontFamily: string;
+  fontSize: number;
+  ignoreTrimWhitespace: boolean;
+  language: string;
+  lineNumbers: "off" | "on";
+  mode: "diff";
+  modelPath: string;
+  modified: string;
+  onMount: (editor: unknown) => void;
+  original: string;
+  renderSideBySide: boolean;
+  syntaxHighlighting: boolean;
+  tabSize: number;
+  theme: "light" | "dark";
+  wordWrap: "off" | "on";
+}
+
 interface DiffWorkspaceHunkSurfaceProps {
+  DiffEditorComponent: ComponentType<DiffEditorProps>;
   fontFamily: string;
   fontSize: number;
   hunks: RepositoryFileHunk[];
@@ -18,16 +36,18 @@ interface DiffWorkspaceHunkSurfaceProps {
   lineNumbers: "off" | "on";
   modelPathBase: string;
   modified: string;
-  onMount: (editor: MonacoEditor.IStandaloneDiffEditor) => void;
+  onMount: (editor: unknown) => void;
   onRetry: () => void;
   original: string;
   renderError: string | null;
   syntaxHighlighting: boolean;
-  theme: "vs" | "vs-dark";
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+  tabSize: number;
+  theme: "light" | "dark";
+  wordWrap: "off" | "on";
 }
 
 export function DiffWorkspaceHunkSurface({
+  DiffEditorComponent,
   fontFamily,
   fontSize,
   hunks,
@@ -42,12 +62,10 @@ export function DiffWorkspaceHunkSurface({
   original,
   renderError,
   syntaxHighlighting,
+  tabSize,
   theme,
   wordWrap,
 }: DiffWorkspaceHunkSurfaceProps) {
-  const diffModelPaths = buildDiffModelPaths(modelPathBase);
-  const splitBehavior = resolveDiffSplitBehavior(false);
-
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
@@ -84,34 +102,26 @@ export function DiffWorkspaceHunkSurface({
   }
 
   return (
-    <DiffEditor
-      height="100%"
-      keepCurrentModifiedModel={false}
-      keepCurrentOriginalModel={false}
-      language={language}
-      modified={modified}
-      modifiedModelPath={diffModelPaths.modifiedModelPath}
-      onMount={onMount}
-      options={{
-        automaticLayout: true,
-        experimentalWhitespaceRendering: "svg",
-        fontFamily,
-        fontSize,
-        ...splitBehavior,
-        hideUnchangedRegions: {
-          enabled: true,
-        },
-        ignoreTrimWhitespace,
-        lineNumbers,
-        minimap: { enabled: false },
-        readOnly: true,
-        scrollBeyondLastLine: false,
-        wordSeparators: syntaxHighlighting ? undefined : "",
-        wordWrap,
+    <DiffEditorComponent
+      collapseUnchanged={{
+        margin: 3,
+        minSize: 4,
       }}
+      fontFamily={fontFamily}
+      fontSize={fontSize}
+      ignoreTrimWhitespace={ignoreTrimWhitespace}
+      language={language}
+      lineNumbers={lineNumbers}
+      mode="diff"
+      modelPath={modelPathBase}
+      modified={modified}
+      onMount={onMount}
       original={original}
-      originalModelPath={diffModelPaths.originalModelPath}
+      renderSideBySide={false}
+      syntaxHighlighting={syntaxHighlighting}
+      tabSize={tabSize}
       theme={theme}
+      wordWrap={wordWrap}
     />
   );
 }

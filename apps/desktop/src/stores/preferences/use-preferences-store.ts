@@ -42,9 +42,13 @@ interface PreferencesStoreState extends AppPreferences {
     fontFamily?: string;
     fontSize?: number;
     fontVisibility?: AppPreferences["editor"]["fontVisibility"];
+    ignoreTrimWhitespace?: boolean;
     lineNumbers?: AppPreferences["editor"]["lineNumbers"];
+    renderSideBySide?: boolean;
+    showTrailingWhitespace?: boolean;
     syntaxHighlighting?: boolean;
     tabSize?: number;
+    theme?: AppPreferences["editor"]["theme"];
     wordWrap?: AppPreferences["editor"]["wordWrap"];
   }) => void;
   setHasCompletedOnboarding: (completed: boolean) => void;
@@ -224,6 +228,12 @@ export const usePreferencesStore = create<PreferencesStoreState>()(
             ...(input.fontSize === undefined
               ? {}
               : { fontSize: clampEditorFontSize(input.fontSize) }),
+            ...(input.ignoreTrimWhitespace === undefined
+              ? {}
+              : { ignoreTrimWhitespace: input.ignoreTrimWhitespace }),
+            ...(input.renderSideBySide === undefined
+              ? {}
+              : { renderSideBySide: input.renderSideBySide }),
             ...(input.tabSize === undefined
               ? {}
               : { tabSize: clampEditorTabSize(input.tabSize) }),

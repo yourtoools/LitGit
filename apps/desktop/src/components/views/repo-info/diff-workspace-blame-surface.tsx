@@ -7,22 +7,31 @@ import { Button } from "@litgit/ui/components/button";
 import { SpinnerGapIcon } from "@phosphor-icons/react";
 import type { ComponentType } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DiffWorkspaceMonacoBlameDecoration } from "@/components/views/repo-info/diff-workspace-monaco-types";
 import type { RepositoryFileBlameLine } from "@/stores/repo/repo-store-types";
 
+// Blame decoration type for CodeMirror gutter
+interface BlameDecoration {
+  author: string;
+  avatarLabel: string;
+  color: string;
+  lineNumber: number;
+}
+
 interface EditorProps {
-  blameDecorations?: DiffWorkspaceMonacoBlameDecoration[];
+  blameDecorations?: BlameDecoration[];
   fontFamily: string;
   fontSize: number;
   language: string;
   lineNumbers: "off" | "on";
   minimapEnabled?: boolean;
+  mode: "view";
   modelPath: string;
   onMount: (editor: unknown) => void;
   syntaxHighlighting: boolean;
-  theme: "vs" | "vs-dark";
+  tabSize: number;
+  theme: "light" | "dark";
   value: string;
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+  wordWrap: "off" | "on";
 }
 
 interface DiffWorkspaceBlameSurfaceProps {
@@ -39,8 +48,9 @@ interface DiffWorkspaceBlameSurfaceProps {
   onRetry: () => void;
   renderError: string | null;
   syntaxHighlighting: boolean;
-  theme: "vs" | "vs-dark";
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+  tabSize: number;
+  theme: "light" | "dark";
+  wordWrap: "off" | "on";
 }
 
 interface BlameCommitSummary {
@@ -142,6 +152,7 @@ export function DiffWorkspaceBlameSurface({
   onRetry,
   renderError,
   syntaxHighlighting,
+  tabSize,
   theme,
   wordWrap,
 }: DiffWorkspaceBlameSurfaceProps) {
@@ -156,7 +167,7 @@ export function DiffWorkspaceBlameSurface({
     () => normalizedLines.map((line) => line.text).join("\n"),
     [normalizedLines]
   );
-  const blameDecorations = useMemo<DiffWorkspaceMonacoBlameDecoration[]>(
+  const blameDecorations = useMemo<BlameDecoration[]>(
     () =>
       normalizedLines.map((line) => ({
         author: line.author,
@@ -323,6 +334,7 @@ export function DiffWorkspaceBlameSurface({
             language={language}
             lineNumbers={lineNumbers}
             minimapEnabled
+            mode="view"
             modelPath={modelPath}
             onMount={(editor) => {
               previewEditorRef.current = editor as {
@@ -331,6 +343,7 @@ export function DiffWorkspaceBlameSurface({
               onPreviewEditorMount(editor);
             }}
             syntaxHighlighting={syntaxHighlighting}
+            tabSize={tabSize}
             theme={theme}
             value={previewText}
             wordWrap={wordWrap}

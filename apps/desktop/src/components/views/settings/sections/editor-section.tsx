@@ -18,7 +18,7 @@ import {
   runWhenBrowserIsIdle,
   type SystemFontReadResult,
 } from "@/components/views/settings/settings-font-picker";
-import { EditorPreview } from "@/components/views/settings/settings-previews";
+import { EditorPreview } from "@/components/views/settings/settings-previews-codemirror";
 import {
   DefaultSelectValue,
   SettingsField,
@@ -429,7 +429,7 @@ function EditorSection({ query }: { query: string }) {
           showLoadingSkeleton={isLoadingEditorFonts && !hasLoadedEditorFonts}
         />
         <SettingsField
-          description="Changes Monaco font size immediately for open diff views."
+          description="Changes editor font size immediately for open diff views."
           label="Font size"
           query={query}
         >
@@ -484,7 +484,7 @@ function EditorSection({ query }: { query: string }) {
           />
         </SettingsField>
         <SettingsField
-          description="Controls the visible indentation width in the Monaco diff editor."
+          description="Controls the visible indentation width in the diff editor."
           label="Tab size"
           query={query}
         >
@@ -539,7 +539,7 @@ function EditorSection({ query }: { query: string }) {
           />
         </SettingsField>
         <SettingsField
-          description="Show or hide Monaco line numbers in diff views."
+          description="Show or hide line numbers in diff views."
           label="Line numbers"
           query={query}
         >
@@ -602,7 +602,7 @@ function EditorSection({ query }: { query: string }) {
           </label>
         </SettingsField>
         <SettingsField
-          description="Choose which line-ending mode Monaco should use when rendering diffs."
+          description="Choose which line-ending mode to use when rendering diffs."
           label="Line ending mode"
           query={query}
         >

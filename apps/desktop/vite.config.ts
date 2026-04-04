@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 // Rolldown code splitting regex patterns
-const MONACO_PATTERN = /monaco-editor|@monaco-editor/;
+const CODEMIRROR_PATTERN = /@codemirror|codemirror/;
 const TERMINAL_PATTERN = /xterm|@xterm/;
 const GRAPH_PATTERN = /@xyflow/;
 const DND_PATTERN = /@dnd-kit/;
@@ -53,10 +53,10 @@ export default defineConfig(({ mode }) => ({
           // Target max chunk size
           maxSize: 500_000, // 500KB target
           groups: [
-            // Monaco Editor - highest priority, largest dep (~4MB)
+            // CodeMirror editor - priority for editor functionality
             {
-              name: "monaco",
-              test: MONACO_PATTERN,
+              name: "codemirror",
+              test: CODEMIRROR_PATTERN,
               priority: 100,
             },
             // Terminal (xterm) and addons

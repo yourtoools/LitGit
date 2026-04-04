@@ -63,9 +63,9 @@ const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   },
   {
     id: "editor",
-    description: "Monaco diff-editor appearance and runtime preferences.",
+    description: "Code editor appearance and runtime preferences.",
     icon: MonitorIcon,
-    keywords: ["editor", "monaco", "wrap", "line numbers", "font"],
+    keywords: ["editor", "codemirror", "wrap", "line numbers", "font"],
   },
   {
     id: "terminal",
