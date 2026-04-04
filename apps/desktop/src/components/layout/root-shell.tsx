@@ -2,6 +2,7 @@ import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import Footer from "@/components/shell/footer";
 import Header from "@/components/shell/header";
+import { WindowTitlebar } from "@/components/shell/window-titlebar";
 
 interface RootShellProps {
   children: ReactNode;
@@ -14,8 +15,9 @@ export function RootShell({ children }: RootShellProps) {
 
   if (pathname === "/onboarding") {
     return (
-      <div className="h-dvh min-h-0 overflow-hidden">
-        <main className="h-full min-h-0 overflow-y-auto">{children}</main>
+      <div className="grid h-dvh min-h-0 grid-rows-[auto_1fr] overflow-hidden">
+        <WindowTitlebar hideSearch />
+        <main className="min-h-0 overflow-y-auto">{children}</main>
       </div>
     );
   }

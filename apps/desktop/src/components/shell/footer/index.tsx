@@ -7,7 +7,12 @@ import {
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
 import { useWindowEvent } from "@mantine/hooks";
-import { ArrowClockwiseIcon, SpinnerGapIcon } from "@phosphor-icons/react";
+import {
+  ArrowClockwiseIcon,
+  PlayIcon,
+  SpinnerGapIcon,
+} from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { intlFormat } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
@@ -29,6 +34,7 @@ const ZOOM_STEP = 10;
 const RELEASE_NOTES_URL = env.VITE_RELEASE_NOTES_URL;
 
 export default function Footer() {
+  const navigate = useNavigate();
   const [zoom, setZoom] = useState(100);
   const [appVersion, setAppVersion] = useState("dev");
   const activeRepoId = useRepoStore((state) => state.activeRepoId);
@@ -208,6 +214,30 @@ export default function Footer() {
             zoom={zoom}
             zoomOptions={ZOOM_OPTIONS}
           />
+
+          {import.meta.env.DEV ? (
+            <div className="flex items-center">
+              <Tooltip>
+                <TooltipTrigger
+                  aria-label="Preview onboarding page"
+                  className="group inline-flex h-5 cursor-pointer items-center gap-1.5 border border-amber-500/35 bg-amber-500/15 px-2.5 font-semibold text-foreground/95 text-xs leading-none transition-all hover:border-amber-500/55 hover:bg-amber-500/25 hover:text-foreground"
+                  onClick={() => {
+                    navigate({ to: "/onboarding", replace: true }).catch(
+                      () => undefined
+                    );
+                  }}
+                >
+                  <PlayIcon className="size-3 text-amber-600 dark:text-amber-400" />
+                  <span className="text-muted-foreground/90 uppercase tracking-[0.06em]">
+                    Onboarding
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  Preview onboarding page
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : null}
 
           <div className="flex items-center">
             <Tooltip>

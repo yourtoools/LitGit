@@ -15,7 +15,11 @@ const CONTROL_BUTTON_HOVER_CLASS = "hover:bg-muted/70 hover:text-foreground";
 const CONTROL_BUTTON_CLOSE_HOVER_CLASS =
   "hover:bg-destructive hover:text-destructive-foreground";
 
-export function WindowTitlebar() {
+interface WindowTitlebarProps {
+  hideSearch?: boolean;
+}
+
+export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
   const isWindows = isWindowsPlatform();
   const tauriRuntime = isTauri();
   const [isMaximized, setIsMaximized] = useState(false);
@@ -126,34 +130,36 @@ export function WindowTitlebar() {
       </div>
 
       {/* Centered Command Trigger with Popover */}
-      <Popover
-        onOpenChange={(nextOpen: boolean) => {
-          if (nextOpen) {
-            openSearch();
-          } else {
-            closeSearch();
-          }
-        }}
-        open={isOpen}
-      >
-        <PopoverTrigger
-          render={
-            <button
-              aria-label={`Search opened tabs (${getSearchTabsShortcutLabel()})`}
-              className="tauri-no-drag focus-visible:desktop-focus absolute left-1/2 flex h-5 -translate-x-1/2 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-              data-tauri-drag-region="false"
-              onClick={toggleSearch}
-              type="button"
-            >
-              <span>Search opened tabs</span>
-              <span className="hidden text-muted-foreground/60 sm:inline">
-                {getSearchTabsShortcutLabel()}
-              </span>
-            </button>
-          }
-        />
-        <HeaderTabsSearch />
-      </Popover>
+      {!hideSearch && (
+        <Popover
+          onOpenChange={(nextOpen: boolean) => {
+            if (nextOpen) {
+              openSearch();
+            } else {
+              closeSearch();
+            }
+          }}
+          open={isOpen}
+        >
+          <PopoverTrigger
+            render={
+              <button
+                aria-label={`Search opened tabs (${getSearchTabsShortcutLabel()})`}
+                className="tauri-no-drag focus-visible:desktop-focus absolute left-1/2 flex h-5 -translate-x-1/2 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                data-tauri-drag-region="false"
+                onClick={toggleSearch}
+                type="button"
+              >
+                <span>Search opened tabs</span>
+                <span className="hidden text-muted-foreground/60 sm:inline">
+                  {getSearchTabsShortcutLabel()}
+                </span>
+              </button>
+            }
+          />
+          <HeaderTabsSearch />
+        </Popover>
+      )}
 
       {tauriRuntime ? (
         <div
