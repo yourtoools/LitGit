@@ -22,13 +22,13 @@ function SettingsField({
   return (
     <div
       className={cn(
-        "grid gap-2 border border-border/60 bg-background/70 p-4 transition-colors md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
+        "grid gap-2 border border-border/60 bg-background/70 p-3 transition-colors md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-4",
         isHighlighted && "border-primary/40 bg-primary/5"
       )}
     >
       <div className="min-w-0 space-y-1">
         <div className="flex items-center justify-between gap-3">
-          <div className="font-medium text-sm">{label}</div>
+          <div className="font-medium text-xs">{label}</div>
           {isHighlighted && onJump ? (
             <Button onClick={onJump} size="xs" type="button" variant="ghost">
               Open section
@@ -58,13 +58,13 @@ function _PlannedField({
   return (
     <div
       className={cn(
-        "grid gap-1 border border-border/70 border-dashed bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-6",
+        "grid gap-1 border border-border/70 border-dashed bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-4",
         isHighlighted && "border-primary/50 bg-primary/5"
       )}
     >
       <div className="min-w-0 space-y-1">
         <div className="flex items-center justify-between gap-3">
-          <div className="font-medium text-sm">{label}</div>
+          <div className="font-medium text-xs">{label}</div>
           <span className="rounded-full border border-border/70 px-2 py-0.5 text-[0.65rem] text-muted-foreground uppercase tracking-[0.14em]">
             Planned
           </span>

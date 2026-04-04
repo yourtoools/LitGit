@@ -395,10 +395,10 @@ function EditorSection({ query }: { query: string }) {
 
   return (
     <div
-      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
+      className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
       ref={previewContainerRef}
     >
-      <div className="grid gap-4">
+      <div className="grid gap-2">
         <FontPickerField
           description="Search installed editor fonts and bundled fallbacks, then optionally filter to monospace only."
           emptyMessage={
@@ -434,6 +434,7 @@ function EditorSection({ query }: { query: string }) {
           query={query}
         >
           <Input
+            className="h-7 text-xs"
             max={32}
             min={10}
             onBlur={() => {
@@ -489,6 +490,7 @@ function EditorSection({ query }: { query: string }) {
           query={query}
         >
           <Input
+            className="h-7 text-xs"
             max={8}
             min={1}
             onBlur={() => {
@@ -552,7 +554,10 @@ function EditorSection({ query }: { query: string }) {
             }}
             value={editor.lineNumbers}
           >
-            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+            <SelectTrigger
+              className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+              size="sm"
+            >
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -568,14 +573,14 @@ function EditorSection({ query }: { query: string }) {
           label="Word wrap"
           query={query}
         >
-          <label className="inline-flex items-center gap-3">
+          <label className="inline-flex items-center gap-1.5">
             <Switch
               checked={editor.wordWrap === "on"}
               onCheckedChange={(checked) => {
                 setEditorPreferences({ wordWrap: checked ? "on" : "off" });
               }}
             />
-            <span className="text-sm">
+            <span className="h-7 text-xs leading-7">
               {editor.wordWrap === "on"
                 ? "Word wrap enabled"
                 : "Word wrap disabled"}
@@ -587,14 +592,14 @@ function EditorSection({ query }: { query: string }) {
           label="Syntax highlighting"
           query={query}
         >
-          <label className="inline-flex items-center gap-3">
+          <label className="inline-flex items-center gap-1.5">
             <Switch
               checked={editor.syntaxHighlighting}
               onCheckedChange={(checked) => {
                 setEditorPreferences({ syntaxHighlighting: Boolean(checked) });
               }}
             />
-            <span className="text-sm">
+            <span className="h-7 text-xs leading-7">
               {editor.syntaxHighlighting
                 ? "Use syntax-aware language colors"
                 : "Always render diffs as plain text"}
@@ -617,7 +622,10 @@ function EditorSection({ query }: { query: string }) {
             }}
             value={editor.eol}
           >
-            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+            <SelectTrigger
+              className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+              size="sm"
+            >
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>

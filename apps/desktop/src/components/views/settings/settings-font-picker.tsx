@@ -278,9 +278,9 @@ function FontPickerField({
 
   return (
     <SettingsField description={description} label={label} query={query}>
-      <div className="grid gap-3">
+      <div className="grid gap-1.5">
         {showLoadingSkeleton ? (
-          <Skeleton className="h-8 w-full border border-input/60 bg-input/35" />
+          <Skeleton className="h-7 w-full border border-input/60 bg-input/35" />
         ) : (
           <Combobox
             autoHighlight
@@ -300,7 +300,7 @@ function FontPickerField({
             value={selectedOption}
           >
             <ComboboxInput
-              className="w-full"
+              className="h-7 w-full text-xs"
               onFocus={(event) => {
                 onPickerInteract?.();
                 event.currentTarget.select();
@@ -315,7 +315,7 @@ function FontPickerField({
                   <ComboboxItem key={option.family} value={option}>
                     <div className="flex min-w-0 flex-1 items-center justify-between gap-3 pr-6">
                       <div className="min-w-0">
-                        <div className="truncate text-sm">{option.family}</div>
+                        <div className="truncate text-xs">{option.family}</div>
                         <div className="truncate text-muted-foreground text-xs">
                           {describeFontSource(option)}
                         </div>
@@ -327,17 +327,17 @@ function FontPickerField({
             </ComboboxContent>
           </Combobox>
         )}
-        <label className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-2">
           <Switch
             checked={monospaceOnly}
             onCheckedChange={(checked) =>
               onMonospaceOnlyChange(Boolean(checked))
             }
           />
-          <span className="text-sm">Show monospace fonts only</span>
+          <span className="text-xs">Show monospace fonts only</span>
         </label>
         {isLoadingOptions ? (
-          <div className="flex items-center gap-2 text-muted-foreground text-xs">
+          <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
             <span className="inline-flex size-2 animate-pulse rounded-full bg-primary/60" />
             <span>Loading installed fonts...</span>
           </div>

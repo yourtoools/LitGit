@@ -408,10 +408,10 @@ function TerminalSection({ query }: { query: string }) {
 
   return (
     <div
-      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
+      className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-stretch"
       ref={previewContainerRef}
     >
-      <div className="grid gap-4">
+      <div className="grid gap-2">
         <FontPickerField
           description="Search installed terminal fonts and bundled fallbacks, then optionally filter to monospace only."
           emptyMessage={
@@ -447,6 +447,7 @@ function TerminalSection({ query }: { query: string }) {
           query={query}
         >
           <Input
+            className="h-7 text-xs"
             max={32}
             min={8}
             onBlur={() => {
@@ -502,6 +503,7 @@ function TerminalSection({ query }: { query: string }) {
           query={query}
         >
           <Input
+            className="h-7 text-xs"
             min={1}
             onChange={(event) =>
               setLineHeight(Math.max(1, Number(event.target.value) || 1))
@@ -525,7 +527,10 @@ function TerminalSection({ query }: { query: string }) {
             }}
             value={cursorStyle}
           >
-            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+            <SelectTrigger
+              className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+              size="sm"
+            >
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>

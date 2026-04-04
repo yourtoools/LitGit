@@ -202,8 +202,11 @@ function GitSection({ query }: { query: string }) {
             {isEditing ? (
               <div className="grid gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="git-settings-name">Commit author name</Label>
+                  <Label className="text-xs" htmlFor="git-settings-name">
+                    Commit author name
+                  </Label>
                   <Input
+                    className="h-7 text-xs"
                     id="git-settings-name"
                     onChange={(event) => setName(event.target.value)}
                     placeholder="Jane Developer"
@@ -211,10 +214,11 @@ function GitSection({ query }: { query: string }) {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="git-settings-email">
+                  <Label className="text-xs" htmlFor="git-settings-email">
                     Commit author email
                   </Label>
                   <Input
+                    className="h-7 text-xs"
                     id="git-settings-email"
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="jane@example.com"
@@ -254,6 +258,7 @@ function GitSection({ query }: { query: string }) {
                           setIsSaving(false);
                         });
                     }}
+                    size="sm"
                     type="button"
                   >
                     {isSaving ? "Saving..." : "Save"}
@@ -270,6 +275,7 @@ function GitSection({ query }: { query: string }) {
                       setEditSnapshot(null);
                       setStatusMessage(null);
                     }}
+                    size="sm"
                     type="button"
                     variant="outline"
                   >
@@ -307,6 +313,7 @@ function GitSection({ query }: { query: string }) {
                     onClick={() => {
                       refreshIdentity().catch(() => undefined);
                     }}
+                    size="sm"
                     type="button"
                     variant="outline"
                   >
@@ -318,6 +325,7 @@ function GitSection({ query }: { query: string }) {
                       setIsEditing(true);
                       setStatusMessage(null);
                     }}
+                    size="sm"
                     type="button"
                     variant="outline"
                   >
@@ -383,6 +391,7 @@ function GitHubTokenFields() {
         .
       </SettingsHelpText>
       <Input
+        className="h-7 text-xs"
         disabled={hasStoredToken}
         onChange={(event) => {
           setTokenInput(event.target.value);
@@ -410,12 +419,13 @@ function GitHubTokenFields() {
                 );
               });
           }}
+          size="sm"
           type="button"
           variant="outline"
         >
           Save token
         </Button>
-        <span className="text-muted-foreground text-sm">
+        <span className="text-muted-foreground text-xs">
           {tokenStatus?.hasStoredValue
             ? `Stored (${tokenStatus.storageMode})`
             : "No token saved"}
@@ -444,6 +454,7 @@ function GitHubTokenFields() {
                   );
                 });
             }}
+            size="sm"
             type="button"
             variant="ghost"
           >

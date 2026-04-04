@@ -38,18 +38,18 @@ function GeneralSection({ query }: { query: string }) {
     uniqueRemoteCount !== null && uniqueRemoteCount > 5;
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-3">
       <SettingsField
         description="Keep open tabs between launches. Turning this off stops restoration and clears remembered tab layout."
         label="Remember tabs"
         query={query}
       >
-        <label className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-1.5">
           <Switch
             checked={rememberTabs}
             onCheckedChange={(checked) => setRememberTabs(Boolean(checked))}
           />
-          <span className="text-sm">
+          <span className="text-xs">
             {rememberTabs ? "Restore tabs on launch" : "Do not restore tabs"}
           </span>
         </label>
@@ -59,8 +59,9 @@ function GeneralSection({ query }: { query: string }) {
         label="Default branch name"
         query={query}
       >
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           <Input
+            className="h-7 text-xs"
             onChange={(event) => setDefaultBranchName(event.target.value)}
             placeholder="main"
             value={defaultBranchName}
@@ -75,8 +76,9 @@ function GeneralSection({ query }: { query: string }) {
         label="Auto fetch interval"
         query={query}
       >
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           <Input
+            className="h-7 text-xs"
             max={AUTO_FETCH_INTERVAL_LIMITS.max}
             min={AUTO_FETCH_INTERVAL_LIMITS.min}
             onChange={(event) => {

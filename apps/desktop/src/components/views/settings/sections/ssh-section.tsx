@@ -42,13 +42,13 @@ function SshSection({ query }: { query: string }) {
   );
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-1.5">
       <SettingsField
         description="Allow supported Git operations to consult the local SSH agent when authenticating remotes."
         label="Use local SSH agent"
         query={query}
       >
-        <label className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-1.5">
           <Switch
             checked={useLocalAgent}
             onCheckedChange={(checked) => {
@@ -60,7 +60,7 @@ function SshSection({ query }: { query: string }) {
               }));
             }}
           />
-          <span className="text-sm">
+          <span className="text-xs">
             {useLocalAgent ? "Prefer local SSH agent" : "Do not use SSH agent"}
           </span>
         </label>
@@ -70,11 +70,14 @@ function SshSection({ query }: { query: string }) {
         label="SSH key selection"
         query={query}
       >
-        <div className="grid gap-3">
-          <div className="grid gap-2">
-            <Label htmlFor="ssh-private-key-path">Private key path</Label>
-            <div className="flex gap-2">
+        <div className="grid gap-1.5">
+          <div className="grid gap-1.5">
+            <Label className="text-xs" htmlFor="ssh-private-key-path">
+              Private key path
+            </Label>
+            <div className="flex gap-1.5">
               <Input
+                className="h-7 text-xs"
                 id="ssh-private-key-path"
                 placeholder="~/.ssh/id_ed25519"
                 readOnly
@@ -96,6 +99,7 @@ function SshSection({ query }: { query: string }) {
                       );
                     });
                 }}
+                size="sm"
                 type="button"
                 variant="outline"
               >
@@ -103,10 +107,13 @@ function SshSection({ query }: { query: string }) {
               </Button>
             </div>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="ssh-public-key-path">Public key path</Label>
-            <div className="flex gap-2">
+          <div className="grid gap-1.5">
+            <Label className="text-xs" htmlFor="ssh-public-key-path">
+              Public key path
+            </Label>
+            <div className="flex gap-1.5">
               <Input
+                className="h-7 text-xs"
                 id="ssh-public-key-path"
                 placeholder="~/.ssh/id_ed25519.pub"
                 readOnly
@@ -128,6 +135,7 @@ function SshSection({ query }: { query: string }) {
                       );
                     });
                 }}
+                size="sm"
                 type="button"
                 variant="outline"
               >
@@ -135,7 +143,7 @@ function SshSection({ query }: { query: string }) {
               </Button>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
             <Button
               onClick={() => {
                 generateSshKeypair("litgit_ed25519")
@@ -154,13 +162,14 @@ function SshSection({ query }: { query: string }) {
                     );
                   });
               }}
+              size="sm"
               type="button"
               variant="outline"
             >
               Generate new keypair
             </Button>
             {sshStatusMessage ? (
-              <span className="text-muted-foreground text-sm">
+              <span className="text-muted-foreground text-xs">
                 {sshStatusMessage}
               </span>
             ) : null}

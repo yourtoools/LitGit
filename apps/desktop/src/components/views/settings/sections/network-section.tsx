@@ -187,20 +187,20 @@ function NetworkSection({ query }: { query: string }) {
   }, [proxyHost, proxyPort, proxyType]);
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-2">
       <SettingsField
         description="Delegate HTTP credential storage to Git Credential Manager when available."
         label="Use Git Credential Manager"
         query={query}
       >
-        <label className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-1.5">
           <Switch
             checked={useGitCredentialManager}
             onCheckedChange={(checked) => {
               setNetworkProxy({ useGitCredentialManager: Boolean(checked) });
             }}
           />
-          <span className="text-sm">Use system credential helper</span>
+          <span className="text-xs">Use system credential helper</span>
         </label>
       </SettingsField>
       <SettingsField
@@ -208,14 +208,14 @@ function NetworkSection({ query }: { query: string }) {
         label="Use proxy"
         query={query}
       >
-        <label className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-1.5">
           <Switch
             checked={enableProxy}
             onCheckedChange={(checked) => {
               setNetworkProxy({ enableProxy: Boolean(checked) });
             }}
           />
-          <span className="text-sm">
+          <span className="text-xs">
             {enableProxy ? "Proxy enabled" : "Proxy disabled"}
           </span>
         </label>
@@ -225,14 +225,14 @@ function NetworkSection({ query }: { query: string }) {
         label="Verify SSL certificates"
         query={query}
       >
-        <label className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-1.5">
           <Checkbox
             checked={sslVerification}
             onCheckedChange={(checked) => {
               setNetworkProxy({ sslVerification: Boolean(checked) });
             }}
           />
-          <span className="text-sm">Keep SSL verification enabled</span>
+          <span className="text-xs">Keep SSL verification enabled</span>
         </label>
       </SettingsField>
       <SettingsField
@@ -240,11 +240,12 @@ function NetworkSection({ query }: { query: string }) {
         label="Proxy target"
         query={query}
       >
-        <div className="grid gap-4 border border-border/60 bg-muted/18 p-4 md:gap-4">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(7rem,0.75fr)_minmax(8rem,0.8fr)]">
-            <div className="grid gap-2">
+        <div className="grid gap-2 border border-border/60 bg-muted/18 p-3 md:gap-2">
+          <div className="grid gap-1.5 md:grid-cols-[minmax(0,1.5fr)_minmax(7rem,0.75fr)_minmax(8rem,0.8fr)]">
+            <div className="grid gap-1.5">
               <Label htmlFor="proxy-target-host">Proxy host</Label>
               <Input
+                className="h-7 text-xs"
                 id="proxy-target-host"
                 onChange={(event) => {
                   setProxyTargetDraft((current) => ({
@@ -257,9 +258,10 @@ function NetworkSection({ query }: { query: string }) {
                 value={proxyTargetDraft.host}
               />
             </div>
-            <div className="grid gap-2">
+            <div className="grid gap-1.5">
               <Label htmlFor="proxy-target-port">Port</Label>
               <Input
+                className="h-7 text-xs"
                 id="proxy-target-port"
                 min={1}
                 onChange={(event) => {
@@ -274,7 +276,7 @@ function NetworkSection({ query }: { query: string }) {
                 value={proxyTargetDraft.port}
               />
             </div>
-            <div className="grid gap-2">
+            <div className="grid gap-1.5">
               <Label htmlFor="proxy-target-type">Type</Label>
               <Select
                 items={PROXY_TYPE_OPTIONS}
@@ -290,8 +292,9 @@ function NetworkSection({ query }: { query: string }) {
                 value={proxyTargetDraft.type}
               >
                 <SelectTrigger
-                  className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!"
+                  className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                   id="proxy-target-type"
+                  size="sm"
                 >
                   <DefaultSelectValue />
                 </SelectTrigger>
@@ -305,10 +308,11 @@ function NetworkSection({ query }: { query: string }) {
               </Select>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <Button
               disabled={!(canSaveProxyTarget && hasUnsavedProxyTargetChanges)}
               onClick={handleSaveProxyTarget}
+              size="sm"
               type="button"
             >
               Save proxy target
@@ -347,6 +351,7 @@ function NetworkSection({ query }: { query: string }) {
                     );
                   });
               }}
+              size="sm"
               type="button"
               variant="outline"
             >
@@ -355,6 +360,7 @@ function NetworkSection({ query }: { query: string }) {
             {hasSavedProxyTarget ? (
               <Button
                 onClick={resetProxySettings}
+                size="sm"
                 type="button"
                 variant="ghost"
               >
@@ -384,8 +390,8 @@ function NetworkSection({ query }: { query: string }) {
         label="Proxy authentication"
         query={query}
       >
-        <div className="grid gap-3">
-          <label className="inline-flex items-center gap-3">
+        <div className="grid gap-1.5">
+          <label className="inline-flex items-center gap-1.5">
             <Checkbox
               checked={proxyAuthEnabled}
               onCheckedChange={(checked) => {
@@ -406,7 +412,7 @@ function NetworkSection({ query }: { query: string }) {
                 }
               }}
             />
-            <span className="text-sm">
+            <span className="text-xs">
               {proxyAuthEnabled
                 ? "Proxy authentication enabled"
                 : "Proxy authentication disabled"}
@@ -414,8 +420,9 @@ function NetworkSection({ query }: { query: string }) {
           </label>
           {proxyAuthEnabled ? (
             <>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-1.5 md:grid-cols-2">
                 <Input
+                  className="h-7 text-xs"
                   onChange={(event) => {
                     setNetworkProxy({ proxyUsername: event.target.value });
                     setProxyAuthMessage(null);
@@ -424,6 +431,7 @@ function NetworkSection({ query }: { query: string }) {
                   value={proxyUsername}
                 />
                 <Input
+                  className="h-7 text-xs"
                   onChange={(event) => {
                     setProxyPasswordInput(event.target.value);
                     setProxyAuthMessage(null);
@@ -433,7 +441,7 @@ function NetworkSection({ query }: { query: string }) {
                   value={proxyPasswordInput}
                 />
               </div>
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   disabled={
                     proxyUsername.trim().length === 0 ||
@@ -459,6 +467,7 @@ function NetworkSection({ query }: { query: string }) {
                         );
                       });
                   }}
+                  size="sm"
                   type="button"
                   variant="outline"
                 >
@@ -484,12 +493,13 @@ function NetworkSection({ query }: { query: string }) {
                         );
                       });
                   }}
+                  size="sm"
                   type="button"
                   variant="ghost"
                 >
                   Clear password
                 </Button>
-                <span className="text-muted-foreground text-sm">
+                <span className="text-muted-foreground text-xs">
                   {proxyAuthSecretStored
                     ? `Stored (${proxyAuthSecretStorageMode ?? "session"})`
                     : "No proxy password saved"}
@@ -507,19 +517,19 @@ function NetworkSection({ query }: { query: string }) {
         label="Stored HTTP credential entries"
         query={query}
       >
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           {credentialEntries.length === 0 ? (
-            <div className="text-muted-foreground text-sm">
+            <div className="text-muted-foreground text-xs">
               No stored HTTP credentials yet.
             </div>
           ) : (
             credentialEntries.map((entry) => (
               <div
-                className="flex items-center justify-between gap-3 border border-border/70 px-3 py-2"
+                className="flex items-center justify-between gap-2 border border-border/70 px-2 py-1.5"
                 key={entry.id}
               >
                 <div className="min-w-0">
-                  <div className="font-medium text-sm">
+                  <div className="font-medium text-xs">
                     {entry.protocol}://{entry.host}
                     {entry.port ? `:${entry.port}` : ""}
                   </div>

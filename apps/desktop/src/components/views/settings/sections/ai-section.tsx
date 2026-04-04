@@ -161,7 +161,7 @@ function AiSection({ query }: { query: string }) {
   }, [provider]);
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-1.5">
       <SettingsField
         description="Choose which provider future AI-assisted features should target."
         label="AI provider"
@@ -185,7 +185,10 @@ function AiSection({ query }: { query: string }) {
           }}
           value={provider}
         >
-          <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+          <SelectTrigger
+            className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+            size="sm"
+          >
             <DefaultSelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -206,6 +209,7 @@ function AiSection({ query }: { query: string }) {
         query={query}
       >
         <Input
+          className="h-7 text-xs"
           onChange={(event) => setAiCustomEndpoint(event.target.value)}
           placeholder={AI_ENDPOINT_PLACEHOLDERS[provider]}
           value={customEndpoint}
@@ -217,6 +221,7 @@ function AiSection({ query }: { query: string }) {
         query={query}
       >
         <Input
+          className="h-7 text-xs"
           max={4096}
           min={256}
           onChange={(event) => {
@@ -232,6 +237,7 @@ function AiSection({ query }: { query: string }) {
         query={query}
       >
         <Input
+          className="h-7 text-xs"
           max={512}
           min={32}
           onChange={(event) => {
@@ -246,8 +252,9 @@ function AiSection({ query }: { query: string }) {
         label="API key storage"
         query={query}
       >
-        <div className="grid gap-3">
+        <div className="grid gap-1.5">
           <Input
+            className="h-7 text-xs"
             onChange={(event) => {
               setAiSecretInput(event.target.value);
               setAiSecretMessage(null);
@@ -256,7 +263,7 @@ function AiSection({ query }: { query: string }) {
             type="password"
             value={aiSecretInput}
           />
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
             <Button
               disabled={aiSecretInput.trim().length === 0}
               onClick={() => {
@@ -276,12 +283,13 @@ function AiSection({ query }: { query: string }) {
                     );
                   });
               }}
+              size="sm"
               type="button"
               variant="outline"
             >
               Save API key
             </Button>
-            <span className="text-muted-foreground text-sm">
+            <span className="text-muted-foreground text-xs">
               {aiSecretStatus?.hasStoredValue
                 ? `Stored (${aiSecretStatus.storageMode})`
                 : "No API key saved"}
@@ -289,7 +297,12 @@ function AiSection({ query }: { query: string }) {
           </div>
           {hasStoredAiSecret ? (
             <SectionActionRow>
-              <Button onClick={resetAiSettings} type="button" variant="ghost">
+              <Button
+                onClick={resetAiSettings}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
                 Reset AI settings
               </Button>
             </SectionActionRow>
@@ -309,17 +322,18 @@ function AiSection({ query }: { query: string }) {
         label="Model selection"
         query={query}
       >
-        <div className="grid gap-3">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="grid gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
               disabled={!hasStoredAiSecret || isLoadingAiModels}
               onClick={refreshAiModels}
+              size="sm"
               type="button"
               variant="outline"
             >
               {isLoadingAiModels ? "Refreshing..." : "Refresh models"}
             </Button>
-            <span className="text-muted-foreground text-sm">
+            <span className="text-muted-foreground text-xs">
               {model.trim().length > 0
                 ? `Selected: ${model}`
                 : "No model selected"}
@@ -336,7 +350,10 @@ function AiSection({ query }: { query: string }) {
             }}
             value={model}
           >
-            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+            <SelectTrigger
+              className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+              size="sm"
+            >
               <SelectValue placeholder="Refresh models first" />
             </SelectTrigger>
             <SelectContent>
@@ -359,7 +376,7 @@ function AiSection({ query }: { query: string }) {
         label="Default commit instruction"
         query={query}
       >
-        <div className="grid gap-3">
+        <div className="grid gap-1.5">
           <Textarea
             className="focus-visible:desktop-focus min-h-28 focus-visible:ring-0! focus-visible:ring-offset-0!"
             onChange={(event) => setAiCommitInstruction(event.target.value)}
@@ -371,6 +388,7 @@ function AiSection({ query }: { query: string }) {
               onClick={() =>
                 setAiCommitInstruction(DEFAULT_AI_COMMIT_INSTRUCTION)
               }
+              size="sm"
               type="button"
               variant="outline"
             >

@@ -115,7 +115,7 @@ function UiSection({ query }: { query: string }) {
     localeQuery.length > 0 ? localeQuery : selectedLocaleOption.displayName;
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-2">
       <SettingsField
         description="Switch between system, light, and dark appearance. Applied immediately."
         label="Theme"
@@ -131,7 +131,7 @@ function UiSection({ query }: { query: string }) {
         label="Notification location"
         query={query}
       >
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <Select
             items={TOASTER_OPTIONS}
             onValueChange={(value) => {
@@ -149,7 +149,10 @@ function UiSection({ query }: { query: string }) {
             }}
             value={toasterPosition}
           >
-            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+            <SelectTrigger
+              className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+              size="sm"
+            >
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -171,6 +174,7 @@ function UiSection({ query }: { query: string }) {
                 id: NOTIFICATION_PREVIEW_TOAST_ID,
               });
             }}
+            size="sm"
             type="button"
             variant="outline"
           >
@@ -183,7 +187,7 @@ function UiSection({ query }: { query: string }) {
         label="Date/time locale"
         query={query}
       >
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           <Combobox
             autoHighlight
             filter={null}
@@ -202,7 +206,7 @@ function UiSection({ query }: { query: string }) {
             value={selectedLocaleOption}
           >
             <ComboboxInput
-              className="w-full"
+              className="h-7 w-full text-xs"
               onFocus={(event) => {
                 event.currentTarget.select();
               }}
@@ -216,7 +220,7 @@ function UiSection({ query }: { query: string }) {
                   <ComboboxItem key={option.code} value={option}>
                     <div className="flex min-w-0 flex-1 items-center justify-between gap-3 pr-6">
                       <div className="min-w-0">
-                        <div className="truncate text-sm">
+                        <div className="truncate text-xs">
                           {option.displayName}
                         </div>
                         <div className="truncate text-muted-foreground text-xs">
@@ -244,7 +248,7 @@ function UiSection({ query }: { query: string }) {
         label="Date format"
         query={query}
       >
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           <Select
             items={DATE_FORMAT_OPTIONS}
             onValueChange={(value) => {
@@ -254,7 +258,10 @@ function UiSection({ query }: { query: string }) {
             }}
             value={dateFormat}
           >
-            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+            <SelectTrigger
+              className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+              size="sm"
+            >
               <DefaultSelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -272,15 +279,15 @@ function UiSection({ query }: { query: string }) {
         label="Show toolbar labels"
         query={query}
       >
-        <div className="grid gap-2">
-          <label className="inline-flex items-center gap-3">
+        <div className="grid gap-1.5">
+          <label className="inline-flex items-center gap-1.5 text-xs">
             <Checkbox
               checked={toolbarLabels}
               onCheckedChange={(checked) => setToolbarLabels(Boolean(checked))}
             />
-            <span className="text-sm">Display action labels in the header</span>
+            <span className="text-xs">Display action labels in the header</span>
           </label>
-          <div className="inline-flex items-center gap-2 border border-border/70 bg-muted/20 p-2">
+          <div className="inline-flex items-center gap-1.5 border border-border/70 bg-muted/20 p-1.5">
             <span className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap border border-border/70 bg-background px-2 py-1 text-xs">
               <GitBranchIcon className="size-3.5" />
               {toolbarLabels ? <span>Branches</span> : null}

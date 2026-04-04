@@ -74,13 +74,13 @@ function SigningSection({ query }: { query: string }) {
   }, [filteredSigningKeys, setSigningPreferences, signingKey]);
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-2">
       <SettingsField
         description="Apply Git commit signing automatically on supported commit flows."
         label="Sign commits by default"
         query={query}
       >
-        <label className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-1.5">
           <Checkbox
             checked={signCommitsByDefault}
             onCheckedChange={(checked) => {
@@ -89,7 +89,7 @@ function SigningSection({ query }: { query: string }) {
               });
             }}
           />
-          <span className="text-sm">Use signing defaults for new commits</span>
+          <span className="text-xs">Use signing defaults for new commits</span>
         </label>
       </SettingsField>
       <SettingsField
@@ -106,7 +106,10 @@ function SigningSection({ query }: { query: string }) {
           }}
           value={signingFormat}
         >
-          <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+          <SelectTrigger
+            className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+            size="sm"
+          >
             <DefaultSelectValue placeholder="OPENPGP" />
           </SelectTrigger>
           <SelectContent>
@@ -122,8 +125,13 @@ function SigningSection({ query }: { query: string }) {
         label="GPG program path"
         query={query}
       >
-        <div className="flex gap-2">
-          <Input placeholder="/usr/bin/gpg" readOnly value={gpgProgramPath} />
+        <div className="flex gap-1.5">
+          <Input
+            className="h-7 text-xs"
+            placeholder="/usr/bin/gpg"
+            readOnly
+            value={gpgProgramPath}
+          />
           <Button
             onClick={() => {
               pickSettingsFile()
@@ -140,6 +148,7 @@ function SigningSection({ query }: { query: string }) {
                   );
                 });
             }}
+            size="sm"
             type="button"
             variant="outline"
           >
@@ -152,7 +161,7 @@ function SigningSection({ query }: { query: string }) {
         label="Signing key"
         query={query}
       >
-        <div className="grid gap-3">
+        <div className="grid gap-1.5">
           <Select
             items={{
               [NO_SIGNING_KEY_VALUE]: "<None>",
@@ -172,7 +181,10 @@ function SigningSection({ query }: { query: string }) {
             }}
             value={signingKey.length > 0 ? signingKey : NO_SIGNING_KEY_VALUE}
           >
-            <SelectTrigger className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!">
+            <SelectTrigger
+              className="focus-visible:desktop-focus h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
+              size="sm"
+            >
               <SelectValue className="min-w-24" placeholder="<None>" />
             </SelectTrigger>
             <SelectContent>
@@ -194,7 +206,7 @@ function SigningSection({ query }: { query: string }) {
               yet.
             </SettingsHelpText>
           ) : null}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
             <Button
               onClick={() => {
                 listSigningKeys()
@@ -210,13 +222,14 @@ function SigningSection({ query }: { query: string }) {
                     );
                   });
               }}
+              size="sm"
               type="button"
               variant="outline"
             >
               Refresh keys
             </Button>
             {signingStatusMessage ? (
-              <span className="text-muted-foreground text-sm">
+              <span className="text-muted-foreground text-xs">
                 {signingStatusMessage}
               </span>
             ) : null}
