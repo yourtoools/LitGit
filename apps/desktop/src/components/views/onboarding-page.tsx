@@ -24,7 +24,6 @@ import {
   AI_ENDPOINT_PLACEHOLDERS,
   AI_PROVIDER_OPTIONS,
 } from "@/components/views/settings/settings-store";
-import type { AiModelInfo } from "@/lib/tauri-settings-client";
 import {
   clearAiProviderSecret,
   clearGitHubToken,
@@ -389,17 +388,12 @@ function GitHubTokenStep({
               Skip
             </Button>
             <Button
-              className="min-w-20"
-              disabled={
-                isSaving ||
-                isClearing ||
-                hasStoredToken ||
-                token.trim().length === 0
-              }
-              onClick={handleSave}
+              className="min-w-28"
+              disabled={isSaving || isClearing}
+              onClick={hasStoredToken ? onComplete : handleSave}
               type="button"
             >
-              {isSaving ? "Saving..." : "Save"}
+              {isSaving ? "Saving..." : "Save & Continue"}
             </Button>
           </div>
         </div>
@@ -414,12 +408,6 @@ function AiStep({
   onSkip,
   apiKey,
   onApiKeyChange,
-  provider,
-  onProviderChange,
-  customEndpoint,
-  onCustomEndpointChange,
-  selectedModel,
-  onModelChange,
   secretStatus,
   onSecretCleared,
 }: {
@@ -428,14 +416,6 @@ function AiStep({
   onSkip: () => void;
   apiKey: string;
   onApiKeyChange: (value: string) => void;
-  provider: "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom";
-  onProviderChange: (
-    value: "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom"
-  ) => void;
-  customEndpoint: string;
-  onCustomEndpointChange: (value: string) => void;
-  selectedModel: string;
-  onModelChange: (value: string) => void;
   secretStatus: {
     hasStoredValue: boolean;
     storageMode: "secure" | "session";
@@ -446,11 +426,30 @@ function AiStep({
   const [isClearing, setIsClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [aiModels, setAiModels] = useState<AiModelInfo[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsMessage, setModelsMessage] = useState<string | null>(null);
 
+  // Preferences store state
+  const provider = usePreferencesStore((state) => state.ai.provider);
+  const setAiProvider = usePreferencesStore((state) => state.setAiProvider);
+  const customEndpoint = usePreferencesStore(
+    (state) => state.ai.customEndpoint
+  );
+  const setAiCustomEndpoint = usePreferencesStore(
+    (state) => state.setAiCustomEndpoint
+  );
+  const model = usePreferencesStore((state) => state.ai.model);
+  const setAiModel = usePreferencesStore((state) => state.setAiModel);
+  const availableModels = usePreferencesStore(
+    (state) => state.ai.availableModels
+  );
+  const setAiAvailableModels = usePreferencesStore(
+    (state) => state.setAiAvailableModels
+  );
+
   const hasStoredSecret = secretStatus?.hasStoredValue ?? false;
+  const showCustomUrl = provider === "custom" || provider === "ollama";
+  const hasApiKey = apiKey.trim().length > 0;
 
   const handleSave = async () => {
     const trimmedKey = apiKey.trim();
@@ -499,20 +498,20 @@ function AiStep({
         customEndpoint,
         provider,
       });
-      setAiModels(models);
+      setAiAvailableModels(models);
 
       if (models.length === 0) {
-        onModelChange("");
+        setAiModel("");
         setModelsMessage("No models were returned by the AI endpoint.");
       } else {
-        const hasSelected = models.some((m) => m.id === selectedModel);
-        const nextModel = hasSelected ? selectedModel : (models[0]?.id ?? "");
-        onModelChange(nextModel);
+        const hasSelected = models.some((m) => m.id === model);
+        const nextModel = hasSelected ? model : (models[0]?.id ?? "");
+        setAiModel(nextModel);
         setModelsMessage(`Loaded ${models.length} model(s).`);
       }
     } catch (err) {
-      setAiModels([]);
-      onModelChange("");
+      setAiAvailableModels([]);
+      setAiModel("");
       setModelsMessage(
         err instanceof Error ? err.message : "Failed to load AI models"
       );
@@ -521,8 +520,11 @@ function AiStep({
     }
   };
 
-  const showCustomUrl = provider === "custom" || provider === "ollama";
-  const hasApiKey = apiKey.trim().length > 0;
+  const handleProviderChange = (
+    value: "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom"
+  ) => {
+    setAiProvider(value);
+  };
 
   return (
     <div className="mx-auto w-full space-y-4">
@@ -553,22 +555,22 @@ function AiStep({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* Provider + Base URL (2-column grid when custom/ollama) */}
+        <div
+          className={`grid gap-3 ${showCustomUrl ? "grid-cols-2" : "grid-cols-1"}`}
+        >
           <div className="grid gap-2">
-            <div className="flex h-7 items-center justify-between">
-              <Label
-                className="font-medium text-xs leading-none"
-                htmlFor="ai-provider"
-              >
-                Provider
-              </Label>
-              <span className="text-muted-foreground text-xs" />
-            </div>
+            <Label
+              className="font-medium text-xs leading-none"
+              htmlFor="ai-provider"
+            >
+              Provider
+            </Label>
             <Select
               items={AI_PROVIDER_OPTIONS}
               onValueChange={(value) => {
                 if (typeof value === "string") {
-                  onProviderChange(
+                  handleProviderChange(
                     value as
                       | "openai"
                       | "anthropic"
@@ -597,73 +599,75 @@ function AiStep({
             </Select>
           </div>
 
-          <div className="grid gap-2">
-            <div className="flex h-7 items-center justify-between">
+          {showCustomUrl && (
+            <div className="grid gap-2">
               <Label
                 className="font-medium text-xs leading-none"
-                htmlFor="ai-api-key"
+                htmlFor="ai-endpoint"
               >
-                API Key
+                Base URL
               </Label>
-              {hasStoredSecret ? (
-                <div className="flex items-center gap-2">
-                  <Button
-                    disabled={isClearing}
-                    onClick={handleClear}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    {isClearing ? "Clearing..." : "Clear to change"}
-                  </Button>
-                </div>
-              ) : (
-                <span className="text-muted-foreground text-xs">
-                  No API key saved
-                </span>
-              )}
+              <Input
+                disabled={isSaving}
+                id="ai-endpoint"
+                onChange={(event) => setAiCustomEndpoint(event.target.value)}
+                placeholder={AI_ENDPOINT_PLACEHOLDERS[provider]}
+                value={customEndpoint}
+              />
             </div>
-            <Input
-              disabled={isSaving || isClearing || hasStoredSecret}
-              id="ai-api-key"
-              onChange={(event) => {
-                onApiKeyChange(event.target.value);
-                setError(null);
-                setMessage(null);
-              }}
-              placeholder="sk-..."
-              type="password"
-              value={hasStoredSecret ? "********************" : apiKey}
-            />
-          </div>
+          )}
         </div>
 
-        {showCustomUrl && (
-          <div className="grid gap-2">
+        {/* API Key */}
+        <div className="grid gap-2">
+          <div className="flex h-7 items-center justify-between">
             <Label
               className="font-medium text-xs leading-none"
-              htmlFor="ai-endpoint"
+              htmlFor="ai-api-key"
             >
-              Base URL
+              API Key
             </Label>
-            <Input
-              disabled={isSaving}
-              id="ai-endpoint"
-              onChange={(event) => onCustomEndpointChange(event.target.value)}
-              placeholder={AI_ENDPOINT_PLACEHOLDERS[provider]}
-              value={customEndpoint}
-            />
+            {hasStoredSecret ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  disabled={isClearing}
+                  onClick={handleClear}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {isClearing ? "Clearing..." : "Clear to change"}
+                </Button>
+              </div>
+            ) : (
+              <span className="text-muted-foreground text-xs">
+                No API key saved
+              </span>
+            )}
           </div>
-        )}
+          <Input
+            disabled={isSaving || isClearing || hasStoredSecret}
+            id="ai-api-key"
+            onChange={(event) => {
+              onApiKeyChange(event.target.value);
+              setError(null);
+              setMessage(null);
+            }}
+            placeholder="sk-..."
+            type="password"
+            value={hasStoredSecret ? "********************" : apiKey}
+          />
+        </div>
 
+        {/* Model Selection */}
         <div className="grid gap-2">
           <div className="flex h-7 items-center justify-between">
             <Label className="font-medium text-xs leading-none">
               Model Selection
             </Label>
             <span className="text-muted-foreground text-xs">
-              {selectedModel.trim().length > 0
-                ? `Selected: ${selectedModel}`
+              {model.trim().length > 0
+                ? `Selected: ${model}`
                 : "No model selected"}
             </span>
           </div>
@@ -679,23 +683,23 @@ function AiStep({
               {isLoadingModels ? "Loading..." : "Refresh models"}
             </Button>
             <Select
-              disabled={aiModels.length === 0}
+              disabled={availableModels.length === 0}
               items={Object.fromEntries(
-                aiModels.map((entry: AiModelInfo) => [entry.id, entry.label])
+                availableModels.map((entry) => [entry.id, entry.label])
               )}
               onValueChange={(value) => {
                 if (typeof value === "string") {
-                  onModelChange(value);
+                  setAiModel(value);
                 }
               }}
-              value={selectedModel}
+              value={model}
             >
               <SelectTrigger className="w-full" size="sm">
                 <SelectValue placeholder="Refresh models first" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {aiModels.map((entry: AiModelInfo) => (
+                  {availableModels.map((entry) => (
                     <SelectItem key={entry.id} value={entry.id}>
                       {entry.label}
                     </SelectItem>
@@ -767,22 +771,12 @@ function AiStep({
               Skip
             </Button>
             <Button
-              className="min-w-20"
+              className="min-w-28"
               disabled={isSaving || isClearing}
               onClick={hasStoredSecret ? onComplete : handleSave}
               type="button"
             >
-              {(() => {
-                if (isSaving) {
-                  return "Saving...";
-                }
-
-                if (hasStoredSecret) {
-                  return "Continue";
-                }
-
-                return "Save";
-              })()}
+              {isSaving ? "Saving..." : "Save & Continue"}
             </Button>
           </div>
         </div>
@@ -932,7 +926,7 @@ function IdentityStep({
 
         <div className="flex items-center justify-end pt-1">
           <Button className="min-w-32" disabled={isDisabled} type="submit">
-            {isSaving ? "Saving..." : "Save and continue"}
+            {isSaving ? "Saving..." : "Save & Continue"}
           </Button>
         </div>
       </div>
@@ -950,11 +944,6 @@ export function OnboardingPage() {
   const [email, setEmail] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [aiApiKey, setAiApiKey] = useState("");
-  const [aiProvider, setAiProvider] = useState<
-    "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom"
-  >("openai");
-  const [aiCustomEndpoint, setAiCustomEndpoint] = useState("");
-  const [aiModel, setAiModel] = useState("");
 
   // Secret status tracking (for disabled inputs and clear buttons)
   const [gitHubTokenStatus, setGitHubTokenStatus] = useState<null | {
@@ -968,26 +957,11 @@ export function OnboardingPage() {
 
   // Load existing AI settings from preferences store (for dev preview)
   const existingAiProvider = usePreferencesStore((state) => state.ai.provider);
-  const existingAiEndpoint = usePreferencesStore(
-    (state) => state.ai.customEndpoint
-  );
-  const existingAiModel = usePreferencesStore((state) => state.ai.model);
 
-  // Dev mode: pre-fill existing settings from preferences and check secret status
+  // Dev mode: pre-fill check secret status
   useEffect(() => {
     if (!import.meta.env.DEV) {
       return;
-    }
-
-    // Pre-fill AI settings from preferences store
-    if (existingAiProvider) {
-      setAiProvider(existingAiProvider);
-    }
-    if (existingAiEndpoint) {
-      setAiCustomEndpoint(existingAiEndpoint);
-    }
-    if (existingAiModel) {
-      setAiModel(existingAiModel);
     }
 
     // Check if secrets already exist
@@ -1009,7 +983,7 @@ export function OnboardingPage() {
           // Silently ignore errors
         });
     }
-  }, [existingAiProvider, existingAiEndpoint, existingAiModel]);
+  }, [existingAiProvider]);
 
   const [errors, setErrors] = useState<{ email?: string; name?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -1051,19 +1025,21 @@ export function OnboardingPage() {
   }, []);
 
   // Check AI secret status when provider changes (in dev mode)
+  const currentAiProvider = usePreferencesStore((state) => state.ai.provider);
+
   useEffect(() => {
     if (!import.meta.env.DEV) {
       return;
     }
 
-    getAiProviderSecretStatus(aiProvider)
+    getAiProviderSecretStatus(currentAiProvider)
       .then((status) => {
         setAiSecretStatus(status);
       })
       .catch(() => {
         // Silently ignore errors
       });
-  }, [aiProvider]);
+  }, [currentAiProvider]);
 
   const handleClose = useCallback(() => {
     setHasCompletedOnboarding(true);
@@ -1218,13 +1194,9 @@ export function OnboardingPage() {
               {currentStep === "ai" && (
                 <AiStep
                   apiKey={aiApiKey}
-                  customEndpoint={aiCustomEndpoint}
                   onApiKeyChange={setAiApiKey}
                   onBack={handleBackToGitHub}
                   onComplete={handleAiComplete}
-                  onCustomEndpointChange={setAiCustomEndpoint}
-                  onModelChange={setAiModel}
-                  onProviderChange={setAiProvider}
                   onSecretCleared={() =>
                     setAiSecretStatus({
                       hasStoredValue: false,
@@ -1232,9 +1204,7 @@ export function OnboardingPage() {
                     })
                   }
                   onSkip={handleAiSkip}
-                  provider={aiProvider}
                   secretStatus={aiSecretStatus}
-                  selectedModel={aiModel}
                 />
               )}
 
