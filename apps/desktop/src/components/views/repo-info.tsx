@@ -9789,7 +9789,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleUndoAction().catch(() => undefined);
                         }}
-                        size={toolbarLabels ? "sm" : "icon"}
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -9815,7 +9815,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleRedoAction().catch(() => undefined);
                         }}
-                        size={toolbarLabels ? "sm" : "icon"}
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -9944,7 +9944,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePushAction().catch(() => undefined);
                         }}
-                        size={toolbarLabels ? "sm" : "icon"}
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -9974,7 +9974,7 @@ export function RepoInfo() {
                           !activeRepoId || isCreatingBranch || isSwitchingBranch
                         }
                         onClick={openBranchCreateInput}
-                        size={toolbarLabels ? "sm" : "icon"}
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -10002,7 +10002,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleCreateStash().catch(() => undefined);
                         }}
-                        size={toolbarLabels ? "sm" : "icon"}
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -10034,7 +10034,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePopCurrentStash().catch(() => undefined);
                         }}
-                        size={toolbarLabels ? "sm" : "icon"}
+                        size="sm"
                         type="button"
                         variant="ghost"
                       />
@@ -10299,7 +10299,7 @@ export function RepoInfo() {
                                       () => undefined
                                     );
                                   }}
-                                  size={toolbarLabels ? "sm" : "icon"}
+                                  size="sm"
                                   style={{
                                     borderColor: `${currentBranchLaneColor}66`,
                                     boxShadow: `inset 0 0 0 1px ${currentBranchLaneColor}22`,
@@ -10313,7 +10313,7 @@ export function RepoInfo() {
                                   className="focus-visible:desktop-focus h-7 px-3 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   disabled={isCreatingBranch}
                                   onClick={closeBranchCreateInput}
-                                  size={toolbarLabels ? "sm" : "icon"}
+                                  size="sm"
                                   type="button"
                                   variant="ghost"
                                 >
@@ -11213,7 +11213,7 @@ export function RepoInfo() {
                                     () => undefined
                                   );
                                 }}
-                                size={toolbarLabels ? "sm" : "icon"}
+                                size="sm"
                                 type="button"
                               >
                                 Retry
@@ -11264,7 +11264,7 @@ export function RepoInfo() {
                                 onClick={() => {
                                   handleSaveEditedFile().catch(() => undefined);
                                 }}
-                                size={toolbarLabels ? "sm" : "icon"}
+                                size="sm"
                                 type="button"
                                 variant="secondary"
                               >
@@ -11417,7 +11417,7 @@ export function RepoInfo() {
                                       () => undefined
                                     );
                                   }}
-                                  size={toolbarLabels ? "sm" : "icon"}
+                                  size="sm"
                                   type="button"
                                   variant="outline"
                                 >
@@ -11438,7 +11438,7 @@ export function RepoInfo() {
                                       selectedCommit.messageDescription
                                     );
                                   }}
-                                  size={toolbarLabels ? "sm" : "icon"}
+                                  size="sm"
                                   type="button"
                                   variant="ghost"
                                 >
@@ -11700,13 +11700,12 @@ export function RepoInfo() {
                                                 selectedCommitTree
                                               );
                                             }}
-                                            size={toolbarLabels ? "sm" : "icon"}
                                             type="button"
                                             variant="ghost"
                                           >
                                             {isCommitTreeFullyExpanded
-                                              ? "Collapse All"
-                                              : "Expand All"}
+                                              ? "Collapse"
+                                              : "Expand"}
                                           </Button>
                                         );
                                       })()}
@@ -11885,7 +11884,7 @@ export function RepoInfo() {
                                     type: "stash",
                                   }).catch(() => undefined);
                                 }}
-                                size={toolbarLabels ? "sm" : "icon"}
+                                size="sm"
                                 type="button"
                                 variant="outline"
                               >
@@ -11906,7 +11905,7 @@ export function RepoInfo() {
                                     type: "stash",
                                   }).catch(() => undefined);
                                 }}
-                                size={toolbarLabels ? "sm" : "icon"}
+                                size="sm"
                                 type="button"
                                 variant="outline"
                               >
@@ -11927,7 +11926,7 @@ export function RepoInfo() {
                                     type: "stash",
                                   }).catch(() => undefined);
                                 }}
-                                size={toolbarLabels ? "sm" : "icon"}
+                                size="sm"
                                 type="button"
                                 variant="outline"
                               >
@@ -12088,7 +12087,7 @@ export function RepoInfo() {
                                           selectedReferenceTree
                                         );
                                       }}
-                                      size={toolbarLabels ? "sm" : "icon"}
+                                      size="sm"
                                       type="button"
                                       variant="ghost"
                                     >
@@ -12336,7 +12335,7 @@ export function RepoInfo() {
                                             })
                                           );
                                         }}
-                                        size={toolbarLabels ? "sm" : "icon"}
+                                        size="sm"
                                         type="button"
                                         variant="ghost"
                                       >
@@ -12396,7 +12395,7 @@ export function RepoInfo() {
                                     onClick={() => {
                                       handleStageAll().catch(() => undefined);
                                     }}
-                                    size={toolbarLabels ? "sm" : "icon"}
+                                    size="sm"
                                     type="button"
                                     variant="ghost"
                                   >
@@ -12460,7 +12459,7 @@ export function RepoInfo() {
                                     onClick={() => {
                                       handleUnstageAll().catch(() => undefined);
                                     }}
-                                    size={toolbarLabels ? "sm" : "icon"}
+                                    size="sm"
                                     type="button"
                                     variant="ghost"
                                   >
@@ -12668,7 +12667,7 @@ export function RepoInfo() {
                           className="focus-visible:desktop-focus mt-3 h-7 w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                           disabled={isCommitting || !canCommit}
                           onClick={handleCommit}
-                          size={toolbarLabels ? "sm" : "icon"}
+                          size="sm"
                           type="button"
                         >
                           <DotOutlineIcon className="size-3.5" />
