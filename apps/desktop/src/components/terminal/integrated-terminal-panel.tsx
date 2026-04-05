@@ -324,40 +324,6 @@ export function IntegratedTerminalPanel({
             </TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-1">
-            {activeTab === "output" || activeTab === "activity" ? (
-              <Button
-                className="h-7 px-2 text-[0.65rem]"
-                disabled={selectedLogText.length === 0}
-                onClick={() => copyText(selectedLogText)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Copy
-              </Button>
-            ) : null}
-            {activeTab === "output" ? (
-              <Button
-                className="h-7 px-2 text-[0.65rem]"
-                onClick={() => clearSystemLogs(cwd)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Clear
-              </Button>
-            ) : null}
-            {activeTab === "activity" ? (
-              <Button
-                className="h-7 px-2 text-[0.65rem]"
-                onClick={() => clearActivityLogs(cwd)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Clear
-              </Button>
-            ) : null}
             <Button
               aria-label="Close terminal"
               onClick={toggle}
@@ -474,6 +440,12 @@ export function IntegratedTerminalPanel({
                 >
                   Copy All
                 </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={renderedSystemLogs.length === 0}
+                  onClick={() => clearSystemLogs(cwd)}
+                >
+                  Clear All
+                </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
           </div>
@@ -527,6 +499,12 @@ export function IntegratedTerminalPanel({
                   onClick={() => copyText(renderedActivityLogText)}
                 >
                   Copy All
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={renderedActivityLogs.length === 0}
+                  onClick={() => clearActivityLogs(cwd)}
+                >
+                  Clear All
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
