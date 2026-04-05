@@ -18,13 +18,21 @@ import {
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
 import { PopoverContent } from "@litgit/ui/components/popover";
+import { Antigravity } from "@litgit/ui/components/ui/svgs/antigravity";
+import { Bash } from "@litgit/ui/components/ui/svgs/bash";
+import { Linux } from "@litgit/ui/components/ui/svgs/linux";
+import { Powershell } from "@litgit/ui/components/ui/svgs/powershell";
+import { Vscode } from "@litgit/ui/components/ui/svgs/vscode";
+import { cn } from "@litgit/ui/lib/utils";
 import { useWindowEvent } from "@mantine/hooks";
 import {
-  ArchiveBoxIcon,
-  ArrowArcLeftIcon,
+  ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
+  ArrowDownIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
+  ArrowsLeftRightIcon,
+  ArrowUpIcon,
   CopyIcon,
   DownloadSimpleIcon,
   FileIcon,
@@ -114,6 +122,30 @@ type PaletteItem = CommandPaletteItem | SearchTabItem;
 const SCROLLBAR_CLASSES =
   "[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2";
 
+function ExplorerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={cn("size-[14px] shrink-0", className)}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M3 7.25h8.1l1.4 1.6H21v8.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-10.5Z"
+        fill="#FFD54F"
+      />
+      <path
+        d="M3 8.25a2 2 0 0 1 2-2h5.55l1.4 1.6H19a2 2 0 0 1 2 2v.4H3v-2Z"
+        fill="#64B5F6"
+      />
+      <path
+        d="M3 10.25h18l-1.38 6.08a2 2 0 0 1-1.95 1.56H5.33a2 2 0 0 1-1.95-1.56L3 10.25Z"
+        fill="#FFCA28"
+      />
+    </svg>
+  );
+}
+
 const renderCommandIcon = (commandId: string) => {
   if (commandId.startsWith("settings:") || commandId === "open-settings") {
     return (
@@ -122,9 +154,26 @@ const renderCommandIcon = (commandId: string) => {
   }
 
   if (commandId.startsWith("open-with:")) {
-    return (
-      <FolderOpenIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-    );
+    const appId = commandId.replace("open-with:", "");
+
+    switch (appId) {
+      case "file-manager":
+        return <ExplorerIcon className="mt-0.5 shrink-0" />;
+      case "terminal":
+        return <Powershell className="mt-0.5 size-3.5 shrink-0" />;
+      case "vscode":
+        return <Vscode className="mt-0.5 size-3.5 shrink-0" />;
+      case "antigravity":
+        return <Antigravity className="mt-0.5 size-3.5 shrink-0" />;
+      case "git-bash":
+        return <Bash className="mt-0.5 size-3.5 shrink-0" />;
+      case "wsl":
+        return <Linux className="mt-0.5 size-3.5 shrink-0" />;
+      default:
+        return (
+          <FolderOpenIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        );
+    }
   }
 
   switch (commandId) {
@@ -180,37 +229,52 @@ const renderCommandIcon = (commandId: string) => {
     }
     case "pull": {
       return (
-        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "pull-fetch-all": {
       return (
-        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "pull-ff-only": {
       return (
-        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "pull-rebase": {
       return (
-        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "push": {
       return (
-        <UploadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <ArrowUpIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "undo-repo-action": {
+      return (
+        <ArrowCounterClockwiseIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "redo-repo-action": {
+      return (
+        <ArrowClockwiseIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "stash-changes": {
       return (
-        <ArchiveBoxIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "pop-stash": {
       return (
-        <ArrowArcLeftIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <UploadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "change-repository": {
+      return (
+        <ArrowsLeftRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "copy-repo-path": {
