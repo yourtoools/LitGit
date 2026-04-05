@@ -1,3 +1,4 @@
+import { Button } from "@litgit/ui/components/button";
 import {
   Combobox,
   ComboboxGroup,
@@ -6,9 +7,20 @@ import {
   ComboboxLabel,
   ComboboxList,
 } from "@litgit/ui/components/combobox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@litgit/ui/components/dialog";
+import { Input } from "@litgit/ui/components/input";
+import { Label } from "@litgit/ui/components/label";
 import { PopoverContent } from "@litgit/ui/components/popover";
 import { useWindowEvent } from "@mantine/hooks";
 import {
+  ArchiveBoxIcon,
   ArrowArcLeftIcon,
   ArrowCounterClockwiseIcon,
   ArrowLeftIcon,
@@ -64,7 +76,14 @@ import {
 } from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { useRootActiveRepoContext } from "@/stores/repo/repo-root-selectors";
-import { useRepoStashes } from "@/stores/repo/repo-selectors";
+import {
+  useRepoRedoDepth,
+  useRepoRedoLabel,
+  useRepoStashes,
+  useRepoUndoDepth,
+  useRepoUndoLabel,
+  useRepoWorkingTreeItems,
+} from "@/stores/repo/repo-selectors";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
@@ -154,7 +173,27 @@ const renderCommandIcon = (commandId: string) => {
         <FolderOpenIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
+    case "create-branch": {
+      return (
+        <GitBranchIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
     case "pull": {
+      return (
+        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "pull-fetch-all": {
+      return (
+        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "pull-ff-only": {
+      return (
+        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "pull-rebase": {
       return (
         <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
@@ -162,6 +201,11 @@ const renderCommandIcon = (commandId: string) => {
     case "push": {
       return (
         <UploadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "stash-changes": {
+      return (
+        <ArchiveBoxIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       );
     }
     case "pop-stash": {
@@ -221,6 +265,7 @@ export function HeaderTabsSearch() {
   const closeSearch = useTabSearchStore((state) => state.close);
   const [query, setQuery] = useState("");
   const wasOpenRef = useRef(isOpen);
+  const ignoredSelectedInputValueRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -266,12 +311,33 @@ export function HeaderTabsSearch() {
   const pullBranch = useRepoStore((state) => state.pullBranch);
   const popStash = useRepoStore((state) => state.popStash);
   const pushBranch = useRepoStore((state) => state.pushBranch);
+  const redoRepoAction = useRepoStore((state) => state.redoRepoAction);
+  const undoRepoAction = useRepoStore((state) => state.undoRepoAction);
+  const createStash = useRepoStore((state) => state.createStash);
+  const createBranch = useRepoStore((state) => state.createBranch);
   const { activeRepo, activeRepoId } = useRootActiveRepoContext();
   const [launcherApplications, setLauncherApplications] = useState<
     ExternalLauncherApp[]
   >([]);
+  const [branchName, setBranchName] = useState("");
+  const [branchNameError, setBranchNameError] = useState<string | null>(null);
+  const [isBranchDialogOpen, setIsBranchDialogOpen] = useState(false);
   const [isCreateLocalDialogOpen, setIsCreateLocalDialogOpen] = useState(false);
   const stashes = useRepoStashes(activeRepoId);
+  const workingTreeItems = useRepoWorkingTreeItems(activeRepoId);
+  const undoDepth = useRepoUndoDepth(activeRepoId);
+  const redoDepth = useRepoRedoDepth(activeRepoId);
+  const undoLabel = useRepoUndoLabel(activeRepoId);
+  const redoLabel = useRepoRedoLabel(activeRepoId);
+  const canCreateStash = workingTreeItems.length > 0;
+  const canPopCurrentStash = stashes.length > 0;
+  let stashDescription = "There are no working tree changes to stash.";
+
+  if (activeRepoId === null) {
+    stashDescription = "Open a repository first to stash current changes.";
+  } else if (canCreateStash && activeRepo) {
+    stashDescription = `Stash current changes in ${activeRepo.name}.`;
+  }
   const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
   const toggleTerminalPanel = useTerminalPanelStore((state) => state.toggle);
   const {
@@ -308,6 +374,13 @@ export function HeaderTabsSearch() {
       isDisposed = true;
     };
   }, [tauriRuntime]);
+
+  useEffect(() => {
+    if (!isBranchDialogOpen) {
+      setBranchName("");
+      setBranchNameError(null);
+    }
+  }, [isBranchDialogOpen]);
 
   const {
     dialogContent,
@@ -565,12 +638,47 @@ export function HeaderTabsSearch() {
         type: "command",
       },
       {
+        description: activeRepo
+          ? `Create and switch to a new branch in ${activeRepo.name}.`
+          : "Open a repository first to create a branch.",
+        disabled: activeRepoId === null,
+        group: "Git",
+        id: "create-branch",
+        keywords: ["branch", "create", "git", "new", "switch"],
+        label: "Create Branch",
+        type: "command",
+      },
+      {
         description: "Clone a remote repository into a new local folder.",
         disabled: false,
         group: "Repository",
         id: "clone-repository",
         keywords: ["clone", "download", "git", "repository", "repo"],
         label: "Clone Repository",
+        type: "command",
+      },
+      {
+        description:
+          undoDepth > 0
+            ? `Undo the last repository action${undoLabel ? `: ${undoLabel}` : "."}`
+            : "There is no repository action to undo.",
+        disabled: activeRepoId === null || undoDepth === 0,
+        group: "Git",
+        id: "undo-repo-action",
+        keywords: ["git", "history", "repo", "revert", "undo"],
+        label: undoLabel ? `Undo ${undoLabel}` : "Undo",
+        type: "command",
+      },
+      {
+        description:
+          redoDepth > 0
+            ? `Redo the last repository action${redoLabel ? `: ${redoLabel}` : "."}`
+            : "There is no repository action to redo.",
+        disabled: activeRepoId === null || redoDepth === 0,
+        group: "Git",
+        id: "redo-repo-action",
+        keywords: ["git", "history", "redo", "repo", "repeat"],
+        label: redoLabel ? `Redo ${redoLabel}` : "Redo",
         type: "command",
       },
       {
@@ -582,6 +690,39 @@ export function HeaderTabsSearch() {
         id: "pull",
         keywords: ["fetch", "git", "pull", "remote", "sync"],
         label: "Pull",
+        type: "command",
+      },
+      {
+        description: activeRepo
+          ? `Fetch all remotes for ${activeRepo.name}.`
+          : "Open a repository first to fetch all remotes.",
+        disabled: activeRepoId === null,
+        group: "Git",
+        id: "pull-fetch-all",
+        keywords: ["fetch", "git", "pull", "all", "remote"],
+        label: "Fetch All",
+        type: "command",
+      },
+      {
+        description: activeRepo
+          ? `Pull ${activeRepo.name} with fast-forward only.`
+          : "Open a repository first to run fast-forward only pull.",
+        disabled: activeRepoId === null,
+        group: "Git",
+        id: "pull-ff-only",
+        keywords: ["pull", "git", "fast-forward", "ff-only"],
+        label: "Pull (fast-forward only)",
+        type: "command",
+      },
+      {
+        description: activeRepo
+          ? `Pull ${activeRepo.name} with rebase.`
+          : "Open a repository first to run pull with rebase.",
+        disabled: activeRepoId === null,
+        group: "Git",
+        id: "pull-rebase",
+        keywords: ["pull", "git", "rebase"],
+        label: "Pull (rebase)",
         type: "command",
       },
       {
@@ -599,11 +740,20 @@ export function HeaderTabsSearch() {
         description: latestStashRef
           ? `Pop the latest stash (${latestStashRef}) into the active repository.`
           : "The active repository has no stash entries to pop.",
-        disabled: activeRepoId === null || latestStashRef === undefined,
+        disabled: activeRepoId === null || !canPopCurrentStash,
         group: "Git",
         id: "pop-stash",
         keywords: ["git", "pop", "stash", "unstash"],
         label: "Pop Stash",
+        type: "command",
+      },
+      {
+        description: stashDescription,
+        disabled: activeRepoId === null || !canCreateStash,
+        group: "Git",
+        id: "stash-changes",
+        keywords: ["git", "save", "stash", "changes", "wip"],
+        label: "Stash Changes",
         type: "command",
       },
       {
@@ -627,10 +777,17 @@ export function HeaderTabsSearch() {
     closedTabHistory.length,
     isTerminalPanelOpen,
     launcherCommands,
+    canCreateStash,
+    canPopCurrentStash,
     latestStashRef,
     nextTab,
     previousTab,
+    redoDepth,
+    redoLabel,
     settingsCommands,
+    stashDescription,
+    undoDepth,
+    undoLabel,
   ]);
 
   const parsedItems = useMemo(() => {
@@ -833,6 +990,7 @@ export function HeaderTabsSearch() {
         return;
       }
       case "search-tabs": {
+        setQuery("");
         openSearch("tabs");
         return;
       }
@@ -848,12 +1006,20 @@ export function HeaderTabsSearch() {
         setIsCreateLocalDialogOpen(true);
         return;
       }
+      case "create-branch": {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+          return;
+        }
+
+        setIsBranchDialogOpen(true);
+        return;
+      }
       case "open-repository": {
         await handleOpenRepository();
         return;
       }
       case "copy-repo-path": {
-        if (!activeRepo?.path) {
+        if (!((await ensureActiveRepoPage()) && activeRepo?.path)) {
           return;
         }
 
@@ -870,15 +1036,55 @@ export function HeaderTabsSearch() {
         return;
       }
       case "pull": {
-        if (!activeRepoId) {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
           return;
         }
 
         await pullBranch(activeRepoId, "pull-ff-possible");
         return;
       }
+      case "undo-repo-action": {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+          return;
+        }
+
+        await undoRepoAction(activeRepoId);
+        return;
+      }
+      case "redo-repo-action": {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+          return;
+        }
+
+        await redoRepoAction(activeRepoId);
+        return;
+      }
+      case "pull-fetch-all": {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+          return;
+        }
+
+        await pullBranch(activeRepoId, "fetch-all");
+        return;
+      }
+      case "pull-ff-only": {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+          return;
+        }
+
+        await pullBranch(activeRepoId, "pull-ff-only");
+        return;
+      }
+      case "pull-rebase": {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+          return;
+        }
+
+        await pullBranch(activeRepoId, "pull-rebase");
+        return;
+      }
       case "push": {
-        if (!activeRepoId) {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
           return;
         }
 
@@ -886,14 +1092,28 @@ export function HeaderTabsSearch() {
         return;
       }
       case "pop-stash": {
-        if (!(activeRepoId && latestStashRef)) {
+        if (
+          !((await ensureActiveRepoPage()) && activeRepoId && latestStashRef)
+        ) {
           return;
         }
 
         await popStash(activeRepoId, latestStashRef);
         return;
       }
+      case "stash-changes": {
+        if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+          return;
+        }
+
+        await createStash(activeRepoId, "", "");
+        return;
+      }
       case "toggle-terminal": {
+        if (!(await ensureActiveRepoPage())) {
+          return;
+        }
+
         toggleTerminalPanel();
         return;
       }
@@ -936,7 +1156,13 @@ export function HeaderTabsSearch() {
       }
       default: {
         if (commandId.startsWith("open-with:")) {
-          if (!(activeRepo?.path && tauriRuntime)) {
+          if (
+            !(
+              (await ensureActiveRepoPage()) &&
+              activeRepo?.path &&
+              tauriRuntime
+            )
+          ) {
             return;
           }
 
@@ -958,6 +1184,9 @@ export function HeaderTabsSearch() {
       return;
     }
 
+    ignoredSelectedInputValueRef.current = isCommandItem(value)
+      ? value.label
+      : value.title;
     closeSearch();
 
     if (isCommandItem(value)) {
@@ -992,6 +1221,37 @@ export function HeaderTabsSearch() {
     requestCloseTab(item.tabId);
   };
 
+  const ensureActiveRepoPage = async () => {
+    if (!(activeRepoId && activeRepo)) {
+      return false;
+    }
+
+    await routeRepository(activeRepoId, activeRepo.name);
+    return true;
+  };
+
+  const handleCreateBranch = async () => {
+    if (!((await ensureActiveRepoPage()) && activeRepoId)) {
+      return;
+    }
+
+    const trimmedBranchName = branchName.trim();
+
+    if (trimmedBranchName.length === 0) {
+      setBranchNameError("Enter a branch name.");
+      return;
+    }
+
+    try {
+      await createBranch(activeRepoId, trimmedBranchName);
+      setIsBranchDialogOpen(false);
+    } catch (error) {
+      setBranchNameError(
+        error instanceof Error ? error.message : "Failed to create branch"
+      );
+    }
+  };
+
   return (
     <>
       <PopoverContent
@@ -1006,6 +1266,13 @@ export function HeaderTabsSearch() {
             isCommandItem(item) ? item.label : item.title
           }
           onInputValueChange={(nextInputValue) => {
+            if (ignoredSelectedInputValueRef.current === nextInputValue) {
+              ignoredSelectedInputValueRef.current = null;
+              return;
+            }
+
+            ignoredSelectedInputValueRef.current = null;
+
             if (nextInputValue.startsWith(">")) {
               setSearchMode("commands");
               setQuery(nextInputValue);
@@ -1161,6 +1428,60 @@ export function HeaderTabsSearch() {
         onOpenChange={setIsCreateLocalDialogOpen}
         open={isCreateLocalDialogOpen}
       />
+
+      <Dialog onOpenChange={setIsBranchDialogOpen} open={isBranchDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Branch</DialogTitle>
+            <DialogDescription>
+              Create and switch to a new branch in the active repository.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="command-palette-branch-name">Branch name</Label>
+            <Input
+              autoFocus
+              id="command-palette-branch-name"
+              onChange={(event) => {
+                setBranchName(event.target.value);
+                if (branchNameError) {
+                  setBranchNameError(null);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") {
+                  return;
+                }
+
+                event.preventDefault();
+                handleCreateBranch().catch(() => undefined);
+              }}
+              placeholder="feature/my-branch"
+              value={branchName}
+            />
+            {branchNameError ? (
+              <p className="text-destructive text-xs">{branchNameError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setIsBranchDialogOpen(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                handleCreateBranch().catch(() => undefined);
+              }}
+              type="button"
+            >
+              Create Branch
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <UngroupConfirmDialog
         actionText={dialogContent.actionText}

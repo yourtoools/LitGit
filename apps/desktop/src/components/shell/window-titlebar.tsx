@@ -12,7 +12,7 @@ import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
 
 const TITLEBAR_HEIGHT_CLASS = "h-7";
 const CONTROL_BUTTON_BASE_CLASS =
-  "tauri-no-drag inline-flex items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors focus-visible:desktop-focus focus-visible:text-foreground";
+  "tauri-no-drag inline-flex shrink-0 flex-none items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors focus-visible:desktop-focus focus-visible:text-foreground";
 const CONTROL_BUTTON_SIZE_CLASS = `${TITLEBAR_HEIGHT_CLASS} w-8`;
 const CONTROL_BUTTON_HOVER_CLASS = "hover:bg-muted/70 hover:text-foreground";
 const CONTROL_BUTTON_CLOSE_HOVER_CLASS =
@@ -172,7 +172,7 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
           className="tauri-no-drag flex items-center"
           data-tauri-drag-region="false"
         >
-          <div className="flex items-stretch">
+          <div className="flex shrink-0 items-stretch">
             <button
               aria-label="Minimize window"
               className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
