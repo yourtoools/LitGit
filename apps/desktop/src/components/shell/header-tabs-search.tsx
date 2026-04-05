@@ -1139,6 +1139,8 @@ export function HeaderTabsSearch() {
                             <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                           )}
                           <span className="flex-1 truncate">{item.title}</span>
+                          {/* Placeholder to match height of Open Tabs close button */}
+                          <div className="ml-auto size-5 shrink-0" />
                         </ComboboxItem>
                       ))}
                     </ComboboxGroup>
