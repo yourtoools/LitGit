@@ -1,15 +1,32 @@
 import { create } from "zustand";
 
+export type TabSearchMode = "commands" | "tabs";
+
 interface TabSearchStore {
   close: () => void;
   isOpen: boolean;
-  open: () => void;
-  toggle: () => void;
+  mode: TabSearchMode;
+  open: (mode?: TabSearchMode) => void;
+  setMode: (mode: TabSearchMode) => void;
+  toggle: (mode?: TabSearchMode) => void;
 }
 
 export const useTabSearchStore = create<TabSearchStore>((set) => ({
-  close: () => set({ isOpen: false }),
+  close: () => set({ isOpen: false, mode: "tabs" }),
   isOpen: false,
-  open: () => set({ isOpen: true }),
-  toggle: () => set((state) => ({ isOpen: !state.isOpen })),
+  mode: "tabs",
+  open: (mode = "tabs") => set({ isOpen: true, mode }),
+  setMode: (mode) => set({ mode }),
+  toggle: (mode = "tabs") =>
+    set((state) => {
+      if (!state.isOpen) {
+        return { isOpen: true, mode };
+      }
+
+      if (state.mode !== mode) {
+        return { isOpen: true, mode };
+      }
+
+      return { isOpen: false, mode: "tabs" };
+    }),
 }));

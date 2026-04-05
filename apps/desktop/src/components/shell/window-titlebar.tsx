@@ -3,7 +3,10 @@ import { CopyIcon, MinusIcon, SquareIcon, XIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
-import { getSearchTabsShortcutLabel } from "@/lib/keyboard-shortcuts";
+import {
+  getCommandPaletteShortcutLabel,
+  getSearchTabsShortcutLabel,
+} from "@/lib/keyboard-shortcuts";
 import { isWindowsPlatform } from "@/lib/runtime-platform";
 import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
 
@@ -134,7 +137,7 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
         <Popover
           onOpenChange={(nextOpen: boolean) => {
             if (nextOpen) {
-              openSearch();
+              openSearch("tabs");
             } else {
               closeSearch();
             }
@@ -144,13 +147,15 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
           <PopoverTrigger
             render={
               <button
-                aria-label={`Search opened tabs (${getSearchTabsShortcutLabel()})`}
-                className="tauri-no-drag focus-visible:desktop-focus absolute left-1/2 flex h-5 -translate-x-1/2 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                aria-label={`Search opened tabs (${getSearchTabsShortcutLabel()}) or open commands (${getCommandPaletteShortcutLabel()})`}
+                className="tauri-no-drag focus-visible:desktop-focus absolute left-1/2 flex h-5 w-[36rem] max-w-[calc(100vw-16rem)] -translate-x-1/2 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 data-tauri-drag-region="false"
-                onClick={toggleSearch}
+                onClick={() => toggleSearch("tabs")}
                 type="button"
               >
-                <span>Search opened tabs</span>
+                <span className="line-clamp-1">
+                  Search tabs or shortcuts, or start with &gt; for commands
+                </span>
                 <span className="hidden text-muted-foreground/60 sm:inline">
                   {getSearchTabsShortcutLabel()}
                 </span>

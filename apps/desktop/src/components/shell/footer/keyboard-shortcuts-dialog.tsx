@@ -18,6 +18,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   getChangeRepositoryShortcutKeys,
   getCloseTabShortcutLabel,
+  getCommandPaletteShortcutLabel,
   getKeyboardShortcutsShortcutLabel,
   getNewTabShortcutLabel,
   getNextTabShortcutLabel,
@@ -143,6 +144,15 @@ export function KeyboardShortcutsDialog() {
         keywords: ["tab", "search", "find", "jump", "switch"],
         keys: shortcutLabelToKeys(getSearchTabsShortcutLabel()),
         label: "Search Tabs",
+      },
+      {
+        description:
+          "Open the command palette with a leading > prompt for app actions.",
+        group: "Commands",
+        id: "command-palette",
+        keywords: ["command", "palette", "actions", "terminal", "push", "pull"],
+        keys: shortcutLabelToKeys(getCommandPaletteShortcutLabel()),
+        label: "Command Palette",
       },
       {
         description: "Increase interface zoom in 10% steps up to 130%.",

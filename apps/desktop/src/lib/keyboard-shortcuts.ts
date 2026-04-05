@@ -86,6 +86,10 @@ export const isSearchTabsShortcut = (event: ShortcutEvent) => {
   return isPrimaryShortcut(event, "p");
 };
 
+export const isCommandPaletteShortcut = (event: ShortcutEvent) => {
+  return isPrimaryShiftShortcut(event, "p");
+};
+
 export const isZoomInShortcut = (event: ShortcutEvent) => {
   const normalizedKey = event.key.toLowerCase();
 
@@ -197,6 +201,10 @@ export const getCloseTabShortcutLabel = () => {
 
 export const getSearchTabsShortcutLabel = () => {
   return `${getPrimaryModifierLabel()} + P`;
+};
+
+export const getCommandPaletteShortcutLabel = () => {
+  return `${getPrimaryModifierLabel()} + Shift + P`;
 };
 
 export const getZoomInShortcutLabel = () => {

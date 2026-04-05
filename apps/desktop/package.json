@@ -49,6 +49,7 @@
     "@litgit/env": "workspace:*",
     "@litgit/ui": "workspace:*",
     "@mantine/hooks": "catalog:",
+    "match-sorter": "^8.1.0",
     "@phosphor-icons/react": "catalog:",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-router": "^1.168.10",

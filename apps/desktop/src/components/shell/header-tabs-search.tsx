@@ -8,10 +8,32 @@ import {
 } from "@litgit/ui/components/combobox";
 import { PopoverContent } from "@litgit/ui/components/popover";
 import { useWindowEvent } from "@mantine/hooks";
-import { FileIcon, GitBranchIcon, XIcon } from "@phosphor-icons/react";
+import {
+  ArrowArcLeftIcon,
+  ArrowCounterClockwiseIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CopyIcon,
+  DownloadSimpleIcon,
+  FileIcon,
+  FolderOpenIcon,
+  GearIcon,
+  GitBranchIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  TerminalWindowIcon,
+  UploadSimpleIcon,
+  XIcon,
+} from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
+import { isTauri } from "@tauri-apps/api/core";
+import { matchSorter } from "match-sorter";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { UngroupConfirmDialog } from "@/components/tabs/ungroup-confirm-dialog";
+import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
+import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import { useUngroupConfirmation } from "@/hooks/tabs/use-ungroup-confirmation";
@@ -20,12 +42,33 @@ import {
   normalizeComboboxQuery,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+import { useLauncherActions } from "@/hooks/use-launcher-actions";
 import {
+  getChangeRepositoryShortcutKeys,
+  getCloseTabShortcutLabel,
+  getNewTabShortcutLabel,
+  getNextTabShortcutLabel,
+  getOpenRepositoryShortcutLabel,
+  getPreviousTabShortcutLabel,
+  getReopenClosedTabShortcutLabel,
+  getSearchTabsShortcutLabel,
+  getToggleTerminalShortcutLabel,
+  isCommandPaletteShortcut,
   isEditableTarget,
   isSearchTabsShortcut,
 } from "@/lib/keyboard-shortcuts";
+import {
+  type ExternalLauncherApp,
+  getLauncherApplications,
+  openPathWithApplication,
+} from "@/lib/tauri-settings-client";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import { useRootActiveRepoContext } from "@/stores/repo/repo-root-selectors";
+import { useRepoStashes } from "@/stores/repo/repo-selectors";
+import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
+import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
 interface SearchTabItem {
   groupId: string | null;
@@ -36,37 +79,235 @@ interface SearchTabItem {
   type: "closed" | "open";
 }
 
+interface CommandPaletteItem {
+  description: string;
+  disabled: boolean;
+  group: string;
+  id: string;
+  keywords: string[];
+  label: string;
+  shortcuts?: string[];
+  type: "command";
+}
+
+type PaletteItem = CommandPaletteItem | SearchTabItem;
+
 const SCROLLBAR_CLASSES =
   "[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2";
 
+const renderCommandIcon = (commandId: string) => {
+  if (commandId.startsWith("settings:") || commandId === "open-settings") {
+    return (
+      <GearIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+    );
+  }
+
+  if (commandId.startsWith("open-with:")) {
+    return (
+      <FolderOpenIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+    );
+  }
+
+  switch (commandId) {
+    case "new-tab": {
+      return (
+        <PlusIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "close-tab": {
+      return (
+        <XIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "reopen-tab": {
+      return (
+        <ArrowCounterClockwiseIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "next-tab": {
+      return (
+        <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "previous-tab": {
+      return (
+        <ArrowLeftIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "search-tabs": {
+      return (
+        <MagnifyingGlassIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "clone-repository": {
+      return (
+        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "create-local-repository": {
+      return (
+        <PlusIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "open-repository": {
+      return (
+        <FolderOpenIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "pull": {
+      return (
+        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "push": {
+      return (
+        <UploadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "pop-stash": {
+      return (
+        <ArrowArcLeftIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "copy-repo-path": {
+      return (
+        <CopyIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    case "toggle-terminal": {
+      return (
+        <TerminalWindowIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+    default: {
+      return (
+        <GitBranchIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      );
+    }
+  }
+};
+
+const isCommandItem = (item: PaletteItem): item is CommandPaletteItem => {
+  return item.type === "command";
+};
+
+const shortcutLabelToKeys = (label: string) => {
+  return label.split("+").map((item) => item.trim());
+};
+
+const ShortcutKeys = ({ keys }: { keys: string[] }) => {
+  return (
+    <div className="ml-3 flex shrink-0 items-center gap-1 self-center">
+      {keys.map((key) => (
+        <kbd
+          className="rounded border border-border/70 bg-background/90 px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-[0.12em]"
+          key={key}
+        >
+          {key}
+        </kbd>
+      ))}
+    </div>
+  );
+};
+
 export function HeaderTabsSearch() {
+  const navigate = useNavigate();
+  const tauriRuntime = isTauri();
   const isOpen = useTabSearchStore((state) => state.isOpen);
-  const toggle = useTabSearchStore((state) => state.toggle);
+  const mode = useTabSearchStore((state) => state.mode);
+  const openSearch = useTabSearchStore((state) => state.open);
+  const toggleSearch = useTabSearchStore((state) => state.toggle);
+  const setSearchMode = useTabSearchStore((state) => state.setMode);
   const closeSearch = useTabSearchStore((state) => state.close);
   const [query, setQuery] = useState("");
+  const wasOpenRef = useRef(isOpen);
 
-  // Clear query when search is closed
   useEffect(() => {
     if (!isOpen) {
       setQuery("");
+    } else if (!wasOpenRef.current && mode === "commands") {
+      setQuery((currentQuery) =>
+        currentQuery.length === 0 ? ">" : currentQuery
+      );
     }
-  }, [isOpen]);
+
+    wasOpenRef.current = isOpen;
+  }, [isOpen, mode]);
 
   const normalizedDebouncedQuery = useDebouncedValue(
     query,
     COMBOBOX_DEBOUNCE_DELAY_MS,
     normalizeComboboxQuery
   );
+  const isCommandMode = query.startsWith(">");
+  const normalizedCommandQuery = useMemo(() => {
+    if (!normalizedDebouncedQuery.startsWith(">")) {
+      return normalizedDebouncedQuery;
+    }
+
+    return normalizeComboboxQuery(normalizedDebouncedQuery.slice(1));
+  }, [normalizedDebouncedQuery]);
   const tabs = useTabStore((state) => state.tabs);
   const groups = useTabStore((state) => state.groups);
   const closedTabHistory = useTabStore((state) => state.closedTabHistory);
+  const activeTabId = useTabStore((state) => state.activeTabId);
   const closeTab = useTabStore((state) => state.closeTab);
   const removeTabFromGroup = useTabStore((state) => state.removeTabFromGroup);
   const moveTab = useTabStore((state) => state.moveTab);
+  const reopenClosedTab = useTabStore((state) => state.reopenClosedTab);
   const ungroup = useTabStore((state) => state.ungroup);
   const { setActiveTabFromUrl } = useTabUrlState();
   const { routeRepository } = useOpenRepositoryTabRouting();
   const addTab = useTabStore((state) => state.addTab);
+  const resetSettingsSearch = usePreferencesStore(
+    (state) => state.resetSettingsSearch
+  );
+  const setSettingsSection = usePreferencesStore((state) => state.setSection);
+  const pullBranch = useRepoStore((state) => state.pullBranch);
+  const popStash = useRepoStore((state) => state.popStash);
+  const pushBranch = useRepoStore((state) => state.pushBranch);
+  const { activeRepo, activeRepoId } = useRootActiveRepoContext();
+  const [launcherApplications, setLauncherApplications] = useState<
+    ExternalLauncherApp[]
+  >([]);
+  const [isCreateLocalDialogOpen, setIsCreateLocalDialogOpen] = useState(false);
+  const stashes = useRepoStashes(activeRepoId);
+  const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
+  const toggleTerminalPanel = useTerminalPanelStore((state) => state.toggle);
+  const {
+    handleOpenCloneDialog,
+    handleOpenRepository,
+    isCloneDialogOpen,
+    setIsCloneDialogOpen,
+  } = useLauncherActions();
+
+  useEffect(() => {
+    if (!tauriRuntime) {
+      return;
+    }
+
+    let isDisposed = false;
+
+    const loadLauncherApplications = async () => {
+      try {
+        const nextApplications = await getLauncherApplications();
+
+        if (!isDisposed) {
+          setLauncherApplications(nextApplications);
+        }
+      } catch {
+        if (!isDisposed) {
+          setLauncherApplications([]);
+        }
+      }
+    };
+
+    loadLauncherApplications().catch(() => undefined);
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [tauriRuntime]);
 
   const {
     dialogContent,
@@ -78,75 +319,386 @@ export function HeaderTabsSearch() {
     tabs,
     groups,
     getGroupTabCount: (groupId) =>
-      tabs.filter((t) => t.groupId === groupId).length,
+      tabs.filter((tab) => tab.groupId === groupId).length,
     closeTab,
     removeTabFromGroup,
     moveTab,
     ungroup,
   });
 
+  const latestStashRef =
+    stashes.find((stash) => stash.ref === "stash@{0}")?.ref ?? stashes[0]?.ref;
+  const activeTabIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+  const nextTab =
+    activeTabIndex >= 0 && tabs.length > 1
+      ? tabs[(activeTabIndex + 1) % tabs.length]
+      : null;
+  const previousTab =
+    activeTabIndex >= 0 && tabs.length > 1
+      ? tabs[(activeTabIndex - 1 + tabs.length) % tabs.length]
+      : null;
+
+  const settingsCommands = useMemo<CommandPaletteItem[]>(() => {
+    return [
+      {
+        description: "Open workspace settings.",
+        disabled: false,
+        group: "Settings",
+        id: "open-settings",
+        keywords: ["preferences", "settings", "workspace"],
+        label: "Open Settings",
+        type: "command",
+      },
+      {
+        description: "Open the General settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:general",
+        keywords: ["general", "settings", "preferences"],
+        label: "Settings: General",
+        type: "command",
+      },
+      {
+        description: "Open the Git settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:git",
+        keywords: ["git", "settings", "preferences"],
+        label: "Settings: Git",
+        type: "command",
+      },
+      {
+        description: "Open the SSH settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:ssh",
+        keywords: ["ssh", "settings", "preferences"],
+        label: "Settings: SSH",
+        type: "command",
+      },
+      {
+        description: "Open the UI settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:ui",
+        keywords: ["ui", "theme", "settings", "preferences"],
+        label: "Settings: UI",
+        type: "command",
+      },
+      {
+        description: "Open the Editor settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:editor",
+        keywords: ["editor", "settings", "preferences"],
+        label: "Settings: Editor",
+        type: "command",
+      },
+      {
+        description: "Open the Terminal settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:terminal",
+        keywords: ["terminal", "settings", "preferences"],
+        label: "Settings: Terminal",
+        type: "command",
+      },
+      {
+        description: "Open the Network settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:network",
+        keywords: ["network", "proxy", "settings", "preferences"],
+        label: "Settings: Network",
+        type: "command",
+      },
+      {
+        description: "Open the AI settings section.",
+        disabled: false,
+        group: "Settings",
+        id: "settings:ai",
+        keywords: ["ai", "model", "settings", "preferences"],
+        label: "Settings: AI",
+        type: "command",
+      },
+    ];
+  }, []);
+
+  const launcherCommands = launcherApplications.map<CommandPaletteItem>(
+    (application) => ({
+      description: activeRepo
+        ? `Open ${activeRepo.name} with ${application.label}.`
+        : `Open the active repository with ${application.label}.`,
+      disabled: activeRepoId === null,
+      group: "Open With",
+      id: `open-with:${application.id}`,
+      keywords: [
+        "external",
+        "launcher",
+        "open",
+        "path",
+        "repository",
+        application.label.toLowerCase(),
+      ],
+      label: `Open With: ${application.label}`,
+      type: "command",
+    })
+  );
+
+  const commands = useMemo<CommandPaletteItem[]>(() => {
+    return [
+      {
+        description: "Create a fresh empty tab.",
+        disabled: false,
+        group: "Tabs",
+        id: "new-tab",
+        keywords: ["new", "tab", "create", "workspace"],
+        label: "New Tab",
+        shortcuts: shortcutLabelToKeys(getNewTabShortcutLabel()),
+        type: "command",
+      },
+      {
+        description: activeTabId
+          ? "Close the active tab."
+          : "There is no active tab to close.",
+        disabled: activeTabId === null,
+        group: "Tabs",
+        id: "close-tab",
+        keywords: ["close", "remove", "tab", "active"],
+        label: "Close Tab",
+        shortcuts: shortcutLabelToKeys(getCloseTabShortcutLabel()),
+        type: "command",
+      },
+      {
+        description:
+          closedTabHistory.length > 0
+            ? "Restore the most recently closed tab."
+            : "There are no recently closed tabs to reopen.",
+        disabled: closedTabHistory.length === 0,
+        group: "Tabs",
+        id: "reopen-tab",
+        keywords: ["closed", "history", "reopen", "restore", "tab"],
+        label: "Reopen Closed Tab",
+        shortcuts: shortcutLabelToKeys(getReopenClosedTabShortcutLabel()),
+        type: "command",
+      },
+      {
+        description: nextTab
+          ? `Switch to ${nextTab.title}.`
+          : "Open at least two tabs to switch to the next tab.",
+        disabled: nextTab === null,
+        group: "Tabs",
+        id: "next-tab",
+        keywords: ["cycle", "forward", "next", "switch", "tab"],
+        label: "Next Tab",
+        shortcuts: shortcutLabelToKeys(getNextTabShortcutLabel()),
+        type: "command",
+      },
+      {
+        description: previousTab
+          ? `Switch to ${previousTab.title}.`
+          : "Open at least two tabs to switch to the previous tab.",
+        disabled: previousTab === null,
+        group: "Tabs",
+        id: "previous-tab",
+        keywords: ["backward", "cycle", "previous", "switch", "tab"],
+        label: "Previous Tab",
+        shortcuts: shortcutLabelToKeys(getPreviousTabShortcutLabel()),
+        type: "command",
+      },
+      {
+        description: "Switch back to tab search mode.",
+        disabled: false,
+        group: "Tabs",
+        id: "search-tabs",
+        keywords: ["find", "search", "switch", "tab"],
+        label: "Search Tabs",
+        shortcuts: shortcutLabelToKeys(getSearchTabsShortcutLabel()),
+        type: "command",
+      },
+      {
+        description: isTerminalPanelOpen
+          ? "Hide the integrated terminal panel."
+          : "Show the integrated terminal panel.",
+        disabled: false,
+        group: "Workspace",
+        id: "toggle-terminal",
+        keywords: ["console", "footer", "shell", "terminal", "toggle"],
+        label: isTerminalPanelOpen ? "Hide Terminal" : "Open Terminal",
+        shortcuts: shortcutLabelToKeys(getToggleTerminalShortcutLabel()),
+        type: "command",
+      },
+      {
+        description: "Open the repository picker.",
+        disabled: false,
+        group: "Repository",
+        id: "change-repository",
+        keywords: ["change", "open", "picker", "repo", "repository", "switch"],
+        label: "Change Repository",
+        shortcuts: getChangeRepositoryShortcutKeys(),
+        type: "command",
+      },
+      {
+        description: "Pick a local repository and open it in the current tab.",
+        disabled: false,
+        group: "Repository",
+        id: "open-repository",
+        keywords: ["folder", "open", "repository", "repo"],
+        label: "Open Repository",
+        shortcuts: shortcutLabelToKeys(getOpenRepositoryShortcutLabel()),
+        type: "command",
+      },
+      {
+        description: "Create a new local repository.",
+        disabled: false,
+        group: "Repository",
+        id: "create-local-repository",
+        keywords: [
+          "create",
+          "git",
+          "initialize",
+          "local",
+          "repository",
+          "repo",
+        ],
+        label: "Create Local Repository",
+        type: "command",
+      },
+      {
+        description: "Clone a remote repository into a new local folder.",
+        disabled: false,
+        group: "Repository",
+        id: "clone-repository",
+        keywords: ["clone", "download", "git", "repository", "repo"],
+        label: "Clone Repository",
+        type: "command",
+      },
+      {
+        description: activeRepo
+          ? `Pull ${activeRepo.name} with fast-forward if possible.`
+          : "Open a repository first to pull remote changes.",
+        disabled: activeRepoId === null,
+        group: "Git",
+        id: "pull",
+        keywords: ["fetch", "git", "pull", "remote", "sync"],
+        label: "Pull",
+        type: "command",
+      },
+      {
+        description: activeRepo
+          ? `Push the current branch for ${activeRepo.name}.`
+          : "Open a repository first to push the current branch.",
+        disabled: activeRepoId === null,
+        group: "Git",
+        id: "push",
+        keywords: ["branch", "git", "publish", "push", "remote"],
+        label: "Push",
+        type: "command",
+      },
+      {
+        description: latestStashRef
+          ? `Pop the latest stash (${latestStashRef}) into the active repository.`
+          : "The active repository has no stash entries to pop.",
+        disabled: activeRepoId === null || latestStashRef === undefined,
+        group: "Git",
+        id: "pop-stash",
+        keywords: ["git", "pop", "stash", "unstash"],
+        label: "Pop Stash",
+        type: "command",
+      },
+      {
+        description: activeRepo
+          ? `Copy the path for ${activeRepo.name}.`
+          : "Open a repository first to copy its path.",
+        disabled: activeRepo?.path === undefined,
+        group: "Repository",
+        id: "copy-repo-path",
+        keywords: ["copy", "path", "repo", "repository"],
+        label: "Copy Repository Path",
+        type: "command",
+      },
+      ...launcherCommands,
+      ...settingsCommands,
+    ];
+  }, [
+    activeRepo,
+    activeRepoId,
+    activeTabId,
+    closedTabHistory.length,
+    isTerminalPanelOpen,
+    launcherCommands,
+    latestStashRef,
+    nextTab,
+    previousTab,
+    settingsCommands,
+  ]);
+
   const parsedItems = useMemo(() => {
-    const openItems: SearchTabItem[] = tabs.map((t) => ({
-      groupId: t.groupId,
-      id: `open-${t.id}`,
-      repoId: t.repoId,
-      tabId: t.id,
-      title: t.title,
+    const openItems: SearchTabItem[] = tabs.map((tab) => ({
+      groupId: tab.groupId,
+      id: `open-${tab.id}`,
+      repoId: tab.repoId,
+      tabId: tab.id,
+      title: tab.title,
       type: "open",
     }));
 
     const openRepoIds = new Set(
-      openItems.filter((i) => i.repoId !== null).map((i) => i.repoId)
+      openItems
+        .filter((item) => item.repoId !== null)
+        .map((item) => item.repoId)
     );
-    const hasOpenNewTab = openItems.some((i) => i.repoId === null);
+    const hasOpenNewTab = openItems.some((item) => item.repoId === null);
 
     const closedItems: SearchTabItem[] = [];
     let hasClosedNewTab = false;
     const seenClosedRepoIds = new Set<string>();
 
     for (let i = 0; i < closedTabHistory.length; i++) {
-      if (!closedTabHistory[i]) {
+      const historyItem = closedTabHistory[i];
+
+      if (!historyItem) {
         continue;
       }
 
-      const c = closedTabHistory[i];
-
-      if (c.tab.repoId === null) {
+      if (historyItem.tab.repoId === null) {
         if (hasOpenNewTab || hasClosedNewTab) {
           continue;
         }
+
         hasClosedNewTab = true;
       } else {
         if (
-          openRepoIds.has(c.tab.repoId) ||
-          seenClosedRepoIds.has(c.tab.repoId)
+          openRepoIds.has(historyItem.tab.repoId) ||
+          seenClosedRepoIds.has(historyItem.tab.repoId)
         ) {
           continue;
         }
-        seenClosedRepoIds.add(c.tab.repoId);
+
+        seenClosedRepoIds.add(historyItem.tab.repoId);
       }
 
       closedItems.push({
-        groupId: c.tab.groupId,
-        id: `closed-${c.tab.id}-${i}`,
-        repoId: c.tab.repoId,
-        tabId: c.tab.id,
-        title: c.tab.title,
+        groupId: historyItem.tab.groupId,
+        id: `closed-${historyItem.tab.id}-${i}`,
+        repoId: historyItem.tab.repoId,
+        tabId: historyItem.tab.id,
+        title: historyItem.tab.title,
         type: "closed",
       });
     }
 
     return { closedItems, openItems };
-  }, [tabs, closedTabHistory]);
+  }, [closedTabHistory, tabs]);
 
   const filteredOpen = useMemo(() => {
     if (normalizedDebouncedQuery.length === 0) {
       return parsedItems.openItems;
     }
 
-    return parsedItems.openItems.filter((i) =>
-      i.title.toLowerCase().includes(normalizedDebouncedQuery)
-    );
+    return matchSorter(parsedItems.openItems, normalizedDebouncedQuery, {
+      keys: ["title"],
+    });
   }, [normalizedDebouncedQuery, parsedItems.openItems]);
 
   const filteredClosed = useMemo(() => {
@@ -154,15 +706,74 @@ export function HeaderTabsSearch() {
       return parsedItems.closedItems;
     }
 
-    return parsedItems.closedItems.filter((i) =>
-      i.title.toLowerCase().includes(normalizedDebouncedQuery)
-    );
+    return matchSorter(parsedItems.closedItems, normalizedDebouncedQuery, {
+      keys: ["title"],
+    });
   }, [normalizedDebouncedQuery, parsedItems.closedItems]);
 
-  const hasResults = filteredOpen.length > 0 || filteredClosed.length > 0;
+  const filteredCommands = useMemo(() => {
+    if (normalizedCommandQuery.length === 0) {
+      return commands;
+    }
+
+    return matchSorter(commands, normalizedCommandQuery, {
+      keys: [
+        "label",
+        "description",
+        "group",
+        (command) => command.keywords,
+        (command) => command.shortcuts ?? [],
+        (command) =>
+          command.shortcuts
+            ? [
+                command.shortcuts.join(" "),
+                command.shortcuts.join("+"),
+                command.shortcuts.join(" + "),
+              ]
+            : [],
+      ],
+    });
+  }, [commands, normalizedCommandQuery]);
+
+  const commandGroups = useMemo(() => {
+    const groupedCommands = new Map<string, CommandPaletteItem[]>();
+
+    for (const command of filteredCommands) {
+      const currentGroup = groupedCommands.get(command.group) ?? [];
+      currentGroup.push(command);
+      groupedCommands.set(command.group, currentGroup);
+    }
+
+    return Array.from(groupedCommands.entries());
+  }, [filteredCommands]);
+
+  const hasResults = isCommandMode
+    ? filteredCommands.length > 0
+    : filteredOpen.length > 0 || filteredClosed.length > 0;
 
   useWindowEvent("keydown", (event) => {
+    if (isOpen && event.key === "Escape") {
+      event.preventDefault();
+      closeSearch();
+      return;
+    }
+
     if (event.repeat || isEditableTarget(event.target)) {
+      return;
+    }
+
+    if (isCommandPaletteShortcut(event)) {
+      event.preventDefault();
+
+      if (isOpen) {
+        setSearchMode("commands");
+        setQuery((currentQuery) =>
+          currentQuery.startsWith(">") ? currentQuery : `>${currentQuery}`
+        );
+      } else {
+        openSearch("commands");
+      }
+
       return;
     }
 
@@ -171,27 +782,208 @@ export function HeaderTabsSearch() {
     }
 
     event.preventDefault();
-    toggle();
+    toggleSearch("tabs");
   });
 
-  const handleSelect = async (val: SearchTabItem | null) => {
-    if (!val) {
+  const runCommand = async (commandId: string) => {
+    const openSettingsSection = async (
+      section:
+        | "ai"
+        | "editor"
+        | "general"
+        | "git"
+        | "network"
+        | "ssh"
+        | "terminal"
+        | "ui"
+    ) => {
+      resetSettingsSearch();
+      setSettingsSection(section);
+      await navigate({ to: "/settings" });
+    };
+
+    switch (commandId) {
+      case "new-tab": {
+        const newId = addTab();
+        setActiveTabFromUrl(newId);
+        return;
+      }
+      case "close-tab": {
+        if (!activeTabId) {
+          return;
+        }
+
+        closeTab(activeTabId);
+        return;
+      }
+      case "reopen-tab": {
+        reopenClosedTab();
+        return;
+      }
+      case "next-tab": {
+        if (nextTab) {
+          setActiveTabFromUrl(nextTab.id);
+        }
+        return;
+      }
+      case "previous-tab": {
+        if (previousTab) {
+          setActiveTabFromUrl(previousTab.id);
+        }
+        return;
+      }
+      case "search-tabs": {
+        openSearch("tabs");
+        return;
+      }
+      case "change-repository": {
+        await handleOpenRepository();
+        return;
+      }
+      case "clone-repository": {
+        handleOpenCloneDialog();
+        return;
+      }
+      case "create-local-repository": {
+        setIsCreateLocalDialogOpen(true);
+        return;
+      }
+      case "open-repository": {
+        await handleOpenRepository();
+        return;
+      }
+      case "copy-repo-path": {
+        if (!activeRepo?.path) {
+          return;
+        }
+
+        try {
+          await navigator.clipboard.writeText(activeRepo.path);
+          toast.success("Repository path copied");
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to copy repository path"
+          );
+        }
+        return;
+      }
+      case "pull": {
+        if (!activeRepoId) {
+          return;
+        }
+
+        await pullBranch(activeRepoId, "pull-ff-possible");
+        return;
+      }
+      case "push": {
+        if (!activeRepoId) {
+          return;
+        }
+
+        await pushBranch(activeRepoId);
+        return;
+      }
+      case "pop-stash": {
+        if (!(activeRepoId && latestStashRef)) {
+          return;
+        }
+
+        await popStash(activeRepoId, latestStashRef);
+        return;
+      }
+      case "toggle-terminal": {
+        toggleTerminalPanel();
+        return;
+      }
+      case "open-settings": {
+        resetSettingsSearch();
+        await navigate({ to: "/settings" });
+        return;
+      }
+      case "settings:general": {
+        await openSettingsSection("general");
+        return;
+      }
+      case "settings:git": {
+        await openSettingsSection("git");
+        return;
+      }
+      case "settings:ssh": {
+        await openSettingsSection("ssh");
+        return;
+      }
+      case "settings:ui": {
+        await openSettingsSection("ui");
+        return;
+      }
+      case "settings:editor": {
+        await openSettingsSection("editor");
+        return;
+      }
+      case "settings:terminal": {
+        await openSettingsSection("terminal");
+        return;
+      }
+      case "settings:network": {
+        await openSettingsSection("network");
+        return;
+      }
+      case "settings:ai": {
+        await openSettingsSection("ai");
+        return;
+      }
+      default: {
+        if (commandId.startsWith("open-with:")) {
+          if (!(activeRepo?.path && tauriRuntime)) {
+            return;
+          }
+
+          const applicationId = commandId.slice("open-with:".length);
+          await openPathWithApplication({
+            application: applicationId as ExternalLauncherApp["id"],
+            path: activeRepo.path,
+          });
+          return;
+        }
+
+        return;
+      }
+    }
+  };
+
+  const handleSelect = async (value: null | PaletteItem) => {
+    if (!value) {
       return;
     }
+
     closeSearch();
-    if (val.type === "open") {
-      setActiveTabFromUrl(val.tabId);
-    } else if (val.repoId) {
-      const existingOpen = tabs.find((t) => t.repoId === val.repoId);
+
+    if (isCommandItem(value)) {
+      await runCommand(value.id);
+      return;
+    }
+
+    if (value.type === "open") {
+      setActiveTabFromUrl(value.tabId);
+      return;
+    }
+
+    if (value.repoId) {
+      const existingOpen = tabs.find((tab) => tab.repoId === value.repoId);
+
       if (existingOpen) {
         setActiveTabFromUrl(existingOpen.id);
         return;
       }
-      await routeRepository(val.repoId, val.title);
-    } else {
-      const newId = addTab();
-      setActiveTabFromUrl(newId);
+
+      await routeRepository(value.repoId, value.title);
+      return;
     }
+
+    const newId = addTab();
+    setActiveTabFromUrl(newId);
   };
 
   const handleCloseTab = (event: React.MouseEvent, item: SearchTabItem) => {
@@ -202,18 +994,29 @@ export function HeaderTabsSearch() {
 
   return (
     <>
-      <PopoverContent align="center" className="w-88 p-0" sideOffset={4}>
+      <PopoverContent
+        align="center"
+        className="w-[36rem] max-w-[calc(100vw-16rem)] p-0"
+        sideOffset={4}
+      >
         <Combobox
           filter={null}
           inputValue={query}
-          itemToStringLabel={(item: SearchTabItem) => item.title}
+          itemToStringLabel={(item: PaletteItem) =>
+            isCommandItem(item) ? item.label : item.title
+          }
           onInputValueChange={(nextInputValue) => {
+            if (nextInputValue.startsWith(">")) {
+              setSearchMode("commands");
+              setQuery(nextInputValue);
+              return;
+            }
+
+            setSearchMode("tabs");
             setQuery(nextInputValue);
           }}
-          onValueChange={(val) => {
-            handleSelect(val).catch(() => {
-              return;
-            });
+          onValueChange={(value) => {
+            handleSelect(value).catch(() => undefined);
           }}
           open
         >
@@ -221,87 +1024,148 @@ export function HeaderTabsSearch() {
             <ComboboxInput
               autoFocus
               className="flex h-7 w-full bg-transparent text-xs outline-hidden placeholder:text-muted-foreground"
-              placeholder={"Search tabs"}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") {
+                  return;
+                }
+
+                event.preventDefault();
+                event.stopPropagation();
+                closeSearch();
+              }}
+              placeholder={
+                isCommandMode
+                  ? "> Search commands by name, action, or shortcut"
+                  : "Search tabs by title or shortcut, or start with > for commands"
+              }
               showClear
               showTrigger={false}
             />
           </div>
           <ComboboxList
             className={`overflow-x-hidden overscroll-contain p-1 ${SCROLLBAR_CLASSES}`}
-            style={{ maxHeight: "min(40vh, 280px)" }}
+            style={{ maxHeight: "min(40vh, 320px)" }}
           >
             {!hasResults && (
               <div className="py-4 text-center text-muted-foreground text-xs">
-                No matching tabs found.
+                {isCommandMode
+                  ? "No matching commands found."
+                  : "No matching tabs found."}
               </div>
             )}
 
-            {filteredOpen.length > 0 && (
-              <ComboboxGroup>
-                <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
-                  Open Tabs
-                </ComboboxLabel>
-                {filteredOpen.map((item) => (
-                  <ComboboxItem
-                    className="group/tab-item relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
-                    key={item.id}
-                    value={item}
-                  >
-                    {item.repoId ? (
-                      <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="flex-1 truncate">{item.title}</span>
-                    <button
-                      aria-label={`Close ${item.title}`}
-                      className="focus-visible:desktop-focus-strong ml-auto flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-data-highlighted/tab-item:opacity-100"
-                      onClick={(e) => handleCloseTab(e, item)}
-                      type="button"
-                    >
-                      <XIcon className="size-3 text-muted-foreground" />
-                    </button>
-                  </ComboboxItem>
-                ))}
-              </ComboboxGroup>
-            )}
-
-            {filteredClosed.length > 0 && (
+            {isCommandMode ? (
+              commandGroups.map(([group, items], index) => (
+                <div key={group}>
+                  {index > 0 && <div className="-mx-1 my-0.5 h-px bg-border" />}
+                  <ComboboxGroup>
+                    <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
+                      {group}
+                    </ComboboxLabel>
+                    {items.map((item) => (
+                      <ComboboxItem
+                        className="relative flex w-full cursor-default select-none items-start gap-2 px-2 py-1.5 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                        disabled={item.disabled}
+                        key={item.id}
+                        value={item}
+                      >
+                        {renderCommandIcon(item.id)}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium">
+                            {item.label}
+                          </div>
+                          <div className="line-clamp-2 text-[11px] text-muted-foreground group-data-highlighted:text-accent-foreground/80">
+                            {item.description}
+                          </div>
+                        </div>
+                        {item.shortcuts ? (
+                          <ShortcutKeys keys={item.shortcuts} />
+                        ) : null}
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxGroup>
+                </div>
+              ))
+            ) : (
               <>
                 {filteredOpen.length > 0 && (
-                  <div className="-mx-1 my-0.5 h-px bg-border" />
+                  <ComboboxGroup>
+                    <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
+                      Open Tabs
+                    </ComboboxLabel>
+                    {filteredOpen.map((item) => (
+                      <ComboboxItem
+                        className="group/tab-item relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                        key={item.id}
+                        value={item}
+                      >
+                        {item.repoId ? (
+                          <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="flex-1 truncate">{item.title}</span>
+                        <button
+                          aria-label={`Close ${item.title}`}
+                          className="focus-visible:desktop-focus-strong ml-auto flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-data-highlighted/tab-item:opacity-100"
+                          onClick={(event) => handleCloseTab(event, item)}
+                          type="button"
+                        >
+                          <XIcon className="size-3 text-muted-foreground" />
+                        </button>
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxGroup>
                 )}
-                <ComboboxGroup>
-                  <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
-                    Closed Recently
-                  </ComboboxLabel>
-                  {filteredClosed.map((item) => (
-                    <ComboboxItem
-                      className="relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
-                      key={item.id}
-                      value={item}
-                    >
-                      {item.repoId ? (
-                        <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="flex-1 truncate">{item.title}</span>
-                    </ComboboxItem>
-                  ))}
-                </ComboboxGroup>
+
+                {filteredClosed.length > 0 && (
+                  <>
+                    {filteredOpen.length > 0 && (
+                      <div className="-mx-1 my-0.5 h-px bg-border" />
+                    )}
+                    <ComboboxGroup>
+                      <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
+                        Closed Recently
+                      </ComboboxLabel>
+                      {filteredClosed.map((item) => (
+                        <ComboboxItem
+                          className="relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                          key={item.id}
+                          value={item}
+                        >
+                          {item.repoId ? (
+                            <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="flex-1 truncate">{item.title}</span>
+                        </ComboboxItem>
+                      ))}
+                    </ComboboxGroup>
+                  </>
+                )}
               </>
             )}
           </ComboboxList>
         </Combobox>
       </PopoverContent>
 
+      <RepositoryCloneDialog
+        onOpenChange={setIsCloneDialogOpen}
+        open={isCloneDialogOpen}
+      />
+
+      <RepositoryStartLocalDialog
+        onOpenChange={setIsCreateLocalDialogOpen}
+        open={isCreateLocalDialogOpen}
+      />
+
       <UngroupConfirmDialog
         actionText={dialogContent.actionText}
         description={dialogContent.description}
         onConfirm={confirmUngroupLastTab}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
             clearPendingUngroup();
           }
         }}
