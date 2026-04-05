@@ -123,6 +123,7 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
       className="relative flex h-7 shrink-0 select-none items-center justify-between border-border/70 border-b bg-muted/25 pl-3"
       data-tauri-drag-region
     >
+      {/* Left: Title */}
       <div
         className="pointer-events-none flex min-w-0 items-center text-[11px] text-muted-foreground uppercase tracking-[0.08em]"
         data-tauri-drag-region
@@ -132,7 +133,7 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
         </span>
       </div>
 
-      {/* Centered Command Trigger with Popover */}
+      {/* Center: Search bar (flexes to fill space) */}
       {!hideSearch && (
         <Popover
           onOpenChange={(nextOpen: boolean) => {
@@ -148,7 +149,7 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
             render={
               <button
                 aria-label={`Search opened tabs (${getSearchTabsShortcutLabel()}) or open commands (${getCommandPaletteShortcutLabel()})`}
-                className="tauri-no-drag focus-visible:desktop-focus absolute left-1/2 flex h-5 w-[36rem] max-w-[calc(100vw-16rem)] -translate-x-1/2 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                className="tauri-no-drag focus-visible:desktop-focus flex h-5 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 data-tauri-drag-region="false"
                 onClick={() => toggleSearch("tabs")}
                 type="button"
@@ -168,7 +169,7 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
 
       {tauriRuntime ? (
         <div
-          className="tauri-no-drag flex items-center gap-3"
+          className="tauri-no-drag flex items-center"
           data-tauri-drag-region="false"
         >
           <div className="flex items-stretch">
