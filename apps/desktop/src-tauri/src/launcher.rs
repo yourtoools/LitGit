@@ -22,6 +22,7 @@ enum LauncherApplicationId {
     Antigravity,
     GitBash,
     Wsl,
+    Cursor,
 }
 
 #[derive(Debug, Error)]
@@ -60,6 +61,7 @@ impl LauncherApplicationId {
             "antigravity" => Ok(Self::Antigravity),
             "git-bash" => Ok(Self::GitBash),
             "wsl" => Ok(Self::Wsl),
+            "cursor" => Ok(Self::Cursor),
             _ => Err(LauncherError::unsupported_application()),
         }
     }
@@ -73,6 +75,7 @@ impl LauncherApplicationId {
             Self::Antigravity => "antigravity",
             Self::GitBash => "git-bash",
             Self::Wsl => "wsl",
+            Self::Cursor => "cursor",
         }
     }
 }
@@ -211,6 +214,21 @@ fn resolve_windows_editor_executable(id: LauncherApplicationId) -> Option<PathBu
 
             local_candidate.exists().then_some(local_candidate)
         }
+        LauncherApplicationId::Cursor => {
+            let resolved = resolve_from_candidates(&["cursor.exe", "Cursor.exe", "cursor.cmd"], &[]);
+
+            if resolved.is_some() {
+                return resolved;
+            }
+
+            let local_app_data = std::env::var_os("LOCALAPPDATA")?;
+            let local_candidate = PathBuf::from(local_app_data)
+                .join("Programs")
+                .join("cursor")
+                .join("Cursor.exe");
+
+            local_candidate.exists().then_some(local_candidate)
+        }
         LauncherApplicationId::Wsl => {
             resolve_from_candidates(&["wsl.exe"], &[r"C:\Windows\System32\wsl.exe"])
         }
@@ -241,6 +259,7 @@ fn normalize_windows_editor_executable(id: LauncherApplicationId, executable: Pa
     let candidate_names: &[&str] = match id {
         LauncherApplicationId::Antigravity => &["Antigravity.exe"],
         LauncherApplicationId::VsCode => &["Code.exe", "Code - Insiders.exe"],
+        LauncherApplicationId::Cursor => &["Cursor.exe"],
         _ => &[],
     };
 
@@ -636,7 +655,7 @@ fn launch_windows_editor(
             executable.to_string_lossy().as_ref(),
         ]);
 
-        if matches!(application, LauncherApplicationId::VsCode) {
+        if matches!(application, LauncherApplicationId::VsCode | LauncherApplicationId::Cursor) {
             command.arg("--new-window");
         }
 
@@ -664,7 +683,7 @@ fn launch_windows_editor(
     command.current_dir(repo_path);
 
     match application {
-        LauncherApplicationId::VsCode => {
+        LauncherApplicationId::VsCode | LauncherApplicationId::Cursor => {
             command.args(["--new-window", repo_path]);
         }
         LauncherApplicationId::Wsl => {
@@ -698,6 +717,7 @@ fn available_launcher_apps() -> Vec<LauncherApp> {
 
     for (id, label) in [
         (LauncherApplicationId::VsCode, "VS Code"),
+        (LauncherApplicationId::Cursor, "Cursor"),
         (LauncherApplicationId::VisualStudio, "Visual Studio"),
         (LauncherApplicationId::Antigravity, "Antigravity"),
         (LauncherApplicationId::GitBash, "Git Bash"),
@@ -734,6 +754,7 @@ fn open_path_with_windows_application(
             launch_hidden_windows_command(&mut command)
         }
         LauncherApplicationId::VsCode
+        | LauncherApplicationId::Cursor
         | LauncherApplicationId::VisualStudio
         | LauncherApplicationId::Antigravity
         | LauncherApplicationId::GitBash
@@ -806,6 +827,7 @@ fn available_launcher_apps() -> Vec<LauncherApp> {
             "VS Code",
             "Visual Studio Code",
         ),
+        (LauncherApplicationId::Cursor, "Cursor", "Cursor"),
         (
             LauncherApplicationId::Antigravity,
             "Antigravity",
@@ -836,15 +858,14 @@ fn open_path_with_macos_application(
             command.args(macos_terminal_script_arguments(repo_path));
             launch_command(&mut command)
         }
-        LauncherApplicationId::VsCode => {
+        LauncherApplicationId::VsCode | LauncherApplicationId::Cursor => {
+            let app_name = if matches!(application, LauncherApplicationId::VsCode) {
+                "Visual Studio Code"
+            } else {
+                "Cursor"
+            };
             let mut command = std::process::Command::new("open");
-            command.args([
-                "-a",
-                "Visual Studio Code",
-                repo_path,
-                "--args",
-                "--new-window",
-            ]);
+            command.args(["-a", app_name, repo_path, "--args", "--new-window"]);
             launch_command(&mut command)
         }
         LauncherApplicationId::Antigravity => {
@@ -863,6 +884,7 @@ fn resolve_linux_editor_executable(id: LauncherApplicationId) -> Option<PathBuf>
     match id {
         LauncherApplicationId::Antigravity => resolve_from_candidates(&["antigravity"], &[]),
         LauncherApplicationId::VsCode => resolve_from_candidates(&["code", "codium"], &[]),
+        LauncherApplicationId::Cursor => resolve_from_candidates(&["cursor"], &[]),
         _ => None,
     }
 }
@@ -1154,6 +1176,7 @@ fn available_launcher_apps() -> Vec<LauncherApp> {
 
     for (id, label) in [
         (LauncherApplicationId::VsCode, "VS Code"),
+        (LauncherApplicationId::Cursor, "Cursor"),
         (LauncherApplicationId::Antigravity, "Antigravity"),
     ] {
         if resolve_linux_editor_executable(id).is_some() {
@@ -1194,13 +1217,13 @@ fn open_path_with_linux_application(
 
             spawn_linux_terminal(&executable, repo_path)
         }
-        LauncherApplicationId::Antigravity | LauncherApplicationId::VsCode => {
+        LauncherApplicationId::Antigravity | LauncherApplicationId::VsCode | LauncherApplicationId::Cursor => {
             let executable = resolve_linux_editor_executable(application).ok_or_else(|| {
                 LauncherError::message(format!("{} executable was not found", application.as_str()))
             })?;
             let mut command = std::process::Command::new(executable);
 
-            if matches!(application, LauncherApplicationId::VsCode) {
+            if matches!(application, LauncherApplicationId::VsCode | LauncherApplicationId::Cursor) {
                 command
                     .current_dir(repo_path)
                     .args(["--new-window", repo_path]);
@@ -1489,6 +1512,7 @@ mod tests {
             ("antigravity", LauncherApplicationId::Antigravity),
             ("git-bash", LauncherApplicationId::GitBash),
             ("wsl", LauncherApplicationId::Wsl),
+            ("cursor", LauncherApplicationId::Cursor),
         ];
 
         for (value, expected) in cases {
@@ -1529,6 +1553,7 @@ mod tests {
             LauncherApplicationId::Antigravity,
             LauncherApplicationId::GitBash,
             LauncherApplicationId::Wsl,
+            LauncherApplicationId::Cursor,
         ];
 
         for id in cases {

@@ -23,6 +23,8 @@ import { Bash } from "@litgit/ui/components/ui/svgs/bash";
 import { Linux } from "@litgit/ui/components/ui/svgs/linux";
 import { Powershell } from "@litgit/ui/components/ui/svgs/powershell";
 import { Vscode } from "@litgit/ui/components/ui/svgs/vscode";
+import { Cursor } from "@litgit/ui/components/ui/svgs/cursor";
+import { CursorDark } from "@litgit/ui/components/ui/svgs/cursor-dark";
 import { cn } from "@litgit/ui/lib/utils";
 import { useWindowEvent } from "@mantine/hooks";
 import {
@@ -47,6 +49,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
+import { useTheme } from "next-themes";
 import { matchSorter } from "match-sorter";
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -146,7 +149,7 @@ function ExplorerIcon({ className }: { className?: string }) {
   );
 }
 
-const renderCommandIcon = (commandId: string) => {
+const renderCommandIcon = (commandId: string, resolvedTheme?: string) => {
   if (commandId.startsWith("settings:") || commandId === "open-settings") {
     return (
       <GearIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
@@ -163,8 +166,14 @@ const renderCommandIcon = (commandId: string) => {
         return <Powershell className="mt-0.5 size-3.5 shrink-0" />;
       case "vscode":
         return <Vscode className="mt-0.5 size-3.5 shrink-0" />;
+      case "cursor":
+        if (resolvedTheme === "dark") {
+          return <CursorDark className="mt-0.5 size-3.5 shrink-0" />;
+        }
+        return <Cursor className="mt-0.5 size-3.5 shrink-0" />;
       case "antigravity":
         return <Antigravity className="mt-0.5 size-3.5 shrink-0" />;
+
       case "git-bash":
         return <Bash className="mt-0.5 size-3.5 shrink-0" />;
       case "wsl":
@@ -319,6 +328,7 @@ const ShortcutKeys = ({ keys }: { keys: string[] }) => {
 };
 
 export function HeaderTabsSearch() {
+  const { resolvedTheme } = useTheme();
   const navigate = useNavigate();
   const tauriRuntime = isTauri();
   const isOpen = useTabSearchStore((state) => state.isOpen);
@@ -1399,10 +1409,9 @@ export function HeaderTabsSearch() {
                         disabled={item.disabled}
                         key={item.id}
                         value={item}
-                      >
-                        {renderCommandIcon(item.id)}
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium">
+                        >
+                        {renderCommandIcon(item.id, resolvedTheme)}
+                        <div className="min-w-0 flex-1">                          <div className="truncate font-medium">
                             {item.label}
                           </div>
                           <div className="line-clamp-2 text-[11px] text-muted-foreground group-data-highlighted:text-accent-foreground/80">

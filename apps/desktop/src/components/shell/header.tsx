@@ -17,6 +17,8 @@ import { Linux } from "@litgit/ui/components/ui/svgs/linux";
 import { Powershell } from "@litgit/ui/components/ui/svgs/powershell";
 import { VisualStudio } from "@litgit/ui/components/ui/svgs/visual-studio";
 import { Vscode } from "@litgit/ui/components/ui/svgs/vscode";
+import { Cursor } from "@litgit/ui/components/ui/svgs/cursor";
+import { CursorDark } from "@litgit/ui/components/ui/svgs/cursor-dark";
 import { cn } from "@litgit/ui/lib/utils";
 import {
   CaretDownIcon,
@@ -27,6 +29,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
+import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
@@ -95,6 +98,8 @@ function LauncherItemIcon({
   application: ExternalLauncherApplication;
   className?: string;
 }) {
+  const { resolvedTheme } = useTheme();
+
   switch (application) {
     case "file-manager":
       return <ExplorerIcon className={className} />;
@@ -102,8 +107,14 @@ function LauncherItemIcon({
       return <Powershell className={cn(LAUNCHER_ICON_CLASS, className)} />;
     case "vscode":
       return <Vscode className={cn(LAUNCHER_ICON_CLASS, className)} />;
+    case "cursor":
+      if (resolvedTheme === "dark") {
+        return <CursorDark className={cn(LAUNCHER_ICON_CLASS, className)} />;
+      }
+      return <Cursor className={cn(LAUNCHER_ICON_CLASS, className)} />;
     case "visual-studio":
       return <VisualStudio className={cn(LAUNCHER_ICON_CLASS, className)} />;
+
     case "antigravity":
       return <Antigravity className={cn(LAUNCHER_ICON_CLASS, className)} />;
     case "git-bash":
