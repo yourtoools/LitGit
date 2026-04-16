@@ -21,9 +21,9 @@ impl From<StashError> for String {
     }
 }
 
+/// A stash entry mapped from `git stash list`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// A stash entry mapped from `git stash list`.
 pub(crate) struct RepositoryStash {
     anchor_commit_hash: String,
     message: String,
@@ -75,8 +75,8 @@ fn parse_stash_row(row: &str) -> Result<Option<RepositoryStash>, StashError> {
     }))
 }
 
-#[tauri::command]
 /// Returns all stash entries for the repository.
+#[tauri::command]
 pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, String> {
     get_repository_stashes_inner(repo_path).map_err(|e| e.to_string())
 }
@@ -116,8 +116,8 @@ fn get_repository_stashes_inner(repo_path: String) -> Result<Vec<RepositoryStash
     Ok(stashes)
 }
 
-#[tauri::command]
 /// Applies a stash entry without removing it from the stash stack.
+#[tauri::command]
 pub(crate) fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     apply_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
 }
@@ -143,8 +143,8 @@ fn apply_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<
     Ok(())
 }
 
-#[tauri::command]
 /// Applies a stash entry and removes it from the stash stack.
+#[tauri::command]
 pub(crate) fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     pop_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
 }
@@ -170,8 +170,8 @@ fn pop_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<()
     Ok(())
 }
 
-#[tauri::command]
 /// Removes a stash entry from the stash stack.
+#[tauri::command]
 pub(crate) fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
     drop_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
 }
@@ -197,15 +197,15 @@ fn drop_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<(
     Ok(())
 }
 
-#[tauri::command]
 /// Creates a new stash entry, optionally including untracked files.
+#[tauri::command]
 pub(crate) fn create_repository_stash(
     repo_path: String,
     stash_message: Option<String>,
     include_untracked: bool,
 ) -> Result<(), String> {
     create_repository_stash_inner(repo_path, stash_message, include_untracked)
-        .map_err(|e| e.to_string())
+        .map_err(|error| error.to_string())
 }
 
 fn create_repository_stash_inner(

@@ -97,12 +97,22 @@ function parseRepositoryFileHistoryEntry(
     throw new Error(errorMessage);
   }
 
-  const { author, authorEmail, commitHash, date, messageSummary, shortHash } =
-    value;
+  const {
+    author,
+    authorAvatarUrl,
+    authorEmail,
+    authorUsername,
+    commitHash,
+    date,
+    messageSummary,
+    shortHash,
+  } = value;
 
   if (
     typeof author !== "string" ||
+    !(typeof authorAvatarUrl === "string" || authorAvatarUrl === null) ||
     typeof authorEmail !== "string" ||
+    !(typeof authorUsername === "string" || authorUsername === null) ||
     typeof commitHash !== "string" ||
     typeof date !== "string" ||
     typeof messageSummary !== "string" ||
@@ -113,7 +123,9 @@ function parseRepositoryFileHistoryEntry(
 
   return {
     author,
+    authorAvatarUrl,
     authorEmail,
+    authorUsername,
     commitHash,
     date,
     messageSummary,
@@ -155,8 +167,10 @@ function parseRepositoryFileBlameLine(
 
   const {
     author,
+    authorAvatarUrl,
     authorEmail,
     authorTime,
+    authorUsername,
     commitHash,
     lineNumber,
     summary,
@@ -165,8 +179,10 @@ function parseRepositoryFileBlameLine(
 
   if (
     typeof author !== "string" ||
+    !(typeof authorAvatarUrl === "string" || authorAvatarUrl === null) ||
     typeof authorEmail !== "string" ||
     !isNullableNumber(authorTime) ||
+    !(typeof authorUsername === "string" || authorUsername === null) ||
     typeof commitHash !== "string" ||
     typeof lineNumber !== "number" ||
     typeof summary !== "string" ||
@@ -177,8 +193,10 @@ function parseRepositoryFileBlameLine(
 
   return {
     author,
+    authorAvatarUrl,
     authorEmail,
     authorTime,
+    authorUsername,
     commitHash,
     lineNumber,
     summary,

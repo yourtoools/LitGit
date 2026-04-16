@@ -18,9 +18,9 @@ struct ParsedWorkingTreeEntry {
     unstaged_status: char,
 }
 
+/// Aggregated counters for the repository working tree state.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Aggregated counters for the repository working tree state.
 pub(crate) struct RepositoryWorkingTreeStatus {
     has_changes: bool,
     staged_count: usize,
@@ -28,9 +28,9 @@ pub(crate) struct RepositoryWorkingTreeStatus {
     untracked_count: usize,
 }
 
+/// A single porcelain status row mapped for frontend rendering.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// A single porcelain status row mapped for frontend rendering.
 pub(crate) struct RepositoryWorkingTreeItem {
     path: String,
     staged_status: String,
@@ -38,9 +38,9 @@ pub(crate) struct RepositoryWorkingTreeItem {
     is_untracked: bool,
 }
 
+/// A repository file path entry returned by file listing commands.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// A repository file path entry returned by file listing commands.
 pub(crate) struct RepositoryFileEntry {
     path: String,
 }
@@ -177,10 +177,10 @@ fn parse_ls_files_output(bytes: &[u8]) -> WorkingTreeResult<Vec<RepositoryFileEn
     Ok(entries)
 }
 
+/// Stages all tracked, modified, and untracked changes in the repository.
 // Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Stages all tracked, modified, and untracked changes in the repository.
 pub(crate) fn stage_all_repository_changes(repo_path: String) -> Result<(), String> {
     (|| -> WorkingTreeResult<()> {
         ensure_repo(&repo_path)?;
@@ -191,9 +191,10 @@ pub(crate) fn stage_all_repository_changes(repo_path: String) -> Result<(), Stri
     .map_err(|error| error.to_string())
 }
 
+/// Unstages all currently staged paths and keeps worktree changes intact.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Unstages all currently staged paths and keeps worktree changes intact.
 pub(crate) fn unstage_all_repository_changes(repo_path: String) -> Result<(), String> {
     (|| -> WorkingTreeResult<()> {
         ensure_repo(&repo_path)?;
@@ -204,9 +205,10 @@ pub(crate) fn unstage_all_repository_changes(repo_path: String) -> Result<(), St
     .map_err(|error| error.to_string())
 }
 
+/// Stages a single repository path after validating it is repo-relative.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Stages a single repository path after validating it is repo-relative.
 pub(crate) fn stage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
     (|| -> WorkingTreeResult<()> {
         ensure_repo(&repo_path)?;
@@ -218,9 +220,10 @@ pub(crate) fn stage_repository_file(repo_path: String, file_path: String) -> Res
     .map_err(|error| error.to_string())
 }
 
+/// Unstages a single repository path after validating it is repo-relative.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Unstages a single repository path after validating it is repo-relative.
 pub(crate) fn unstage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
     (|| -> WorkingTreeResult<()> {
         ensure_repo(&repo_path)?;
@@ -236,9 +239,10 @@ pub(crate) fn unstage_repository_file(repo_path: String, file_path: String) -> R
     .map_err(|error| error.to_string())
 }
 
+/// Appends an ignore pattern to `.gitignore` when the rule is not already present.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Appends an ignore pattern to `.gitignore` when the rule is not already present.
 pub(crate) fn add_repository_ignore_rule(repo_path: String, pattern: String) -> Result<(), String> {
     (|| -> WorkingTreeResult<()> {
         ensure_repo(&repo_path)?;
@@ -277,9 +281,10 @@ pub(crate) fn add_repository_ignore_rule(repo_path: String, pattern: String) -> 
     .map_err(|error| error.to_string())
 }
 
+/// Discards staged and worktree changes for a specific path.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Discards staged and worktree changes for a specific path.
 pub(crate) fn discard_repository_path_changes(
     repo_path: String,
     file_path: String,
@@ -355,9 +360,10 @@ pub(crate) fn discard_repository_path_changes(
     .map_err(|error| error.to_string())
 }
 
+/// Discards all tracked and untracked changes in the repository.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Discards all tracked and untracked changes in the repository.
 pub(crate) fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
     (|| -> WorkingTreeResult<()> {
         ensure_repo(&repo_path)?;
@@ -375,9 +381,10 @@ pub(crate) fn discard_all_repository_changes(repo_path: String) -> Result<(), St
     .map_err(|error| error.to_string())
 }
 
+/// Resets repository state to a target revision using soft, mixed, or hard mode.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Resets repository state to a target revision using soft, mixed, or hard mode.
 pub(crate) fn reset_repository_to_reference(
     repo_path: String,
     target: String,
@@ -414,9 +421,10 @@ pub(crate) fn reset_repository_to_reference(
     .map_err(|error| error.to_string())
 }
 
+/// Returns high-level working tree counters derived from porcelain status output.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns high-level working tree counters derived from porcelain status output.
 pub(crate) fn get_repository_working_tree_status(
     repo_path: String,
 ) -> Result<RepositoryWorkingTreeStatus, String> {
@@ -462,9 +470,10 @@ pub(crate) fn get_repository_working_tree_status(
     .map_err(|error| error.to_string())
 }
 
+/// Returns detailed working tree rows for staged, unstaged, and untracked paths.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns detailed working tree rows for staged, unstaged, and untracked paths.
 pub(crate) fn get_repository_working_tree_items(
     repo_path: String,
 ) -> Result<Vec<RepositoryWorkingTreeItem>, String> {
@@ -493,9 +502,10 @@ pub(crate) fn get_repository_working_tree_items(
     .map_err(|error| error.to_string())
 }
 
+/// Lists cached and untracked repository files without duplicates.
+// Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Lists cached and untracked repository files without duplicates.
 pub(crate) fn get_repository_files(repo_path: String) -> Result<Vec<RepositoryFileEntry>, String> {
     (|| -> WorkingTreeResult<Vec<RepositoryFileEntry>> {
         ensure_repo(&repo_path)?;

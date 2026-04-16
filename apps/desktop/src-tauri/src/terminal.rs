@@ -15,14 +15,15 @@ const TERMINAL_READ_BUFFER_SIZE: usize = 8192;
 
 static NEXT_TERMINAL_SESSION_ID: AtomicUsize = AtomicUsize::new(1);
 
+/// An active terminal session containing the child process and its PTY handle.
 pub(crate) struct TerminalSession {
     child: Box<dyn portable_pty::Child + Send>,
     master: Box<dyn portable_pty::MasterPty + Send>,
     writer: Box<dyn Write + Send>,
 }
 
-#[derive(Default)]
 /// Shared terminal session registry for interactive shell sessions.
+#[derive(Default)]
 pub(crate) struct TerminalState {
     sessions: Mutex<HashMap<String, TerminalSession>>,
 }
@@ -75,8 +76,8 @@ fn resolve_terminal_cwd(cwd: &str) -> Result<Option<PathBuf>, TerminalError> {
     Ok(Some(cwd_path))
 }
 
-#[tauri::command]
 /// Creates a new interactive shell session and returns its session identifier.
+#[tauri::command]
 pub(crate) fn create_terminal_session(
     app: AppHandle,
     state: State<'_, TerminalState>,
@@ -175,8 +176,8 @@ fn create_terminal_session_inner(
     Ok(session_id)
 }
 
-#[tauri::command]
 /// Writes input data to an active terminal session.
+#[tauri::command]
 pub(crate) fn write_terminal_session(
     state: State<'_, TerminalState>,
     session_id: String,
@@ -214,8 +215,8 @@ fn write_terminal_session_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Resizes an active terminal session pseudo-terminal.
+#[tauri::command]
 pub(crate) fn resize_terminal_session(
     state: State<'_, TerminalState>,
     session_id: String,
@@ -256,8 +257,8 @@ fn resize_terminal_session_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Closes an active terminal session and terminates its child process.
+#[tauri::command]
 pub(crate) fn close_terminal_session(
     state: State<'_, TerminalState>,
     session_id: String,

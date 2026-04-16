@@ -1,3 +1,5 @@
+import type { Provider } from "@/lib/tauri-integrations-client";
+
 export interface PickedRepository {
   name: string;
   path: string;
@@ -67,7 +69,9 @@ export interface RepoCommandPreferences {
 }
 
 export interface PublishRepositoryOptions {
+  provider: Provider;
   repoName: string;
+  targetId: string;
   visibility: "private" | "public";
 }
 
@@ -214,7 +218,9 @@ export interface RepositoryCommitFileHunks extends RepositoryFileHunks {
 
 export interface RepositoryFileHistoryEntry {
   author: string;
+  authorAvatarUrl: string | null;
   authorEmail: string;
+  authorUsername: string | null;
   commitHash: string;
   date: string;
   messageSummary: string;
@@ -232,8 +238,10 @@ export interface RepositoryFileDetectedEncoding {
 
 export interface RepositoryFileBlameLine {
   author: string;
+  authorAvatarUrl: string | null;
   authorEmail: string;
   authorTime: number | null;
+  authorUsername: string | null;
   commitHash: string;
   lineNumber: number;
   summary: string;

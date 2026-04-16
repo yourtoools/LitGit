@@ -14,6 +14,7 @@ export type DateFormatPreset = "compact" | "verbose";
 export type SettingsSectionId =
   | "general"
   | "git"
+  | "integrations"
   | "ssh"
   | "ui"
   | "signing"
@@ -118,6 +119,26 @@ export interface SshPreferences {
   useLocalAgent: boolean;
 }
 
+export interface ProviderIntegration {
+  avatarUrl: string | null;
+  connected: boolean;
+  displayName: string | null;
+  sshKey: {
+    keyPath: string;
+    title: string;
+    fingerprint: string;
+    addedAt: string;
+  } | null;
+  username: string | null;
+  useSystemAgent: boolean;
+}
+
+export interface IntegrationsPreferences {
+  bitbucket: ProviderIntegration;
+  github: ProviderIntegration;
+  gitlab: ProviderIntegration;
+}
+
 export interface SigningPreferences {
   gpgProgramPath: string;
   signCommitsByDefault: boolean;
@@ -150,6 +171,15 @@ export interface AiPreferences {
 
 export type AiProvider = AiPreferences["provider"];
 
+const DEFAULT_PROVIDER_INTEGRATION: ProviderIntegration = {
+  connected: false,
+  username: null,
+  displayName: null,
+  avatarUrl: null,
+  useSystemAgent: true,
+  sshKey: null,
+};
+
 export const DEFAULT_AI_COMMIT_INSTRUCTION =
   "Generate a clear git commit title and optional body from staged changes only. If the repository has no commits yet, prefer git commit conventions such as Conventional Commits. If the repository already has commits, follow the existing commit style for consistency. Use imperative mood when appropriate, avoid speculation, and keep the body brief. When a commit description is needed, format it as bullet points listing the key changes.";
 
@@ -157,6 +187,7 @@ export interface AppPreferences {
   ai: AiPreferences;
   editor: EditorPreferences;
   general: GeneralPreferences;
+  integrations: IntegrationsPreferences;
   network: NetworkPreferences;
   settings: {
     activeSection: SettingsSectionId;
@@ -304,6 +335,11 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     defaultBranchName: "main",
     rememberTabs: true,
   },
+  integrations: {
+    bitbucket: { ...DEFAULT_PROVIDER_INTEGRATION },
+    github: { ...DEFAULT_PROVIDER_INTEGRATION },
+    gitlab: { ...DEFAULT_PROVIDER_INTEGRATION },
+  },
   network: {
     enableProxy: false,
     proxyAuthEnabled: false,
@@ -354,6 +390,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, string> = {
   general: "General",
   git: "Profile",
+  integrations: "Integrations",
   ssh: "SSH",
   ui: "UI Customization",
   signing: "Commit Signing",

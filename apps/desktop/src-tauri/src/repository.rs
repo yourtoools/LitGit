@@ -2,7 +2,7 @@ use crate::git_support::{
     git_command, git_error_message, is_git_repository_root, validate_repository_path,
 };
 use crate::settings::{
-    apply_git_preferences, normalize_git_identity_scope, write_git_identity,
+    apply_git_preferences_with_auth_session, normalize_git_identity_scope, write_git_identity,
     GitIdentityWriteRequest, RepoCommandPreferences, SettingsState,
 };
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,10 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Stdio;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
+
+const CLONE_AUTH_PROMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Error type for repository operations.
 #[derive(Debug, Error)]
@@ -28,11 +30,6 @@ pub(crate) enum RepositoryError {
         /// The underlying I/O error.
         source: std::io::Error,
     },
-
-    /// An error occurred during path operations.
-    #[expect(dead_code)]
-    #[error("Path error: {0}")]
-    Path(String),
 }
 
 impl From<RepositoryError> for String {
@@ -41,9 +38,9 @@ impl From<RepositoryError> for String {
     }
 }
 
+/// Metadata returned when a repository folder is picked or created.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Metadata returned when a repository folder is picked or created.
 pub(crate) struct PickedRepository {
     has_initial_commit: bool,
     is_git_repository: bool,
@@ -51,9 +48,9 @@ pub(crate) struct PickedRepository {
     path: String,
 }
 
+/// Generic picked file payload returned from native file dialogs.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Generic picked file payload returned from native file dialogs.
 pub(crate) struct PickedFilePath {
     /// Absolute file system path of the picked file.
     pub(crate) path: String,
@@ -70,9 +67,20 @@ struct CloneRepositoryProgress {
     total_objects: Option<usize>,
 }
 
+struct CloneExecutionResult {
+    stderr_output: String,
+    succeeded: bool,
+}
+
+struct ApprovedCloneCredential {
+    descriptor: String,
+    remember: bool,
+    secret: String,
+}
+
+/// Input payload used to initialize a new local repository.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Input payload used to initialize a new local repository.
 pub(crate) struct CreateLocalRepositoryRequest {
     default_branch: String,
     destination_parent: String,
@@ -84,8 +92,8 @@ pub(crate) struct CreateLocalRepositoryRequest {
     name: String,
 }
 
-#[tauri::command]
 /// Opens a native folder picker and inspects whether the selected folder is a Git repository.
+#[tauri::command]
 pub(crate) fn pick_git_repository() -> Result<Option<PickedRepository>, String> {
     let Some(folder) = rfd::FileDialog::new().pick_folder() else {
         return Ok(None);
@@ -108,10 +116,10 @@ pub(crate) fn pick_git_repository() -> Result<Option<PickedRepository>, String> 
     }))
 }
 
+/// Opens a native folder picker for clone destination selection.
 // Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
 #[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
-/// Opens a native folder picker for clone destination selection.
 pub(crate) fn pick_clone_destination_folder() -> Result<Option<String>, String> {
     let Some(folder) = rfd::FileDialog::new().pick_folder() else {
         return Ok(None);
@@ -120,10 +128,10 @@ pub(crate) fn pick_clone_destination_folder() -> Result<Option<String>, String> 
     Ok(Some(folder.to_string_lossy().to_string()))
 }
 
+/// Opens a native file picker used by settings flows.
 // Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
 #[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
-/// Opens a native file picker used by settings flows.
 pub(crate) fn pick_settings_file() -> Result<Option<PickedFilePath>, String> {
     let Some(file) = rfd::FileDialog::new().pick_file() else {
         return Ok(None);
@@ -134,8 +142,8 @@ pub(crate) fn pick_settings_file() -> Result<Option<PickedFilePath>, String> {
     }))
 }
 
-#[tauri::command]
 /// Creates a new local Git repository with optional templates and initial commit.
+#[tauri::command]
 pub(crate) fn create_local_repository(
     input: CreateLocalRepositoryRequest,
 ) -> Result<PickedRepository, String> {
@@ -211,8 +219,8 @@ pub(crate) fn create_local_repository(
     })
 }
 
-#[tauri::command]
 /// Clones a repository into a destination folder and emits progress events.
+#[tauri::command]
 pub(crate) async fn clone_git_repository(
     app: AppHandle,
     state: State<'_, SettingsState>,
@@ -263,45 +271,131 @@ pub(crate) async fn clone_git_repository(
         },
     );
 
-    let mut clone_command = git_command();
-    apply_git_preferences(&mut clone_command, &command_preferences, Some(&state))?;
-    clone_command.args([
-        "clone",
-        "--progress",
-        trimmed_url,
-        destination_path.to_string_lossy().as_ref(),
-    ]);
+    let auth_state = app.state::<crate::askpass_state::GitAuthBrokerState>();
+    let auth_state_ref: &crate::askpass_state::GitAuthBrokerState = &auth_state;
+    let auth_session = auth_state_ref.create_session("clone")?;
+    let session_id = auth_session.session_id.clone();
+    let _session_cleanup =
+        crate::askpass_state::SessionCleanupGuard::new(auth_state_ref, session_id.clone());
 
-    if recurse_submodules {
-        clone_command.arg("--recurse-submodules");
+    // Check if credentials are already stored for this HTTPS URL
+    let credential_descriptor = if trimmed_url.starts_with("https://") {
+        crate::git_support::build_git_credential_descriptor(trimmed_url, None).ok()
+    } else {
+        None
+    };
+
+    let has_stored_credentials = credential_descriptor
+        .as_ref()
+        .and_then(|desc| crate::git_support::git_credential_fill(desc).ok())
+        .flatten()
+        .is_some();
+
+    emit_clone_progress(
+        &app,
+        CloneRepositoryProgress {
+            phase: "preparing".to_string(),
+            message: format!(
+                "{} into {}",
+                if has_stored_credentials {
+                    "Using stored credentials"
+                } else {
+                    "Preparing to clone"
+                },
+                destination_path.display()
+            ),
+            percent: Some(3),
+            received_objects: None,
+            resolved_objects: None,
+            total_objects: None,
+        },
+    );
+
+    let mut clone_result = run_clone_command(
+        &app,
+        &state,
+        trimmed_url,
+        &destination_path,
+        recurse_submodules,
+        &command_preferences,
+        &auth_session,
+    )?;
+
+    let mut approved_retry_credential: Option<ApprovedCloneCredential> = None;
+
+    if !clone_result.succeeded && should_retry_clone_with_auth_prompt(
+        trimmed_url,
+        &clone_result.stderr_output,
+    ) {
+        approved_retry_credential =
+            prompt_for_clone_retry_credentials(&app, auth_state_ref, &session_id, trimmed_url)
+                .await?;
+        clone_result = run_clone_command(
+            &app,
+            &state,
+            trimmed_url,
+            &destination_path,
+            recurse_submodules,
+            &command_preferences,
+            &auth_session,
+        )?;
     }
 
-    let mut child = clone_command
-        .stderr(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("Failed to run git clone: {error}"))?;
+    let clone_succeeded = clone_result.succeeded;
+    let auth_failed = !clone_succeeded
+        && crate::git_support::is_git_authentication_message(&clone_result.stderr_output);
 
-    if let Some(stderr) = child.stderr.take() {
-        let stderr_reader = BufReader::new(stderr);
-
-        for line_result in stderr_reader.lines() {
-            let line =
-                line_result.map_err(|error| format!("Failed to read git clone output: {error}"))?;
-            if let Some(progress) = parse_clone_progress(&line) {
-                emit_clone_progress(&app, progress);
+    // Handle credential approval/rejection based on operation result
+    if let Some(descriptor) = credential_descriptor {
+        if clone_succeeded {
+            // Check if user wants to remember credentials
+            if let Some(response) = auth_state.take_last_prompt_response(&session_id) {
+                if response.remember {
+                    if let Some(secret) = response.secret {
+                        // Rebuild descriptor with username if provided
+                        let descriptor_with_user = if let Some(username) = response.username {
+                            crate::git_support::build_git_credential_descriptor(
+                                trimmed_url,
+                                Some(&username),
+                            )
+                            .ok()
+                        } else {
+                            Some(descriptor.clone())
+                        };
+                        if let Some(desc) = descriptor_with_user {
+                            let _ = crate::git_support::git_credential_approve(&desc, &secret);
+                        }
+                    }
+                }
+            }
+        } else if auth_failed {
+            // Auth failed after submitting credentials - reject them
+            if let Some(response) = auth_state.take_last_prompt_response(&session_id) {
+                if let Some(secret) = response.secret {
+                    let _ = crate::git_support::git_credential_reject(&descriptor, &secret);
+                }
             }
         }
     }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("Failed to finalize git clone: {error}"))?;
+    if let Some(approved_credential) = approved_retry_credential {
+        if !approved_credential.remember {
+            let _ = crate::git_support::git_credential_reject(
+                &approved_credential.descriptor,
+                &approved_credential.secret,
+            );
+        }
+    }
 
-    if !output.status.success() {
+    if !clone_succeeded {
         remove_partial_clone_destination(&destination_path);
+        if !auth_state.session_has_prompt(&session_id) {
+            if let Some(message) = oauth_first_unsupported_auth_message(trimmed_url) {
+                return Err(message);
+            }
+        }
         return Err(git_error_message(
-            &output.stderr,
+            clone_result.stderr_output.as_bytes(),
             "Failed to clone repository",
         ));
     }
@@ -330,10 +424,10 @@ pub(crate) async fn clone_git_repository(
     })
 }
 
+/// Filters repository paths and returns only existing folders that contain `.git`.
 // Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
 #[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
-/// Filters repository paths and returns only existing folders that contain `.git`.
 pub(crate) fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, String> {
     let valid_paths = repo_paths
         .into_iter()
@@ -346,10 +440,10 @@ pub(crate) fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Ve
     Ok(valid_paths)
 }
 
+/// Creates an initial commit in an existing repository folder.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Creates an initial commit in an existing repository folder.
 pub(crate) fn create_repository_initial_commit(
     repo_path: String,
     git_identity: Option<GitIdentityWriteRequest>,
@@ -477,6 +571,168 @@ fn parse_clone_progress(line: &str) -> Option<CloneRepositoryProgress> {
     None
 }
 
+fn run_clone_command(
+    app: &AppHandle,
+    state: &State<'_, SettingsState>,
+    repository_url: &str,
+    destination_path: &Path,
+    recurse_submodules: bool,
+    command_preferences: &RepoCommandPreferences,
+    auth_session: &crate::askpass_state::GitAuthSessionHandle,
+) -> Result<CloneExecutionResult, String> {
+    let mut clone_command = git_command();
+    apply_git_preferences_with_auth_session(
+        &mut clone_command,
+        command_preferences,
+        Some(state),
+        Some(auth_session),
+    )?;
+    clone_command.args([
+        "clone",
+        "--progress",
+        repository_url,
+        destination_path.to_string_lossy().as_ref(),
+    ]);
+
+    if recurse_submodules {
+        clone_command.arg("--recurse-submodules");
+    }
+
+    let mut child = clone_command
+        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Failed to run git clone: {error}"))?;
+
+    let mut stderr_output = String::new();
+
+    if let Some(stderr) = child.stderr.take() {
+        let stderr_reader = BufReader::new(stderr);
+
+        for line_result in stderr_reader.lines() {
+            let line =
+                line_result.map_err(|error| format!("Failed to read git clone output: {error}"))?;
+            stderr_output.push_str(&line);
+            stderr_output.push('\n');
+            if let Some(progress) = parse_clone_progress(&line) {
+                emit_clone_progress(app, progress);
+            }
+        }
+    }
+
+    let status = child
+        .wait()
+        .map_err(|error| format!("Failed to finalize git clone: {error}"))?;
+
+    Ok(CloneExecutionResult {
+        stderr_output,
+        succeeded: status.success(),
+    })
+}
+
+fn clone_prompt_provider_from_url(repository_url: &str) -> Option<&'static str> {
+    let normalized = repository_url.trim().to_ascii_lowercase();
+
+    if !(normalized.starts_with("https://") || normalized.starts_with("http://")) {
+        return None;
+    }
+
+    if normalized.contains("github.com") {
+        Some("github.com")
+    } else if normalized.contains("gitlab.com") {
+        Some("gitlab.com")
+    } else if normalized.contains("bitbucket.org") {
+        Some("bitbucket.org")
+    } else {
+        None
+    }
+}
+
+fn should_retry_clone_with_auth_prompt(
+    repository_url: &str,
+    stderr_output: &str,
+) -> bool {
+    if clone_prompt_provider_from_url(repository_url).is_none() {
+        return false;
+    }
+
+    crate::git_support::is_git_authentication_message(stderr_output)
+        || stderr_output.to_lowercase().contains("access denied")
+}
+
+fn oauth_first_unsupported_auth_message(repository_url: &str) -> Option<String> {
+    let normalized = repository_url.trim().to_ascii_lowercase();
+
+    if normalized.starts_with("git@") || normalized.starts_with("ssh://") {
+        return Some(
+            "LitGit currently supports OAuth authentication for github.com, gitlab.com, and bitbucket.org over HTTPS only. SSH authentication is not supported in this product flow yet.".to_string(),
+        );
+    }
+
+    if (normalized.starts_with("https://") || normalized.starts_with("http://"))
+        && clone_prompt_provider_from_url(repository_url).is_none()
+    {
+        return Some(
+            "LitGit currently supports OAuth authentication for github.com, gitlab.com, and bitbucket.org over HTTPS only. This host is not supported yet.".to_string(),
+        );
+    }
+
+    None
+}
+
+async fn prompt_for_clone_retry_credentials(
+    app: &AppHandle,
+    auth_state: &crate::askpass_state::GitAuthBrokerState,
+    session_id: &str,
+    repository_url: &str,
+) -> Result<Option<ApprovedCloneCredential>, String> {
+    let Some(host) = clone_prompt_provider_from_url(repository_url) else {
+        return Ok(None);
+    };
+
+    let prompt = format!("Password for 'https://{host}':");
+    let prompt_id = auth_state.queue_prompt(session_id, &prompt, Some(host), None)?;
+    let payload = crate::askpass::GitAuthPromptPayload {
+        session_id: session_id.to_string(),
+        prompt_id: prompt_id.clone(),
+        operation: "clone".to_string(),
+        prompt,
+        host: Some(host.to_string()),
+        username: None,
+        kind: "https-password".to_string(),
+        allow_remember: true,
+    };
+
+    crate::askpass::emit_git_auth_prompt(app, &payload)?;
+
+    let response = auth_state
+        .wait_for_prompt_response(session_id, &prompt_id, CLONE_AUTH_PROMPT_TIMEOUT)
+        .await
+        .ok_or_else(|| "Authentication timed out".to_string())?;
+
+    if response.cancelled {
+        return Err("Authentication cancelled".to_string());
+    }
+
+    let Some(secret) = response.secret else {
+        return Ok(None);
+    };
+
+    let descriptor = crate::git_support::build_git_credential_descriptor(
+        repository_url,
+        response.username.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    crate::git_support::git_credential_approve(&descriptor, &secret)
+        .map_err(|error| error.to_string())?;
+
+    Ok(Some(ApprovedCloneCredential {
+        descriptor,
+        remember: response.remember,
+        secret,
+    }))
+}
+
 fn parse_progress_counts(line: &str, prefix: &str) -> Option<(u8, usize, usize)> {
     let remainder = line.strip_prefix(prefix)?.trim();
     let percent = remainder.split('%').next()?.trim().parse::<u8>().ok()?;
@@ -597,7 +853,10 @@ fn remove_partial_clone_destination(path: &Path) {
     }
 }
 
-fn initialize_git_repository(repo_path: &Path, default_branch: &str) -> Result<(), RepositoryError> {
+fn initialize_git_repository(
+    repo_path: &Path,
+    default_branch: &str,
+) -> Result<(), RepositoryError> {
     let init_output = git_command()
         .args(["-C", repo_path.to_string_lossy().as_ref(), "init"])
         .output()
@@ -655,8 +914,13 @@ fn apply_git_identity_to_repository(
         None
     };
 
-    write_git_identity(repo_path_for_scope, scope, identity.name.as_str(), identity.email.as_str())
-        .map_err(|e| RepositoryError::Message(e.to_string()))?;
+    write_git_identity(
+        repo_path_for_scope,
+        scope,
+        identity.name.as_str(),
+        identity.email.as_str(),
+    )
+    .map_err(|e| RepositoryError::Message(e.to_string()))?;
 
     Ok(())
 }
@@ -670,14 +934,16 @@ fn write_repository_files(
     license_template_content: Option<&str>,
 ) -> Result<(), RepositoryError> {
     let readme_path = repo_path.join("README.md");
-    fs::write(&readme_path, format!("# {repository_name}\n"))
-        .map_err(|error| RepositoryError::Message(format!("Failed to create README.md: {error}")))?;
+    fs::write(&readme_path, format!("# {repository_name}\n")).map_err(|error| {
+        RepositoryError::Message(format!("Failed to create README.md: {error}"))
+    })?;
 
     if let Some(gitignore_contents) =
         gitignore_template_content.filter(|value| !value.trim().is_empty())
     {
-        fs::write(repo_path.join(".gitignore"), gitignore_contents)
-            .map_err(|error| RepositoryError::Message(format!("Failed to create .gitignore: {error}")))?;
+        fs::write(repo_path.join(".gitignore"), gitignore_contents).map_err(|error| {
+            RepositoryError::Message(format!("Failed to create .gitignore: {error}"))
+        })?;
     } else if gitignore_template_key.is_some() {
         return Err(RepositoryError::Message(
             "Selected .gitignore template content is empty".to_string(),
@@ -687,8 +953,9 @@ fn write_repository_files(
     if let Some(license_contents) =
         license_template_content.filter(|value| !value.trim().is_empty())
     {
-        fs::write(repo_path.join("LICENSE"), license_contents)
-            .map_err(|error| RepositoryError::Message(format!("Failed to create LICENSE: {error}")))?;
+        fs::write(repo_path.join("LICENSE"), license_contents).map_err(|error| {
+            RepositoryError::Message(format!("Failed to create LICENSE: {error}"))
+        })?;
     } else if license_template_key.is_some() {
         return Err(RepositoryError::Message(
             "Selected license template content is empty".to_string(),
@@ -743,8 +1010,10 @@ fn folder_name(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_repository_initial_commit, parse_clone_progress, validate_clone_repository_url,
-        validate_opened_repositories, CreateLocalRepositoryRequest,
+        create_repository_initial_commit, oauth_first_unsupported_auth_message,
+        parse_clone_progress, should_retry_clone_with_auth_prompt,
+        validate_clone_repository_url, validate_opened_repositories, CreateLocalRepositoryRequest,
+        RepoCommandPreferences,
     };
     use crate::git_support::git_command;
     use crate::settings::GitIdentityWriteRequest;
@@ -786,6 +1055,43 @@ mod tests {
     }
 
     #[test]
+    fn clone_command_uses_auth_session_env() {
+        let mut command = crate::git_support::git_command();
+        let preferences = RepoCommandPreferences::default();
+        let settings_state = crate::settings::SettingsState::default();
+        let session = crate::askpass_state::GitAuthSessionHandle {
+            session_id: "clone-session".to_string(),
+            secret: "clone-secret".to_string(),
+            operation: "clone".to_string(),
+        };
+        settings_state.set_askpass_socket_path(std::env::temp_dir().join("litgit-test.sock"));
+
+        crate::settings::apply_auth_session_environment(
+            &mut command,
+            Some(&settings_state),
+            Some(&session),
+        )
+        .expect("preferences should apply");
+        crate::settings::apply_git_preferences(&mut command, &preferences, None)
+            .expect("git preferences should apply");
+
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|entry| entry.to_string_lossy().to_string()),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            envs.get("LITGIT_ASKPASS_OPERATION"),
+            Some(&Some("clone".to_string()))
+        );
+    }
+
+    #[test]
     fn validate_clone_repository_url_rejects_local_file_clone_urls() {
         let error = validate_clone_repository_url("file:///tmp/repo.git")
             .expect_err("local file clone urls should be rejected");
@@ -814,6 +1120,54 @@ mod tests {
         assert_eq!(progress.percent, Some(75));
         assert_eq!(progress.resolved_objects, Some(15));
         assert_eq!(progress.total_objects, Some(20));
+    }
+
+    #[test]
+    fn should_retry_clone_with_auth_prompt_for_known_provider_not_found_error() {
+        assert!(should_retry_clone_with_auth_prompt(
+            "https://github.com/example/private.git",
+            "remote: Repository not found.",
+        ));
+    }
+
+    #[test]
+    fn should_retry_clone_with_auth_prompt_for_silent_git_failures() {
+        assert!(should_retry_clone_with_auth_prompt(
+            "https://github.com/example/private.git",
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+        ));
+    }
+
+    #[test]
+    fn should_not_retry_clone_with_auth_prompt_for_unknown_host() {
+        assert!(!should_retry_clone_with_auth_prompt(
+            "https://code.example.com/private.git",
+            "remote: Repository not found.",
+        ));
+    }
+
+    #[test]
+    fn oauth_first_unsupported_auth_message_reports_unknown_https_host() {
+        let message = oauth_first_unsupported_auth_message("https://code.example.com/private.git");
+
+        assert_eq!(
+            message.as_deref(),
+            Some(
+                "LitGit currently supports OAuth authentication for github.com, gitlab.com, and bitbucket.org over HTTPS only. This host is not supported yet."
+            )
+        );
+    }
+
+    #[test]
+    fn oauth_first_unsupported_auth_message_reports_ssh_as_unsupported() {
+        let message = oauth_first_unsupported_auth_message("git@github.com:owner/repo.git");
+
+        assert_eq!(
+            message.as_deref(),
+            Some(
+                "LitGit currently supports OAuth authentication for github.com, gitlab.com, and bitbucket.org over HTTPS only. SSH authentication is not supported in this product flow yet."
+            )
+        );
     }
 
     #[test]
@@ -946,5 +1300,27 @@ mod tests {
                 .is_empty(),
             "HEAD should resolve to a commit hash",
         );
+    }
+
+    #[test]
+    fn test_is_scp_style_ssh_repository_url() {
+        use super::is_scp_style_ssh_repository_url;
+
+        assert!(is_scp_style_ssh_repository_url(
+            "git@github.com:owner/repo.git"
+        ));
+        assert!(is_scp_style_ssh_repository_url(
+            "user@host.com:path/to/repo"
+        ));
+        assert!(!is_scp_style_ssh_repository_url(
+            "https://github.com/owner/repo.git"
+        ));
+        assert!(!is_scp_style_ssh_repository_url(
+            "git@github.com:/absolute/path"
+        ));
+        assert!(!is_scp_style_ssh_repository_url(
+            "ssh://git@github.com/owner/repo.git"
+        ));
+        assert!(!is_scp_style_ssh_repository_url("git@github.com: "));
     }
 }

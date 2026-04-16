@@ -74,17 +74,17 @@ impl PreviewGate {
     }
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
 /// Additional information describing why a preview gate was triggered.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct PreviewGateDetails {
     current: Option<usize>,
     limit: Option<usize>,
 }
 
+/// Preflight metadata for a working-tree file preview.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Preflight metadata for a working-tree file preview.
 pub(crate) struct RepositoryFilePreflight {
     file_size_bytes: Option<usize>,
     gate: String,
@@ -100,9 +100,9 @@ pub(crate) struct RepositoryFilePreflight {
     viewer_kind: String,
 }
 
+/// Preflight metadata for a historical commit file preview.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Preflight metadata for a historical commit file preview.
 pub(crate) struct RepositoryCommitFilePreflight {
     commit_hash: String,
     file_size_bytes: Option<usize>,
@@ -407,8 +407,8 @@ fn build_content_payload(
     ))
 }
 
-#[tauri::command]
 /// Evaluates whether a working-tree file can be safely rendered in the selected preview mode.
+#[tauri::command]
 pub(crate) fn get_repository_file_preflight(
     repo_path: String,
     file_path: String,
@@ -449,8 +449,8 @@ fn get_repository_file_preflight_inner(
     })
 }
 
-#[tauri::command]
 /// Evaluates whether a commit file can be safely rendered in the selected preview mode.
+#[tauri::command]
 pub(crate) fn get_repository_commit_file_preflight(
     repo_path: String,
     commit_hash: String,
@@ -495,8 +495,8 @@ fn get_repository_commit_file_preflight_inner(
     })
 }
 
-#[tauri::command]
 /// Returns working-tree file content for diff/file preview modes.
+#[tauri::command]
 pub(crate) fn get_repository_file_content(
     repo_path: String,
     file_path: String,
@@ -572,8 +572,8 @@ fn get_repository_file_content_inner(
     })
 }
 
-#[tauri::command]
 /// Returns commit file content for diff/file preview modes.
+#[tauri::command]
 pub(crate) fn get_repository_commit_file_content(
     repo_path: String,
     commit_hash: String,

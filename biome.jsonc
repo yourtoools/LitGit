@@ -2,7 +2,13 @@
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "extends": ["ultracite/biome/core", "ultracite/biome/react"],
   "files": {
-    "includes": ["!**/scripts", "!**/generated", "!**/packaging"]
+    "includes": [
+      "!**/scripts",
+      "!**/generated",
+      "!**/packaging",
+      "!apps/desktop/index.html",
+      "!apps/desktop/public/oauth-success.html"
+    ]
   },
   "overrides": [
     {

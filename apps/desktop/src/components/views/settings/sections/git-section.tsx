@@ -8,10 +8,7 @@ import {
   SettingsHelpText,
 } from "@/components/views/settings/settings-shared-ui";
 import {
-  clearGitHubToken,
-  getGitHubTokenStatus,
   getGitIdentityStatus,
-  saveGitHubToken,
   saveGitIdentity,
 } from "@/lib/tauri-settings-client";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
@@ -25,6 +22,7 @@ function GitSection({ query }: { query: string }) {
     activeRepoId ? (state.repoGitIdentities[activeRepoId] ?? null) : null
   );
   const setRepoGitIdentity = useRepoStore((state) => state.setRepoGitIdentity);
+
   const [identityStatus, setIdentityStatus] = useState<null | {
     effective: {
       email: string | null;
@@ -345,123 +343,6 @@ function GitSection({ query }: { query: string }) {
           ) : null}
         </div>
       </SettingsField>
-      <SettingsField
-        description="Use a fine-grained GitHub Personal Access Token to resolve commit author avatars and private email matches."
-        label="GitHub token"
-        query={query}
-      >
-        <GitHubTokenFields />
-      </SettingsField>
-    </div>
-  );
-}
-
-function GitHubTokenFields() {
-  const [tokenInput, setTokenInput] = useState("");
-  const [tokenStatus, setTokenStatus] = useState<null | {
-    hasStoredValue: boolean;
-    storageMode: "secure" | "session";
-  }>(null);
-  const [tokenMessage, setTokenMessage] = useState<string | null>(null);
-  const hasStoredToken = tokenStatus?.hasStoredValue ?? false;
-
-  useEffect(() => {
-    setTokenMessage(null);
-
-    getGitHubTokenStatus()
-      .then(setTokenStatus)
-      .catch(() => {
-        setTokenStatus(null);
-      });
-  }, []);
-
-  return (
-    <div className="grid gap-3">
-      <SettingsHelpText>
-        Use a fine-grained GitHub Personal Access Token with read-only access to
-        your account email addresses for private email matching. Create one at{" "}
-        <a
-          className="underline underline-offset-2 hover:text-foreground"
-          href="https://github.com/settings/tokens"
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          github.com/settings/tokens
-        </a>
-        .
-      </SettingsHelpText>
-      <Input
-        className="h-7 text-xs"
-        disabled={hasStoredToken}
-        onChange={(event) => {
-          setTokenInput(event.target.value);
-          setTokenMessage(null);
-        }}
-        placeholder="github_pat_..."
-        type="password"
-        value={hasStoredToken ? "********************" : tokenInput}
-      />
-      <div className="flex items-center gap-3">
-        <Button
-          disabled={hasStoredToken || tokenInput.trim().length === 0}
-          onClick={() => {
-            saveGitHubToken(tokenInput)
-              .then((status) => {
-                setTokenStatus(status);
-                setTokenInput("");
-                setTokenMessage(`Token saved (${status.storageMode}).`);
-              })
-              .catch((error: unknown) => {
-                setTokenMessage(
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to save token"
-                );
-              });
-          }}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          Save token
-        </Button>
-        <span className="text-muted-foreground text-xs">
-          {tokenStatus?.hasStoredValue
-            ? `Stored (${tokenStatus.storageMode})`
-            : "No token saved"}
-        </span>
-      </div>
-      {hasStoredToken ? (
-        <SectionActionRow>
-          <Button
-            onClick={() => {
-              clearGitHubToken()
-                .then(() => {
-                  setTokenStatus({
-                    hasStoredValue: false,
-                    storageMode: "session",
-                  });
-                  setTokenMessage("Token cleared.");
-                })
-                .catch((error: unknown) => {
-                  setTokenMessage(
-                    error instanceof Error
-                      ? error.message
-                      : "Failed to clear token"
-                  );
-                });
-            }}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Clear token
-          </Button>
-        </SectionActionRow>
-      ) : null}
-      {tokenMessage ? (
-        <SettingsHelpText>{tokenMessage}</SettingsHelpText>
-      ) : null}
     </div>
   );
 }

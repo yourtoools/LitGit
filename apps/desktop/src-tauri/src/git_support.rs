@@ -1,7 +1,9 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use encoding_rs::{Encoding, UTF_8};
+use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -346,6 +348,288 @@ pub(crate) fn is_git_authentication_message(message: &str) -> bool {
         || normalized.contains("authentication failed")
         || normalized.contains("the requested url returned error: 401")
         || normalized.contains("the requested url returned error: 403")
+        || normalized.contains("repository not found")
+        || (normalized.contains("fatal: remote error:") && normalized.contains("not found"))
+}
+
+/// Builds a Git credential descriptor for the credential helper protocol.
+///
+/// Returns a string in the format expected by Git's credential helpers:
+/// ```text
+/// protocol=https
+/// host=github.com
+/// path=org/repo.git
+/// username=<optional>
+/// ```
+pub(crate) fn build_git_credential_descriptor(
+    remote_url: &str,
+    username: Option<&str>,
+) -> Result<String, GitSupportError> {
+    let parsed = url::Url::parse(remote_url)
+        .map_err(|_| GitSupportError::Message("HTTPS remote URL is required".to_string()))?;
+
+    if parsed.scheme() != "https" {
+        return Err(GitSupportError::Message(
+            "HTTPS remote URL is required".to_string(),
+        ));
+    }
+
+    let mut lines = vec![
+        format!("protocol={}", parsed.scheme()),
+        format!("host={}", parsed.host_str().unwrap_or_default()),
+        format!("path={}", parsed.path().trim_start_matches('/')),
+    ];
+
+    if let Some(value) = username.filter(|value| !value.trim().is_empty()) {
+        lines.push(format!("username={value}"));
+    }
+
+    lines.push(String::new());
+    Ok(lines.join("\n"))
+}
+
+/// Retrieves stored credentials from the OS keychain via git credential fill.
+///
+/// Takes a credential descriptor and queries Git's credential helper system.
+/// Returns the full response string if credentials are found, or None if not.
+pub(crate) fn git_credential_fill(descriptor: &str) -> Result<Option<String>, GitSupportError> {
+    let mut child = background_command("git")
+        .args(["credential", "fill"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Prevent interactive terminal prompts — this runs inside a GUI app,
+        // so any prompt on /dev/tty blocks the Tauri event loop and freezes the UI.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "")
+        .env("SSH_ASKPASS", "")
+        .spawn()
+        .map_err(|error| GitSupportError::Io {
+            action: "spawn git credential fill",
+            source: error,
+        })?;
+
+    // Write the descriptor to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(descriptor.as_bytes())
+            .map_err(|error| GitSupportError::Io {
+                action: "write to git credential fill stdin",
+                source: error,
+            })?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| GitSupportError::Io {
+            action: "run git credential fill",
+            source: error,
+        })?;
+
+    // If the command succeeded and returned content, we have credentials
+    if output.status.success() && !output.stdout.is_empty() {
+        let response = String::from_utf8_lossy(&output.stdout);
+        // Only return if we actually got a username or password
+        if response.contains("username=") || response.contains("password=") {
+            return Ok(Some(response.to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Stores credentials in the OS keychain via git credential approve.
+///
+/// Takes a credential descriptor and a secret (password/token), adds the secret
+/// to the descriptor, and submits it to Git's credential helper for storage.
+pub(crate) fn git_credential_approve(
+    descriptor: &str,
+    secret: &str,
+) -> Result<(), GitSupportError> {
+    // Parse the descriptor to extract or use existing username
+    let username = extract_username_from_descriptor(descriptor).unwrap_or_default();
+
+    // Build the approve input: descriptor + username + password
+    let mut approve_input = descriptor.to_string();
+    if !approve_input.ends_with('\n') {
+        approve_input.push('\n');
+    }
+    approve_input.push_str(&format!("username={username}\n"));
+    approve_input.push_str(&format!("password={secret}\n"));
+
+    let mut child = background_command("git")
+        .args(["credential", "approve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| GitSupportError::Io {
+            action: "spawn git credential approve",
+            source: error,
+        })?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(approve_input.as_bytes())
+            .map_err(|error| GitSupportError::Io {
+                action: "write to git credential approve stdin",
+                source: error,
+            })?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| GitSupportError::Io {
+            action: "run git credential approve",
+            source: error,
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GitSupportError::Message(format!(
+            "Failed to approve credentials: {stderr}"
+        )));
+    }
+
+    Ok(())
+}
+
+/// Removes invalid credentials from the OS keychain via git credential reject.
+///
+/// Takes a credential descriptor and submits it to Git's credential helper
+/// to remove matching stored credentials.
+pub(crate) fn git_credential_reject(
+    descriptor: &str,
+    _secret: &str,
+) -> Result<(), GitSupportError> {
+    let mut child = background_command("git")
+        .args(["credential", "reject"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| GitSupportError::Io {
+            action: "spawn git credential reject",
+            source: error,
+        })?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(descriptor.as_bytes())
+            .map_err(|error| GitSupportError::Io {
+                action: "write to git credential reject stdin",
+                source: error,
+            })?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| GitSupportError::Io {
+            action: "run git credential reject",
+            source: error,
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(GitSupportError::Message(format!(
+            "Failed to reject credentials: {stderr}"
+        )));
+    }
+
+    Ok(())
+}
+
+/// Checks if credentials exist for common Git hosts in the OS keychain.
+///
+/// Returns a HashMap mapping host names to their credential status.
+/// Used during onboarding to show users which hosts already have
+/// stored credentials.
+///
+/// # Returns
+///
+/// HashMap with keys: "GitHub", "GitLab", "Bitbucket"
+/// Values: true if credentials exist, false otherwise
+#[tauri::command]
+pub(crate) fn check_git_credentials_status() -> HashMap<&'static str, bool> {
+    let hosts = vec![
+        ("github.com", "GitHub"),
+        ("gitlab.com", "GitLab"),
+        ("bitbucket.org", "Bitbucket"),
+    ];
+
+    hosts
+        .into_iter()
+        .map(|(host, name)| {
+            let descriptor = format!("protocol=https\nhost={host}\n\n");
+            // Use non-interactive check to prevent terminal prompts
+            let exists = git_credential_fill_non_interactive(&descriptor)
+                .ok()
+                .flatten()
+                .is_some();
+            (name, exists)
+        })
+        .collect()
+}
+
+/// Non-interactive version of git credential fill that prevents terminal prompts.
+///
+/// Uses environment variables to disable interactive prompts, ensuring the
+/// command returns quickly without hanging if no credential exists.
+fn git_credential_fill_non_interactive(
+    descriptor: &str,
+) -> Result<Option<String>, GitSupportError> {
+    let mut child = background_command("git")
+        .args(["credential", "fill"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Prevent Git from prompting for credentials in the terminal
+        .env("GIT_TERMINAL_PROMPT", "0")
+        // Disable any askpass helper that might try to show a dialog
+        .env("GIT_ASKPASS", "")
+        .env("SSH_ASKPASS", "")
+        .spawn()
+        .map_err(|error| GitSupportError::Io {
+            action: "spawn git credential fill",
+            source: error,
+        })?;
+
+    // Write the descriptor to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(descriptor.as_bytes())
+            .map_err(|error| GitSupportError::Io {
+                action: "write to git credential fill stdin",
+                source: error,
+            })?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| GitSupportError::Io {
+            action: "run git credential fill",
+            source: error,
+        })?;
+
+    // If the command succeeded and returned content, we have credentials
+    if output.status.success() && !output.stdout.is_empty() {
+        let response = String::from_utf8_lossy(&output.stdout);
+        // Only return if we actually got a username or password
+        if response.contains("username=") || response.contains("password=") {
+            return Ok(Some(response.to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Extracts the username from a credential descriptor string.
+fn extract_username_from_descriptor(descriptor: &str) -> Option<String> {
+    descriptor
+        .lines()
+        .find(|line| line.starts_with("username="))
+        .and_then(|line| line.strip_prefix("username="))
+        .map(String::from)
 }
 
 /// Type alias for a pair of old/new file content blobs.
@@ -440,10 +724,10 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        decode_text_content_with_encoding, encode_image_data_url, encode_text_with_encoding,
-        git_error_message, git_process_error_message, is_git_authentication_message,
-        is_git_repository_root, is_probably_text_content, load_commit_contents,
-        load_working_tree_contents, resolve_file_extension,
+        build_git_credential_descriptor, decode_text_content_with_encoding, encode_image_data_url,
+        encode_text_with_encoding, git_error_message, git_process_error_message,
+        is_git_authentication_message, is_git_repository_root, is_probably_text_content,
+        load_commit_contents, load_working_tree_contents, resolve_file_extension,
         resolve_image_mime_type, resolve_text_encoding, validate_git_repo,
         validate_launcher_repository_root, validate_repo_relative_file_path,
         validate_repository_path, write_temp_bytes, GitSupportError,
@@ -521,8 +805,8 @@ mod tests {
     }
 
     #[test]
-    fn does_not_misclassify_repository_not_found_as_auth_error() {
-        assert!(!is_git_authentication_message(
+    fn classifies_repository_not_found_as_auth_error() {
+        assert!(is_git_authentication_message(
             "remote: Repository not found. fatal: repository 'https://github.com/owner/repo.git/' not found"
         ));
     }
@@ -752,11 +1036,9 @@ mod tests {
 
         fs::write(&tracked_path, "after").expect("tracked file should update");
 
-        let (old_content, new_content) = load_working_tree_contents(
-            temp_dir.to_string_lossy().as_ref(),
-            "tracked.txt",
-        )
-        .expect("working tree contents should load");
+        let (old_content, new_content) =
+            load_working_tree_contents(temp_dir.to_string_lossy().as_ref(), "tracked.txt")
+                .expect("working tree contents should load");
 
         remove_temp_path(&temp_dir);
         assert_eq!(old_content.as_deref(), Some("before".as_bytes()));
@@ -845,7 +1127,9 @@ mod tests {
             ])
             .output()
             .expect("git rev-parse should run");
-        let commit_hash = String::from_utf8_lossy(&head_commit.stdout).trim().to_string();
+        let commit_hash = String::from_utf8_lossy(&head_commit.stdout)
+            .trim()
+            .to_string();
 
         let (old_content, new_content) = load_commit_contents(
             temp_dir.to_string_lossy().as_ref(),
@@ -863,5 +1147,36 @@ mod tests {
     #[test]
     fn uses_create_no_window_for_background_processes() {
         assert_eq!(super::background_process_creation_flags(), 0x08000000);
+    }
+
+    #[test]
+    fn build_git_credential_descriptor_extracts_https_parts() {
+        let descriptor =
+            build_git_credential_descriptor("https://github.com/example/repo.git", Some("octocat"))
+                .expect("descriptor should build");
+
+        assert!(descriptor.contains("protocol=https"));
+        assert!(descriptor.contains("host=github.com"));
+        assert!(descriptor.contains("path=example/repo.git"));
+        assert!(descriptor.contains("username=octocat"));
+    }
+
+    #[test]
+    fn auth_failure_message_detects_credential_rejection() {
+        let message = git_error_message(
+            b"fatal: Authentication failed for 'https://github.com/example/repo.git/'",
+            "fallback",
+        );
+
+        assert!(message.contains("Authentication required"));
+    }
+
+    #[test]
+    fn build_git_credential_descriptor_includes_path_for_helper_context() {
+        let descriptor =
+            build_git_credential_descriptor("https://github.com/example/repo.git", None)
+                .expect("descriptor");
+
+        assert!(descriptor.contains("path=example/repo.git"));
     }
 }

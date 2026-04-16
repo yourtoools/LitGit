@@ -210,7 +210,7 @@ function EditorSection({ query }: { query: string }) {
     }
   }, []);
 
-  const _startPreviewResize = (event: React.PointerEvent<HTMLElement>) => {
+  const startPreviewResize = (event: React.PointerEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
 
@@ -258,7 +258,7 @@ function EditorSection({ query }: { query: string }) {
     );
   };
 
-  const _handlePreviewResizeHandleKeyDown = (
+  const handlePreviewResizeHandleKeyDown = (
     event: React.KeyboardEvent<HTMLElement>
   ) => {
     const resizeStep = event.shiftKey ? 40 : 16;
@@ -643,8 +643,8 @@ function EditorSection({ query }: { query: string }) {
           aria-controls="editor-preview-sidebar"
           aria-label="Resize editor preview sidebar"
           className="desktop-resize-handle-vertical-focus h-full w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-accent/30"
-          onKeyDown={_handlePreviewResizeHandleKeyDown}
-          onPointerDown={_startPreviewResize}
+          onKeyDown={handlePreviewResizeHandleKeyDown}
+          onPointerDown={startPreviewResize}
           type="button"
         />
         <div

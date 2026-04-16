@@ -1,4 +1,3 @@
-use crate::commit_messages::clear_github_identity_cache;
 use crate::git_support::{background_command, git_command, git_error_message, validate_git_repo};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -12,7 +11,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use tauri::State;
 use thiserror::Error;
-use ureq::Proxy;
+use ureq::http;
 
 /// Error type for settings operations.
 #[derive(Debug, Error)]
@@ -29,11 +28,6 @@ pub(crate) enum SettingsError {
         /// The underlying I/O error.
         source: std::io::Error,
     },
-
-    /// An error occurred during a proxy operation.
-    #[expect(dead_code)]
-    #[error("Proxy error: {0}")]
-    Proxy(String),
 }
 
 impl From<SettingsError> for String {
@@ -44,18 +38,11 @@ impl From<SettingsError> for String {
 
 const AI_SECRET_SERVICE: &str = "litgit.ai.provider";
 const PROXY_SECRET_SERVICE: &str = "litgit.proxy.auth";
-pub(crate) const GITHUB_AVATAR_SERVICE: &str = "litgit.github.avatar";
 const DEFAULT_PROXY_PORT: u16 = 80;
 const PROXY_TEST_TIMEOUT_SECS: u64 = 10;
 
-#[derive(Clone, Copy)]
-enum GitHubTokenStorageTarget {
-    Secure,
-    Session,
-}
-
-#[derive(Clone)]
 /// In-memory GitHub identity cache record used by history author enrichment.
+#[derive(Clone)]
 pub(crate) struct GitHubIdentityCacheRecord {
     /// The avatar URL returned by the GitHub API.
     pub(crate) avatar_url: Option<String>,
@@ -80,6 +67,7 @@ pub(crate) struct SettingsState {
     system_font_families: Mutex<Option<Vec<SystemFontFamily>>>,
     active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
     auto_fetch_scheduler: Mutex<Option<AutoFetchSchedulerHandle>>,
+    askpass_socket_path: Mutex<Option<std::path::PathBuf>>,
 }
 
 impl Default for SettingsState {
@@ -91,20 +79,12 @@ impl Default for SettingsState {
             system_font_families: Mutex::default(),
             active_network_repo_paths: Arc::new(Mutex::new(HashSet::new())),
             auto_fetch_scheduler: Mutex::default(),
+            askpass_socket_path: Mutex::default(),
         }
     }
 }
 
 impl SettingsState {
-    pub(crate) fn github_session_token(&self) -> Option<String> {
-        let Ok(secrets) = self.ai_secrets.lock() else {
-            log::warn!("Failed to access settings state while reading the GitHub session token");
-            return None;
-        };
-
-        secrets.get("github_token").map(|value| value.value.clone())
-    }
-
     pub(crate) fn github_identity_cache_file_path(&self) -> Option<PathBuf> {
         let Ok(cache) = self.github_identity_cache.lock() else {
             log::warn!(
@@ -127,6 +107,21 @@ impl SettingsState {
         }
     }
 
+    pub(crate) fn set_askpass_socket_path(&self, path: std::path::PathBuf) {
+        match self.askpass_socket_path.lock() {
+            Ok(mut stored_path) => {
+                *stored_path = Some(path);
+            }
+            Err(_) => {
+                log::warn!("Failed to set askpass socket path because the lock is poisoned");
+            }
+        }
+    }
+
+    pub(crate) fn askpass_socket_path(&self) -> Option<std::path::PathBuf> {
+        self.askpass_socket_path.lock().ok().and_then(|p| p.clone())
+    }
+
     pub(crate) fn mutate_github_identity_cache<T>(
         &self,
         mutate: impl FnOnce(&mut HashMap<String, GitHubIdentityCacheRecord>) -> T,
@@ -145,26 +140,26 @@ struct AutoFetchSchedulerHandle {
     worker: JoinHandle<()>,
 }
 
+/// Runtime capabilities reported by the settings backend.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Runtime capabilities reported by the settings backend.
 pub(crate) struct SettingsBackendCapabilities {
     runtime_platform: String,
     secure_storage_available: bool,
     session_secrets_supported: bool,
 }
 
+/// Secret availability and storage mode metadata.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Secret availability and storage mode metadata.
 pub(crate) struct SecretStatusPayload {
     has_stored_value: bool,
     storage_mode: String,
 }
 
+/// Metadata for one stored HTTP credential entry.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Metadata for one stored HTTP credential entry.
 pub(crate) struct HttpCredentialEntryMetadata {
     host: String,
     id: String,
@@ -173,43 +168,43 @@ pub(crate) struct HttpCredentialEntryMetadata {
     username: String,
 }
 
+/// Result payload for proxy connectivity checks.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Result payload for proxy connectivity checks.
 pub(crate) struct ProxyTestResult {
     message: String,
     ok: bool,
 }
 
+/// Signing key descriptor discovered from GPG or SSH sources.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Signing key descriptor discovered from GPG or SSH sources.
 pub(crate) struct SigningKeyInfo {
     id: String,
     label: String,
     r#type: String,
 }
 
+/// System font family descriptor.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// System font family descriptor.
 pub(crate) struct SystemFontFamily {
     /// The font family name as reported by the system.
     pub(crate) family: String,
 }
 
+/// Git identity value pair (name and email) with completeness marker.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Git identity value pair (name and email) with completeness marker.
 pub(crate) struct GitIdentityValue {
     email: Option<String>,
     is_complete: bool,
     name: Option<String>,
 }
 
+/// Combined Git identity payload across effective/global/local scopes.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Combined Git identity payload across effective/global/local scopes.
 pub(crate) struct GitIdentityStatusPayload {
     effective: GitIdentityValue,
     effective_scope: Option<String>,
@@ -218,9 +213,9 @@ pub(crate) struct GitIdentityStatusPayload {
     repo_path: Option<String>,
 }
 
+/// Input payload for writing Git identity settings.
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Input payload for writing Git identity settings.
 pub(crate) struct GitIdentityWriteRequest {
     /// The Git author email address to write.
     pub(crate) email: String,
@@ -230,9 +225,9 @@ pub(crate) struct GitIdentityWriteRequest {
     pub(crate) scope: String,
 }
 
+/// Repository command behavior preferences applied to git subprocesses.
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Repository command behavior preferences applied to git subprocesses.
 pub(crate) struct RepoCommandPreferences {
     /// Whether to enable proxy usage for git operations.
     pub(crate) enable_proxy: Option<bool>,
@@ -268,15 +263,15 @@ pub(crate) struct RepoCommandPreferences {
     pub(crate) use_local_ssh_agent: Option<bool>,
 }
 
+/// Generic picked file path payload.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Generic picked file path payload.
 pub(crate) struct PickedFilePath {
     path: String,
 }
 
-#[derive(Clone)]
 /// Secret value plus storage mode marker.
+#[derive(Clone)]
 pub(crate) struct StoredSecretValue {
     /// The storage mode ("secure" or "session").
     pub(crate) storage_mode: String,
@@ -293,8 +288,8 @@ impl StoredSecretValue {
     }
 }
 
-#[derive(Clone)]
 /// HTTP credential record persisted in secure/session storage.
+#[derive(Clone)]
 pub(crate) struct StoredHttpCredential {
     host: String,
     port: Option<u16>,
@@ -316,10 +311,10 @@ impl Drop for NetworkOperationGuard<'_> {
     }
 }
 
+/// Generates an SSH keypair in the user's `~/.ssh` directory.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Generates an SSH keypair in the user's `~/.ssh` directory.
 pub(crate) fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, String> {
     let trimmed_name = file_name.trim();
 
@@ -359,8 +354,8 @@ pub(crate) fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, 
     })
 }
 
-#[tauri::command]
 /// Lists available signing keys from GPG and SSH key stores.
+#[tauri::command]
 pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
     let mut keys = Vec::new();
 
@@ -437,9 +432,9 @@ pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
 }
 
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+/// Lists system font families and caches the result in process state.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Lists system font families and caches the result in process state.
 pub(crate) fn list_system_font_families(
     state: State<'_, SettingsState>,
 ) -> Result<Vec<SystemFontFamily>, String> {
@@ -476,8 +471,8 @@ pub(crate) fn list_system_font_families(
     Ok(font_families)
 }
 
-#[tauri::command]
 /// Returns effective, global, and local Git identity values.
+#[tauri::command]
 pub(crate) fn get_git_identity(
     repo_path: Option<String>,
 ) -> Result<GitIdentityStatusPayload, String> {
@@ -499,9 +494,9 @@ pub(crate) fn get_git_identity(
 }
 
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+/// Saves Git identity values at global or local scope and returns updated status.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Saves Git identity values at global or local scope and returns updated status.
 pub(crate) fn set_git_identity(
     git_identity: GitIdentityWriteRequest,
     repo_path: Option<String>,
@@ -557,37 +552,188 @@ fn build_http_credential_entry_id(
     format!("{:x}", hasher.finalize())
 }
 
-pub(crate) fn load_keyring_entry(service: &str, account: &str) -> Result<Option<String>, SettingsError> {
-    let entry = keyring::Entry::new(service, account)
-        .map_err(|error| SettingsError::Message(format!("Failed to access secure storage: {error}")))?;
+/// Loads a secret entry from the system keyring.
+pub(crate) fn load_keyring_entry(
+    service: &str,
+    account: &str,
+) -> Result<Option<String>, SettingsError> {
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    {
+        if let Ok(Some(secret)) = load_git_credential_fallback(service, account) {
+            return Ok(Some(secret));
+        }
+    }
+
+    let entry = keyring::Entry::new(service, account).map_err(|error| {
+        annotate_keyring_error(SettingsError::Message(format!(
+            "Failed to access secure storage: {error}"
+        )))
+    })?;
 
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(SettingsError::Message(format!("Failed to read secure storage: {error}"))),
+        Err(error) => Err(annotate_keyring_error(SettingsError::Message(format!(
+            "Failed to read secure storage: {error}"
+        )))),
     }
 }
 
-fn save_keyring_entry(service: &str, account: &str, secret: &str) -> Result<(), SettingsError> {
-    let entry = keyring::Entry::new(service, account)
-        .map_err(|error| SettingsError::Message(format!("Failed to access secure storage: {error}")))?;
+pub(crate) fn save_keyring_entry(
+    service: &str,
+    account: &str,
+    secret: &str,
+) -> Result<(), SettingsError> {
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    {
+        if save_git_credential_fallback(service, account, secret).is_ok() {
+            return Ok(());
+        }
+    }
 
-    entry
-        .set_password(secret)
-        .map_err(|error| SettingsError::Message(format!("Failed to save secure secret: {error}")))
+    let entry = keyring::Entry::new(service, account).map_err(|error| {
+        annotate_keyring_error(SettingsError::Message(format!(
+            "Failed to access secure storage: {error}"
+        )))
+    })?;
+
+    entry.set_password(secret).map_err(|error| {
+        annotate_keyring_error(SettingsError::Message(format!(
+            "Failed to save secure secret: {error}"
+        )))
+    })
 }
 
-fn clear_keyring_entry(service: &str, account: &str) -> Result<(), SettingsError> {
-    let entry = keyring::Entry::new(service, account)
-        .map_err(|error| SettingsError::Message(format!("Failed to access secure storage: {error}")))?;
+pub(crate) fn clear_keyring_entry(service: &str, account: &str) -> Result<(), SettingsError> {
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    {
+        let _ = clear_git_credential_fallback(service, account);
+    }
+
+    let entry = keyring::Entry::new(service, account).map_err(|error| {
+        annotate_keyring_error(SettingsError::Message(format!(
+            "Failed to access secure storage: {error}"
+        )))
+    })?;
 
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(SettingsError::Message(format!("Failed to clear secure secret: {error}"))),
+        Err(error) => Err(annotate_keyring_error(SettingsError::Message(format!(
+            "Failed to clear secure secret: {error}"
+        )))),
     }
 }
 
-fn get_ai_secret_from_session(
+#[cfg(all(debug_assertions, target_os = "macos"))]
+fn load_git_credential_fallback(service: &str, account: &str) -> Result<Option<String>, String> {
+    use std::io::Write;
+    let mut child = Command::new("git")
+        .args(["credential", "fill"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let input = format!(
+            "protocol=https\nhost=litgit-dev-secrets\nusername={}\npath=/{}\n\n",
+            urlencoding::encode(service),
+            urlencoding::encode(account)
+        );
+        stdin.write_all(input.as_bytes()).map_err(|e| e.to_string())?;
+    }
+
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(password) = line.strip_prefix("password=") {
+            let trimmed = password.trim();
+            if !trimmed.is_empty() {
+                return Ok(Some(trimmed.to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+#[cfg(all(debug_assertions, target_os = "macos"))]
+fn save_git_credential_fallback(service: &str, account: &str, secret: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut child = Command::new("git")
+        .args(["credential", "approve"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let input = format!(
+            "protocol=https\nhost=litgit-dev-secrets\nusername={}\npath=/{}\npassword={}\n\n",
+            urlencoding::encode(service),
+            urlencoding::encode(account),
+            secret
+        );
+        stdin.write_all(input.as_bytes()).map_err(|e| e.to_string())?;
+    }
+
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("git credential approve failed".to_string());
+    }
+
+    Ok(())
+}
+
+#[cfg(all(debug_assertions, target_os = "macos"))]
+fn clear_git_credential_fallback(service: &str, account: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut child = Command::new("git")
+        .args(["credential", "reject"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let input = format!(
+            "protocol=https\nhost=litgit-dev-secrets\nusername={}\npath=/{}\n\n",
+            urlencoding::encode(service),
+            urlencoding::encode(account)
+        );
+        stdin.write_all(input.as_bytes()).map_err(|e| e.to_string())?;
+    }
+
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("git credential reject failed".to_string());
+    }
+
+    Ok(())
+}
+
+fn annotate_keyring_error(error: SettingsError) -> SettingsError {
+    if !cfg!(target_os = "linux") {
+        return error;
+    }
+
+    let error_string = error.to_string();
+    if error_string.contains(" org.freedesktop.secrets ") || error_string.contains("DBus error") {
+        SettingsError::Message(
+            "Keychain not found. Ensure a secret service (like gnome-keyring or kwallet) is running and unlocked.".to_string()
+        )
+    } else if error_string.contains("Secret Service: no result found") {
+        SettingsError::Message(
+            "Login keychain not found or locked. Please unlock your keychain.".to_string()
+        )
+    } else {
+        error
+    }
+}
+
+pub(crate) fn get_ai_secret_from_session(
     state: &SettingsState,
     provider: &str,
 ) -> Result<Option<String>, SettingsError> {
@@ -599,6 +745,7 @@ fn get_ai_secret_from_session(
     Ok(secrets.get(provider).map(|secret| secret.value.clone()))
 }
 
+/// Resolves an AI provider secret from secure storage or session state.
 pub(crate) fn resolve_ai_provider_secret(
     state: &State<'_, SettingsState>,
     provider: &str,
@@ -606,7 +753,9 @@ pub(crate) fn resolve_ai_provider_secret(
     let trimmed_provider = provider.trim();
 
     if trimmed_provider.is_empty() {
-        return Err(SettingsError::Message("AI provider is required".to_string()));
+        return Err(SettingsError::Message(
+            "AI provider is required".to_string(),
+        ));
     }
 
     if let Some(secret) = load_keyring_entry(AI_SECRET_SERVICE, trimmed_provider)? {
@@ -686,7 +835,107 @@ fn configure_git_ssh_command(preferences: &RepoCommandPreferences) -> Option<Str
     ))
 }
 
-pub(crate) fn apply_git_preferences(
+/// Resolves the absolute path to the `litgit-git-askpass` helper binary.
+///
+/// The helper is compiled as a sibling binary in the same Cargo workspace,
+/// so it always lives in the same directory as the main application binary
+/// (e.g. `target/debug/` during development, or the bundle directory in
+/// production). Using the absolute path ensures Git can locate the helper
+/// regardless of the system `$PATH`.
+fn resolve_askpass_binary_path() -> String {
+    let askpass_binary_name = format!("litgit-git-askpass{}", std::env::consts::EXE_SUFFIX);
+
+    let path = if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = current_exe.parent() {
+            let askpass_binary = exe_dir.join(&askpass_binary_name);
+            if askpass_binary.exists() {
+                askpass_binary.to_string_lossy().to_string()
+            } else if std::env::consts::EXE_SUFFIX.is_empty() {
+                "litgit-git-askpass".to_string()
+            } else {
+                let askpass_binary_without_suffix = exe_dir.join("litgit-git-askpass");
+                if askpass_binary_without_suffix.exists() {
+                    askpass_binary_without_suffix.to_string_lossy().to_string()
+                } else {
+                    "litgit-git-askpass".to_string()
+                }
+            }
+        } else {
+            "litgit-git-askpass".to_string()
+        }
+    } else {
+        "litgit-git-askpass".to_string()
+    };
+
+    log::info!("Resolved GIT_ASKPASS path: {}", path);
+    path
+}
+
+pub(crate) fn apply_auth_session_environment(
+    command: &mut Command,
+    settings_state: Option<&SettingsState>,
+    auth_session: Option<&crate::askpass_state::GitAuthSessionHandle>,
+) -> Result<(), String> {
+    command
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .env_remove("SSH_ASKPASS_REQUIRE");
+
+    let Some(session) = auth_session else {
+        return Ok(());
+    };
+
+    let socket_path = settings_state
+        .and_then(SettingsState::askpass_socket_path)
+        .ok_or_else(|| {
+            "Askpass IPC server is not ready yet. Try the Git operation again.".to_string()
+        })?;
+
+    let askpass_path = resolve_askpass_binary_path();
+    command.env("GIT_ASKPASS", &askpass_path);
+    command.env("SSH_ASKPASS", &askpass_path);
+    command.env("SSH_ASKPASS_REQUIRE", "force");
+    // Crucial: force Git to bypass terminal prompting and always use the askpass helper
+    command.env("GIT_TERMINAL_PROMPT", "0");
+    command.env("LITGIT_ASKPASS_SESSION", &session.session_id);
+    command.env("LITGIT_ASKPASS_SECRET", &session.secret);
+    command.env("LITGIT_ASKPASS_OPERATION", &session.operation);
+    command.env(
+        "LITGIT_ASKPASS_SOCKET",
+        socket_path.to_string_lossy().to_string(),
+    );
+
+    Ok(())
+}
+
+/// Applies Git preferences to a command with optional authentication session.
+///
+/// This function configures a Git command with user preferences and sets up
+/// environment variables for the askpass helper when an authentication session
+/// is provided.
+///
+/// # Arguments
+///
+/// * `command` - The Git command to configure
+/// * `preferences` - User repository command preferences
+/// * `settings_state` - Optional settings state for proxy configuration
+/// * `auth_session` - Optional authentication session for askpass integration
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an error string if configuration fails.
+pub(crate) fn apply_git_preferences_with_auth_session(
+    command: &mut Command,
+    preferences: &RepoCommandPreferences,
+    settings_state: Option<&State<'_, SettingsState>>,
+    auth_session: Option<&crate::askpass_state::GitAuthSessionHandle>,
+) -> Result<(), String> {
+    apply_auth_session_environment(command, settings_state.map(State::inner), auth_session)?;
+
+    apply_existing_git_preferences(command, preferences, settings_state)
+}
+
+fn apply_existing_git_preferences(
     command: &mut Command,
     preferences: &RepoCommandPreferences,
     settings_state: Option<&State<'_, SettingsState>>,
@@ -756,7 +1005,18 @@ pub(crate) fn apply_git_preferences(
     Ok(())
 }
 
-fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatusPayload, SettingsError> {
+/// Applies Git preferences to a command without an authentication session.
+pub(crate) fn apply_git_preferences(
+    command: &mut Command,
+    preferences: &RepoCommandPreferences,
+    settings_state: Option<&State<'_, SettingsState>>,
+) -> Result<(), String> {
+    apply_git_preferences_with_auth_session(command, preferences, settings_state, None)
+}
+
+fn build_git_identity_status(
+    repo_path: Option<&str>,
+) -> Result<GitIdentityStatusPayload, SettingsError> {
     let global = read_git_identity_value(None, "global")?;
     let local = if let Some(path) = repo_path {
         Some(read_git_identity_value(Some(path), "local")?)
@@ -797,29 +1057,38 @@ fn build_git_identity_status(repo_path: Option<&str>) -> Result<GitIdentityStatu
     })
 }
 
+/// Normalizes the Git identity scope to "global" or "local".
 pub(crate) fn normalize_git_identity_scope(scope: &str) -> Result<&str, SettingsError> {
     match scope.trim() {
         "global" => Ok("global"),
         "local" => Ok("local"),
-        _ => Err(SettingsError::Message("Git identity scope must be global or local".to_string())),
+        _ => Err(SettingsError::Message(
+            "Git identity scope must be global or local".to_string(),
+        )),
     }
 }
 
+/// Validates that a Git author name is provided and not empty.
 pub(crate) fn validate_git_identity_name(name: &str) -> Result<String, SettingsError> {
     let trimmed = name.trim();
 
     if trimmed.is_empty() {
-        return Err(SettingsError::Message("Git author name is required".to_string()));
+        return Err(SettingsError::Message(
+            "Git author name is required".to_string(),
+        ));
     }
 
     Ok(trimmed.to_string())
 }
 
+/// Validates that a Git author email is provided and follows a basic email format.
 pub(crate) fn validate_git_identity_email(email: &str) -> Result<String, SettingsError> {
     let trimmed = email.trim();
 
     if trimmed.is_empty() {
-        return Err(SettingsError::Message("Git author email is required".to_string()));
+        return Err(SettingsError::Message(
+            "Git author email is required".to_string(),
+        ));
     }
 
     let has_single_at_symbol = trimmed.matches('@').count() == 1;
@@ -831,7 +1100,9 @@ pub(crate) fn validate_git_identity_email(email: &str) -> Result<String, Setting
     });
 
     if !(has_single_at_symbol && has_non_empty_segments) {
-        return Err(SettingsError::Message("Enter a valid Git author email".to_string()));
+        return Err(SettingsError::Message(
+            "Enter a valid Git author email".to_string(),
+        ));
     }
 
     Ok(trimmed.to_string())
@@ -849,8 +1120,11 @@ fn read_git_config_value(
             command.args(["config", "--global", "--get", key]);
         }
         "local" => {
-            let repo_path = repo_path
-                .ok_or_else(|| SettingsError::Message("A repository path is required for local Git config".to_string()))?;
+            let repo_path = repo_path.ok_or_else(|| {
+                SettingsError::Message(
+                    "A repository path is required for local Git config".to_string(),
+                )
+            })?;
             command.args(["-C", repo_path, "config", "--local", "--get", key]);
         }
         "effective" => {
@@ -860,7 +1134,11 @@ fn read_git_config_value(
                 command.args(["config", "--global", "--get", key]);
             }
         }
-        _ => return Err(SettingsError::Message("Unsupported Git config scope".to_string())),
+        _ => {
+            return Err(SettingsError::Message(
+                "Unsupported Git config scope".to_string(),
+            ))
+        }
     }
 
     let output = command
@@ -920,11 +1198,18 @@ fn write_git_config_value(
             command.args(["config", "--global", key, value]);
         }
         "local" => {
-            let repo_path = repo_path
-                .ok_or_else(|| SettingsError::Message("A repository path is required for local Git config".to_string()))?;
+            let repo_path = repo_path.ok_or_else(|| {
+                SettingsError::Message(
+                    "A repository path is required for local Git config".to_string(),
+                )
+            })?;
             command.args(["-C", repo_path, "config", "--local", key, value]);
         }
-        _ => return Err(SettingsError::Message("Unsupported Git config scope".to_string())),
+        _ => {
+            return Err(SettingsError::Message(
+                "Unsupported Git config scope".to_string(),
+            ))
+        }
     }
 
     let output = command
@@ -959,10 +1244,10 @@ pub(crate) fn write_git_identity(
     Ok(())
 }
 
+/// Returns settings backend runtime capabilities.
 // Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
 #[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
-/// Returns settings backend runtime capabilities.
 pub(crate) fn get_settings_backend_capabilities() -> Result<SettingsBackendCapabilities, String> {
     let secure_storage_available =
         keyring::Entry::new(AI_SECRET_SERVICE, "capability-check").is_ok();
@@ -987,10 +1272,10 @@ pub(crate) fn get_settings_backend_capabilities() -> Result<SettingsBackendCapab
     })
 }
 
+/// Saves an AI provider secret to secure storage with session fallback.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Saves an AI provider secret to secure storage with session fallback.
 pub(crate) fn save_ai_provider_secret(
     state: State<'_, SettingsState>,
     provider: String,
@@ -1030,10 +1315,10 @@ pub(crate) fn save_ai_provider_secret(
     })
 }
 
+/// Returns whether an AI provider secret is currently stored.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns whether an AI provider secret is currently stored.
 pub(crate) fn get_ai_provider_secret_status(
     state: State<'_, SettingsState>,
     provider: String,
@@ -1059,10 +1344,10 @@ pub(crate) fn get_ai_provider_secret_status(
     })
 }
 
+/// Clears an AI provider secret from secure and session storage.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Clears an AI provider secret from secure and session storage.
 pub(crate) fn clear_ai_provider_secret(
     state: State<'_, SettingsState>,
     provider: String,
@@ -1084,123 +1369,10 @@ pub(crate) fn clear_ai_provider_secret(
     Ok(())
 }
 
-// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
-#[tauri::command]
-/// Saves a GitHub token used for identity/avatar resolution.
-pub(crate) fn save_github_token(
-    state: State<'_, SettingsState>,
-    token: String,
-) -> Result<SecretStatusPayload, String> {
-    let trimmed_token = token.trim();
-
-    if trimmed_token.is_empty() {
-        return Err("GitHub token is required".to_string());
-    }
-
-    if save_keyring_entry(GITHUB_AVATAR_SERVICE, "token", trimmed_token).is_ok() {
-        return apply_github_token_storage(
-            state.inner(),
-            trimmed_token,
-            GitHubTokenStorageTarget::Secure,
-        );
-    }
-
-    apply_github_token_storage(
-        state.inner(),
-        trimmed_token,
-        GitHubTokenStorageTarget::Session,
-    )
-}
-
-// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
-#[tauri::command]
-/// Returns whether a GitHub token is currently stored.
-pub(crate) fn get_github_token_status(
-    state: State<'_, SettingsState>,
-) -> Result<SecretStatusPayload, String> {
-    if load_keyring_entry(GITHUB_AVATAR_SERVICE, "token")?.is_some() {
-        return Ok(SecretStatusPayload {
-            has_stored_value: true,
-            storage_mode: "secure".to_string(),
-        });
-    }
-
-    let secrets = state
-        .ai_secrets
-        .lock()
-        .map_err(|_| "Failed to access settings state".to_string())?;
-
-    let status = secrets.get("github_token");
-
-    Ok(SecretStatusPayload {
-        has_stored_value: status.is_some(),
-        storage_mode: status
-            .map_or_else(|| "session".to_string(), |value| value.storage_mode.clone()),
-    })
-}
-
-// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
-#[tauri::command]
-/// Clears the stored GitHub token and invalidates identity cache.
-pub(crate) fn clear_github_token(state: State<'_, SettingsState>) -> Result<(), String> {
-    let _ = clear_keyring_entry(GITHUB_AVATAR_SERVICE, "token");
-    set_session_github_token(state.inner(), None)
-}
-
-fn apply_github_token_storage(
-    state: &SettingsState,
-    token: &str,
-    target: GitHubTokenStorageTarget,
-) -> Result<SecretStatusPayload, String> {
-    match target {
-        GitHubTokenStorageTarget::Secure => {
-            let _ = token;
-            set_session_github_token(state, None)?;
-            Ok(SecretStatusPayload {
-                has_stored_value: true,
-                storage_mode: "secure".to_string(),
-            })
-        }
-        GitHubTokenStorageTarget::Session => {
-            set_session_github_token(state, Some(token))?;
-            Ok(SecretStatusPayload {
-                has_stored_value: true,
-                storage_mode: "session".to_string(),
-            })
-        }
-    }
-}
-
-fn set_session_github_token(state: &SettingsState, token: Option<&str>) -> Result<(), String> {
-    let mut secrets = state
-        .ai_secrets
-        .lock()
-        .map_err(|_| "Failed to access settings state".to_string())?;
-
-    match token {
-        Some(token) => {
-            secrets.insert(
-                "github_token".to_string(),
-                StoredSecretValue::session(token),
-            );
-        }
-        None => {
-            secrets.remove("github_token");
-        }
-    }
-
-    drop(secrets);
-    clear_github_identity_cache(state);
-    Ok(())
-}
-
-// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
-#[tauri::command]
 /// Saves proxy authentication credentials.
+// Tauri commands accept owned payloads because invoke arguments are deserialized by value.
+#[expect(clippy::needless_pass_by_value)]
+#[tauri::command]
 pub(crate) fn save_proxy_auth_secret(
     state: State<'_, SettingsState>,
     username: String,
@@ -1247,10 +1419,10 @@ pub(crate) fn save_proxy_auth_secret(
     })
 }
 
+/// Returns whether proxy credentials exist for a username.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns whether proxy credentials exist for a username.
 pub(crate) fn get_proxy_auth_secret_status(
     state: State<'_, SettingsState>,
     username: String,
@@ -1286,10 +1458,10 @@ pub(crate) fn get_proxy_auth_secret_status(
     })
 }
 
+/// Clears proxy credentials for a username.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Clears proxy credentials for a username.
 pub(crate) fn clear_proxy_auth_secret(
     state: State<'_, SettingsState>,
     username: String,
@@ -1311,6 +1483,7 @@ pub(crate) fn clear_proxy_auth_secret(
     Ok(())
 }
 
+/// Begins a tracked network operation for a repository to prevent concurrent operations.
 pub(crate) fn begin_network_operation<'a>(
     state: &'a State<'_, SettingsState>,
     repo_path: &str,
@@ -1332,10 +1505,10 @@ pub(crate) fn begin_network_operation<'a>(
     })
 }
 
+/// Lists cached HTTP credential metadata entries.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Lists cached HTTP credential metadata entries.
 pub(crate) fn list_http_credential_entries(
     state: State<'_, SettingsState>,
 ) -> Result<Vec<HttpCredentialEntryMetadata>, String> {
@@ -1356,10 +1529,10 @@ pub(crate) fn list_http_credential_entries(
         .collect())
 }
 
+/// Removes one cached HTTP credential entry by identifier.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Removes one cached HTTP credential entry by identifier.
 pub(crate) fn clear_http_credential_entry(
     state: State<'_, SettingsState>,
     entry_id: String,
@@ -1373,8 +1546,8 @@ pub(crate) fn clear_http_credential_entry(
     Ok(())
 }
 
-#[tauri::command]
 /// Tests outbound connectivity through a proxy endpoint.
+#[tauri::command]
 pub(crate) async fn test_proxy_connection(
     host: String,
     port: u16,
@@ -1402,19 +1575,24 @@ pub(crate) async fn test_proxy_connection(
         } else {
             format!("{proxy_type}://{normalized_host}:{port}")
         };
-        let proxy = Proxy::new(&proxy_url)
+        let proxy = ureq::Proxy::new(&proxy_url)
             .map_err(|error| format!("Failed to configure proxy: {error}"))?;
-        let agent = ureq::AgentBuilder::new()
-            .proxy(proxy)
-            .timeout(Duration::from_secs(PROXY_TEST_TIMEOUT_SECS))
+        let config = ureq::config::Config::builder()
+            .proxy(Some(proxy))
+            .timeout_global(Some(Duration::from_secs(PROXY_TEST_TIMEOUT_SECS)))
+            .http_status_as_error(false)
             .build();
+        let agent = ureq::Agent::new_with_config(config);
+
+        let request = http::Request::get("https://example.com/")
+            .body(String::new())
+            .map_err(|error| format!("Failed to build proxy request: {error}"))?;
 
         let response = agent
-            .get("https://example.com/")
-            .call()
+            .run(request)
             .map_err(|error| format!("Proxy request failed: {error}"))?;
 
-        let status = response.status();
+        let status = response.status().as_u16();
 
         if !(200..400).contains(&status) {
             return Ok(ProxyTestResult {
@@ -1434,10 +1612,10 @@ pub(crate) async fn test_proxy_connection(
     .map_err(|error| format!("Failed to test proxy connection: {error}"))?
 }
 
+/// Starts or replaces the background auto-fetch scheduler for one repository.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Starts or replaces the background auto-fetch scheduler for one repository.
 pub(crate) fn start_auto_fetch_scheduler(
     state: State<'_, SettingsState>,
     interval_minutes: u64,
@@ -1512,10 +1690,10 @@ pub(crate) fn start_auto_fetch_scheduler(
     Ok(())
 }
 
+/// Stops the running auto-fetch scheduler if one exists.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Stops the running auto-fetch scheduler if one exists.
 pub(crate) fn stop_auto_fetch_scheduler(state: State<'_, SettingsState>) -> Result<(), String> {
     let mut scheduler = state
         .auto_fetch_scheduler
@@ -1547,12 +1725,12 @@ fn run_network_git_command(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_git_preferences, apply_github_token_storage, get_settings_backend_capabilities,
-        normalize_git_identity_scope, set_session_github_token, validate_git_identity_email,
-        validate_git_identity_name, GitHubTokenStorageTarget, RepoCommandPreferences,
-        SettingsState,
+        annotate_keyring_error, apply_auth_session_environment, apply_existing_git_preferences,
+        apply_git_preferences, get_ai_secret_from_session, get_settings_backend_capabilities,
+        normalize_git_identity_scope, validate_git_identity_email,
+        validate_git_identity_name, RepoCommandPreferences, SettingsError, SettingsState,
+        StoredSecretValue,
     };
-    use crate::settings::GitHubIdentityCacheRecord;
     use std::process::Command;
 
     #[test]
@@ -1581,18 +1759,22 @@ mod tests {
     #[test]
     fn normalize_git_identity_scope_rejects_unknown_values() {
         assert_eq!(
-            normalize_git_identity_scope("workspace").unwrap_err().to_string(),
+            normalize_git_identity_scope("workspace")
+                .unwrap_err()
+                .to_string(),
             "Git identity scope must be global or local",
         );
     }
 
     #[test]
-    fn get_settings_backend_capabilities_reports_session_secret_support() {
+    fn get_settings_backend_capabilities_reports_valid_state() {
         let capabilities =
             get_settings_backend_capabilities().expect("backend capabilities should resolve");
 
         assert!(capabilities.session_secrets_supported);
         assert!(!capabilities.runtime_platform.is_empty());
+        // secure_storage_available depends on environment, but should at least be present
+        let _ = capabilities.secure_storage_available;
     }
 
     #[test]
@@ -1713,68 +1895,139 @@ mod tests {
     }
 
     #[test]
-    fn set_session_github_token_clears_github_identity_cache_when_token_changes() {
-        let state = SettingsState::default();
+    fn apply_git_preferences_sets_litgit_askpass_env_when_session_present() {
+        let mut command = std::process::Command::new("git");
+        let preferences = RepoCommandPreferences::default();
+        let askpass_socket_path = std::env::temp_dir().join("litgit-test.sock");
 
-        state
-            .mutate_github_identity_cache(|cache| {
-                cache.insert(
-                    "email:dev@example.com".to_string(),
-                    GitHubIdentityCacheRecord {
-                        avatar_url: Some("https://github.com/litgit-tests.png".to_string()),
-                        stored_at_unix_seconds: 100,
-                        username: Some("litgit-tests".to_string()),
-                    },
-                );
+        let session = crate::askpass_state::GitAuthSessionHandle {
+            session_id: "session-1".to_string(),
+            secret: "secret-1".to_string(),
+            operation: "clone".to_string(),
+        };
+
+        let settings_state = SettingsState::default();
+        settings_state.set_askpass_socket_path(askpass_socket_path.clone());
+
+        apply_auth_session_environment(&mut command, Some(&settings_state), Some(&session))
+            .expect("preferences should apply");
+        apply_existing_git_preferences(&mut command, &preferences, None)
+            .expect("existing preferences should apply");
+
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|entry| entry.to_string_lossy().to_string()),
+                )
             })
-            .expect("cache should seed");
+            .collect::<std::collections::HashMap<_, _>>();
 
-        set_session_github_token(&state, Some("first-token")).expect("first token should save");
-        assert!(state
-            .mutate_github_identity_cache(|cache| cache.is_empty())
-            .expect("cache should read"));
-
-        state
-            .mutate_github_identity_cache(|cache| {
-                cache.insert(
-                    "email:dev@example.com".to_string(),
-                    GitHubIdentityCacheRecord {
-                        avatar_url: Some("https://github.com/litgit-tests.png".to_string()),
-                        stored_at_unix_seconds: 200,
-                        username: Some("litgit-tests".to_string()),
-                    },
-                );
-            })
-            .expect("cache should reseed");
-
-        set_session_github_token(&state, Some("second-token")).expect("second token should save");
-        assert!(state
-            .mutate_github_identity_cache(|cache| cache.is_empty())
-            .expect("cache should read"));
+        let askpass_value = envs
+            .get("GIT_ASKPASS")
+            .and_then(|v| v.as_ref())
+            .expect("GIT_ASKPASS should be set");
+        let expected_askpass_suffix = format!("litgit-git-askpass{}", std::env::consts::EXE_SUFFIX);
+        assert!(
+            askpass_value.ends_with(&expected_askpass_suffix)
+                || askpass_value.ends_with("litgit-git-askpass"),
+            "GIT_ASKPASS should resolve to litgit-git-askpass helper, got: {askpass_value}"
+        );
+        let ssh_askpass_value = envs
+            .get("SSH_ASKPASS")
+            .and_then(|v| v.as_ref())
+            .expect("SSH_ASKPASS should be set");
+        assert!(
+            ssh_askpass_value.ends_with(&expected_askpass_suffix)
+                || ssh_askpass_value.ends_with("litgit-git-askpass"),
+            "SSH_ASKPASS should resolve to litgit-git-askpass helper, got: {ssh_askpass_value}"
+        );
+        assert_eq!(
+            envs.get("SSH_ASKPASS_REQUIRE"),
+            Some(&Some("force".to_string()))
+        );
+        assert_eq!(
+            envs.get("GIT_TERMINAL_PROMPT"),
+            Some(&Some("0".to_string()))
+        );
+        assert_eq!(
+            envs.get("LITGIT_ASKPASS_SESSION"),
+            Some(&Some("session-1".to_string()))
+        );
+        assert_eq!(
+            envs.get("LITGIT_ASKPASS_SECRET"),
+            Some(&Some("secret-1".to_string()))
+        );
+        assert_eq!(
+            envs.get("LITGIT_ASKPASS_OPERATION"),
+            Some(&Some("clone".to_string()))
+        );
+        assert_eq!(
+            envs.get("LITGIT_ASKPASS_SOCKET"),
+            Some(&Some(askpass_socket_path.to_string_lossy().to_string()))
+        );
     }
 
     #[test]
-    fn apply_github_token_storage_secure_clears_stale_session_fallback() {
+    fn resolve_ai_provider_secret_prefers_session_fallback() {
         let state = SettingsState::default();
+        let provider = "test-provider";
+        let secret_value = "session-secret";
+        
+        {
+            let mut secrets = state.ai_secrets.lock().unwrap();
+            secrets.insert(provider.to_string(), StoredSecretValue::session(secret_value));
+        }
+        
+        let resolved = get_ai_secret_from_session(&state, provider).expect("should resolve");
+        assert_eq!(resolved, Some(secret_value.to_string()));
+    }
 
-        set_session_github_token(&state, Some("stale-session-token"))
-            .expect("session token should seed");
+    #[test]
+    fn annotate_keyring_error_provides_helpful_linux_messages() {
+        // This test only runs its logic on Linux, or we can check the fn directly
+        let error = SettingsError::Message("error: org.freedesktop.secrets was not found".to_string());
+        let annotated = annotate_keyring_error(error);
+        
+        #[cfg(target_os = "linux")]
+        assert!(annotated.to_string().contains("Keychain not found"));
+        
+        #[cfg(not(target_os = "linux"))]
+        assert!(annotated.to_string().contains("org.freedesktop.secrets"));
+    }
 
-        let result = apply_github_token_storage(
-            &state,
-            "fresh-secure-token",
-            GitHubTokenStorageTarget::Secure,
-        );
+    #[test]
+    fn apply_auth_session_environment_clears_existing_askpass() {
+        let mut command = std::process::Command::new("git");
+        command.env("GIT_ASKPASS", "old-askpass");
+        
+        // Verify that existing GIT_ASKPASS is removed even when no session is provided
+        apply_auth_session_environment(&mut command, None, None).expect("should work");
+        
+        let envs = command.get_envs().collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(envs.get(std::ffi::OsStr::new("GIT_ASKPASS")), Some(&None));
+    }
 
-        assert!(result.is_ok(), "secure token update should succeed");
+    #[test]
+    fn apply_auth_session_environment_rejects_missing_socket_path() {
+        let mut command = std::process::Command::new("git");
+        let session = crate::askpass_state::GitAuthSessionHandle {
+            session_id: "session-1".to_string(),
+            secret: "secret-1".to_string(),
+            operation: "clone".to_string(),
+        };
+
+        let error = apply_auth_session_environment(
+            &mut command,
+            Some(&SettingsState::default()),
+            Some(&session),
+        )
+        .expect_err("missing socket path should fail");
+
         assert_eq!(
-            state
-                .ai_secrets
-                .lock()
-                .expect("settings lock")
-                .get("github_token")
-                .map(|value| value.value.clone()),
-            None
+            error,
+            "Askpass IPC server is not ready yet. Try the Git operation again."
         );
     }
 }

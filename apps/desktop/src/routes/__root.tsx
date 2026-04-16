@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import { GlobalGitAuthDialog } from "@/components/auth/global-git-auth-dialog";
 import { RootShell } from "@/components/layout/root-shell";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import {
@@ -82,6 +83,7 @@ function RootComponent() {
           <Outlet />
         </RootShell>
         <Toaster position={toasterPosition} richColors />
+        <GlobalGitAuthDialog />
       </ThemeProvider>
       {/* <TanStackRouterDevtools position="bottom-left" /> */}
     </>
@@ -107,6 +109,7 @@ function RootPreferenceEffects() {
   const [isGitIdentityReady, setIsGitIdentityReady] = useState<boolean | null>(
     null
   );
+
   useEffect(() => {
     let cancelled = false;
 

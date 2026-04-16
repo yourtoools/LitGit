@@ -1,16 +1,18 @@
+use crate::git_host_auth::{
+    fetch_bitbucket_avatar_for_username, fetch_github_avatar_for_account,
+    fetch_gitlab_avatar_for_username,
+};
 use crate::git_support::{git_command, git_error_message, validate_git_repo};
 use crate::repository::validate_branch_name;
 use crate::settings::{
-    apply_git_preferences, begin_network_operation, load_keyring_entry, RepoCommandPreferences,
-    SettingsState, GITHUB_AVATAR_SERVICE,
+    apply_git_preferences_with_auth_session, begin_network_operation, RepoCommandPreferences,
+    SettingsState,
 };
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
-use tauri::State;
+use tauri::{Manager, State};
 use thiserror::Error;
-
-const GITHUB_API_VERSION: &str = "2022-11-28";
 
 /// Error type for branch operations.
 #[derive(Debug, Error)]
@@ -35,9 +37,9 @@ impl From<BranchError> for String {
     }
 }
 
+/// Repository reference entry for local branches, remote branches, and tags.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Repository reference entry for local branches, remote branches, and tags.
 pub(crate) struct RepositoryBranch {
     ref_type: String,
     is_remote: bool,
@@ -118,47 +120,89 @@ fn parse_github_owner_from_remote_url(remote_url: &str) -> Option<String> {
     None
 }
 
-fn get_github_token(state: &SettingsState) -> Option<String> {
-    if let Ok(Some(token)) = load_keyring_entry(GITHUB_AVATAR_SERVICE, "token") {
-        return Some(token);
-    }
-
-    state.github_session_token()
+fn fetch_github_owner_avatar_url(owner: &str) -> Result<Option<String>, BranchError> {
+    fetch_github_avatar_for_account(owner).map_err(|error| BranchError::Http {
+        action: "fetch GitHub avatar",
+        detail: error.to_string(),
+    })
 }
 
-fn fetch_github_owner_avatar_url(
-    owner: &str,
-    token: Option<&str>,
-) -> Result<Option<String>, BranchError> {
-    let endpoint = format!("https://api.github.com/users/{owner}");
-    let mut request = ureq::get(&endpoint)
-        .set("Accept", "application/vnd.github+json")
-        .set("User-Agent", "LitGit")
-        .set("X-GitHub-Api-Version", GITHUB_API_VERSION);
+// GitLab avatar fetching support
+fn parse_gitlab_owner_from_remote_url(remote_url: &str) -> Option<String> {
+    fn parse_owner(path: &str) -> Option<String> {
+        let mut segments = path.split('/');
+        let owner = segments.next()?.trim();
+        let repository = segments.next()?.trim();
 
-    if let Some(token) = token {
-        request = request.set("Authorization", &format!("Bearer {token}"));
+        if owner.is_empty() || repository.is_empty() {
+            return None;
+        }
+
+        Some(owner.to_string())
     }
 
-    let response = request
-        .call()
-        .map_err(|error| BranchError::Http {
-            action: "fetch GitHub avatar",
-            detail: format!("Failed to fetch GitHub avatar for owner {owner}: {error}"),
-        })?;
-    let body = response.into_string().map_err(|error| BranchError::Http {
-        action: "read GitHub avatar response",
-        detail: format!("Failed to read GitHub avatar response for owner {owner}: {error}"),
-    })?;
-    let payload: serde_json::Value = serde_json::from_str(&body).map_err(|error| BranchError::Http {
-        action: "parse GitHub avatar response",
-        detail: format!("Failed to parse GitHub avatar response for owner {owner}: {error}"),
-    })?;
+    let trimmed = remote_url.trim();
 
-    Ok(payload
-        .get("avatar_url")
-        .and_then(serde_json::Value::as_str)
-        .map(ToOwned::to_owned))
+    for prefix in [
+        "git@gitlab.com:",
+        "ssh://git@gitlab.com/",
+        "ssh://gitlab.com/",
+        "https://gitlab.com/",
+        "http://gitlab.com/",
+        "git://gitlab.com/",
+    ] {
+        if let Some(path) = trimmed.strip_prefix(prefix) {
+            return parse_owner(path);
+        }
+    }
+
+    None
+}
+
+fn fetch_gitlab_owner_avatar_url(owner: &str) -> Result<Option<String>, BranchError> {
+    fetch_gitlab_avatar_for_username(owner).map_err(|error| BranchError::Http {
+        action: "fetch GitLab avatar",
+        detail: error.to_string(),
+    })
+}
+
+// Bitbucket avatar fetching support
+fn parse_bitbucket_owner_from_remote_url(remote_url: &str) -> Option<String> {
+    fn parse_owner(path: &str) -> Option<String> {
+        let mut segments = path.split('/');
+        let owner = segments.next()?.trim();
+        let repository = segments.next()?.trim();
+
+        if owner.is_empty() || repository.is_empty() {
+            return None;
+        }
+
+        Some(owner.to_string())
+    }
+
+    let trimmed = remote_url.trim();
+
+    for prefix in [
+        "git@bitbucket.org:",
+        "ssh://git@bitbucket.org/",
+        "ssh://bitbucket.org/",
+        "https://bitbucket.org/",
+        "http://bitbucket.org/",
+        "git://bitbucket.org/",
+    ] {
+        if let Some(path) = trimmed.strip_prefix(prefix) {
+            return parse_owner(path);
+        }
+    }
+
+    None
+}
+
+fn fetch_bitbucket_owner_avatar_url(owner: &str) -> Result<Option<String>, BranchError> {
+    fetch_bitbucket_avatar_for_username(owner).map_err(|error| BranchError::Http {
+        action: "fetch Bitbucket avatar",
+        detail: error.to_string(),
+    })
 }
 
 fn parse_branch_sync_counts(stdout: &str) -> Option<(usize, usize)> {
@@ -220,8 +264,8 @@ fn parse_branch_row(
     })
 }
 
-#[tauri::command]
 /// Returns sorted repository refs with optional ahead/behind counts for current branch.
+#[tauri::command]
 pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, String> {
     get_repository_branches_inner(repo_path).map_err(|e| e.to_string())
 }
@@ -303,8 +347,8 @@ fn get_repository_branches_inner(repo_path: String) -> Result<Vec<RepositoryBran
         .collect())
 }
 
-#[tauri::command]
 /// Returns configured remote names for the repository.
+#[tauri::command]
 pub(crate) fn get_repository_remote_names(repo_path: String) -> Result<Vec<String>, String> {
     get_repository_remote_names_inner(repo_path).map_err(|e| e.to_string())
 }
@@ -332,23 +376,20 @@ fn get_repository_remote_names_inner(repo_path: String) -> Result<Vec<String>, B
     )))
 }
 
-#[tauri::command]
 /// Resolves GitHub avatar URLs for remotes that point to GitHub repositories.
+#[tauri::command]
 pub(crate) async fn get_repository_remote_avatars(
     repo_path: String,
-    state: State<'_, SettingsState>,
 ) -> Result<HashMap<String, Option<String>>, String> {
-    get_repository_remote_avatars_inner(repo_path, state)
+    get_repository_remote_avatars_inner(repo_path)
         .await
         .map_err(|e| e.to_string())
 }
 
 async fn get_repository_remote_avatars_inner(
     repo_path: String,
-    state: State<'_, SettingsState>,
 ) -> Result<HashMap<String, Option<String>>, BranchError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
-    let github_token = get_github_token(state.inner());
 
     tauri::async_runtime::spawn_blocking(move || {
         let output = git_command()
@@ -372,15 +413,41 @@ async fn get_repository_remote_avatars_inner(
 
         for (remote_name, remote_url) in remote_urls {
             let avatar_url = if let Some(owner) = parse_github_owner_from_remote_url(&remote_url) {
-                if let Some(cached_avatar_url) = avatars_by_owner.get(&owner) {
+                // GitHub remote
+                if let Some(cached_avatar_url) = avatars_by_owner.get(&format!("github:{owner}")) {
                     cached_avatar_url.clone()
                 } else {
-                    let fetched_avatar_url =
-                        fetch_github_owner_avatar_url(&owner, github_token.as_deref())
-                            .inspect_err(|error| log::warn!("{error}"))
-                            .ok()
-                            .flatten();
-                    avatars_by_owner.insert(owner, fetched_avatar_url.clone());
+                    let fetched_avatar_url = fetch_github_owner_avatar_url(&owner)
+                        .inspect_err(|error| log::warn!("{error}"))
+                        .ok()
+                        .flatten();
+                    avatars_by_owner.insert(format!("github:{owner}"), fetched_avatar_url.clone());
+                    fetched_avatar_url
+                }
+            } else if let Some(owner) = parse_gitlab_owner_from_remote_url(&remote_url) {
+                // GitLab remote
+                if let Some(cached_avatar_url) = avatars_by_owner.get(&format!("gitlab:{owner}")) {
+                    cached_avatar_url.clone()
+                } else {
+                    let fetched_avatar_url = fetch_gitlab_owner_avatar_url(&owner)
+                        .inspect_err(|error| log::warn!("{error}"))
+                        .ok()
+                        .flatten();
+                    avatars_by_owner.insert(format!("gitlab:{owner}"), fetched_avatar_url.clone());
+                    fetched_avatar_url
+                }
+            } else if let Some(owner) = parse_bitbucket_owner_from_remote_url(&remote_url) {
+                // Bitbucket remote
+                if let Some(cached_avatar_url) = avatars_by_owner.get(&format!("bitbucket:{owner}"))
+                {
+                    cached_avatar_url.clone()
+                } else {
+                    let fetched_avatar_url = fetch_bitbucket_owner_avatar_url(&owner)
+                        .inspect_err(|error| log::warn!("{error}"))
+                        .ok()
+                        .flatten();
+                    avatars_by_owner
+                        .insert(format!("bitbucket:{owner}"), fetched_avatar_url.clone());
                     fetched_avatar_url
                 }
             } else {
@@ -392,11 +459,13 @@ async fn get_repository_remote_avatars_inner(
         Ok(avatars_by_remote)
     })
     .await
-    .map_err(|error| BranchError::Message(format!("Failed to load repository remote avatars: {error}")))?
+    .map_err(|error| {
+        BranchError::Message(format!("Failed to load repository remote avatars: {error}"))
+    })?
 }
 
-#[tauri::command]
 /// Creates a new local branch from the current HEAD.
+#[tauri::command]
 pub(crate) fn create_repository_branch(
     repo_path: String,
     branch_name: String,
@@ -438,8 +507,8 @@ fn create_repository_branch_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Creates a new local branch at a specific target reference.
+#[tauri::command]
 pub(crate) fn create_repository_branch_at_reference(
     repo_path: String,
     branch_name: String,
@@ -464,7 +533,9 @@ fn create_repository_branch_at_reference_inner(
     }
 
     if trimmed_target.is_empty() {
-        return Err(BranchError::Message("Target reference is required".to_string()));
+        return Err(BranchError::Message(
+            "Target reference is required".to_string(),
+        ));
     }
 
     validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
@@ -496,8 +567,8 @@ fn create_repository_branch_at_reference_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Deletes a local branch.
+#[tauri::command]
 pub(crate) fn delete_repository_branch(
     repo_path: String,
     branch_name: String,
@@ -539,8 +610,8 @@ fn delete_repository_branch_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Renames a local branch.
+#[tauri::command]
 pub(crate) fn rename_repository_branch(
     repo_path: String,
     branch_name: String,
@@ -565,11 +636,14 @@ fn rename_repository_branch_inner(
     }
 
     if trimmed_new_branch_name.is_empty() {
-        return Err(BranchError::Message("New branch name is required".to_string()));
+        return Err(BranchError::Message(
+            "New branch name is required".to_string(),
+        ));
     }
 
     validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
-    validate_branch_name(trimmed_new_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
+    validate_branch_name(trimmed_new_branch_name)
+        .map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = git_command()
         .args([
@@ -598,19 +672,21 @@ fn rename_repository_branch_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Deletes a branch from a remote.
+#[tauri::command]
 pub(crate) fn delete_remote_repository_branch(
+    app: tauri::AppHandle,
     state: State<'_, SettingsState>,
     repo_path: String,
     remote_name: String,
     branch_name: String,
 ) -> Result<(), String> {
-    delete_remote_repository_branch_inner(state, repo_path, remote_name, branch_name)
+    delete_remote_repository_branch_inner(app, state, repo_path, remote_name, branch_name)
         .map_err(|e| e.to_string())
 }
 
 fn delete_remote_repository_branch_inner(
+    app: tauri::AppHandle,
     state: State<'_, SettingsState>,
     repo_path: String,
     remote_name: String,
@@ -635,9 +711,24 @@ fn delete_remote_repository_branch_inner(
     let _network_operation = begin_network_operation(&state, &repo_path)
         .map_err(|e| BranchError::Message(e.to_string()))?;
 
+    let auth_state = app.state::<crate::askpass_state::GitAuthBrokerState>();
+    let auth_state_ref: &crate::askpass_state::GitAuthBrokerState = &auth_state;
+    let auth_session = auth_state_ref
+        .create_session("push")
+        .map_err(BranchError::Message)?;
+    let _session_cleanup = crate::askpass_state::SessionCleanupGuard::new(
+        auth_state_ref,
+        auth_session.session_id.clone(),
+    );
+
     let mut command = git_command();
-    apply_git_preferences(&mut command, &command_preferences, Some(&state))
-        .map_err(|e| BranchError::Message(e.to_string()))?;
+    apply_git_preferences_with_auth_session(
+        &mut command,
+        &command_preferences,
+        Some(&state),
+        Some(&auth_session),
+    )
+    .map_err(BranchError::Message)?;
     let output = command
         .args([
             "-C",
@@ -663,9 +754,10 @@ fn delete_remote_repository_branch_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Sets or publishes upstream tracking for a local branch.
+#[tauri::command]
 pub(crate) fn set_repository_branch_upstream(
+    app: tauri::AppHandle,
     state: State<'_, SettingsState>,
     repo_path: String,
     local_branch_name: String,
@@ -674,6 +766,7 @@ pub(crate) fn set_repository_branch_upstream(
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
     set_repository_branch_upstream_inner(
+        app,
         state,
         repo_path,
         local_branch_name,
@@ -685,6 +778,7 @@ pub(crate) fn set_repository_branch_upstream(
 }
 
 fn set_repository_branch_upstream_inner(
+    app: tauri::AppHandle,
     state: State<'_, SettingsState>,
     repo_path: String,
     local_branch_name: String,
@@ -699,7 +793,9 @@ fn set_repository_branch_upstream_inner(
     let trimmed_remote_branch_name = remote_branch_name.trim();
 
     if trimmed_local_branch_name.is_empty() {
-        return Err(BranchError::Message("Local branch name is required".to_string()));
+        return Err(BranchError::Message(
+            "Local branch name is required".to_string(),
+        ));
     }
 
     if trimmed_remote_name.is_empty() {
@@ -707,11 +803,15 @@ fn set_repository_branch_upstream_inner(
     }
 
     if trimmed_remote_branch_name.is_empty() {
-        return Err(BranchError::Message("Remote branch name is required".to_string()));
+        return Err(BranchError::Message(
+            "Remote branch name is required".to_string(),
+        ));
     }
 
-    validate_branch_name(trimmed_local_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
-    validate_branch_name(trimmed_remote_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
+    validate_branch_name(trimmed_local_branch_name)
+        .map_err(|e| BranchError::Message(e.to_string()))?;
+    validate_branch_name(trimmed_remote_branch_name)
+        .map_err(|e| BranchError::Message(e.to_string()))?;
 
     let remote_ref = format!("refs/remotes/{trimmed_remote_name}/{trimmed_remote_branch_name}");
     let has_remote_branch = git_command()
@@ -736,8 +836,13 @@ fn set_repository_branch_upstream_inner(
 
     let output = if has_remote_branch {
         let mut command = git_command();
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))
-            .map_err(|e| BranchError::Message(e.to_string()))?;
+        apply_git_preferences_with_auth_session(
+            &mut command,
+            &command_preferences,
+            Some(&state),
+            None,
+        )
+        .map_err(|e| BranchError::Message(e.to_string()))?;
 
         let upstream = format!("{trimmed_remote_name}/{trimmed_remote_branch_name}");
         command
@@ -755,12 +860,27 @@ fn set_repository_branch_upstream_inner(
                 source: error,
             })?
     } else {
+        let auth_state = app.state::<crate::askpass_state::GitAuthBrokerState>();
+        let auth_state_ref: &crate::askpass_state::GitAuthBrokerState = &auth_state;
+        let auth_session = auth_state_ref
+            .create_session("push")
+            .map_err(BranchError::Message)?;
+        let _session_cleanup = crate::askpass_state::SessionCleanupGuard::new(
+            auth_state_ref,
+            auth_session.session_id.clone(),
+        );
+
         let mut command = git_command();
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))
-            .map_err(|e| BranchError::Message(e.to_string()))?;
+        apply_git_preferences_with_auth_session(
+            &mut command,
+            &command_preferences,
+            Some(&state),
+            Some(&auth_session),
+        )
+        .map_err(|e| BranchError::Message(e.to_string()))?;
 
         let destination = format!("{trimmed_local_branch_name}:{trimmed_remote_branch_name}");
-        command
+        let output = command
             .args([
                 "-C",
                 &repo_path,
@@ -773,7 +893,16 @@ fn set_repository_branch_upstream_inner(
             .map_err(|error| BranchError::GitCommand {
                 action: "run git push -u",
                 source: error,
-            })?
+            })?;
+
+        if !output.status.success() {
+            return Err(BranchError::Message(git_error_message(
+                &output.stderr,
+                "Failed to set branch upstream",
+            )));
+        }
+
+        output
     };
 
     if !output.status.success() {
@@ -786,8 +915,8 @@ fn set_repository_branch_upstream_inner(
     Ok(())
 }
 
-#[tauri::command]
 /// Switches to a local branch or tracks a remote branch.
+#[tauri::command]
 pub(crate) fn switch_repository_branch(
     repo_path: String,
     branch_name: String,

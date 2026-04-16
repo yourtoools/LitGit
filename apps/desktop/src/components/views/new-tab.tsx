@@ -441,7 +441,7 @@ export function NewTabContent() {
               alt="LitGit logo"
               className="h-10 w-auto"
               height="40"
-              src="/src/assets/litgit-logo.png"
+              src="/litgit-logo.png"
               width="40"
             />
             <h1 className="font-bold font-mono text-4xl text-foreground leading-none tracking-tight">

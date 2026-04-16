@@ -26,24 +26,24 @@ struct RepositoryCommit {
     sync_state: String,
 }
 
+/// Commit history payload returned to the frontend.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Commit history payload returned to the frontend.
 pub(crate) struct RepositoryHistoryPayload {
     commits: Vec<RepositoryCommit>,
 }
 
+/// Latest commit message split into summary and description.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Latest commit message split into summary and description.
 pub(crate) struct LatestRepositoryCommitMessage {
     summary: String,
     description: String,
 }
 
+/// A single file touched by a commit, including rename and line stats.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// A single file touched by a commit, including rename and line stats.
 pub(crate) struct RepositoryCommitFile {
     status: String,
     path: String,
@@ -476,10 +476,10 @@ fn resolve_repository_upstream_ref(repo_path: &str) -> Result<Option<String>, Hi
     Ok(Some(upstream_ref))
 }
 
+/// Returns local history plus pullable upstream commits for the current repository.
 // Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns local history plus pullable upstream commits for the current repository.
 pub(crate) fn get_repository_history(
     repo_path: String,
     state: State<'_, SettingsState>,
@@ -523,10 +523,10 @@ pub(crate) fn get_repository_history(
     Ok(RepositoryHistoryPayload { commits })
 }
 
+/// Returns the latest commit message for the current repository HEAD.
 // Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns the latest commit message for the current repository HEAD.
 pub(crate) fn get_latest_repository_commit_message(
     repo_path: String,
 ) -> Result<LatestRepositoryCommitMessage, String> {
@@ -560,10 +560,10 @@ pub(crate) fn get_latest_repository_commit_message(
     })
 }
 
+/// Returns changed files for a commit, including status and line-level change counts.
 // Tauri command arguments mirror the frontend invoke payload.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns changed files for a commit, including status and line-level change counts.
 pub(crate) fn get_repository_commit_files(
     repo_path: String,
     commit_hash: String,

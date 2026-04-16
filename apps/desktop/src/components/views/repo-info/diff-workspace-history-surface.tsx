@@ -220,7 +220,10 @@ export function DiffWorkspaceHistorySurface({
         <div className="h-full overflow-y-auto">
           {normalizedEntries.map((entry) => {
             const isSelected = entry.commitHash === selectedCommitHash;
-            const avatarSrc = avatarUrlByCommitHash[entry.commitHash] ?? null;
+            const avatarSrc =
+              entry.authorAvatarUrl ??
+              avatarUrlByCommitHash[entry.commitHash] ??
+              null;
 
             return (
               <button

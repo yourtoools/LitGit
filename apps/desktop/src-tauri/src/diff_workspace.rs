@@ -1,15 +1,20 @@
 use chardetng::EncodingDetector;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
+use tauri::State;
 
+use crate::commit_messages::{resolve_commit_identity_for_history, CommitAuthorIdentity};
 use crate::git_support::{
     decode_text_content_with_encoding, encode_text_with_encoding, git_command,
     load_commit_contents, load_working_tree_contents, validate_git_repo,
     validate_repo_relative_file_path, write_temp_bytes, GitSupportError,
 };
+use crate::integrations_store::load_integrations_config;
+use crate::settings::SettingsState;
 
 const DEFAULT_HISTORY_LIMIT: usize = 200;
 const MAX_HISTORY_LIMIT: usize = 1_000;
@@ -37,9 +42,9 @@ impl<T> Default for LimitedPayloadCache<T> {
     }
 }
 
+/// A parsed unified-diff hunk with line ranges and hunk body lines.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A parsed unified-diff hunk with line ranges and hunk body lines.
 pub(crate) struct RepositoryFileHunk {
     header: String,
     index: usize,
@@ -50,68 +55,72 @@ pub(crate) struct RepositoryFileHunk {
     old_start: usize,
 }
 
+/// Hunk payload for a working-tree file.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Hunk payload for a working-tree file.
 pub(crate) struct RepositoryFileHunks {
     hunks: Vec<RepositoryFileHunk>,
     path: String,
 }
 
+/// Hunk payload for a file from a specific commit.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Hunk payload for a file from a specific commit.
 pub(crate) struct RepositoryCommitFileHunks {
     commit_hash: String,
     hunks: Vec<RepositoryFileHunk>,
     path: String,
 }
 
+/// A history entry for one file revision.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A history entry for one file revision.
 pub(crate) struct RepositoryFileHistoryEntry {
     author: String,
+    author_avatar_url: Option<String>,
     author_email: String,
+    author_username: Option<String>,
     commit_hash: String,
     date: String,
     message_summary: String,
     short_hash: String,
 }
 
+/// File history payload returned by `git log --follow`.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// File history payload returned by `git log --follow`.
 pub(crate) struct RepositoryFileHistoryPayload {
     entries: Vec<RepositoryFileHistoryEntry>,
     path: String,
 }
 
+/// A single line in blame output with author and commit metadata.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A single line in blame output with author and commit metadata.
 pub(crate) struct RepositoryFileBlameLine {
     author: String,
+    author_avatar_url: Option<String>,
     author_email: String,
     author_time: Option<i64>,
+    author_username: Option<String>,
     commit_hash: String,
     line_number: usize,
     summary: String,
     text: String,
 }
 
+/// Blame payload for a file at a revision.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Blame payload for a file at a revision.
 pub(crate) struct RepositoryFileBlamePayload {
     lines: Vec<RepositoryFileBlameLine>,
     path: String,
     revision: String,
 }
 
+/// Detected text encoding label for a repository file.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Detected text encoding label for a repository file.
 pub(crate) struct RepositoryFileDetectedEncoding {
     encoding: String,
 }
@@ -198,6 +207,137 @@ struct BlameLineBuilder {
     commit_hash: String,
     final_line_number: Option<usize>,
     summary: String,
+}
+
+fn resolve_cached_commit_identity(
+    commit_identity_cache: &mut HashMap<String, CommitAuthorIdentity>,
+    settings_state: &SettingsState,
+    author_email: &str,
+    author: &str,
+) -> CommitAuthorIdentity {
+    let cache_key = format!("{}\x1f{}", author_email.trim(), author.trim());
+
+    commit_identity_cache
+        .entry(cache_key)
+        .or_insert_with(|| {
+            resolve_commit_identity_for_history(settings_state, author_email, author)
+        })
+        .clone()
+}
+
+fn update_identity_state_hasher_with_optional_value(
+    hasher: &mut Sha256,
+    field_name: &str,
+    value: Option<&str>,
+) {
+    hasher.update(field_name.as_bytes());
+    hasher.update(b":");
+    if let Some(value) = value {
+        hasher.update(value.trim().as_bytes());
+    }
+    hasher.update(b"\n");
+}
+
+fn identity_state_cache_key_component(settings_state: &SettingsState) -> String {
+    let mut hasher = Sha256::new();
+
+    match load_integrations_config() {
+        Ok(config) => {
+            hasher.update(b"profile_id:");
+            hasher.update(config.profile_id.trim().as_bytes());
+            hasher.update(b"\n");
+
+            let mut providers = config.providers.into_iter().collect::<Vec<_>>();
+            providers.sort_by(|left, right| left.0.cmp(&right.0));
+
+            for (provider_name, provider_config) in providers {
+                hasher.update(b"provider:");
+                hasher.update(provider_name.as_bytes());
+                hasher.update(b"\n");
+
+                if let Some(profile) = provider_config.profile {
+                    update_identity_state_hasher_with_optional_value(
+                        &mut hasher,
+                        "username",
+                        profile.username.as_deref(),
+                    );
+                    update_identity_state_hasher_with_optional_value(
+                        &mut hasher,
+                        "display_name",
+                        profile.display_name.as_deref(),
+                    );
+                    update_identity_state_hasher_with_optional_value(
+                        &mut hasher,
+                        "avatar_url",
+                        profile.avatar_url.as_deref(),
+                    );
+                } else {
+                    hasher.update(b"profile:none\n");
+                }
+            }
+        }
+        Err(error) => {
+            hasher.update(b"integrations:error:");
+            hasher.update(error.to_string().as_bytes());
+            hasher.update(b"\n");
+        }
+    }
+
+    let github_identity_snapshot = settings_state
+        .mutate_github_identity_cache(|cache| {
+            let mut entries = cache
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        value.username.clone(),
+                        value.avatar_url.clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            entries
+        })
+        .unwrap_or_default();
+
+    for (cache_key, username, avatar_url) in github_identity_snapshot {
+        hasher.update(b"github_cache_key:");
+        hasher.update(cache_key.as_bytes());
+        hasher.update(b"\n");
+        update_identity_state_hasher_with_optional_value(
+            &mut hasher,
+            "cached_username",
+            username.as_deref(),
+        );
+        update_identity_state_hasher_with_optional_value(
+            &mut hasher,
+            "cached_avatar_url",
+            avatar_url.as_deref(),
+        );
+    }
+
+    format!("{:x}", hasher.finalize())
+}
+
+fn build_file_history_cache_key(
+    repo_path: &str,
+    resolved_head_revision: &str,
+    file_path: &str,
+    resolved_limit: usize,
+    identity_state_fingerprint: &str,
+) -> String {
+    format!(
+        "{repo_path}\x1f{resolved_head_revision}\x1f{file_path}\x1f{resolved_limit}\x1f{identity_state_fingerprint}"
+    )
+}
+
+fn build_file_blame_cache_key(
+    repo_path: &str,
+    cache_revision: &str,
+    file_path: &str,
+    identity_state_fingerprint: &str,
+) -> String {
+    format!("{repo_path}\x1f{cache_revision}\x1f{file_path}\x1f{identity_state_fingerprint}")
 }
 
 fn parse_hunk_range(token: &str) -> Option<(usize, usize)> {
@@ -336,10 +476,22 @@ fn parse_history_entries(raw_output: &str) -> Vec<RepositoryFileHistoryEntry> {
             let author_email = fields.next()?.to_string();
             let date = fields.next()?.to_string();
             let message_summary = fields.next()?.to_string();
+            let author_avatar_url = fields
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(std::string::ToString::to_string);
+            let author_username = fields
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(std::string::ToString::to_string);
 
             Some(RepositoryFileHistoryEntry {
                 author,
+                author_avatar_url,
                 author_email,
+                author_username,
                 commit_hash,
                 date,
                 message_summary,
@@ -367,7 +519,13 @@ fn parse_blame_header(line: &str) -> Option<(String, usize)> {
     Some((commit_hash.to_string(), parsed_line))
 }
 
-fn parse_blame_output(raw_output: &str) -> Vec<RepositoryFileBlameLine> {
+fn parse_blame_output_with_resolver<F>(
+    raw_output: &str,
+    mut resolve_identity: F,
+) -> Vec<RepositoryFileBlameLine>
+where
+    F: FnMut(&str, &str) -> CommitAuthorIdentity,
+{
     let mut parsed_lines: Vec<RepositoryFileBlameLine> = Vec::new();
     let mut current_line = BlameLineBuilder::default();
 
@@ -406,10 +564,13 @@ fn parse_blame_output(raw_output: &str) -> Vec<RepositoryFileBlameLine> {
             let resolved_line_number = current_line
                 .final_line_number
                 .unwrap_or(parsed_lines.len() + 1);
+            let identity = resolve_identity(&current_line.author_email, &current_line.author);
             parsed_lines.push(RepositoryFileBlameLine {
                 author: current_line.author.clone(),
+                author_avatar_url: identity.avatar_url,
                 author_email: current_line.author_email.clone(),
                 author_time: current_line.author_time,
+                author_username: identity.username,
                 commit_hash: current_line.commit_hash.clone(),
                 line_number: resolved_line_number,
                 summary: current_line.summary.clone(),
@@ -494,10 +655,10 @@ fn read_file_bytes_for_encoding_detection(
     Err("Failed to detect file encoding".to_string())
 }
 
+/// Returns parsed unified-diff hunks for a working-tree file.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns parsed unified-diff hunks for a working-tree file.
 pub(crate) fn get_repository_file_hunks(
     repo_path: String,
     file_path: String,
@@ -517,10 +678,10 @@ pub(crate) fn get_repository_file_hunks(
     })
 }
 
+/// Returns parsed unified-diff hunks for a file in a specific commit.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns parsed unified-diff hunks for a file in a specific commit.
 pub(crate) fn get_repository_commit_file_hunks(
     repo_path: String,
     commit_hash: String,
@@ -542,14 +703,15 @@ pub(crate) fn get_repository_commit_file_hunks(
     })
 }
 
+/// Returns revision history for a file, following renames.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns revision history for a file, following renames.
 pub(crate) fn get_repository_file_history(
     repo_path: String,
     file_path: String,
     limit: Option<usize>,
+    state: State<'_, SettingsState>,
 ) -> Result<RepositoryFileHistoryPayload, String> {
     validate_git_repo(Path::new(&repo_path))?;
     validate_repo_relative_file_path(&file_path)?;
@@ -558,8 +720,14 @@ pub(crate) fn get_repository_file_history(
         .clamp(1, MAX_HISTORY_LIMIT);
     let resolved_head_revision =
         resolve_head_revision(&repo_path).unwrap_or_else(|| "NO_HEAD".to_string());
-    let cache_key =
-        format!("{repo_path}\x1f{resolved_head_revision}\x1f{file_path}\x1f{resolved_limit}");
+    let identity_state_fingerprint = identity_state_cache_key_component(state.inner());
+    let cache_key = build_file_history_cache_key(
+        &repo_path,
+        &resolved_head_revision,
+        &file_path,
+        resolved_limit,
+        &identity_state_fingerprint,
+    );
 
     if let Some(cached_payload) = read_cached_payload(file_history_cache(), &cache_key) {
         return Ok(cached_payload);
@@ -590,7 +758,29 @@ pub(crate) fn get_repository_file_history(
         });
     }
 
-    let entries = parse_history_entries(&String::from_utf8_lossy(&output.stdout));
+    let mut commit_identity_cache = HashMap::new();
+    let entries = parse_history_entries(&String::from_utf8_lossy(&output.stdout))
+        .into_iter()
+        .map(|entry| {
+            let identity = resolve_cached_commit_identity(
+                &mut commit_identity_cache,
+                state.inner(),
+                &entry.author_email,
+                &entry.author,
+            );
+
+            RepositoryFileHistoryEntry {
+                author: entry.author,
+                author_avatar_url: identity.avatar_url.or(entry.author_avatar_url),
+                author_email: entry.author_email,
+                author_username: identity.username.or(entry.author_username),
+                commit_hash: entry.commit_hash,
+                date: entry.date,
+                message_summary: entry.message_summary,
+                short_hash: entry.short_hash,
+            }
+        })
+        .collect();
 
     let payload = RepositoryFileHistoryPayload {
         entries,
@@ -607,14 +797,15 @@ pub(crate) fn get_repository_file_history(
     Ok(payload)
 }
 
+/// Returns line-by-line blame metadata for a file at a revision.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Returns line-by-line blame metadata for a file at a revision.
 pub(crate) fn get_repository_file_blame(
     repo_path: String,
     file_path: String,
     revision: Option<String>,
+    state: State<'_, SettingsState>,
 ) -> Result<RepositoryFileBlamePayload, String> {
     validate_git_repo(Path::new(&repo_path))?;
     validate_repo_relative_file_path(&file_path)?;
@@ -628,7 +819,13 @@ pub(crate) fn get_repository_file_blame(
     } else {
         resolved_revision.to_string()
     };
-    let cache_key = format!("{repo_path}\x1f{cache_revision}\x1f{file_path}");
+    let identity_state_fingerprint = identity_state_cache_key_component(state.inner());
+    let cache_key = build_file_blame_cache_key(
+        &repo_path,
+        &cache_revision,
+        &file_path,
+        &identity_state_fingerprint,
+    );
 
     if let Some(cached_payload) = read_cached_payload(file_blame_cache(), &cache_key) {
         return Ok(cached_payload);
@@ -656,7 +853,13 @@ pub(crate) fn get_repository_file_blame(
         });
     }
 
-    let lines = parse_blame_output(&String::from_utf8_lossy(&output.stdout));
+    let mut commit_identity_cache = HashMap::new();
+    let lines = parse_blame_output_with_resolver(
+        &String::from_utf8_lossy(&output.stdout),
+        |email, author| {
+            resolve_cached_commit_identity(&mut commit_identity_cache, state.inner(), email, author)
+        },
+    );
 
     let payload = RepositoryFileBlamePayload {
         lines,
@@ -674,10 +877,10 @@ pub(crate) fn get_repository_file_blame(
     Ok(payload)
 }
 
+/// Saves text to a repository file using the requested encoding.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Saves text to a repository file using the requested encoding.
 pub(crate) fn save_repository_file_text(
     repo_path: String,
     file_path: String,
@@ -701,10 +904,10 @@ pub(crate) fn save_repository_file_text(
     Ok(())
 }
 
+/// Reads repository file text using the requested encoding.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Reads repository file text using the requested encoding.
 pub(crate) fn get_repository_file_text(
     repo_path: String,
     file_path: String,
@@ -716,10 +919,10 @@ pub(crate) fn get_repository_file_text(
         .map_err(|e| e.to_string())
 }
 
+/// Detects the text encoding of a repository file or file revision.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Detects the text encoding of a repository file or file revision.
 pub(crate) fn detect_repository_file_encoding(
     repo_path: String,
     file_path: String,
@@ -737,7 +940,19 @@ pub(crate) fn detect_repository_file_encoding(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_blame_output, parse_history_entries, parse_hunks_from_patch};
+    use crate::commit_messages::CommitAuthorIdentity;
+    use crate::integrations_store::{
+        save_integrations_config, IntegrationsConfig, ProviderConfig, ProviderProfile,
+    };
+    use crate::settings::SettingsState;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock};
+
+    use super::{
+        build_file_history_cache_key, identity_state_cache_key_component,
+        parse_blame_output_with_resolver, parse_history_entries, parse_hunks_from_patch,
+    };
 
     #[test]
     fn hunk_parser_returns_changed_blocks() {
@@ -766,17 +981,31 @@ index 1111111..2222222 100644
     #[test]
     fn file_history_parser_maps_log_rows() {
         let raw = concat!(
-            "0123456789abcdef\\x1f0123456\\x1fJane Doe\\x1fjane@example.com\\x1f2026-03-15T12:00:00+00:00\\x1ffeat: first\\x1e",
-            "fedcba9876543210\\x1ffedcba9\\x1fJohn Doe\\x1fjohn@example.com\\x1f2026-03-14T12:00:00+00:00\\x1ffix: second\\x1e",
-        )
-        .replace("\\x1f", "\x1f")
-        .replace("\\x1e", "\x1e");
+            "0123456789abcdef\x1f0123456\x1fJane Doe\x1fjane@example.com\x1f2026-03-15T12:00:00+00:00\x1ffeat: first\x1e",
+            "fedcba9876543210\x1ffedcba9\x1fJohn Doe\x1fjohn@example.com\x1f2026-03-14T12:00:00+00:00\x1ffix: second\x1e",
+        );
 
-        let entries = parse_history_entries(&raw);
+        let entries = parse_history_entries(raw);
 
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].author, "Jane Doe");
         assert_eq!(entries[1].short_hash, "fedcba9");
+    }
+
+    #[test]
+    fn parse_history_entries_reads_avatar_and_username_fields() {
+        let raw = "abc123\x1fabc1234\x1fDeri Kurniawan\x1fderi@example.com\x1f2026-04-10T10:00:00Z\x1ffix avatar\x1fhttps://github.com/Deri-Kurniawan.png\x1fDeri-Kurniawan\x1e";
+
+        let entries = parse_history_entries(raw);
+
+        assert_eq!(
+            entries[0].author_avatar_url.as_deref(),
+            Some("https://github.com/Deri-Kurniawan.png")
+        );
+        assert_eq!(
+            entries[0].author_username.as_deref(),
+            Some("Deri-Kurniawan")
+        );
     }
 
     #[test]
@@ -798,12 +1027,148 @@ index 1111111..2222222 100644
             "\tconst second = 2;\n",
         );
 
-        let lines = parse_blame_output(raw);
+        let lines = parse_blame_output_with_resolver(raw, |_, _| CommitAuthorIdentity::default());
 
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].line_number, 1);
         assert_eq!(lines[0].author, "Jane Doe");
         assert_eq!(lines[1].line_number, 2);
         assert_eq!(lines[1].author_email, "john@example.com");
+    }
+
+    #[test]
+    fn parse_blame_output_sets_avatar_and_username_from_resolved_identity() {
+        let raw = concat!(
+            "abc123 1 1 1\n",
+            "author Deri Kurniawan\n",
+            "author-mail <12345+Deri-Kurniawan@users.noreply.github.com>\n",
+            "author-time 1712743200\n",
+            "summary fix avatar\n",
+            "\tlet avatar = true;\n",
+        );
+
+        let lines = parse_blame_output_with_resolver(raw, |email, author| {
+            assert_eq!(email, "12345+Deri-Kurniawan@users.noreply.github.com");
+            assert_eq!(author, "Deri Kurniawan");
+
+            CommitAuthorIdentity {
+                avatar_url: Some("https://github.com/Deri-Kurniawan.png".to_string()),
+                username: Some("Deri-Kurniawan".to_string()),
+            }
+        });
+
+        assert_eq!(
+            lines[0].author_avatar_url.as_deref(),
+            Some("https://github.com/Deri-Kurniawan.png")
+        );
+        assert_eq!(lines[0].author_username.as_deref(), Some("Deri-Kurniawan"));
+    }
+
+    #[test]
+    fn file_history_cache_key_changes_when_connected_github_profile_changes() {
+        run_with_temp_home("diff-workspace-cache-key", || {
+            let state = SettingsState::default();
+            let repo_path = "/tmp/repo";
+            let revision = "abc123";
+            let file_path = "src/main.rs";
+            let limit = 25;
+
+            save_integrations_config(&github_test_config(
+                "litgit-tests",
+                Some("https://avatars.githubusercontent.com/u/1?v=4"),
+            ))
+            .expect("should save initial integrations config");
+            let initial_fingerprint = identity_state_cache_key_component(&state);
+            let initial_key = build_file_history_cache_key(
+                repo_path,
+                revision,
+                file_path,
+                limit,
+                &initial_fingerprint,
+            );
+
+            save_integrations_config(&github_test_config(
+                "litgit-tests",
+                Some("https://avatars.githubusercontent.com/u/2?v=4"),
+            ))
+            .expect("should save updated integrations config");
+            let updated_fingerprint = identity_state_cache_key_component(&state);
+            let updated_key = build_file_history_cache_key(
+                repo_path,
+                revision,
+                file_path,
+                limit,
+                &updated_fingerprint,
+            );
+
+            assert_ne!(initial_fingerprint, updated_fingerprint);
+            assert_ne!(initial_key, updated_key);
+        });
+    }
+
+    fn test_environment_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn create_temp_dir(label: &str) -> PathBuf {
+        let unique_suffix = uuid::Uuid::new_v4();
+        let path =
+            std::env::temp_dir().join(format!("litgit-diff-workspace-{label}-{unique_suffix}"));
+        std::fs::create_dir_all(&path).expect("should create temporary home directory");
+        path
+    }
+
+    fn run_with_temp_home<T>(label: &str, callback: impl FnOnce() -> T) -> T {
+        let _guard = test_environment_lock()
+            .lock()
+            .expect("test environment lock should not be poisoned");
+        let temp_home = create_temp_dir(label);
+        let previous_home = std::env::var_os("HOME");
+
+        unsafe {
+            std::env::set_var("HOME", &temp_home);
+        }
+
+        let result = callback();
+
+        if let Some(home) = previous_home {
+            unsafe {
+                std::env::set_var("HOME", home);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("HOME");
+            }
+        }
+
+        remove_temp_path(&temp_home);
+        result
+    }
+
+    fn remove_temp_path(path: &Path) {
+        if path.exists() {
+            std::fs::remove_dir_all(path).expect("should remove temporary home directory");
+        }
+    }
+
+    fn github_test_config(username: &str, avatar_url: Option<&str>) -> IntegrationsConfig {
+        IntegrationsConfig {
+            profile_id: "profile_test".to_string(),
+            providers: HashMap::from([(
+                "github".to_string(),
+                ProviderConfig {
+                    oauth_token: None,
+                    profile: Some(ProviderProfile {
+                        username: Some(username.to_string()),
+                        display_name: Some("Lit Git Tests".to_string()),
+                        avatar_url: avatar_url.map(std::string::ToString::to_string),
+                        emails: Vec::new(),
+                    }),
+                    ssh_key: None,
+                    use_system_agent: true,
+                },
+            )]),
+        }
     }
 }

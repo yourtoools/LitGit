@@ -984,8 +984,14 @@ export async function pushRepoBranch(
     invoke,
     invokeArgs: {
       forceWithLease,
-      publishRepoName: publishOptions?.repoName,
-      publishVisibility: publishOptions?.visibility,
+      publishRequest: publishOptions
+        ? {
+            provider: publishOptions.provider,
+            targetId: publishOptions.targetId,
+            repoName: publishOptions.repoName,
+            visibility: publishOptions.visibility,
+          }
+        : null,
       preferences,
       repoPath: path,
     },

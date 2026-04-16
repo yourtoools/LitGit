@@ -131,6 +131,7 @@ import {
   useTransition,
 } from "react";
 import { toast } from "sonner";
+
 import { resolveLanguage } from "@/components/code-editor/utils/language-resolver";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import {
@@ -167,11 +168,13 @@ import {
   type DiffWorkspacePresentationMode,
 } from "@/components/views/repo-info/diff-workspace-types";
 import { ImageDiffViewer } from "@/components/views/repo-info/image-diff-viewer";
+import { PublishRepositoryDialog } from "@/components/views/repo-info/publish-repository-dialog";
 import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   normalizeComboboxQuery,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import { getRepositoryRemoteAvatars } from "@/lib/tauri-repo-client";
 import {
@@ -558,6 +561,8 @@ function resolveTagNameFromCommitRef(rawReference: string): string | null {
 
 const TREE_STATUS_SUMMARY_ORDER = ["M", "A", "D", "R", "C", "U", "T", "?"];
 const GITHUB_NOREPLY_EMAIL_SUFFIX = "@users.noreply.github.com";
+const GITLAB_NOREPLY_EMAIL_SUFFIX = "@users.noreply.gitlab.com";
+const BITBUCKET_NOREPLY_EMAIL_SUFFIX = "@users.noreply.bitbucket.org";
 const ASCII_DIGITS_PATTERN = /^\d+$/;
 const IMAGE_PREVIEWABLE_EXTENSIONS = new Set([
   "png",
@@ -602,7 +607,6 @@ const PREVIEW_UNAVAILABLE_ASCII_ART = `       _____________
 
 function isValidGitHubUsername(username: string): boolean {
   const length = username.length;
-
   if (length === 0 || length > 39) {
     return false;
   }
@@ -623,6 +627,67 @@ function isValidGitHubUsername(username: string): boolean {
   }
 
   return true;
+}
+
+function isValidBitbucketUsername(username: string): boolean {
+  const length = username.length;
+  if (length === 0 || length > 39) {
+    return false;
+  }
+
+  // Bitbucket usernames: alphanumeric, hyphens, underscores, periods
+  // cannot start with hyphen or underscore
+  if (username.startsWith("-") || username.startsWith("_")) {
+    return false;
+  }
+
+  for (const character of username) {
+    const isAlphabet =
+      (character >= "a" && character <= "z") ||
+      (character >= "A" && character <= "Z");
+    const isDigit = character >= "0" && character <= "9";
+
+    if (
+      !(
+        isAlphabet ||
+        isDigit ||
+        character === "-" ||
+        character === "_" ||
+        character === "."
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function resolveCommitAuthorAvatarFromIdentityEmail(
+  email: string | null
+): string | null {
+  const normalizedEmail = email?.trim().toLowerCase() ?? "";
+
+  // Try GitHub
+  const githubAvatar = resolveGitHubAvatarFromIdentityEmail(normalizedEmail);
+  if (githubAvatar) {
+    return githubAvatar;
+  }
+
+  // Try GitLab
+  const gitlabAvatar = resolveGitLabAvatarFromIdentityEmail(normalizedEmail);
+  if (gitlabAvatar) {
+    return gitlabAvatar;
+  }
+
+  // Try Bitbucket
+  const bitbucketAvatar =
+    resolveBitbucketAvatarFromIdentityEmail(normalizedEmail);
+  if (bitbucketAvatar) {
+    return bitbucketAvatar;
+  }
+
+  return null;
 }
 
 function resolveGitHubAvatarFromIdentityEmail(
@@ -670,6 +735,69 @@ function resolveGitHubAvatarFromIdentityEmail(
   return null;
 }
 
+function resolveGitLabAvatarFromIdentityEmail(
+  normalizedEmail: string
+): string | null {
+  if (!normalizedEmail.endsWith(GITLAB_NOREPLY_EMAIL_SUFFIX)) {
+    return null;
+  }
+
+  const localPart = normalizedEmail.slice(
+    0,
+    -GITLAB_NOREPLY_EMAIL_SUFFIX.length
+  );
+
+  if (localPart.length === 0) {
+    return null;
+  }
+
+  // Check if it's a numeric ID
+  if (ASCII_DIGITS_PATTERN.test(localPart)) {
+    // GitLab uses Gravatar with the user ID
+    return `https://secure.gravatar.com/avatar/${localPart}?s=80&d=identicon`;
+  }
+
+  // It's a username - GitLab doesn't have a direct username-based avatar URL
+  // The avatar would need to be fetched via API with a token
+  return null;
+}
+
+function resolveBitbucketAvatarFromIdentityEmail(
+  normalizedEmail: string
+): string | null {
+  if (!normalizedEmail.endsWith(BITBUCKET_NOREPLY_EMAIL_SUFFIX)) {
+    return null;
+  }
+
+  const localPart = normalizedEmail.slice(
+    0,
+    -BITBUCKET_NOREPLY_EMAIL_SUFFIX.length
+  );
+
+  if (localPart.length === 0) {
+    return null;
+  }
+
+  // Bitbucket format: account_id:username or just username
+  const colonIndex = localPart.indexOf(":");
+
+  if (colonIndex >= 0) {
+    const accountId = localPart.slice(0, colonIndex);
+    const username = localPart.slice(colonIndex + 1);
+
+    if (
+      isValidBitbucketUsername(username) &&
+      ASCII_DIGITS_PATTERN.test(accountId)
+    ) {
+      // Return a URL using Bitbucket's avatar service with initials
+      return `https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/${username}-0.png`;
+    }
+  }
+
+  // Just username - we can't construct an avatar URL without the account ID
+  return null;
+}
+
 function resolveWipAuthorAvatarUrl(
   commits: RepositoryCommit[],
   identityEmail: string | null,
@@ -703,7 +831,7 @@ function resolveWipAuthorAvatarUrl(
     }
   }
 
-  return resolveGitHubAvatarFromIdentityEmail(identityEmail);
+  return resolveCommitAuthorAvatarFromIdentityEmail(identityEmail);
 }
 
 function createEmptyTreeNode(name: string, fullPath: string): ChangeTreeNode {
@@ -1248,43 +1376,6 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   return tagName === "input" || tagName === "textarea";
 }
 
-function resolvePublishRepositoryNameError(name: string): string | null {
-  const trimmedName = name.trim();
-
-  if (trimmedName.length === 0) {
-    return "Repository name is required.";
-  }
-
-  if (trimmedName === "." || trimmedName === "..") {
-    return "Repository name must be more specific.";
-  }
-
-  if (trimmedName.includes("/") || trimmedName.includes("\\")) {
-    return "Repository name cannot contain path separators.";
-  }
-
-  if (
-    [...trimmedName].some((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-
-      return (
-        character === "<" ||
-        character === ">" ||
-        character === ":" ||
-        character === '"' ||
-        character === "|" ||
-        character === "?" ||
-        character === "*" ||
-        codePoint < 32
-      );
-    })
-  ) {
-    return "Repository name contains unsupported characters.";
-  }
-
-  return null;
-}
-
 function getLeftSidebarMaxWidth(
   viewportWidth: number,
   rightSidebarWidth: number,
@@ -1490,10 +1581,6 @@ export function RepoInfo() {
   const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
   const [isPublishRepoConfirmOpen, setIsPublishRepoConfirmOpen] =
     useState(false);
-  const [publishRepoName, setPublishRepoName] = useState("");
-  const [publishRepoVisibility, setPublishRepoVisibility] = useState<
-    "private" | "public"
-  >("private");
   const [publishRepoFormError, setPublishRepoFormError] = useState<
     string | null
   >(null);
@@ -1706,6 +1793,7 @@ export function RepoInfo() {
   const isRightSidebarOpenRef = useRef(true);
   const [, startSidebarFilterTransition] = useTransition();
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
+
   const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
   const dateFormatPreference = usePreferencesStore(
     (state) => state.ui.dateFormat
@@ -5501,8 +5589,6 @@ export function RepoInfo() {
           await pushBranch(activeRepoId, false, publishOptions);
         } catch (error) {
           if (isMissingRemoteRepositoryError(error)) {
-            setPublishRepoName(activeRepo?.name ?? "");
-            setPublishRepoVisibility("private");
             setPublishRepoFormError(null);
             setIsPublishRepoConfirmOpen(true);
             return;
@@ -5595,8 +5681,6 @@ export function RepoInfo() {
           await pushBranch(activeRepoId, false, publishOptions);
         } catch (error) {
           if (isMissingRemoteRepositoryError(error)) {
-            setPublishRepoName(activeRepo?.name ?? "");
-            setPublishRepoVisibility("private");
             setPublishRepoFormError(null);
             setIsPublishRepoConfirmOpen(true);
             return;
@@ -9264,40 +9348,8 @@ export function RepoInfo() {
     action: (options: PublishRepositoryOptions) => Promise<void>
   ) => {
     pendingPublishPushActionRef.current = action;
-    setPublishRepoName(activeRepo?.name ?? "");
-    setPublishRepoVisibility("private");
     setPublishRepoFormError(null);
     setIsPublishRepoConfirmOpen(true);
-  };
-
-  const executePublishAndPush = async () => {
-    const pendingAction = pendingPublishPushActionRef.current;
-
-    if (!pendingAction || isSubmittingPublishRepo) {
-      return;
-    }
-
-    const repoNameError = resolvePublishRepositoryNameError(publishRepoName);
-    if (repoNameError) {
-      setPublishRepoFormError(repoNameError);
-      return;
-    }
-
-    setIsSubmittingPublishRepo(true);
-    setPublishRepoFormError(null);
-
-    try {
-      await pendingAction({
-        repoName: publishRepoName.trim(),
-        visibility: publishRepoVisibility,
-      });
-      pendingPublishPushActionRef.current = null;
-      setIsPublishRepoConfirmOpen(false);
-    } catch (error) {
-      setPublishRepoFormError(getErrorMessage(error));
-    } finally {
-      setIsSubmittingPublishRepo(false);
-    }
   };
 
   const handleStageAll = async () => {
@@ -13028,7 +13080,30 @@ export function RepoInfo() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog
+      <PublishRepositoryDialog
+        errorMessage={publishRepoFormError}
+        initialRepoName={activeRepo?.name ?? ""}
+        isSubmitting={isSubmittingPublishRepo}
+        onConfirm={async (publishOptions) => {
+          const pendingAction = pendingPublishPushActionRef.current;
+          if (!pendingAction || isSubmittingPublishRepo) {
+            return;
+          }
+
+          setIsSubmittingPublishRepo(true);
+          setPublishRepoFormError(null);
+
+          try {
+            await pendingAction(publishOptions);
+            pendingPublishPushActionRef.current = null;
+            setIsPublishRepoConfirmOpen(false);
+          } catch (error) {
+            setPublishRepoFormError(getErrorMessage(error));
+            throw error;
+          } finally {
+            setIsSubmittingPublishRepo(false);
+          }
+        }}
         onOpenChange={(open) => {
           if (isSubmittingPublishRepo && !open) {
             return;
@@ -13042,98 +13117,7 @@ export function RepoInfo() {
           }
         }}
         open={isPublishRepoConfirmOpen}
-      >
-        <DialogContent
-          className="sm:max-w-md"
-          showCloseButton={!isSubmittingPublishRepo}
-        >
-          <DialogHeader>
-            <DialogTitle>Publish repository before push</DialogTitle>
-            <DialogDescription>
-              No Git remote is configured for this project. Publish it to
-              GitHub, then continue pushing the current branch.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="publish-repository-name">Repository name</Label>
-              <Input
-                autoCapitalize="none"
-                autoCorrect="off"
-                className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
-                disabled={isSubmittingPublishRepo}
-                id="publish-repository-name"
-                onChange={(event) => {
-                  setPublishRepoName(event.target.value);
-                  setPublishRepoFormError(null);
-                }}
-                placeholder="my-repository"
-                spellCheck={false}
-                value={publishRepoName}
-              />
-            </div>
-            <fieldset className="space-y-2">
-              <legend className="font-medium text-sm">Visibility</legend>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  className="focus-visible:desktop-focus justify-start focus-visible:ring-0! focus-visible:ring-offset-0!"
-                  disabled={isSubmittingPublishRepo}
-                  onClick={() => {
-                    setPublishRepoVisibility("private");
-                  }}
-                  type="button"
-                  variant={
-                    publishRepoVisibility === "private" ? "default" : "outline"
-                  }
-                >
-                  Private
-                </Button>
-                <Button
-                  className="focus-visible:desktop-focus justify-start focus-visible:ring-0! focus-visible:ring-offset-0!"
-                  disabled={isSubmittingPublishRepo}
-                  onClick={() => {
-                    setPublishRepoVisibility("public");
-                  }}
-                  type="button"
-                  variant={
-                    publishRepoVisibility === "public" ? "default" : "outline"
-                  }
-                >
-                  Public
-                </Button>
-              </div>
-            </fieldset>
-            {publishRepoFormError ? (
-              <p className="text-destructive text-sm">{publishRepoFormError}</p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
-              disabled={isSubmittingPublishRepo}
-              onClick={() => {
-                setIsPublishRepoConfirmOpen(false);
-                pendingPublishPushActionRef.current = null;
-                setPublishRepoFormError(null);
-              }}
-              type="button"
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button
-              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
-              disabled={isSubmittingPublishRepo}
-              onClick={() => {
-                executePublishAndPush().catch(() => undefined);
-              }}
-              type="button"
-            >
-              {isSubmittingPublishRepo ? "Publishing..." : "Publish and Push"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />
       <AlertDialog
         onOpenChange={(open) => {
           if (isResettingToReference && !open) {

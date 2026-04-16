@@ -55,7 +55,9 @@ interface DiffWorkspaceBlameSurfaceProps {
 
 interface BlameCommitSummary {
   author: string;
+  authorAvatarUrl: string | null;
   authorTime: number | null;
+  authorUsername: string | null;
   commitHash: string;
   firstLineNumber: number;
   lineCount: number;
@@ -171,6 +173,7 @@ export function DiffWorkspaceBlameSurface({
     () =>
       normalizedLines.map((line) => ({
         author: line.author,
+        // The gutter stays text-only on purpose; real avatars render in the blame sidebar.
         avatarLabel: resolveAvatarLabel(line.author),
         color: resolveAuthorColor(`${line.author}:${line.authorEmail}`),
         lineNumber: line.lineNumber,
@@ -190,7 +193,9 @@ export function DiffWorkspaceBlameSurface({
 
       summariesByHash.set(line.commitHash, {
         author: line.author,
+        authorAvatarUrl: line.authorAvatarUrl,
         authorTime: line.authorTime ?? null,
+        authorUsername: line.authorUsername,
         commitHash: line.commitHash,
         firstLineNumber: line.lineNumber,
         lineCount: 1,
@@ -278,11 +283,14 @@ export function DiffWorkspaceBlameSurface({
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <aside className="h-full w-[27rem] shrink-0 border-border/70 border-r bg-background/95">
+      <aside className="h-full w-108 shrink-0 border-border/70 border-r bg-background/95">
         <div className="h-full overflow-y-auto">
           {commitSummaries.map((entry) => {
             const isSelected = entry.commitHash === selectedCommitHash;
-            const avatarSrc = avatarUrlByCommitHash[entry.commitHash] ?? null;
+            const avatarSrc =
+              entry.authorAvatarUrl ??
+              avatarUrlByCommitHash[entry.commitHash] ??
+              null;
 
             return (
               <button

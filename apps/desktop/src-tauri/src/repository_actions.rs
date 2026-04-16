@@ -1,44 +1,46 @@
 use crate::git_support::{
-    background_command, git_command, git_error_message, git_process_error_message,
-    validate_git_repo,
+    git_command, git_error_message, git_process_error_message, validate_git_repo,
 };
-use crate::repository::validate_repository_name;
+use crate::repository_publishing::{
+    create_remote_repository, validate_publish_request, PublishRepositoryRequest,
+};
 use crate::settings::{
-    apply_git_preferences, begin_network_operation, RepoCommandPreferences, SettingsState,
+    apply_git_preferences, apply_git_preferences_with_auth_session, begin_network_operation,
+    RepoCommandPreferences, SettingsState,
 };
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
-use tauri::State;
+use tauri::{Manager, State};
 use thiserror::Error;
 
+/// Result payload for pull/fetch operations.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Result payload for pull/fetch operations.
 pub(crate) struct PullActionResult {
     head_changed: bool,
 }
 
+/// Result payload for merge/rebase actions.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Result payload for merge/rebase actions.
-pub(crate) struct MergeActionResult {
+pub(crate) struct MergeRepositoryPayload {
     head_changed: bool,
 }
 
+/// Result of rewriting a commit message and descendant history.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Result of rewriting a commit message and descendant history.
 pub(crate) struct RewordRepositoryCommitResult {
     head_hash: String,
     updated_commit_hash: String,
 }
 
+/// Result of dropping a commit from current HEAD ancestry.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Result of dropping a commit from current HEAD ancestry.
 pub(crate) struct DropRepositoryCommitResult {
     head_hash: String,
     selected_commit_hash: Option<String>,
@@ -88,16 +90,6 @@ impl RepositoryActionsError {
 
 fn ensure_repo(repo_path: &str) -> RepositoryActionsResult<()> {
     validate_git_repo(Path::new(repo_path)).map_err(RepositoryActionsError::message)
-}
-
-fn resolve_publish_visibility_flag(publish_visibility: Option<&str>) -> &'static str {
-    match publish_visibility
-        .map(|v| v.trim().to_lowercase())
-        .as_deref()
-    {
-        Some("public") => "--public",
-        _ => "--private",
-    }
 }
 
 fn resolve_push_upstream_plan(
@@ -191,49 +183,6 @@ fn run_git_text_command(
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn run_gh_repo_create(
-    repo_path: &str,
-    publish_name: &str,
-    visibility_flag: &str,
-) -> RepositoryActionsResult<()> {
-    let mut command = background_command("gh");
-    let publish_output = command
-        .current_dir(repo_path)
-        .env("GH_PROMPT_DISABLED", "1")
-        .args([
-            "repo",
-            "create",
-            publish_name,
-            "--source",
-            ".",
-            "--remote",
-            "origin",
-            visibility_flag,
-            "--push",
-        ])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("run gh repo create", error))?;
-
-    if !publish_output.status.success() {
-        let stderr = String::from_utf8_lossy(&publish_output.stderr)
-            .trim()
-            .to_string();
-        let stdout = String::from_utf8_lossy(&publish_output.stdout)
-            .trim()
-            .to_string();
-
-        return Err(RepositoryActionsError::message(if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            stdout
-        } else {
-            "Failed to publish repository with GitHub CLI".to_string()
-        }));
-    }
-
-    Ok(())
-}
-
 fn resolve_current_branch_name(repo_path: &str) -> RepositoryActionsResult<String> {
     let branch_name = run_git_text_command(
         repo_path,
@@ -308,19 +257,68 @@ fn resolve_origin_remote_missing_on_server(
 
 fn publish_repository_from_request(
     repo_path: &str,
-    publish_repo_name: Option<&str>,
-    publish_visibility: Option<&str>,
+    publish_request: Option<PublishRepositoryRequest>,
     missing_remote_message: &str,
-) -> RepositoryActionsResult<()> {
-    let publish_name = publish_repo_name
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| RepositoryActionsError::message(missing_remote_message))?;
+) -> RepositoryActionsResult<String> {
+    let publish_request = resolve_publish_request(publish_request, missing_remote_message)?;
+    let created_repository = create_remote_repository(publish_request)
+        .map_err(|error| RepositoryActionsError::message(error.to_string()))?;
 
-    validate_repository_name(publish_name).map_err(RepositoryActionsError::message)?;
+    configure_origin_remote(repo_path, &created_repository.clone_url)?;
 
-    let visibility_flag = resolve_publish_visibility_flag(publish_visibility);
-    run_gh_repo_create(repo_path, publish_name, visibility_flag)
+    Ok(created_repository.clone_url)
+}
+
+fn resolve_publish_request(
+    publish_request: Option<PublishRepositoryRequest>,
+    missing_remote_message: &str,
+) -> RepositoryActionsResult<PublishRepositoryRequest> {
+    let publish_request =
+        publish_request.ok_or_else(|| RepositoryActionsError::message(missing_remote_message))?;
+    let publish_request = PublishRepositoryRequest {
+        provider: publish_request.provider.trim().to_lowercase(),
+        target_id: publish_request.target_id.trim().to_string(),
+        repo_name: publish_request.repo_name.trim().to_string(),
+        visibility: publish_request.visibility.trim().to_lowercase(),
+    };
+
+    validate_publish_request(&publish_request)
+        .map_err(|error| RepositoryActionsError::message(error.to_string()))?;
+
+    Ok(publish_request)
+}
+
+fn configure_origin_remote(repo_path: &str, clone_url: &str) -> RepositoryActionsResult<()> {
+    let origin_exists_output = git_command()
+        .args(["-C", repo_path, "remote", "get-url", "origin"])
+        .output()
+        .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?;
+    let remote_subcommand = if origin_exists_output.status.success() {
+        "set-url"
+    } else {
+        "add"
+    };
+
+    let configure_origin_output = git_command()
+        .args([
+            "-C",
+            repo_path,
+            "remote",
+            remote_subcommand,
+            "origin",
+            clone_url,
+        ])
+        .output()
+        .map_err(|error| RepositoryActionsError::io("configure origin remote", error))?;
+
+    if !configure_origin_output.status.success() {
+        return Err(RepositoryActionsError::message(git_error_message(
+            &configure_origin_output.stderr,
+            "Failed to configure origin remote",
+        )));
+    }
+
+    Ok(())
 }
 
 fn resolve_upstream_ref(repo_path: &str) -> RepositoryActionsResult<Option<String>> {
@@ -349,42 +347,6 @@ fn resolve_upstream_ref(repo_path: &str) -> RepositoryActionsResult<Option<Strin
     } else {
         Ok(Some(upstream_ref))
     }
-}
-
-fn run_git_push(
-    repo_path: &str,
-    command_preferences: &RepoCommandPreferences,
-    state: &State<'_, SettingsState>,
-    push_plan: &PushUpstreamPlan,
-    branch_name: &str,
-    should_force_with_lease: bool,
-) -> RepositoryActionsResult<()> {
-    let mut command = git_command();
-    apply_git_preferences(&mut command, command_preferences, Some(state))
-        .map_err(RepositoryActionsError::message)?;
-
-    command.args(["-C", repo_path, "push"]);
-
-    if should_force_with_lease {
-        command.arg("--force-with-lease");
-    }
-
-    if push_plan.should_set_upstream {
-        command.args(["-u", push_plan.remote_name.as_str(), branch_name]);
-    }
-
-    let push_output = command
-        .output()
-        .map_err(|error| RepositoryActionsError::io("run git push", error))?;
-
-    if !push_output.status.success() {
-        return Err(RepositoryActionsError::message(git_error_message(
-            &push_output.stderr,
-            "Failed to push branch",
-        )));
-    }
-
-    Ok(())
 }
 
 fn build_commit_message_text(summary: &str, description: &str) -> RepositoryActionsResult<String> {
@@ -673,10 +635,10 @@ fn resolve_rewritten_parent_hash(
         .unwrap_or_else(|| parent.to_string())
 }
 
+/// Checks out a commit in detached HEAD mode.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Checks out a commit in detached HEAD mode.
 pub(crate) fn checkout_repository_commit(repo_path: String, target: String) -> Result<(), String> {
     (|| -> RepositoryActionsResult<()> {
         ensure_repo(&repo_path)?;
@@ -706,17 +668,17 @@ pub(crate) fn checkout_repository_commit(repo_path: String, target: String) -> R
     .map_err(|error| error.to_string())
 }
 
+/// Pushes the current branch and can publish a repository when no remote exists.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Pushes the current branch and can publish a repository when no remote exists.
 pub(crate) fn push_repository_branch(
+    app: tauri::AppHandle,
     state: State<'_, SettingsState>,
     repo_path: String,
     preferences: Option<RepoCommandPreferences>,
     force_with_lease: Option<bool>,
-    publish_repo_name: Option<String>,
-    publish_visibility: Option<String>,
+    publish_request: Option<PublishRepositoryRequest>,
 ) -> Result<(), String> {
     (|| -> RepositoryActionsResult<()> {
         ensure_repo(&repo_path)?;
@@ -725,50 +687,61 @@ pub(crate) fn push_repository_branch(
             .map_err(RepositoryActionsError::message)?;
         let branch_name = resolve_current_branch_name(&repo_path)?;
         let has_any_remote = repository_has_any_remote(&repo_path)?;
+        let origin_remote_output = if has_any_remote {
+            Some(
+                git_command()
+                    .args(["-C", &repo_path, "remote", "get-url", "origin"])
+                    .output()
+                    .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?,
+            )
+        } else {
+            None
+        };
+
+        let mut has_origin_remote =
+            origin_remote_output.as_ref().is_some_and(|output| output.status.success());
+        let mut origin_remote_url = origin_remote_output
+            .as_ref()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or_default();
 
         if !has_any_remote {
-            publish_repository_from_request(
+            origin_remote_url = publish_repository_from_request(
                 &repo_path,
-                publish_repo_name.as_deref(),
-                publish_visibility.as_deref(),
+                publish_request.clone(),
                 "No remote is configured. Publish this repository before pushing.",
             )?;
-            return Ok(());
-        }
-
-        let origin_remote_output = git_command()
-            .args(["-C", &repo_path, "remote", "get-url", "origin"])
-            .output()
-            .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?;
-
-        let has_origin_remote = origin_remote_output.status.success();
-        let origin_remote_missing_on_server = resolve_origin_remote_missing_on_server(
-            &repo_path,
-            &command_preferences,
-            &state,
-            has_origin_remote,
-        )?;
-
-        if origin_remote_missing_on_server {
-            let remove_origin_output = git_command()
-                .args(["-C", &repo_path, "remote", "remove", "origin"])
-                .output()
-                .map_err(|error| RepositoryActionsError::io("remove stale origin remote", error))?;
-
-            if !remove_origin_output.status.success() {
-                return Err(RepositoryActionsError::message(git_error_message(
-                    &remove_origin_output.stderr,
-                    "Failed to remove stale origin remote",
-                )));
-            }
-
-            publish_repository_from_request(
+            has_origin_remote = true;
+        } else {
+            let origin_remote_missing_on_server = resolve_origin_remote_missing_on_server(
                 &repo_path,
-                publish_repo_name.as_deref(),
-                publish_visibility.as_deref(),
-                "Remote repository for 'origin' was not found. Publish this repository to recreate it before pushing.",
+                &command_preferences,
+                &state,
+                has_origin_remote,
             )?;
-            return Ok(());
+
+            if origin_remote_missing_on_server {
+                let remove_origin_output = git_command()
+                    .args(["-C", &repo_path, "remote", "remove", "origin"])
+                    .output()
+                    .map_err(|error| {
+                        RepositoryActionsError::io("remove stale origin remote", error)
+                    })?;
+
+                if !remove_origin_output.status.success() {
+                    return Err(RepositoryActionsError::message(git_error_message(
+                        &remove_origin_output.stderr,
+                        "Failed to remove stale origin remote",
+                    )));
+                }
+
+                origin_remote_url = publish_repository_from_request(
+                    &repo_path,
+                    publish_request,
+                    "Remote repository for 'origin' was not found. Publish this repository to recreate it before pushing.",
+                )?;
+                has_origin_remote = true;
+            }
         }
 
         let upstream_ref = resolve_upstream_ref(&repo_path)?;
@@ -776,23 +749,103 @@ pub(crate) fn push_repository_branch(
             resolve_push_upstream_plan(&branch_name, upstream_ref.as_deref(), has_origin_remote)?;
         let should_force_with_lease = force_with_lease == Some(true);
 
-        run_git_push(
-            &repo_path,
+        let auth_state = app.state::<crate::askpass_state::GitAuthBrokerState>();
+        let auth_state_ref: &crate::askpass_state::GitAuthBrokerState = &auth_state;
+        let auth_session = auth_state_ref
+            .create_session("push")
+            .map_err(RepositoryActionsError::message)?;
+        let session_id = auth_session.session_id.clone();
+        let _session_cleanup =
+            crate::askpass_state::SessionCleanupGuard::new(auth_state_ref, session_id.clone());
+
+        // Build credential descriptor for HTTPS URLs
+        let credential_descriptor = if origin_remote_url.starts_with("https://") {
+            crate::git_support::build_git_credential_descriptor(&origin_remote_url, None)
+                .ok()
+        } else {
+            None
+        };
+
+        let mut push_command = git_command();
+        apply_git_preferences_with_auth_session(
+            &mut push_command,
             &command_preferences,
-            &state,
-            &push_plan,
-            &branch_name,
-            should_force_with_lease,
+            Some(&state),
+            Some(&auth_session),
         )
+        .map_err(RepositoryActionsError::message)?;
+
+        push_command.args(["-C", &repo_path, "push"]);
+
+        if should_force_with_lease {
+            push_command.arg("--force-with-lease");
+        }
+
+        if push_plan.should_set_upstream {
+            push_command.args(["-u", push_plan.remote_name.as_str(), &branch_name]);
+        }
+
+        let push_output = push_command
+            .output()
+            .map_err(|error| RepositoryActionsError::io("run git push", error))?;
+
+        let push_succeeded = push_output.status.success();
+        let auth_failed = !push_succeeded
+            && crate::git_support::is_git_authentication_message(&String::from_utf8_lossy(
+                &push_output.stderr,
+            ));
+
+        // Handle credential approval/rejection based on operation result
+        if let Some(descriptor) = credential_descriptor {
+            if push_succeeded {
+                // Check if user wants to remember credentials
+                if let Some(response) = auth_state.take_last_prompt_response(&session_id) {
+                    if response.remember {
+                        if let Some(secret) = response.secret {
+                            // Rebuild descriptor with username if provided
+                            let descriptor_with_user = if let Some(username) = response.username {
+                                crate::git_support::build_git_credential_descriptor(
+                                    &origin_remote_url,
+                                    Some(&username),
+                                )
+                                .ok()
+                            } else {
+                                Some(descriptor.clone())
+                            };
+                            if let Some(desc) = descriptor_with_user {
+                                let _ = crate::git_support::git_credential_approve(&desc, &secret);
+                            }
+                        }
+                    }
+                }
+            } else if auth_failed {
+                // Auth failed after submitting credentials - reject them
+                if let Some(response) = auth_state.take_last_prompt_response(&session_id) {
+                    if let Some(secret) = response.secret {
+                        let _ = crate::git_support::git_credential_reject(&descriptor, &secret);
+                    }
+                }
+            }
+        }
+
+        if !push_succeeded {
+            return Err(RepositoryActionsError::message(git_error_message(
+                &push_output.stderr,
+                "Failed to push branch",
+            )));
+        }
+
+        Ok(())
     })()
     .map_err(|error| error.to_string())
 }
 
+/// Runs pull/fetch action modes and reports whether HEAD changed.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Runs pull/fetch action modes and reports whether HEAD changed.
 pub(crate) fn pull_repository_action(
+    app: tauri::AppHandle,
     state: State<'_, SettingsState>,
     repo_path: String,
     mode: String,
@@ -806,10 +859,49 @@ pub(crate) fn pull_repository_action(
 
         let head_before = resolve_head_hash(&repo_path)?;
 
+        let operation = match mode.as_str() {
+            "fetch-all" => "fetch",
+            _ => "pull",
+        };
+
+        // Get origin remote URL for credential management
+        let origin_remote_output = git_command()
+            .args(["-C", &repo_path, "remote", "get-url", "origin"])
+            .output()
+            .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?;
+        let origin_remote_url = if origin_remote_output.status.success() {
+            String::from_utf8_lossy(&origin_remote_output.stdout)
+                .trim()
+                .to_string()
+        } else {
+            String::new()
+        };
+
+        let auth_state = app.state::<crate::askpass_state::GitAuthBrokerState>();
+        let auth_state_ref: &crate::askpass_state::GitAuthBrokerState = &auth_state;
+        let auth_session = auth_state
+            .create_session(operation)
+            .map_err(RepositoryActionsError::message)?;
+        let session_id = auth_session.session_id.clone();
+        let _session_cleanup =
+            crate::askpass_state::SessionCleanupGuard::new(auth_state_ref, session_id.clone());
+
+        // Build credential descriptor for HTTPS URLs
+        let credential_descriptor = if origin_remote_url.starts_with("https://") {
+            crate::git_support::build_git_credential_descriptor(&origin_remote_url, None).ok()
+        } else {
+            None
+        };
+
         let mut pull_command = git_command();
         pull_command.args(["-C", &repo_path]);
-        apply_git_preferences(&mut pull_command, &command_preferences, Some(&state))
-            .map_err(RepositoryActionsError::message)?;
+        apply_git_preferences_with_auth_session(
+            &mut pull_command,
+            &command_preferences,
+            Some(&state),
+            Some(&auth_session),
+        )
+        .map_err(RepositoryActionsError::message)?;
 
         match mode.as_str() {
             "fetch-all" => {
@@ -833,7 +925,46 @@ pub(crate) fn pull_repository_action(
             .output()
             .map_err(|error| RepositoryActionsError::io("run git pull/fetch", error))?;
 
-        if !output.status.success() {
+        let pull_succeeded = output.status.success();
+        let auth_failed = !pull_succeeded
+            && crate::git_support::is_git_authentication_message(&String::from_utf8_lossy(
+                &output.stderr,
+            ));
+
+        // Handle credential approval/rejection based on operation result
+        if let Some(descriptor) = credential_descriptor {
+            if pull_succeeded {
+                // Check if user wants to remember credentials
+                if let Some(response) = auth_state.take_last_prompt_response(&session_id) {
+                    if response.remember {
+                        if let Some(secret) = response.secret {
+                            // Rebuild descriptor with username if provided
+                            let descriptor_with_user = if let Some(username) = response.username {
+                                crate::git_support::build_git_credential_descriptor(
+                                    &origin_remote_url,
+                                    Some(&username),
+                                )
+                                .ok()
+                            } else {
+                                Some(descriptor.clone())
+                            };
+                            if let Some(desc) = descriptor_with_user {
+                                let _ = crate::git_support::git_credential_approve(&desc, &secret);
+                            }
+                        }
+                    }
+                }
+            } else if auth_failed {
+                // Auth failed after submitting credentials - reject them
+                if let Some(response) = auth_state.take_last_prompt_response(&session_id) {
+                    if let Some(secret) = response.secret {
+                        let _ = crate::git_support::git_credential_reject(&descriptor, &secret);
+                    }
+                }
+            }
+        }
+
+        if !pull_succeeded {
             return Err(RepositoryActionsError::message(git_error_message(
                 &output.stderr,
                 "Failed to execute pull action",
@@ -849,18 +980,18 @@ pub(crate) fn pull_repository_action(
     .map_err(|error| error.to_string())
 }
 
+/// Runs merge, fast-forward-only merge, or rebase against a target reference.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Runs merge, fast-forward-only merge, or rebase against a target reference.
 pub(crate) fn run_repository_merge_action(
     state: State<'_, SettingsState>,
     repo_path: String,
     mode: String,
     target_ref: String,
     preferences: Option<RepoCommandPreferences>,
-) -> Result<MergeActionResult, String> {
-    (|| -> RepositoryActionsResult<MergeActionResult> {
+) -> Result<MergeRepositoryPayload, String> {
+    (|| -> RepositoryActionsResult<MergeRepositoryPayload> {
         ensure_repo(&repo_path)?;
 
         let trimmed_target_ref = target_ref.trim();
@@ -958,17 +1089,17 @@ pub(crate) fn run_repository_merge_action(
 
         let head_after = resolve_head_hash(&repo_path)?;
 
-        Ok(MergeActionResult {
+        Ok(MergeRepositoryPayload {
             head_changed: head_before != head_after,
         })
     })()
     .map_err(|error| error.to_string())
 }
 
+/// Cherry-picks a commit onto the current branch.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Cherry-picks a commit onto the current branch.
 pub(crate) fn cherry_pick_repository_commit(
     repo_path: String,
     target: String,
@@ -1002,10 +1133,10 @@ pub(crate) fn cherry_pick_repository_commit(
     .map_err(|error| error.to_string())
 }
 
+/// Reverts a commit with `--no-edit`.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Reverts a commit with `--no-edit`.
 pub(crate) fn revert_repository_commit(repo_path: String, target: String) -> Result<(), String> {
     (|| -> RepositoryActionsResult<()> {
         ensure_repo(&repo_path)?;
@@ -1036,10 +1167,10 @@ pub(crate) fn revert_repository_commit(repo_path: String, target: String) -> Res
     .map_err(|error| error.to_string())
 }
 
+/// Creates lightweight or annotated tags at a target reference.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Creates lightweight or annotated tags at a target reference.
 pub(crate) fn create_repository_tag(
     repo_path: String,
     tag_name: String,
@@ -1105,10 +1236,10 @@ pub(crate) fn create_repository_tag(
     .map_err(|error| error.to_string())
 }
 
+/// Rewrites the target commit message and replays descendants on top of rewritten parents.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Rewrites the target commit message and replays descendants on top of rewritten parents.
 pub(crate) fn reword_repository_commit(
     repo_path: String,
     target: String,
@@ -1164,10 +1295,10 @@ pub(crate) fn reword_repository_commit(
     .map_err(|error| error.to_string())
 }
 
+/// Drops a commit from the current HEAD ancestry by rewriting descendants.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 #[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-/// Drops a commit from the current HEAD ancestry by rewriting descendants.
 pub(crate) fn drop_repository_commit(
     repo_path: String,
     target: String,
@@ -1262,26 +1393,48 @@ pub(crate) fn drop_repository_commit(
 mod tests {
     use super::{
         build_commit_message_text, checkout_repository_commit, drop_repository_commit,
-        resolve_head_hash, resolve_publish_visibility_flag, resolve_push_upstream_plan,
+        resolve_head_hash, resolve_publish_request, resolve_push_upstream_plan,
         reword_repository_commit,
     };
     use crate::git_support::git_command;
+    use crate::repository_publishing::PublishRepositoryRequest;
+    use crate::settings::RepoCommandPreferences;
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn resolve_publish_visibility_flag_defaults_to_private_for_unknown_values() {
-        assert_eq!(resolve_publish_visibility_flag(None), "--private");
+    fn push_repository_branch_requires_publish_request_when_no_remote_exists() {
+        let error = resolve_publish_request(
+            None,
+            "No remote is configured. Publish this repository before pushing.",
+        )
+        .expect_err("missing publish request should be rejected");
+
         assert_eq!(
-            resolve_publish_visibility_flag(Some("internal")),
-            "--private"
+            error.to_string(),
+            "No remote is configured. Publish this repository before pushing."
         );
-        assert_eq!(
-            resolve_publish_visibility_flag(Some(" public ")),
-            "--public"
-        );
+    }
+
+    #[test]
+    fn resolve_publish_request_accepts_provider_target_repo_and_visibility() {
+        let request = resolve_publish_request(
+            Some(PublishRepositoryRequest {
+                provider: " github ".to_string(),
+                target_id: "github:organization:litgit".to_string(),
+                repo_name: "litgit-desktop".to_string(),
+                visibility: " public ".to_string(),
+            }),
+            "publish request is required",
+        )
+        .expect("publish request should validate");
+
+        assert_eq!(request.provider, "github");
+        assert_eq!(request.target_id, "github:organization:litgit");
+        assert_eq!(request.repo_name, "litgit-desktop");
+        assert_eq!(request.visibility, "public");
     }
 
     #[test]
@@ -1436,6 +1589,43 @@ mod tests {
 
         let current_head = repo_path.git_output(&["rev-parse", "HEAD"]);
         assert_eq!(current_head.trim(), first_hash);
+    }
+
+    #[test]
+    fn existing_repo_network_commands_can_apply_auth_session_env() {
+        let mut command = crate::git_support::git_command();
+        let preferences = RepoCommandPreferences::default();
+        let settings_state = crate::settings::SettingsState::default();
+        let session = crate::askpass_state::GitAuthSessionHandle {
+            session_id: "push-session".to_string(),
+            secret: "push-secret".to_string(),
+            operation: "push".to_string(),
+        };
+        settings_state.set_askpass_socket_path(std::env::temp_dir().join("litgit-test.sock"));
+
+        crate::settings::apply_auth_session_environment(
+            &mut command,
+            Some(&settings_state),
+            Some(&session),
+        )
+        .expect("preferences should apply");
+        crate::settings::apply_git_preferences(&mut command, &preferences, None)
+            .expect("git preferences should apply");
+
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|entry| entry.to_string_lossy().to_string()),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            envs.get("LITGIT_ASKPASS_OPERATION"),
+            Some(&Some("push".to_string()))
+        );
     }
 
     struct TempRepository {

@@ -6,7 +6,7 @@
 #![deny(missing_docs)]
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Listener, Manager};
 
 mod diff_preview;
 use diff_preview::{
@@ -37,13 +37,17 @@ use commit_messages::{
     initialize_github_identity_cache, list_ai_models,
 };
 mod git_support;
+use git_support::check_git_credentials_status;
+mod git_host_auth;
 mod history;
 mod repository;
+mod repository_publishing;
 use repository::{
     clone_git_repository, create_local_repository, create_repository_initial_commit,
     pick_clone_destination_folder, pick_git_repository, pick_settings_file,
     validate_opened_repositories,
 };
+use repository_publishing::list_publish_targets;
 mod repository_actions;
 use repository_actions::{
     checkout_repository_commit, cherry_pick_repository_commit, create_repository_tag,
@@ -52,12 +56,12 @@ use repository_actions::{
 };
 mod settings;
 use settings::{
-    clear_ai_provider_secret, clear_github_token, clear_http_credential_entry,
-    clear_proxy_auth_secret, generate_ssh_keypair, get_ai_provider_secret_status, get_git_identity,
-    get_github_token_status, get_proxy_auth_secret_status, get_settings_backend_capabilities,
-    list_http_credential_entries, list_signing_keys, list_system_font_families,
-    save_ai_provider_secret, save_github_token, save_proxy_auth_secret, set_git_identity,
-    start_auto_fetch_scheduler, stop_auto_fetch_scheduler, test_proxy_connection, SettingsState,
+    clear_ai_provider_secret, clear_http_credential_entry, clear_proxy_auth_secret,
+    generate_ssh_keypair, get_ai_provider_secret_status, get_git_identity,
+    get_proxy_auth_secret_status, get_settings_backend_capabilities, list_http_credential_entries,
+    list_signing_keys, list_system_font_families, save_ai_provider_secret, save_proxy_auth_secret,
+    set_git_identity, start_auto_fetch_scheduler, stop_auto_fetch_scheduler, test_proxy_connection,
+    SettingsState,
 };
 mod stashes;
 use stashes::{
@@ -75,6 +79,36 @@ use working_tree::{
     get_repository_files, get_repository_working_tree_items, get_repository_working_tree_status,
     reset_repository_to_reference, stage_all_repository_changes, stage_repository_file,
     unstage_all_repository_changes, unstage_repository_file,
+};
+
+mod askpass;
+use askpass::{cancel_git_auth_prompt, submit_git_auth_prompt_response};
+
+mod askpass_ipc;
+use askpass_ipc::start_askpass_server;
+
+mod askpass_state;
+use askpass_state::GitAuthBrokerState;
+
+mod ssh_auth;
+use ssh_auth::{
+    copy_public_key, delete_ssh_key, generate_litgit_key_with_dialog, generate_ssh_key,
+    list_ssh_keys, test_ssh_connection,
+};
+
+mod integrations_store;
+
+mod oauth;
+use oauth::{
+    complete_oauth_flow, disconnect_provider_cmd, get_provider_status, redeem_oauth_handoff_token,
+    redeem_oauth_handoff_token_impl, start_oauth_flow, OAuthFlowManager,
+    PendingOAuthCallbackManager, PendingOAuthHandoffManager,
+};
+
+mod provider_ssh;
+use provider_ssh::{
+    generate_provider_ssh_key, get_provider_ssh_status_cmd, remove_provider_ssh_key_cmd,
+    set_provider_custom_ssh_key_cmd, set_provider_ssh_use_system_agent,
 };
 
 #[derive(Serialize)]
@@ -100,6 +134,44 @@ struct RepositoryCommitFileDiff {
     old_image_data_url: Option<String>,
     new_image_data_url: Option<String>,
     unsupported_extension: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct OAuthDeepLinkPayload {
+    token: String,
+}
+
+fn parse_oauth_deep_link(url: &str) -> Option<OAuthDeepLinkPayload> {
+    let parsed = url::Url::parse(url).ok()?;
+
+    if parsed.scheme() != "litgit"
+        || parsed.host_str() != Some("oauth")
+        || parsed.path() != "/callback"
+    {
+        return None;
+    }
+
+    let mut token = None;
+
+    for (key, value) in parsed.query_pairs() {
+        if key.as_ref() == "token" {
+            token = Some(value.into_owned());
+        }
+    }
+
+    Some(OAuthDeepLinkPayload { token: token? })
+}
+
+/// Generates a random alphanumeric token of 24 characters.
+pub(crate) fn random_token() -> String {
+    use rand::distributions::Alphanumeric;
+    use rand::Rng;
+
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(24)
+        .map(char::from)
+        .collect()
 }
 
 macro_rules! desktop_invoke_handler {
@@ -173,9 +245,7 @@ macro_rules! desktop_invoke_handler {
             clear_ai_provider_secret,
             list_ai_models,
             generate_repository_commit_message,
-            save_github_token,
-            get_github_token_status,
-            clear_github_token,
+            check_git_credentials_status,
             save_proxy_auth_secret,
             get_proxy_auth_secret_status,
             clear_proxy_auth_secret,
@@ -189,21 +259,46 @@ macro_rules! desktop_invoke_handler {
             resize_terminal_session,
             close_terminal_session,
             get_launcher_applications,
-            open_path_with_application
+            open_path_with_application,
+            submit_git_auth_prompt_response,
+            cancel_git_auth_prompt,
+            list_publish_targets,
+            list_ssh_keys,
+            generate_ssh_key,
+            delete_ssh_key,
+            copy_public_key,
+            test_ssh_connection,
+            generate_litgit_key_with_dialog,
+            start_oauth_flow,
+            complete_oauth_flow,
+            disconnect_provider_cmd,
+            get_provider_status,
+            generate_provider_ssh_key,
+            remove_provider_ssh_key_cmd,
+            get_provider_ssh_status_cmd,
+            set_provider_ssh_use_system_agent,
+            set_provider_custom_ssh_key_cmd,
+            redeem_oauth_handoff_token
         ]
     };
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Starts the Tauri desktop application and registers its commands and shared state.
 ///
 /// If the Tauri runtime fails to initialize or run, the process exits with status code `1`.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 // Tauri command registration stays centralized here so the desktop entrypoint is easy to audit.
 pub fn run() {
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(TerminalState::default())
         .manage(SettingsState::default())
+        .manage(GitAuthBrokerState::default())
+        .manage(OAuthFlowManager::default())
+        .manage(PendingOAuthCallbackManager::default())
+        .manage(PendingOAuthHandoffManager::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -213,8 +308,78 @@ pub fn run() {
                 )?;
             }
 
-            let settings_state = app.state::<SettingsState>();
-            initialize_github_identity_cache(app.handle(), settings_state.inner());
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(error) = app.deep_link().register_all() {
+                    log::warn!(
+                        "Could not auto-register deep-link schemes from config in dev mode: {}",
+                        error
+                    );
+
+                    if let Err(fallback_error) = app.deep_link().register("litgit") {
+                        log::warn!(
+                            "Could not fallback-register litgit:// deep-link scheme: {}",
+                            fallback_error
+                        );
+                    }
+                }
+            }
+
+            // Start the askpass IPC server before setup completes so auth commands
+            // never race a missing socket path on first use.
+            let auth_state = app.state::<GitAuthBrokerState>();
+            let app_handle_for_server = app.handle().clone();
+            let auth_state_clone = std::sync::Arc::new(auth_state.inner().clone());
+            match tauri::async_runtime::block_on(start_askpass_server(
+                app_handle_for_server,
+                auth_state_clone,
+            )) {
+                Ok(socket_path) => {
+                    app.state::<SettingsState>()
+                        .set_askpass_socket_path(socket_path);
+                }
+                Err(error) => {
+                    log::error!("Failed to start askpass server: {}", error);
+                }
+            }
+
+            initialize_github_identity_cache(app.handle(), app.state::<SettingsState>().inner());
+
+            // Set up deep link handler for OAuth callbacks
+            // The deep-link plugin emits "deep-link://new-url" events when URLs are received
+            let app_handle = app.handle().clone();
+            let emit_handle = app_handle.clone();
+            let deep_link_listener = app_handle.clone();
+            deep_link_listener.listen("deep-link://new-url", move |event: tauri::Event| {
+                if let Ok(urls) = serde_json::from_str::<Vec<String>>(event.payload()) {
+                    for url in urls {
+                        if let Some(payload) = parse_oauth_deep_link(&url) {
+                            let pending_callbacks =
+                                app_handle.state::<PendingOAuthCallbackManager>();
+                            let pending_handoffs = app_handle.state::<PendingOAuthHandoffManager>();
+
+                            if let Ok(confirmed) = redeem_oauth_handoff_token_impl(
+                                &payload.token,
+                                &pending_callbacks,
+                                &pending_handoffs,
+                            ) {
+                                let _ = emit_handle.emit(
+                                    "oauth-callback",
+                                    serde_json::json!({
+                                        "code": confirmed.code,
+                                        "state": confirmed.state
+                                    }),
+                                );
+                            } else {
+                                log::warn!(
+                                    "Ignoring OAuth deep link with invalid/expired handoff token"
+                                );
+                            }
+                        }
+                    }
+                }
+            });
 
             Ok(())
         })
@@ -229,7 +394,11 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{RepositoryCommitFileDiff, RepositoryFileDiff};
+    use super::{
+        parse_oauth_deep_link, redeem_oauth_handoff_token_impl, RepositoryCommitFileDiff,
+        RepositoryFileDiff,
+    };
+    use crate::oauth::{OAuthProvider, PendingOAuthCallbackManager, PendingOAuthHandoffManager};
     use serde_json::json;
 
     #[test]
@@ -289,5 +458,48 @@ mod tests {
                 "unsupportedExtension": null,
             })
         );
+    }
+
+    #[test]
+    fn parse_oauth_deep_link_returns_handoff_token() {
+        let parsed = parse_oauth_deep_link("litgit://oauth/callback?token=opaque-token")
+            .expect("deep link should parse");
+
+        assert_eq!(parsed.token, "opaque-token");
+    }
+
+    #[test]
+    fn parse_oauth_deep_link_rejects_non_oauth_urls() {
+        assert!(parse_oauth_deep_link("litgit://settings").is_none());
+    }
+
+    #[test]
+    fn oauth_deep_link_round_trip_confirms_only_matching_staged_callback() {
+        let callbacks = PendingOAuthCallbackManager::default();
+        let handoffs = PendingOAuthHandoffManager::default();
+
+        // Stage a callback
+        callbacks.stage_callback(
+            OAuthProvider::GitHub,
+            "expected-state".to_string(),
+            "raw-code".to_string(),
+            "http://127.0.0.1:43123/callback?code=raw-code&state=expected-state".to_string(),
+        );
+
+        // Issue a handoff token for the same state
+        let token = handoffs
+            .issue_token(OAuthProvider::GitHub, "expected-state".to_string())
+            .expect("should issue token");
+
+        // Parse the deep link with the token
+        let parsed = parse_oauth_deep_link(&format!("litgit://oauth/callback?token={}", token))
+            .expect("deep link should parse");
+
+        // Redeem the token through the handoff manager
+        let confirmed = redeem_oauth_handoff_token_impl(&parsed.token, &callbacks, &handoffs)
+            .expect("matching deep link should redeem staged callback");
+
+        assert_eq!(confirmed.code, "raw-code");
+        assert_eq!(confirmed.state, "expected-state");
     }
 }

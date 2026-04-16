@@ -6,6 +6,7 @@ import { AiSection } from "@/components/views/settings/sections/ai-section";
 import { EditorSection } from "@/components/views/settings/sections/editor-section";
 import { GeneralSection } from "@/components/views/settings/sections/general-section";
 import { GitSection } from "@/components/views/settings/sections/git-section";
+import { IntegrationsSection } from "@/components/views/settings/sections/integrations-section";
 import { NetworkSection } from "@/components/views/settings/sections/network-section";
 import { SigningSection } from "@/components/views/settings/sections/signing-section";
 import { SshSection } from "@/components/views/settings/sections/ssh-section";
@@ -41,6 +42,8 @@ function renderSection(
       return <GeneralSection query={query} />;
     case "git":
       return <GitSection query={query} />;
+    case "integrations":
+      return <IntegrationsSection query={query} />;
     case "ssh":
       return <SshSection query={query} />;
     case "ui":
