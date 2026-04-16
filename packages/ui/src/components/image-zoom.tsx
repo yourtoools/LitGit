@@ -100,7 +100,7 @@ function ImageZoom({
   }, []);
 
   const getState = useCallback((): ImageZoomTransformState => {
-    const state = transformRef.current?.instance.transformState;
+    const state = transformRef.current?.state;
 
     if (state) {
       return {
@@ -194,7 +194,7 @@ function ImageZoom({
       return;
     }
 
-    const currentState = transformRef.current?.instance.transformState;
+    const currentState = transformRef.current?.state;
 
     if (
       !(currentState && isCloseToScale(currentState.scale, previousFitScale))
@@ -335,7 +335,7 @@ function ImageZoom({
       initialScale={fitScale}
       maxScale={maxScale}
       minScale={minScale}
-      onTransformed={handleTransformed}
+      onTransform={handleTransformed}
       panning={{
         allowLeftClickPan: false,
         disabled: false,
