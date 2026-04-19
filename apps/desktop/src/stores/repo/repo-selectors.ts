@@ -61,6 +61,7 @@ export const useRepoActions = () =>
       revertCommit: state.revertCommit,
       rewordCommitMessage: state.rewordCommitMessage,
       saveFileText: state.saveFileText,
+      setActiveRepo: state.setActiveRepo,
       setBranchUpstream: state.setBranchUpstream,
       stageAll: state.stageAll,
       stageFile: state.stageFile,
@@ -178,5 +179,24 @@ export const useRepoLoadingState = () => {
       isLoadingWip,
     }),
     [isLoadingBranches, isLoadingHistory, isLoadingStatus, isLoadingWip]
+  );
+};
+
+export const useRepoRefreshStatus = (repoId: string | null) => {
+  const repoBackgroundRefreshById = useRepoStore(
+    (state) => state.repoBackgroundRefreshById
+  );
+  const repoLastLoadedAtById = useRepoStore(
+    (state) => state.repoLastLoadedAtById
+  );
+
+  return useMemo(
+    () => ({
+      isBackgroundRefreshing: repoId
+        ? (repoBackgroundRefreshById[repoId] ?? false)
+        : false,
+      lastLoadedAt: repoId ? (repoLastLoadedAtById[repoId] ?? null) : null,
+    }),
+    [repoBackgroundRefreshById, repoId, repoLastLoadedAtById]
   );
 };

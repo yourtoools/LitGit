@@ -1,50 +1,88 @@
 import { env } from "@litgit/env/desktop";
+import { Button } from "@litgit/ui/components/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
-import { cn } from "@litgit/ui/lib/utils";
 import { useWindowEvent } from "@mantine/hooks";
 import {
-  ArrowClockwiseIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ArrowsClockwiseIcon,
+  ArrowsDownUpIcon,
+  CloudArrowUpIcon,
+  GitBranchIcon,
   PlayIcon,
-  SpinnerGapIcon,
+  PlugsIcon,
 } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
-import { intlFormat } from "date-fns";
-import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
 import { KeyboardShortcutsDialog } from "@/components/shell/footer/keyboard-shortcuts-dialog";
+import {
+  type ProviderStatusRefreshReason,
+  shouldRefreshProviderStatuses,
+} from "@/components/shell/footer/provider-status-refresh";
 import { FooterZoomControl } from "@/components/shell/footer/zoom-control";
 import {
   isResetZoomShortcut,
   isZoomInShortcut,
   isZoomOutShortcut,
 } from "@/lib/keyboard-shortcuts";
-import { useRepoStore } from "@/stores/repo/use-repo-store";
+import {
+  getProviderStatus,
+  PROVIDER_STATUS_CHANGED_EVENT,
+  type Provider,
+  type ProviderStatus,
+} from "@/lib/tauri-integrations-client";
+import {
+  useRepoActions,
+  useRepoActiveContext,
+  useRepoBranches,
+} from "@/stores/repo/repo-selectors";
+import { useBranchSearchStore } from "@/stores/ui/use-branch-search-store";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 
 const ZOOM_OPTIONS = [130, 120, 110, 100, 90, 80];
 const MIN_ZOOM = ZOOM_OPTIONS.at(-1) ?? 80;
 const MAX_ZOOM = ZOOM_OPTIONS[0] ?? 130;
 const ZOOM_STEP = 10;
 const RELEASE_NOTES_URL = env.VITE_RELEASE_NOTES_URL;
+const OAUTH_PROVIDERS: Provider[] = ["github", "gitlab", "bitbucket"];
 
 export default function Footer() {
   const navigate = useNavigate();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const setSection = usePreferencesStore((state) => state.setSection);
+  const { activeRepoId } = useRepoActiveContext();
+  const { pullBranch, pushBranch } = useRepoActions();
+  const branches = useRepoBranches(activeRepoId);
+  const currentBranch = branches.find((branch) => branch.isCurrent);
+  const openBranchPalette = useBranchSearchStore((state) => state.open);
+
   const [zoom, setZoom] = useState(100);
+  const [isFetching, setIsFetching] = useState(false);
   const [appVersion, setAppVersion] = useState("dev");
-  const activeRepoId = useRepoStore((state) => state.activeRepoId);
-  const repoBackgroundRefreshById = useRepoStore(
-    (state) => state.repoBackgroundRefreshById
-  );
-  const repoLastLoadedAtById = useRepoStore(
-    (state) => state.repoLastLoadedAtById
-  );
-  const setActiveRepo = useRepoStore((state) => state.setActiveRepo);
+  const [providerStatuses, setProviderStatuses] = useState<
+    Record<Provider, ProviderStatus> | null
+  >(null);
+  const [hasLoadedProviderStatuses, setHasLoadedProviderStatuses] =
+    useState(false);
+  const [providerStatusLoadFailed, setProviderStatusLoadFailed] =
+    useState(false);
+  const lastProviderStatusRefreshAtRef = useRef<number | null>(null);
+  const previousPathnameRef = useRef<string | null>(pathname);
+  const providerStatusRefreshInFlightRef = useRef(false);
+  const queuedProviderStatusRefreshReasonRef =
+    useRef<ProviderStatusRefreshReason | null>(null);
+  const queuedProviderStatusRefreshPathnameRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isTauri()) {
@@ -79,6 +117,139 @@ export default function Footer() {
     };
   }, []);
 
+  const refreshProviderStatuses = useCallback(
+    async (
+      reason: ProviderStatusRefreshReason,
+      previousPathname: string | null = previousPathnameRef.current
+    ) => {
+      if (!isTauri()) {
+        return;
+      }
+
+      if (
+        !shouldRefreshProviderStatuses({
+          currentPathname: pathname,
+          hasLoadedOnce: hasLoadedProviderStatuses,
+          lastRefreshAt: lastProviderStatusRefreshAtRef.current,
+          now: Date.now(),
+          previousPathname,
+          reason,
+        })
+      ) {
+        return;
+      }
+
+      if (providerStatusRefreshInFlightRef.current) {
+        queuedProviderStatusRefreshReasonRef.current = reason;
+        queuedProviderStatusRefreshPathnameRef.current = previousPathname;
+        return;
+      }
+
+      providerStatusRefreshInFlightRef.current = true;
+
+      try {
+        const statuses = await getProviderStatus();
+        setProviderStatuses(statuses);
+        setHasLoadedProviderStatuses(true);
+        setProviderStatusLoadFailed(false);
+        lastProviderStatusRefreshAtRef.current = Date.now();
+      } catch (error: unknown) {
+        if (import.meta.env.DEV) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to load provider statuses"
+          );
+        }
+
+        setProviderStatuses(null);
+        setProviderStatusLoadFailed(true);
+        setHasLoadedProviderStatuses(true);
+      } finally {
+        providerStatusRefreshInFlightRef.current = false;
+
+        const queuedReason = queuedProviderStatusRefreshReasonRef.current;
+        const queuedPreviousPathname =
+          queuedProviderStatusRefreshPathnameRef.current;
+
+        queuedProviderStatusRefreshReasonRef.current = null;
+        queuedProviderStatusRefreshPathnameRef.current = null;
+
+        if (queuedReason) {
+          await refreshProviderStatuses(queuedReason, queuedPreviousPathname);
+        }
+      }
+    },
+    [hasLoadedProviderStatuses, pathname]
+  );
+
+  useEffect(() => {
+    refreshProviderStatuses("mount").catch(() => undefined);
+  }, [refreshProviderStatuses]);
+
+  useEffect(() => {
+    const previousPathname = previousPathnameRef.current;
+    previousPathnameRef.current = pathname;
+    refreshProviderStatuses("pathname-change", previousPathname).catch(
+      () => undefined
+    );
+  }, [pathname, refreshProviderStatuses]);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    let oauthCallbackTimeout: number | null = null;
+    const unlistenPromise = listen("oauth-callback", () => {
+      if (oauthCallbackTimeout !== null) {
+        window.clearTimeout(oauthCallbackTimeout);
+      }
+
+      oauthCallbackTimeout = window.setTimeout(() => {
+        oauthCallbackTimeout = null;
+        refreshProviderStatuses("oauth-callback").catch(() => undefined);
+      }, 500);
+    });
+
+    const handleProviderStatusChanged = () => {
+      refreshProviderStatuses("provider-status-changed").catch(() => undefined);
+    };
+
+    window.addEventListener(
+      PROVIDER_STATUS_CHANGED_EVENT,
+      handleProviderStatusChanged
+    );
+
+    return () => {
+      if (oauthCallbackTimeout !== null) {
+        window.clearTimeout(oauthCallbackTimeout);
+      }
+
+      window.removeEventListener(
+        PROVIDER_STATUS_CHANGED_EVENT,
+        handleProviderStatusChanged
+      );
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [refreshProviderStatuses]);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    const handleWindowFocus = () => {
+      refreshProviderStatuses("window-focus").catch(() => undefined);
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [refreshProviderStatuses]);
+
   useEffect(() => {
     if (!isTauri()) {
       return;
@@ -97,6 +268,22 @@ export default function Footer() {
       }
     });
   }, [zoom]);
+
+  const handleConnectIntegration = useCallback(() => {
+    setSection("integrations");
+
+    if (pathname !== "/settings") {
+      navigate({ to: "/settings", replace: true }).catch(() => undefined);
+    }
+  }, [navigate, pathname, setSection]);
+
+  const hasConnectedProviders = OAUTH_PROVIDERS.some(
+    (provider) => providerStatuses?.[provider]?.connected
+  );
+  const showConnectIntegration =
+    hasLoadedProviderStatuses &&
+    !providerStatusLoadFailed &&
+    !hasConnectedProviders;
 
   useWindowEvent("keydown", (event) => {
     const shouldZoomIn = isZoomInShortcut(event);
@@ -122,6 +309,44 @@ export default function Footer() {
     });
   });
 
+  const handleFetch = useCallback(async () => {
+    if (!activeRepoId || isFetching) {
+      return;
+    }
+
+    setIsFetching(true);
+    try {
+      await pullBranch(activeRepoId, "fetch-all");
+      toast.success("Fetch Successful", {
+        description: "Updated all remotes",
+      });
+    } catch (error) {
+      toast.error("Fetch Failed", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  }, [activeRepoId, isFetching, pullBranch]);
+
+  const handlePush = useCallback(async () => {
+    if (!activeRepoId || isFetching) {
+      return;
+    }
+
+    setIsFetching(true);
+    try {
+      await pushBranch(activeRepoId);
+      toast.success("Push Successful");
+    } catch (error) {
+      toast.error("Push Failed", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  }, [activeRepoId, isFetching, pushBranch]);
+
   const openReleaseNotes = async () => {
     if (isTauri()) {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
@@ -132,91 +357,124 @@ export default function Footer() {
     window.open(RELEASE_NOTES_URL, "_blank", "noopener,noreferrer");
   };
 
-  const isBackgroundRefreshingRepo = activeRepoId
-    ? (repoBackgroundRefreshById[activeRepoId] ?? false)
+  const isBranchOnRemote = currentBranch
+    ? currentBranch.isRemote || currentBranch.aheadCount !== undefined
     : false;
-  const lastLoadedAt = activeRepoId
-    ? (repoLastLoadedAtById[activeRepoId] ?? null)
-    : null;
-  let syncStatusLabel = "Ready";
 
-  if (isBackgroundRefreshingRepo) {
-    syncStatusLabel = "Checking for updates...";
-  } else if (lastLoadedAt) {
-    syncStatusLabel = `Updated ${intlFormat(lastLoadedAt, {
-      hour: "numeric",
-      minute: "numeric",
-    })}`;
-  }
-
-  const handleManualRepoRefresh = useCallback(() => {
-    if (!activeRepoId || isBackgroundRefreshingRepo) {
-      return;
+  const getSyncIcon = () => {
+    if (!isBranchOnRemote) {
+      return <CloudArrowUpIcon className="size-3" />;
     }
 
-    setActiveRepo(activeRepoId, {
-      background: true,
-      forceRefresh: true,
-      refreshMode: "full",
-    }).catch((error: unknown) => {
-      if (import.meta.env.DEV) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to refresh repository"
-        );
-      }
-    });
-  }, [activeRepoId, isBackgroundRefreshingRepo, setActiveRepo]);
+    if (isFetching) {
+      return <ArrowsClockwiseIcon className="size-3 animate-spin" />;
+    }
+
+    const ahead = currentBranch?.aheadCount ?? 0;
+    const behind = currentBranch?.behindCount ?? 0;
+
+    if (ahead > 0 && behind > 0) {
+      return <ArrowsDownUpIcon className="size-3" />;
+    }
+
+    if (ahead > 0) {
+      return <ArrowUpIcon className="size-3" />;
+    }
+
+    if (behind > 0) {
+      return <ArrowDownIcon className="size-3" />;
+    }
+
+    return <ArrowsClockwiseIcon className="size-3" />;
+  };
 
   return (
     <PageShell
       as="footer"
       className="relative z-50 flex h-8 shrink-0 select-none items-center justify-between border-border/80 border-t bg-background/95 font-medium text-muted-foreground text-xs backdrop-blur supports-backdrop-filter:bg-background/80"
     >
-      <div className="flex items-center gap-3">
-        {activeRepoId ? (
-          <TooltipProvider delay={1000} timeout={0}>
+      <TooltipProvider delay={1000} timeout={0}>
+        <div className="flex items-center gap-0.5 px-0.5">
+          {currentBranch ? (
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      className="h-5 gap-1.5 rounded-none px-2 font-medium text-xs transition-none hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
+                      onClick={openBranchPalette}
+                      size="xs"
+                      variant="ghost"
+                    >
+                      <GitBranchIcon className="size-3" />
+                      <span className="max-w-32 truncate tracking-[0.06em]">
+                        {currentBranch.name}
+                      </span>
+                    </Button>
+                  }
+                />
+                <TooltipContent side="top">
+                  Checkout branch/tag...
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      className="h-5 gap-1.5 rounded-none px-2 font-medium text-xs transition-none hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
+                      onClick={isBranchOnRemote ? handleFetch : handlePush}
+                      size="xs"
+                      variant="ghost"
+                    >
+                      {getSyncIcon()}
+                      {currentBranch.behindCount || currentBranch.aheadCount ? (
+                        <span className="flex items-center gap-1 text-[10px] tracking-tighter">
+                          {currentBranch.behindCount ? (
+                            <span className="flex items-center">
+                              {currentBranch.behindCount}↓
+                            </span>
+                          ) : null}
+                          {currentBranch.aheadCount ? (
+                            <span className="flex items-center">
+                              {currentBranch.aheadCount}↑
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : null}
+                    </Button>
+                  }
+                />
+                <TooltipContent side="top">
+                  {isBranchOnRemote ? "Fetch all remotes" : "Push branch"}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          ) : null}
+
+          {showConnectIntegration ? (
             <Tooltip>
-              <TooltipTrigger
-                aria-label="Refresh repository"
-                className={cn(
-                  "relative flex items-center gap-1 py-1 outline-none transition-colors hover:text-foreground focus-visible:text-foreground",
-                  isBackgroundRefreshingRepo
-                    ? "cursor-default text-muted-foreground"
-                    : "cursor-pointer text-muted-foreground"
-                )}
-                disabled={isBackgroundRefreshingRepo}
-                onClick={handleManualRepoRefresh}
-              >
-                {isBackgroundRefreshingRepo ? (
-                  <SpinnerGapIcon className="size-3 animate-spin text-primary" />
-                ) : (
-                  <ArrowClockwiseIcon className="size-3" />
-                )}
-                <span className="leading-none">{syncStatusLabel}</span>
+              <TooltipTrigger>
+                <Button
+                  className="h-5 gap-1.5 px-2.5 font-semibold text-xs transition-none hover:bg-transparent hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0! dark:hover:bg-transparent"
+                  onClick={handleConnectIntegration}
+                  size="xs"
+                  variant="ghost"
+                >
+                  <PlugsIcon className="size-3" />
+                  <span className="tracking-[0.06em]">
+                    Connect an integration
+                  </span>
+                </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                {isBackgroundRefreshingRepo
-                  ? "Refreshing repository"
-                  : "Refresh repository"}
+                Open Integrations settings
               </TooltipContent>
             </Tooltip>
-          </TooltipProvider>
-        ) : null}
-      </div>
-
-      <TooltipProvider delay={1000} timeout={0}>
-        <div className="flex items-center gap-4">
-          <KeyboardShortcutsDialog />
-          <FooterZoomControl
-            onSelectZoom={setZoom}
-            zoom={zoom}
-            zoomOptions={ZOOM_OPTIONS}
-          />
+          ) : null}
 
           {import.meta.env.DEV ? (
-            <div className="flex items-center">
+            <div className="flex items-center ml-1">
               <Tooltip>
                 <TooltipTrigger
                   aria-label="Preview onboarding page"
@@ -228,16 +486,23 @@ export default function Footer() {
                   }}
                 >
                   <PlayIcon className="size-3 text-amber-600 dark:text-amber-400" />
-                  <span className="text-muted-foreground/90 uppercase tracking-[0.06em]">
+                  <span className="text-muted-foreground/90 tracking-[0.06em]">
                     Onboarding
                   </span>
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  Preview onboarding page
-                </TooltipContent>
+                <TooltipContent side="top">Preview onboarding page</TooltipContent>
               </Tooltip>
             </div>
           ) : null}
+        </div>
+
+        <div className="flex items-center gap-4">
+          <KeyboardShortcutsDialog />
+          <FooterZoomControl
+            onSelectZoom={setZoom}
+            zoom={zoom}
+            zoomOptions={ZOOM_OPTIONS}
+          />
 
           <div className="flex items-center">
             <Tooltip>
@@ -256,7 +521,7 @@ export default function Footer() {
                   });
                 }}
               >
-                <span className="text-muted-foreground/90 uppercase tracking-[0.06em]">
+                <span className="text-muted-foreground/90 tracking-[0.06em]">
                   Version
                 </span>
                 <span className="text-foreground">v{appVersion}</span>

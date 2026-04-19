@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Footer from "@/components/shell/footer";
 import Header from "@/components/shell/header";
 import { WindowTitlebar } from "@/components/shell/window-titlebar";
+import { BranchSelectorPalette } from "@/components/shell/branch-selector-palette";
 
 interface RootShellProps {
   children: ReactNode;
@@ -27,6 +28,7 @@ export function RootShell({ children }: RootShellProps) {
       <Header />
       <main className="min-h-0 overflow-y-auto">{children}</main>
       <Footer />
+      <BranchSelectorPalette />
     </div>
   );
 }

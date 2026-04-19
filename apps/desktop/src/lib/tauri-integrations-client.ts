@@ -19,6 +19,17 @@ export interface ProviderSshStatus {
 
 export type Provider = "github" | "gitlab" | "bitbucket";
 
+export const PROVIDER_STATUS_CHANGED_EVENT =
+  "litgit:provider-status-changed";
+
+function emitProviderStatusChanged(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(PROVIDER_STATUS_CHANGED_EVENT));
+}
+
 export async function startOAuthFlow(
   provider: Provider
 ): Promise<{ url: string; state: string }> {
@@ -36,7 +47,13 @@ export async function completeOAuthFlow(
   displayName: string;
   avatarUrl: string | null;
 }> {
-  return await invoke("complete_oauth_flow", { code, state });
+  const result = await invoke<{
+    username: string;
+    displayName: string;
+    avatarUrl: string | null;
+  }>("complete_oauth_flow", { code, state });
+  emitProviderStatusChanged();
+  return result;
 }
 
 function parseOAuthCallbackUrl(value: string): {
@@ -113,6 +130,7 @@ export function resolveOAuthCodeFromInput(
 
 export async function disconnectProvider(provider: Provider): Promise<void> {
   await invoke("disconnect_provider_cmd", { provider });
+  emitProviderStatusChanged();
 }
 
 export async function getProviderStatus(): Promise<

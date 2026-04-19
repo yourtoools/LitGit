@@ -56,7 +56,7 @@ import {
   DropdownMenuTrigger,
 } from "@litgit/ui/components/dropdown-menu";
 import { Input } from "@litgit/ui/components/input";
-import { InputGroupInput } from "@litgit/ui/components/input-group";
+import { InputGroupAddon, InputGroupInput } from "@litgit/ui/components/input-group";
 import { Label } from "@litgit/ui/components/label";
 import {
   Select,
@@ -65,6 +65,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@litgit/ui/components/select";
+import { Separator } from "@litgit/ui/components/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -80,21 +81,24 @@ import { Textarea } from "@litgit/ui/components/textarea";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
 import {
   ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
-  ArrowDownIcon,
-  ArrowUpIcon,
+  ArrowLineDownIcon,
+  ArrowLineUpIcon,
+  ArrowsClockwiseIcon,
   CaretDownIcon,
   CaretRightIcon,
   CheckCircleIcon,
   CloudIcon,
+  CopyIcon,
+  DesktopIcon,
   DotOutlineIcon,
   DotsThreeVerticalIcon,
-  DownloadSimpleIcon,
   EyeIcon,
   EyeSlashIcon,
   GearIcon,
@@ -110,11 +114,14 @@ import {
   SpinnerGapIcon,
   StackSimpleIcon,
   TagIcon,
+  TerminalWindowIcon,
   TrashIcon,
-  UploadSimpleIcon,
+  TrayArrowDownIcon,
+  TrayArrowUpIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useSearch } from "@tanstack/react-router";
+import { isTauri } from "@tauri-apps/api/core";
 import { intlFormat } from "date-fns";
 import { useTheme } from "next-themes";
 import {
@@ -132,6 +139,14 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { Antigravity } from "@litgit/ui/components/ui/svgs/antigravity";
+import { Bash } from "@litgit/ui/components/ui/svgs/bash";
+import { Linux } from "@litgit/ui/components/ui/svgs/linux";
+import { Powershell } from "@litgit/ui/components/ui/svgs/powershell";
+import { VisualStudio } from "@litgit/ui/components/ui/svgs/visual-studio";
+import { Vscode } from "@litgit/ui/components/ui/svgs/vscode";
+import { Cursor } from "@litgit/ui/components/ui/svgs/cursor";
+import { CursorDark } from "@litgit/ui/components/ui/svgs/cursor-dark";
 import { resolveLanguage } from "@/components/code-editor/utils/language-resolver";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import {
@@ -178,6 +193,12 @@ import {
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import { getRepositoryRemoteAvatars } from "@/lib/tauri-repo-client";
 import {
+  type ExternalLauncherApp,
+  type ExternalLauncherApplication,
+  getLauncherApplications,
+  openPathWithApplication,
+} from "@/lib/tauri-settings-client";
+import {
   DEFAULT_REPO_FILE_BROWSER_STATE,
   DEFAULT_REPO_TIMELINE_PREFERENCES,
   type RepoFileBrowserSortOrder,
@@ -197,6 +218,7 @@ import {
   useRepoLoadingState,
   useRepoRedoDepth,
   useRepoRedoLabel,
+  useRepoRefreshStatus,
   useRepoRemoteNames,
   useRepoStashes,
   useRepoUndoDepth,
@@ -281,11 +303,6 @@ interface TimelineReferenceRowData {
   id: string;
   label: string;
   type: "stash" | "tag";
-}
-
-interface BranchComboboxOption {
-  isRemote: boolean;
-  name: string;
 }
 
 interface ChangeTreeNode {
@@ -604,6 +621,67 @@ const PREVIEW_UNAVAILABLE_ASCII_ART = `       _____________
     |    [ ! ]   |  |
     |            | /
     |____________|/`;
+
+const LAUNCHER_ICON_CLASS = "size-[15px] shrink-0";
+
+function ExplorerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={cn(LAUNCHER_ICON_CLASS, className)}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M3 7.25h8.1l1.4 1.6H21v8.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-10.5Z"
+        fill="#FFD54F"
+      />
+      <path
+        d="M3 8.25a2 2 0 0 1 2-2h5.55l1.4 1.6H19a2 2 0 0 1 2 2v.4H3v-2Z"
+        fill="#64B5F6"
+      />
+      <path
+        d="M3 10.25h18l-1.38 6.08a2 2 0 0 1-1.95 1.56H5.33a2 2 0 0 1-1.95-1.56L3 10.25Z"
+        fill="#FFCA28"
+      />
+    </svg>
+  );
+}
+
+function LauncherItemIcon({
+  application,
+  className,
+}: {
+  application: ExternalLauncherApplication;
+  className?: string;
+}) {
+  const { resolvedTheme } = useTheme();
+
+  switch (application) {
+    case "file-manager":
+      return <ExplorerIcon className={className} />;
+    case "terminal":
+      return <Powershell className={cn(LAUNCHER_ICON_CLASS, className)} />;
+    case "vscode":
+      return <Vscode className={cn(LAUNCHER_ICON_CLASS, className)} />;
+    case "cursor":
+      if (resolvedTheme === "dark") {
+        return <CursorDark className={cn(LAUNCHER_ICON_CLASS, className)} />;
+      }
+      return <Cursor className={cn(LAUNCHER_ICON_CLASS, className)} />;
+    case "visual-studio":
+      return <VisualStudio className={cn(LAUNCHER_ICON_CLASS, className)} />;
+
+    case "antigravity":
+      return <Antigravity className={cn(LAUNCHER_ICON_CLASS, className)} />;
+    case "git-bash":
+      return <Bash className={cn(LAUNCHER_ICON_CLASS, className)} />;
+    case "wsl":
+      return <Linux className={cn(LAUNCHER_ICON_CLASS, className)} />;
+    default:
+      return <ExplorerIcon className={className} />;
+  }
+}
 
 function isValidGitHubUsername(username: string): boolean {
   const length = username.length;
@@ -1458,6 +1536,7 @@ export function RepoInfo() {
     revertCommit,
     rewordCommitMessage,
     saveFileText,
+    setActiveRepo,
     setBranchUpstream,
     stageAll,
     stageFile,
@@ -1482,6 +1561,8 @@ export function RepoInfo() {
   const commitDraftPrefill = useRepoCommitDraftPrefill(activeRepoId);
   const { isLoadingBranches, isLoadingHistory, isLoadingStatus, isLoadingWip } =
     useRepoLoadingState();
+  const { isBackgroundRefreshing, lastLoadedAt } =
+    useRepoRefreshStatus(activeRepoId);
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
     Record<string, boolean>
   >({
@@ -1795,6 +1876,44 @@ export function RepoInfo() {
   const deferredSidebarFilterQuery = useDeferredValue(sidebarFilterQuery);
 
   const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
+  const toggleTerminalPanel = useTerminalPanelStore((state) => state.toggle);
+  const [selectedLauncherId, setSelectedLauncherId] =
+    useState<ExternalLauncherApplication>("file-manager");
+
+  const [launcherApplications, setLauncherApplications] = useState<
+    ExternalLauncherApp[]
+  >([]);
+
+  const tauriRuntime = isTauri();
+  const selectedLauncher = launcherApplications.find(
+    (app) => app.id === selectedLauncherId
+  );
+  const hasLauncherItems = launcherApplications.length > 0;
+
+  useEffect(() => {
+    if (!tauriRuntime) {
+      return;
+    }
+
+    let cancelled = false;
+
+    getLauncherApplications()
+      .then((applications) => {
+        if (!cancelled) {
+          setLauncherApplications(applications);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLauncherApplications([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tauriRuntime]);
+
   const dateFormatPreference = usePreferencesStore(
     (state) => state.ui.dateFormat
   );
@@ -1859,6 +1978,41 @@ export function RepoInfo() {
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
   const activeRepoPath = activeRepo?.path ?? null;
+
+  const handleOpenPath = useCallback(
+    async (application: ExternalLauncherApplication) => {
+      if (!activeRepoPath) {
+        return;
+      }
+
+      try {
+        await openPathWithApplication({
+          application,
+          path: activeRepoPath,
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to open repository in external application."
+        );
+      }
+    },
+    [activeRepoPath]
+  );
+
+  const handleCopyRepoPath = useCallback(async () => {
+    if (!activeRepoPath) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(activeRepoPath);
+      toast.success("Repository path copied to clipboard.");
+    } catch {
+      toast.error("Failed to copy repository path.");
+    }
+  }, [activeRepoPath]);
 
   useEffect(() => {
     if (!activeRepoPath) {
@@ -2278,49 +2432,6 @@ export function RepoInfo() {
       totalCount: selectedCommitFiles.length,
     };
   }, [selectedCommitFiles]);
-  const [branchQuery, setBranchQuery] = useState("");
-  const normalizedBranchQuery = useDebouncedValue(
-    branchQuery,
-    COMBOBOX_DEBOUNCE_DELAY_MS,
-    normalizeComboboxQuery
-  );
-  const branchComboboxOptions = useMemo<BranchComboboxOption[]>(
-    () =>
-      branches
-        .filter((branch) => branch.refType !== "tag")
-        .map((branch) => ({
-          isRemote: branch.isRemote,
-          name: branch.name,
-        })),
-    [branches]
-  );
-  const selectedBranchOption = useMemo(
-    () =>
-      branchComboboxOptions.find((branch) => branch.name === currentBranch) ??
-      null,
-    [branchComboboxOptions, currentBranch]
-  );
-  const visibleBranchComboboxOptions = useMemo(() => {
-    if (normalizedBranchQuery.length === 0) {
-      return branchComboboxOptions;
-    }
-
-    const filteredOptions = branchComboboxOptions.filter((branch) =>
-      branch.name.toLowerCase().includes(normalizedBranchQuery)
-    );
-
-    if (!selectedBranchOption) {
-      return filteredOptions;
-    }
-
-    const hasSelectedOption = filteredOptions.some(
-      (branch) => branch.name === selectedBranchOption.name
-    );
-
-    return hasSelectedOption
-      ? filteredOptions
-      : [selectedBranchOption, ...filteredOptions];
-  }, [branchComboboxOptions, normalizedBranchQuery, selectedBranchOption]);
   const timelineReferenceRowsByCommitHash = useMemo(() => {
     const rowsByCommitHash = new Map<string, TimelineReferenceRowData[]>();
     const commitHashSet = new Set(timelineCommits.map((commit) => commit.hash));
@@ -4687,14 +4798,14 @@ export function RepoInfo() {
         {typeof entry.pendingSyncCount === "number" &&
         entry.pendingSyncCount > 0 ? (
           <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
-            <ArrowDownIcon className="size-3" />
+            <ArrowLineDownIcon className="size-3" />
             {entry.pendingSyncCount}
           </span>
         ) : null}
         {typeof entry.pendingPushCount === "number" &&
         entry.pendingPushCount > 0 ? (
           <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
-            <ArrowUpIcon className="size-3" />
+            <ArrowLineUpIcon className="size-3" />
             {entry.pendingPushCount}
           </span>
         ) : null}
@@ -5350,34 +5461,6 @@ export function RepoInfo() {
       await dropStash(activeRepoId, entry.stashRef);
     } finally {
       setIsDroppingStash(false);
-    }
-  };
-
-  const handleToolbarBranchChange = async (
-    nextValue: BranchComboboxOption | null
-  ) => {
-    if (
-      !nextValue ||
-      nextValue.name === currentBranch ||
-      !activeRepoId ||
-      isSwitchingBranch
-    ) {
-      return;
-    }
-
-    setIsSwitchingBranch(true);
-
-    try {
-      await switchBranch(activeRepoId, nextValue.name);
-      toast.success("Checkout Successful", {
-        description: `refs/heads/${nextValue.name}`,
-      });
-    } catch (error) {
-      toast.error("Failed to switch branch", {
-        description: getCheckoutFailureReason(error),
-      });
-    } finally {
-      setIsSwitchingBranch(false);
     }
   };
 
@@ -9777,60 +9860,9 @@ export function RepoInfo() {
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="grid w-full grid-cols-[minmax(0,14rem)_minmax(0,1fr)] items-center gap-1.5 border-border/60 border-b bg-background px-2 py-1 text-foreground">
+          <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5 border-border/60 border-b bg-background px-2 py-1 text-foreground">
             <div className="flex min-w-0 items-center justify-start gap-1">
-              <Combobox
-                autoHighlight
-                disabled={
-                  isSwitchingBranch || branchComboboxOptions.length === 0
-                }
-                filter={null}
-                inputValue={
-                  branchQuery.length > 0
-                    ? branchQuery
-                    : (selectedBranchOption?.name ?? "")
-                }
-                items={visibleBranchComboboxOptions}
-                itemToStringLabel={(item: BranchComboboxOption) => item.name}
-                onInputValueChange={(nextInputValue) => {
-                  setBranchQuery(nextInputValue);
-                }}
-                onValueChange={(nextValue: BranchComboboxOption | null) => {
-                  setBranchQuery("");
-                  handleToolbarBranchChange(nextValue).catch(() => undefined);
-                }}
-                value={selectedBranchOption}
-              >
-                <ComboboxInput
-                  className="h-7 w-56"
-                  placeholder="Find branch..."
-                  render={
-                    <InputGroupInput className="h-7 text-xs placeholder:text-xs" />
-                  }
-                  showClear={false}
-                />
-                <ComboboxContent>
-                  <ComboboxEmpty>No branch found.</ComboboxEmpty>
-                  <ComboboxList>
-                    {(option: BranchComboboxOption) => (
-                      <ComboboxItem key={option.name} value={option}>
-                        <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-6">
-                          <GitBranchIcon className="size-3.5 text-muted-foreground" />
-                          <span className="truncate">{option.name}</span>
-                          {option.isRemote ? (
-                            <span className="ml-auto text-muted-foreground text-xs">
-                              remote
-                            </span>
-                          ) : null}
-                        </div>
-                      </ComboboxItem>
-                    )}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
-            </div>
-            <div className="w-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <div className="flex min-w-max items-center justify-end gap-1">
+              <TooltipProvider delay={1000} timeout={0}>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -9841,7 +9873,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleUndoAction().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon-sm"}
                         type="button"
                         variant="ghost"
                       />
@@ -9867,7 +9899,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleRedoAction().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon-sm"}
                         type="button"
                         variant="ghost"
                       />
@@ -9883,6 +9915,12 @@ export function RepoInfo() {
                     {redoActionLabel ? `Redo: ${redoActionLabel}` : "Redo"}
                   </TooltipContent>
                 </Tooltip>
+
+                <Separator
+                  className="mx-1 h-3.5 !self-center"
+                  orientation="vertical"
+                />
+
                 <DropdownMenu>
                   <div className="flex items-stretch">
                     <Tooltip>
@@ -9893,26 +9931,23 @@ export function RepoInfo() {
                             className="focus-visible:desktop-focus h-7 gap-1 rounded-r-none border-border/60 px-2 text-[0.7rem] focus-visible:ring-0! focus-visible:ring-offset-0!"
                             disabled={isPulling}
                             onClick={handlePullWithSelectedMode}
-                            size="sm"
+                            size={toolbarLabels ? "sm" : "icon-sm"}
                             type="button"
                             variant="outline"
-                          >
-                            {isPulling ? (
-                              <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
-                            ) : (
-                              <ArrowDownIcon className="size-4 text-muted-foreground" />
-                            )}
-                            <span
-                              className={cn(
-                                "text-xs",
-                                !toolbarLabels && "hidden"
-                              )}
-                            >
-                              Pull
-                            </span>
-                          </Button>
+                          />
                         }
-                      />
+                      >
+                        {isPulling ? (
+                          <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
+                        ) : (
+                          <ArrowLineDownIcon className="size-4 text-muted-foreground" />
+                        )}
+                        <span
+                          className={cn("text-xs", !toolbarLabels && "hidden")}
+                        >
+                          Pull
+                        </span>
+                      </TooltipTrigger>
                       <TooltipContent
                         className={cn(toolbarLabels && "hidden")}
                         side="bottom"
@@ -9926,7 +9961,7 @@ export function RepoInfo() {
                           aria-label="Select pull mode"
                           className="focus-visible:desktop-focus-strong h-7 min-w-0 rounded-l-none border-border/60 border-l-0 px-1.5 focus-visible:ring-0! focus-visible:ring-offset-0!"
                           disabled={isPulling}
-                          size="sm"
+                          size="icon-sm"
                           type="button"
                           variant="outline"
                         >
@@ -9996,7 +10031,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePushAction().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon-sm"}
                         type="button"
                         variant="ghost"
                       />
@@ -10005,7 +10040,7 @@ export function RepoInfo() {
                     {isPushing ? (
                       <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
                     ) : (
-                      <ArrowUpIcon className="size-4 text-muted-foreground" />
+                      <ArrowLineUpIcon className="size-4 text-muted-foreground" />
                     )}
                     <span className={cn(!toolbarLabels && "hidden")}>Push</span>
                   </TooltipTrigger>
@@ -10016,6 +10051,12 @@ export function RepoInfo() {
                     Push
                   </TooltipContent>
                 </Tooltip>
+
+                <Separator
+                  className="mx-1 h-3.5 !self-center"
+                  orientation="vertical"
+                />
+
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -10026,7 +10067,7 @@ export function RepoInfo() {
                           !activeRepoId || isCreatingBranch || isSwitchingBranch
                         }
                         onClick={openBranchCreateInput}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon-sm"}
                         type="button"
                         variant="ghost"
                       />
@@ -10054,7 +10095,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handleCreateStash().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon-sm"}
                         type="button"
                         variant="ghost"
                       />
@@ -10063,7 +10104,7 @@ export function RepoInfo() {
                     {isCreatingStash ? (
                       <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
                     ) : (
-                      <DownloadSimpleIcon className="size-4 text-muted-foreground" />
+                      <TrayArrowDownIcon className="size-4 text-muted-foreground" />
                     )}
                     <span className={cn(!toolbarLabels && "hidden")}>
                       Stash
@@ -10086,7 +10127,7 @@ export function RepoInfo() {
                         onClick={() => {
                           handlePopCurrentStash().catch(() => undefined);
                         }}
-                        size="sm"
+                        size={toolbarLabels ? "sm" : "icon-sm"}
                         type="button"
                         variant="ghost"
                       />
@@ -10095,7 +10136,7 @@ export function RepoInfo() {
                     {isPoppingStash ? (
                       <SpinnerGapIcon className="size-4 animate-spin text-muted-foreground" />
                     ) : (
-                      <UploadSimpleIcon className="size-4 text-muted-foreground" />
+                      <TrayArrowUpIcon className="size-4 text-muted-foreground" />
                     )}
                     <span className={cn(!toolbarLabels && "hidden")}>Pop</span>
                   </TooltipTrigger>
@@ -10104,6 +10145,137 @@ export function RepoInfo() {
                     side="bottom"
                   >
                     Pop
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            <div className="w-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-max items-center justify-end gap-1">
+                {tauriRuntime ? (
+                  <div className="flex items-stretch">
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            aria-label={
+                              selectedLauncher
+                                ? `Open active repository with ${selectedLauncher.label}`
+                                : "Open active repository in external application"
+                            }
+                            className="focus-visible:desktop-focus h-7 gap-1 rounded-r-none border-border/60 px-2 text-[0.7rem] focus-visible:ring-0! focus-visible:ring-offset-0!"
+                            disabled={!activeRepoPath}
+                            onClick={() => {
+                              if (selectedLauncher) {
+                                handleOpenPath(selectedLauncher.id).catch(
+                                  () => undefined
+                                );
+                              } else if (launcherApplications[0]) {
+                                handleOpenPath(launcherApplications[0].id).catch(
+                                  () => undefined
+                                );
+                              }
+                            }}
+                            size="sm"
+                            variant="outline"
+                          >
+                            {selectedLauncher ? (
+                              <LauncherItemIcon
+                                application={selectedLauncher.id}
+                              />
+                            ) : (
+                              <DesktopIcon className="size-3.5" />
+                            )}
+                            <span
+                              className={cn("text-xs", !toolbarLabels && "hidden")}
+                            >
+                              {selectedLauncher?.label ?? "Open"}
+                            </span>
+                          </Button>
+                        }
+                      />
+                      <TooltipContent
+                        className={cn(toolbarLabels && "hidden")}
+                        side="bottom"
+                      >
+                        {selectedLauncher
+                          ? `Open with ${selectedLauncher.label}`
+                          : "Open with external app"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            aria-label="Choose external application"
+                            className="focus-visible:desktop-focus-strong h-7 min-w-0 rounded-l-none border-border/60 border-l-0 px-1.5 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                            disabled={!activeRepoPath}
+                            size="sm"
+                            variant="outline"
+                          >
+                            <CaretDownIcon className="size-3" />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" className="min-w-44">
+                        {launcherApplications.map((launcher) => (
+                          <DropdownMenuItem
+                            className="cursor-pointer gap-2"
+                            key={launcher.id}
+                            onClick={() => {
+                              setSelectedLauncherId(launcher.id);
+                              handleOpenPath(launcher.id).catch(
+                                () => undefined
+                              );
+                            }}
+                          >
+                            <LauncherItemIcon application={launcher.id} />
+                            <span>{launcher.label}</span>
+                          </DropdownMenuItem>
+                        ))}
+                        {hasLauncherItems ? <DropdownMenuSeparator /> : null}
+                        <DropdownMenuItem
+                          className="cursor-pointer gap-2"
+                          onClick={() => {
+                            handleCopyRepoPath().catch(() => undefined);
+                          }}
+                        >
+                          <CopyIcon className="size-3.5" />
+                          <span>Copy path</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                ) : null}
+
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label="Toggle terminal panel"
+                        className="focus-visible:desktop-focus shrink-0 focus-visible:ring-0! focus-visible:ring-offset-0!"
+                        disabled={!activeRepoPath}
+                        onClick={toggleTerminalPanel}
+                        size={toolbarLabels ? "sm" : "icon-sm"}
+                        variant="ghost"
+                      >
+                        <TerminalWindowIcon
+                          className={cn(
+                            "size-4",
+                            isTerminalPanelOpen && "text-primary"
+                          )}
+                        />
+                        <span className={cn(!toolbarLabels && "hidden")}>
+                          Terminal
+                        </span>
+                      </Button>
+                    }
+                  />
+                  <TooltipContent
+                    className={cn(toolbarLabels && "hidden")}
+                    side="bottom"
+                  >
+                    Terminal
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -10571,7 +10743,7 @@ export function RepoInfo() {
                                                         <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300" />
                                                       }
                                                     >
-                                                      <ArrowDownIcon className="size-3" />
+                                                      <ArrowLineDownIcon className="size-3" />
                                                       Pull
                                                     </TooltipTrigger>
                                                     <TooltipContent side="bottom">

@@ -1,34 +1,14 @@
 import { Button } from "@litgit/ui/components/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@litgit/ui/components/dropdown-menu";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
-import { Antigravity } from "@litgit/ui/components/ui/svgs/antigravity";
-import { Bash } from "@litgit/ui/components/ui/svgs/bash";
-import { Linux } from "@litgit/ui/components/ui/svgs/linux";
-import { Powershell } from "@litgit/ui/components/ui/svgs/powershell";
-import { VisualStudio } from "@litgit/ui/components/ui/svgs/visual-studio";
-import { Vscode } from "@litgit/ui/components/ui/svgs/vscode";
-import { Cursor } from "@litgit/ui/components/ui/svgs/cursor";
-import { CursorDark } from "@litgit/ui/components/ui/svgs/cursor-dark";
 import { cn } from "@litgit/ui/lib/utils";
 import {
-  CaretDownIcon,
-  CopyIcon,
-  DesktopIcon,
   GearIcon,
-  TerminalWindowIcon,
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { isTauri } from "@tauri-apps/api/core";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -47,12 +27,6 @@ import {
   isPrimaryShortcut,
 } from "@/lib/keyboard-shortcuts";
 import { getRepoGitIdentity } from "@/lib/tauri-repo-client";
-import {
-  type ExternalLauncherApp,
-  type ExternalLauncherApplication,
-  getLauncherApplications,
-  openPathWithApplication,
-} from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { useRootActiveRepoContext } from "@/stores/repo/repo-root-selectors";
 import type {
@@ -63,68 +37,6 @@ import type {
 } from "@/stores/repo/repo-store-types";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
-import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
-
-const LAUNCHER_ICON_CLASS = "size-[15px] shrink-0";
-
-function ExplorerIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={cn(LAUNCHER_ICON_CLASS, className)}
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M3 7.25h8.1l1.4 1.6H21v8.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-10.5Z"
-        fill="#FFD54F"
-      />
-      <path
-        d="M3 8.25a2 2 0 0 1 2-2h5.55l1.4 1.6H19a2 2 0 0 1 2 2v.4H3v-2Z"
-        fill="#64B5F6"
-      />
-      <path
-        d="M3 10.25h18l-1.38 6.08a2 2 0 0 1-1.95 1.56H5.33a2 2 0 0 1-1.95-1.56L3 10.25Z"
-        fill="#FFCA28"
-      />
-    </svg>
-  );
-}
-
-function LauncherItemIcon({
-  application,
-  className,
-}: {
-  application: ExternalLauncherApplication;
-  className?: string;
-}) {
-  const { resolvedTheme } = useTheme();
-
-  switch (application) {
-    case "file-manager":
-      return <ExplorerIcon className={className} />;
-    case "terminal":
-      return <Powershell className={cn(LAUNCHER_ICON_CLASS, className)} />;
-    case "vscode":
-      return <Vscode className={cn(LAUNCHER_ICON_CLASS, className)} />;
-    case "cursor":
-      if (resolvedTheme === "dark") {
-        return <CursorDark className={cn(LAUNCHER_ICON_CLASS, className)} />;
-      }
-      return <Cursor className={cn(LAUNCHER_ICON_CLASS, className)} />;
-    case "visual-studio":
-      return <VisualStudio className={cn(LAUNCHER_ICON_CLASS, className)} />;
-
-    case "antigravity":
-      return <Antigravity className={cn(LAUNCHER_ICON_CLASS, className)} />;
-    case "git-bash":
-      return <Bash className={cn(LAUNCHER_ICON_CLASS, className)} />;
-    case "wsl":
-      return <Linux className={cn(LAUNCHER_ICON_CLASS, className)} />;
-    default:
-      return <ExplorerIcon className={className} />;
-  }
-}
 
 export default function Header() {
   useTabRepoSync();
@@ -154,24 +66,8 @@ export default function Header() {
     useState<PickedRepositorySelection | null>(null);
   const openRepositoryChordTimeoutRef = useRef<number | null>(null);
 
-  // Launcher state for "Open With" feature
-  const tauriRuntime = isTauri();
   const { activeRepo } = useRootActiveRepoContext();
-  const [launcherApplications, setLauncherApplications] = useState<
-    ExternalLauncherApp[]
-  >([]);
-  const [selectedLauncherId, setSelectedLauncherId] =
-    useState<ExternalLauncherApplication>("file-manager");
   const repoPath = activeRepo?.path ?? null;
-  const hasLauncherItems = launcherApplications.length > 0;
-
-  const selectedLauncher = launcherApplications.find(
-    (launcher) => launcher.id === selectedLauncherId
-  );
-
-  // Terminal state
-  const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
-  const toggleTerminalPanel = useTerminalPanelStore((state) => state.toggle);
 
   const handleCopyRepoPath = useCallback(async () => {
     if (!repoPath) {
@@ -189,53 +85,6 @@ export default function Header() {
       toast.error(message);
     }
   }, [repoPath]);
-
-  const handleOpenPath = useCallback(
-    async (application: ExternalLauncherApplication) => {
-      if (!repoPath) {
-        return;
-      }
-
-      try {
-        await openPathWithApplication({ application, path: repoPath });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to open repository path";
-        toast.error(message);
-      }
-    },
-    [repoPath]
-  );
-
-  useEffect(() => {
-    if (!tauriRuntime) {
-      return;
-    }
-
-    let isDisposed = false;
-
-    const loadLauncherApplications = async () => {
-      try {
-        const nextApplications = await getLauncherApplications();
-
-        if (!isDisposed) {
-          setLauncherApplications(nextApplications);
-        }
-      } catch {
-        if (!isDisposed) {
-          setLauncherApplications([]);
-        }
-      }
-    };
-
-    loadLauncherApplications().catch(() => undefined);
-
-    return () => {
-      isDisposed = true;
-    };
-  }, [tauriRuntime]);
 
   const clearOpenRepositoryChord = useCallback(() => {
     if (openRepositoryChordTimeoutRef.current !== null) {
@@ -437,131 +286,6 @@ export default function Header() {
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {/* Open With Dropdown */}
-          {tauriRuntime ? (
-            <div className="flex items-stretch">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      aria-label={
-                        selectedLauncher
-                          ? `Open active repository with ${selectedLauncher.label}`
-                          : "Open active repository in external application"
-                      }
-                      className="focus-visible:desktop-focus h-7 gap-1 rounded-r-none border-border/60 px-2 text-[0.7rem] focus-visible:ring-0! focus-visible:ring-offset-0!"
-                      disabled={!repoPath}
-                      onClick={() => {
-                        if (selectedLauncher) {
-                          handleOpenPath(selectedLauncher.id).catch(
-                            () => undefined
-                          );
-                        } else if (launcherApplications[0]) {
-                          handleOpenPath(launcherApplications[0].id).catch(
-                            () => undefined
-                          );
-                        }
-                      }}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {selectedLauncher ? (
-                        <LauncherItemIcon application={selectedLauncher.id} />
-                      ) : (
-                        <DesktopIcon className="size-3.5" />
-                      )}
-                      <span
-                        className={cn("text-xs", !toolbarLabels && "hidden")}
-                      >
-                        {selectedLauncher?.label ?? "Open"}
-                      </span>
-                    </Button>
-                  }
-                />
-                <TooltipContent
-                  className={cn(toolbarLabels && "hidden")}
-                  side="bottom"
-                >
-                  {selectedLauncher
-                    ? `Open with ${selectedLauncher.label}`
-                    : "Open with external app"}
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      aria-label="Choose external application"
-                      className="focus-visible:desktop-focus-strong h-7 min-w-0 rounded-l-none border-border/60 border-l-0 px-1.5 focus-visible:ring-0! focus-visible:ring-offset-0!"
-                      disabled={!repoPath}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <CaretDownIcon className="size-3" />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end" className="min-w-44">
-                  {launcherApplications.map((launcher) => (
-                    <DropdownMenuItem
-                      className="cursor-pointer gap-2"
-                      key={launcher.id}
-                      onClick={() => {
-                        setSelectedLauncherId(launcher.id);
-                        handleOpenPath(launcher.id).catch(() => undefined);
-                      }}
-                    >
-                      <LauncherItemIcon application={launcher.id} />
-                      <span>{launcher.label}</span>
-                    </DropdownMenuItem>
-                  ))}
-                  {hasLauncherItems ? <DropdownMenuSeparator /> : null}
-                  <DropdownMenuItem
-                    className="cursor-pointer gap-2"
-                    onClick={() => {
-                      handleCopyRepoPath().catch(() => undefined);
-                    }}
-                  >
-                    <CopyIcon className="size-3.5" />
-                    <span>Copy path</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ) : null}
-
-          {/* Terminal Toggle */}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  aria-label="Toggle terminal panel"
-                  className="focus-visible:desktop-focus shrink-0 focus-visible:ring-0! focus-visible:ring-offset-0!"
-                  disabled={!repoPath}
-                  onClick={toggleTerminalPanel}
-                  size={toolbarLabels ? "default" : "icon"}
-                  variant="ghost"
-                >
-                  <TerminalWindowIcon
-                    className={cn(
-                      "size-4",
-                      isTerminalPanelOpen && "text-primary"
-                    )}
-                  />
-                  <span className={cn("text-xs", !toolbarLabels && "hidden")}>
-                    Terminal
-                  </span>
-                </Button>
-              }
-            />
-            <TooltipContent
-              className={cn(toolbarLabels && "hidden")}
-              side="bottom"
-            >
-              {isTerminalPanelOpen ? "Hide terminal" : "Show terminal"}
-            </TooltipContent>
-          </Tooltip>
-
           {/* Settings */}
           <Tooltip>
             <TooltipTrigger
