@@ -35,6 +35,12 @@
     },
     "generate:lucide-icons": {
       "outputs": ["src/icons/LucideIcons.ts"]
+    },
+    "bump-skills": {
+      "cache": false
+    },
+    "bump-skills:dry": {
+      "cache": false
     }
   }
 }

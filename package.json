@@ -36,13 +36,15 @@
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",
     "fix": "ultracite fix",
     "gen:gitignore-templates": "turbo run gen:gitignore-templates -F desktop",
-    "bump-deps": "bun run scripts/bump.mjs",
-    "bump-deps:ci": "bun run scripts/bump.mjs --yes",
-    "bump-deps:dry": "bun run scripts/bump.mjs --dry-run",
-    "bump-deps:safe": "bun run scripts/bump.mjs --skip-major",
-    "bump-deps:stable": "bun run scripts/bump.mjs --only-type stable",
+    "bump-deps": "bun run scripts/bump-deps.mjs",
+    "bump-deps:ci": "bun run scripts/bump-deps.mjs --yes",
+    "bump-deps:dry": "bun run scripts/bump-deps.mjs --dry-run",
+    "bump-deps:safe": "bun run scripts/bump-deps.mjs --skip-major",
+    "bump-deps:stable": "bun run scripts/bump-deps.mjs --only-type stable",
     "clean": "bun run scripts/cleanup.mjs",
-    "clean:all": "bun run scripts/cleanup.mjs --all"
+    "clean:all": "bun run scripts/cleanup.mjs --all",
+    "bump-skills": "bun run scripts/bump-skills.mjs",
+    "bump-skills:dry": "bun run scripts/bump-skills.mjs --dry-run"
   },
   "dependencies": {
     "@litgit/env": "workspace:*",
