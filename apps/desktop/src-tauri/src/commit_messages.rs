@@ -1,6 +1,7 @@
 use crate::git_host_auth::{
     fetch_bitbucket_avatar_for_username, fetch_github_avatar_for_account,
     fetch_gitlab_avatar_for_user_id, fetch_gitlab_avatar_for_username, search_github_user_by_email,
+    APP_USER_AGENT,
 };
 use crate::git_support::{
     git_command, git_error_message, git_process_error_message, validate_git_repo,
@@ -1660,17 +1661,20 @@ fn list_ai_models_with_secret(
     let request = match request_kind {
         AiRequestKind::Anthropic => http::Request::get(&models_url)
             .header("Accept", "application/json")
+            .header("User-Agent", APP_USER_AGENT)
             .header("x-api-key", secret)
             .header("anthropic-version", ANTHROPIC_API_VERSION)
-            .body(String::new()),
+            .body(()),
         AiRequestKind::Gemini => http::Request::get(&models_url)
             .header("Accept", "application/json")
+            .header("User-Agent", APP_USER_AGENT)
             .header("x-goog-api-key", secret)
-            .body(String::new()),
+            .body(()),
         AiRequestKind::OpenAiCompatible => http::Request::get(&models_url)
             .header("Accept", "application/json")
+            .header("User-Agent", APP_USER_AGENT)
             .header("Authorization", format!("Bearer {secret}"))
-            .body(String::new()),
+            .body(()),
     }
     .map_err(|e| CommitMessageError::Message(format!("Failed to build models request: {e}")))?;
 

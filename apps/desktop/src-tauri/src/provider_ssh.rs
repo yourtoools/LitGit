@@ -3,6 +3,7 @@
 //! Handles generation of SSH keys for specific Git providers and uploading
 //! them via provider APIs. Keys are stored in `~/.litgit/profiles/<profile_id>/ssh/`.
 
+use crate::git_host_auth::{APP_USER_AGENT, GITHUB_API_VERSION};
 use crate::integrations_store::{
     get_or_create_profile_id, load_integrations_config, resolve_provider_access_token,
     save_integrations_config, IntegrationsConfigError, ProviderSshKey,
@@ -277,9 +278,9 @@ fn upload_to_github(public_key: &str, title: &str, token: &str) -> Result<(), Pr
     let verify_request = http::Request::get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "LitGit")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .body("")
+        .header("User-Agent", APP_USER_AGENT)
+        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+        .body(())
         .map_err(|e| ProviderSshError::UploadFailed {
             provider: "GitHub".to_string(),
             message: format!("Failed to build verify request: {}", e),
@@ -335,7 +336,7 @@ fn upload_to_github(public_key: &str, title: &str, token: &str) -> Result<(), Pr
     let request = http::Request::post(&url)
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "LitGit")
+        .header("User-Agent", APP_USER_AGENT)
         .header("X-GitHub-Api-Version", "2022-11-28")
         .body(payload.to_string())
         .map_err(|e| ProviderSshError::UploadFailed {
@@ -404,7 +405,7 @@ fn upload_to_gitlab(public_key: &str, title: &str, token: &str) -> Result<(), Pr
 
     let request = http::Request::post(&url)
         .header("PRIVATE-TOKEN", token)
-        .header("User-Agent", "LitGit")
+        .header("User-Agent", APP_USER_AGENT)
         .body(payload.to_string())
         .map_err(|e| ProviderSshError::UploadFailed {
             provider: "GitLab".to_string(),
@@ -463,7 +464,7 @@ fn upload_to_bitbucket(
 
     let request = http::Request::post(&url)
         .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "LitGit")
+        .header("User-Agent", APP_USER_AGENT)
         .body(payload.to_string())
         .map_err(|e| ProviderSshError::UploadFailed {
             provider: "Bitbucket".to_string(),

@@ -1,4 +1,4 @@
-use crate::git_host_auth::{get_oauth_token_for_provider, GITHUB_API_VERSION};
+use crate::git_host_auth::{get_oauth_token_for_provider, APP_USER_AGENT, GITHUB_API_VERSION};
 use crate::integrations_store::{load_integrations_config, ProviderProfile};
 use crate::oauth::{fetch_user_info, OAuthProvider, ProviderUserInfo};
 use crate::repository::validate_repository_name;
@@ -427,9 +427,9 @@ fn list_github_organization_logins(token: &str) -> Result<Vec<String>, Repositor
         let request = http::Request::get(&url)
             .header("Authorization", format!("Bearer {token}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "LitGit")
+            .header("User-Agent", APP_USER_AGENT)
             .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
-            .body(String::new())
+            .body(())
             .map_err(|error| {
                 RepositoryPublishingError::Message(format!(
                     "Failed to build GitHub publish targets request: {error}"
@@ -467,8 +467,8 @@ fn list_gitlab_publish_targets() -> Result<Vec<PublishTarget>, RepositoryPublish
         let request = http::Request::get(&url)
             .header("PRIVATE-TOKEN", &token)
             .header("Accept", "application/json")
-            .header("User-Agent", "LitGit")
-            .body(String::new())
+            .header("User-Agent", APP_USER_AGENT)
+            .body(())
             .map_err(|error| {
                 RepositoryPublishingError::Message(format!(
                     "Failed to build GitLab publish targets request: {error}"
@@ -501,8 +501,8 @@ fn list_bitbucket_publish_targets() -> Result<Vec<PublishTarget>, RepositoryPubl
         let request = http::Request::get(&url)
             .header("Authorization", format!("Bearer {token}"))
             .header("Accept", "application/json")
-            .header("User-Agent", "LitGit")
-            .body(String::new())
+            .header("User-Agent", APP_USER_AGENT)
+            .body(())
             .map_err(|error| {
                 RepositoryPublishingError::Message(format!(
                     "Failed to build Bitbucket publish targets request: {error}"
@@ -688,18 +688,18 @@ fn build_create_remote_http_request(
         PublishProvider::GitHub => builder
             .header("Authorization", format!("Bearer {token}"))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "LitGit")
+            .header("User-Agent", APP_USER_AGENT)
             .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
             .header("Content-Type", "application/json"),
         PublishProvider::GitLab => builder
             .header("PRIVATE-TOKEN", token)
             .header("Accept", "application/json")
-            .header("User-Agent", "LitGit")
+            .header("User-Agent", APP_USER_AGENT)
             .header("Content-Type", "application/json"),
         PublishProvider::Bitbucket => builder
             .header("Authorization", format!("Bearer {token}"))
             .header("Accept", "application/json")
-            .header("User-Agent", "LitGit")
+            .header("User-Agent", APP_USER_AGENT)
             .header("Content-Type", "application/json"),
     };
 
@@ -976,10 +976,14 @@ fn resolve_github_identity(
     Ok((username, avatar_url))
 }
 
-fn execute_json_request<T: DeserializeOwned>(
-    request: http::Request<String>,
+fn execute_json_request<T, B>(
+    request: http::Request<B>,
     action: &'static str,
-) -> Result<T, RepositoryPublishingError> {
+) -> Result<T, RepositoryPublishingError>
+where
+    T: DeserializeOwned,
+    B: ureq::AsSendBody,
+{
     let config = ureq::config::Config::builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
         .http_status_as_error(false)

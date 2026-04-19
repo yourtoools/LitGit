@@ -1,3 +1,4 @@
+use crate::git_host_auth::APP_USER_AGENT;
 use crate::git_support::{background_command, git_command, git_error_message, validate_git_repo};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1585,7 +1586,8 @@ pub(crate) async fn test_proxy_connection(
         let agent = ureq::Agent::new_with_config(config);
 
         let request = http::Request::get("https://example.com/")
-            .body(String::new())
+            .header("User-Agent", APP_USER_AGENT)
+            .body(())
             .map_err(|error| format!("Failed to build proxy request: {error}"))?;
 
         let response = agent

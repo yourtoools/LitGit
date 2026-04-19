@@ -11,6 +11,7 @@ use ureq::http;
 
 /// The version of the GitHub API to use for requests.
 pub(crate) const GITHUB_API_VERSION: &str = "2022-11-28";
+pub(crate) const APP_USER_AGENT: &str = "LitGit/0.1.0";
 
 /// Errors that can occur during Git host API operations.
 #[derive(Debug, Error)]
@@ -148,9 +149,9 @@ fn search_github_user_from_url(
     let request = http::Request::get(url)
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "LitGit")
+        .header("User-Agent", APP_USER_AGENT)
         .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
-        .body(String::new())
+        .body(())
         .map_err(|e| GitHostAuthError::Http {
             action: "build GitHub search request",
             detail: e.to_string(),
@@ -212,7 +213,7 @@ pub(crate) fn fetch_gitlab_avatar_for_username(
     let endpoint = OAuthProvider::GitLab.api_url(&format!("users?username={trimmed_username}"));
     let mut request = http::Request::get(&endpoint)
         .header("Accept", "application/json")
-        .header("User-Agent", "LitGit");
+        .header("User-Agent", APP_USER_AGENT);
 
     if let Some(ref token_str) = token.filter(|value| !value.trim().is_empty()) {
         request = request.header("PRIVATE-TOKEN", token_str);
@@ -224,7 +225,7 @@ pub(crate) fn fetch_gitlab_avatar_for_username(
     let agent = ureq::Agent::new_with_config(config);
 
     let request = request
-        .body(String::new())
+        .body(())
         .map_err(|e| GitHostAuthError::Http {
             action: "build GitLab avatar request",
             detail: e.to_string(),
@@ -258,7 +259,7 @@ pub(crate) fn fetch_gitlab_avatar_for_user_id(
     let endpoint = OAuthProvider::GitLab.api_url(&format!("users/{trimmed_user_id}"));
     let mut request = http::Request::get(&endpoint)
         .header("Accept", "application/json")
-        .header("User-Agent", "LitGit");
+        .header("User-Agent", APP_USER_AGENT);
 
     if let Some(ref token_str) = token.filter(|value| !value.trim().is_empty()) {
         request = request.header("PRIVATE-TOKEN", token_str);
@@ -270,7 +271,7 @@ pub(crate) fn fetch_gitlab_avatar_for_user_id(
     let agent = ureq::Agent::new_with_config(config);
 
     let request = request
-        .body(String::new())
+        .body(())
         .map_err(|e| GitHostAuthError::Http {
             action: "build GitLab avatar request",
             detail: e.to_string(),
@@ -310,14 +311,14 @@ pub(crate) fn fetch_bitbucket_avatar_for_username(
     ] {
         let mut request = http::Request::get(&endpoint)
             .header("Accept", "application/json")
-            .header("User-Agent", "LitGit");
+            .header("User-Agent", APP_USER_AGENT);
 
         if let Some(ref token_str) = token.as_ref().filter(|value| !value.trim().is_empty()) {
             request = request.header("Authorization", format!("Bearer {token_str}"));
         }
 
         let request = request
-            .body(String::new())
+            .body(())
             .map_err(|e| GitHostAuthError::Http {
                 action: "build Bitbucket avatar request",
                 detail: e.to_string(),

@@ -3,6 +3,7 @@
 //! Implements PKCE (Proof Key for Code Exchange) for secure authorization
 //! and state parameter for CSRF protection.
 
+use crate::git_host_auth::{APP_USER_AGENT, GITHUB_API_VERSION};
 use crate::integrations_store::{
     disconnect_provider as disconnect_provider_store, get_all_provider_status,
     load_integrations_config, resolve_provider_access_token, save_integrations_config,
@@ -684,7 +685,7 @@ fn exchange_code_for_token(
 
     let mut request = http::Request::post(provider.token_url())
         .header("Accept", "application/json")
-        .header("User-Agent", "LitGit");
+        .header("User-Agent", APP_USER_AGENT);
 
     // Bitbucket requires basic auth header
     if matches!(provider, OAuthProvider::Bitbucket) {
@@ -818,10 +819,10 @@ fn fetch_github_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
     let request = http::Request::get(OAuthProvider::GitHub.api_url("user"))
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "LitGit")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .body(String::new())
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+        .header("User-Agent", APP_USER_AGENT)
+        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+        .body(())
+        .map_err(|e| OAuthError::UserInfoFetchFailed(format!("Failed to build request: {e}")))?;
 
     let config = ureq::config::Config::builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
@@ -829,19 +830,25 @@ fn fetch_github_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
         .build();
     let agent = ureq::Agent::new_with_config(config);
 
-    let response = agent
-        .run(request)
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+    let response = agent.run(request).map_err(|e| {
+        log::error!("GitHub user info request failed: {e}");
+        OAuthError::UserInfoFetchFailed(format!("Network error: {e}"))
+    })?;
 
     let mut body = String::new();
     response
         .into_body()
         .into_reader()
         .read_to_string(&mut body)
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("Failed to read GitHub user info body: {e}");
+            OAuthError::UserInfoFetchFailed(format!("IO error reading body: {e}"))
+        })?;
 
-    let json: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        log::error!("Failed to parse GitHub user info JSON: {e}. Body: {body}");
+        OAuthError::UserInfoFetchFailed(format!("JSON error: {e}"))
+    })?;
 
     // Collect emails: start with the primary email from the profile
     let mut emails = Vec::new();
@@ -853,9 +860,9 @@ fn fetch_github_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
     let email_request = http::Request::get(OAuthProvider::GitHub.api_url("user/emails"))
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "LitGit")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .body(String::new());
+        .header("User-Agent", APP_USER_AGENT)
+        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
+        .body(());
 
     if let Ok(email_request) = email_request {
         if let Ok(email_response) = agent.run(email_request) {
@@ -899,9 +906,9 @@ fn fetch_github_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
 fn fetch_gitlab_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
     let request = http::Request::get(OAuthProvider::GitLab.api_url("user"))
         .header("PRIVATE-TOKEN", token)
-        .header("User-Agent", "LitGit")
-        .body(String::new())
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+        .header("User-Agent", APP_USER_AGENT)
+        .body(())
+        .map_err(|e| OAuthError::UserInfoFetchFailed(format!("Failed to build request: {e}")))?;
 
     let config = ureq::config::Config::builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
@@ -909,19 +916,25 @@ fn fetch_gitlab_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
         .build();
     let agent = ureq::Agent::new_with_config(config);
 
-    let response = agent
-        .run(request)
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+    let response = agent.run(request).map_err(|e| {
+        log::error!("GitLab user info request failed: {e}");
+        OAuthError::UserInfoFetchFailed(format!("Network error: {e}"))
+    })?;
 
     let mut body = String::new();
     response
         .into_body()
         .into_reader()
         .read_to_string(&mut body)
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("Failed to read GitLab user info body: {e}");
+            OAuthError::UserInfoFetchFailed(format!("IO error reading body: {e}"))
+        })?;
 
-    let json: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        log::error!("Failed to parse GitLab user info JSON: {e}. Body: {body}");
+        OAuthError::UserInfoFetchFailed(format!("JSON error: {e}"))
+    })?;
 
     let mut emails = Vec::new();
     // GitLab returns primary email in public_email or email field
@@ -945,9 +958,9 @@ fn fetch_gitlab_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
 fn fetch_bitbucket_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError> {
     let request = http::Request::get(OAuthProvider::Bitbucket.api_url("user"))
         .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "LitGit")
-        .body(String::new())
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+        .header("User-Agent", APP_USER_AGENT)
+        .body(())
+        .map_err(|e| OAuthError::UserInfoFetchFailed(format!("Failed to build request: {e}")))?;
 
     let config = ureq::config::Config::builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
@@ -955,19 +968,25 @@ fn fetch_bitbucket_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError
         .build();
     let agent = ureq::Agent::new_with_config(config);
 
-    let response = agent
-        .run(request)
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+    let response = agent.run(request).map_err(|e| {
+        log::error!("Bitbucket user info request failed: {e}");
+        OAuthError::UserInfoFetchFailed(format!("Network error: {e}"))
+    })?;
 
     let mut body = String::new();
     response
         .into_body()
         .into_reader()
         .read_to_string(&mut body)
-        .map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("Failed to read Bitbucket user info body: {e}");
+            OAuthError::UserInfoFetchFailed(format!("IO error reading body: {e}"))
+        })?;
 
-    let json: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| OAuthError::UserInfoFetchFailed(e.to_string()))?;
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        log::error!("Failed to parse Bitbucket user info JSON: {e}. Body: {body}");
+        OAuthError::UserInfoFetchFailed(format!("JSON error: {e}"))
+    })?;
 
     // Bitbucket may not expose email in the user endpoint directly;
     // we collect what's available.
@@ -975,8 +994,8 @@ fn fetch_bitbucket_user_info(token: &str) -> Result<ProviderUserInfo, OAuthError
     // Try the emails endpoint for Bitbucket
     let emails_request = http::Request::get(OAuthProvider::Bitbucket.api_url("user/emails"))
         .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "LitGit")
-        .body(String::new());
+        .header("User-Agent", APP_USER_AGENT)
+        .body(());
 
     if let Ok(emails_request) = emails_request {
         if let Ok(emails_response) = agent.run(emails_request) {
