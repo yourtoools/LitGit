@@ -94,7 +94,7 @@ export function ProviderOAuthTokenDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="gap-3 p-3 text-xs sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-sm">{dialogTitle}</DialogTitle>
           <DialogDescription className="text-xs leading-relaxed">
@@ -109,7 +109,7 @@ export function ProviderOAuthTokenDialog({
           <Textarea
             autoCapitalize="none"
             autoCorrect="off"
-            className="min-h-28 font-mono text-xs"
+            className="min-h-24 px-2.5 py-1.5 font-mono text-xs"
             id="provider-oauth-token"
             onChange={(event) => {
               setCallbackValue(event.target.value);
@@ -131,7 +131,7 @@ export function ProviderOAuthTokenDialog({
           )}
         </div>
 
-        <DialogFooter className="sm:justify-between">
+        <DialogFooter className="-mx-3 -mb-3 p-3 sm:justify-between">
           <Button
             className="min-w-18 text-xs"
             disabled={isSubmitting}

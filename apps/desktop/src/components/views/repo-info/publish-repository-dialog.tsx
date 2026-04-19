@@ -305,10 +305,15 @@ export function PublishRepositoryDialog({
   return (
     <>
       <Dialog onOpenChange={onOpenChange} open={open}>
-        <DialogContent className="sm:max-w-md" showCloseButton={!isSubmitting}>
+        <DialogContent
+          className="gap-3 p-3 text-xs sm:max-w-md"
+          showCloseButton={!isSubmitting}
+        >
           <DialogHeader>
-            <DialogTitle>Publish repository before push</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-sm">
+              Publish repository before push
+            </DialogTitle>
+            <DialogDescription className="text-xs">
               Choose where LitGit should create the remote repository before
               pushing.
             </DialogDescription>
@@ -316,18 +321,19 @@ export function PublishRepositoryDialog({
 
           <div className="space-y-4">
             <fieldset className="space-y-2">
-              <legend className="font-medium text-sm">Provider</legend>
+              <legend className="font-medium text-xs">Provider</legend>
               <div className="grid grid-cols-3 gap-2">
                 {PROVIDERS.map((providerOption) => (
                   <Button
                     aria-pressed={provider === providerOption}
-                    className="justify-start"
+                    className="justify-start text-xs"
                     disabled={isSubmitting || isLoadingStatuses}
                     key={providerOption}
                     onClick={() => {
                       setProvider(providerOption);
                       setLocalErrorMessage(null);
                     }}
+                    size="sm"
                     type="button"
                     variant={
                       provider === providerOption ? "default" : "outline"
@@ -343,6 +349,7 @@ export function PublishRepositoryDialog({
                     Connect {PROVIDER_LABELS[provider]} to choose a destination.
                   </p>
                   <Button
+                    className="text-xs"
                     disabled={isSubmitting || isOAuthSubmitting}
                     onClick={() => {
                       handleStartOAuth(provider);
@@ -366,7 +373,7 @@ export function PublishRepositoryDialog({
             </fieldset>
 
             <div className="space-y-2">
-              <Label htmlFor="publish-repository-destination">
+              <Label className="text-xs" htmlFor="publish-repository-destination">
                 Destination
               </Label>
               <Select
@@ -384,8 +391,9 @@ export function PublishRepositoryDialog({
                 value={targetId}
               >
                 <SelectTrigger
-                  className="focus-visible:desktop-focus w-full focus-visible:ring-0! focus-visible:ring-offset-0!"
+                  className="focus-visible:desktop-focus w-full text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                   id="publish-repository-destination"
+                  size="sm"
                 >
                   <SelectValue
                     placeholder={
@@ -406,11 +414,13 @@ export function PublishRepositoryDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="publish-repository-name">Repository name</Label>
+              <Label className="text-xs" htmlFor="publish-repository-name">
+                Repository name
+              </Label>
               <Input
                 autoCapitalize="none"
                 autoCorrect="off"
-                className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
+                className="focus-visible:desktop-focus h-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                 disabled={isSubmitting}
                 id="publish-repository-name"
                 onChange={(event) => {
@@ -424,16 +434,17 @@ export function PublishRepositoryDialog({
             </div>
 
             <fieldset className="space-y-2">
-              <legend className="font-medium text-sm">Visibility</legend>
+              <legend className="font-medium text-xs">Visibility</legend>
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   aria-pressed={visibility === "private"}
-                  className="justify-start"
+                  className="justify-start text-xs"
                   disabled={isSubmitting}
                   onClick={() => {
                     setVisibility("private");
                     setLocalErrorMessage(null);
                   }}
+                  size="sm"
                   type="button"
                   variant={visibility === "private" ? "default" : "outline"}
                 >
@@ -441,12 +452,13 @@ export function PublishRepositoryDialog({
                 </Button>
                 <Button
                   aria-pressed={visibility === "public"}
-                  className="justify-start"
+                  className="justify-start text-xs"
                   disabled={isSubmitting}
                   onClick={() => {
                     setVisibility("public");
                     setLocalErrorMessage(null);
                   }}
+                  size="sm"
                   type="button"
                   variant={visibility === "public" ? "default" : "outline"}
                 >
@@ -456,26 +468,28 @@ export function PublishRepositoryDialog({
             </fieldset>
 
             {resolvedErrorMessage ? (
-              <p className="text-destructive text-sm">{resolvedErrorMessage}</p>
+              <p className="text-destructive text-xs">{resolvedErrorMessage}</p>
             ) : null}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="-mx-3 -mb-3 p-3">
             <Button
-              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
+              className="focus-visible:desktop-focus text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isSubmitting}
               onClick={() => onOpenChange(false)}
+              size="sm"
               type="button"
               variant="outline"
             >
               Cancel
             </Button>
             <Button
-              className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
+              className="focus-visible:desktop-focus text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={canConfirm}
               onClick={() => {
                 handleConfirm().catch(() => undefined);
               }}
+              size="sm"
               type="button"
             >
               {isSubmitting ? (

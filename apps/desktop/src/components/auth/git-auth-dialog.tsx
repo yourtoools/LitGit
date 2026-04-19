@@ -250,7 +250,10 @@ export function GitAuthDialog({
       }}
       open={open}
     >
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+      <DialogContent
+        className="gap-3 p-3 text-xs sm:max-w-md"
+        showCloseButton={false}
+      >
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
@@ -378,7 +381,7 @@ export function GitAuthDialog({
           </div>
         ) : null}
 
-        <DialogFooter className="sm:justify-between">
+        <DialogFooter className="-mx-3 -mb-3 p-3 sm:justify-between">
           <Button
             className="min-w-18 text-xs"
             disabled={flowState.type === "connecting"}

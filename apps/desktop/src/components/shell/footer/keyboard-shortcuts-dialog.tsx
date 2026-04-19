@@ -287,11 +287,11 @@ export function KeyboardShortcutsDialog() {
           className="max-w-[min(96vw,30rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,30rem)]"
           showCloseButton={false}
         >
-          <DialogHeader className="border-border/60 border-b px-5 py-4">
+          <DialogHeader className="border-border/60 border-b px-4 py-3">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <DialogTitle>Keyboard Shortcuts</DialogTitle>
-                <DialogDescription className="mt-2 text-sm leading-relaxed">
+                <DialogTitle className="text-sm">Keyboard Shortcuts</DialogTitle>
+                <DialogDescription className="mt-1.5 leading-relaxed">
                   Search commands, actions, or keys. The list keeps a visible
                   scrollbar when it grows longer.
                 </DialogDescription>
@@ -315,10 +315,11 @@ export function KeyboardShortcutsDialog() {
             </div>
           </DialogHeader>
 
-          <div className="border-border/60 border-b px-4 py-4">
+          <div className="border-border/60 border-b px-4 py-3">
             <Input
               aria-describedby={shortcutHelpId}
               autoFocus
+              className="h-7 text-xs"
               onChange={(event) => setShortcutQuery(event.target.value)}
               placeholder="Filter shortcuts"
               ref={inputRef}
@@ -330,20 +331,20 @@ export function KeyboardShortcutsDialog() {
             </p>
           </div>
 
-          <div className="max-h-96 overflow-y-auto px-4 py-4 [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
+          <div className="max-h-96 overflow-y-auto px-4 py-3 [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
             {shortcutGroups.length === 0 ? (
               <div className="py-8 text-left">
-                <p className="font-medium text-foreground text-sm">
+                <p className="font-medium text-foreground text-xs">
                   No shortcuts found
                 </p>
-                <p className="mt-1 text-muted-foreground text-sm">
+                <p className="mt-1 text-muted-foreground text-xs">
                   Try searching for tab, repository, zoom, or escape.
                 </p>
               </div>
             ) : (
               shortcutGroups.map((group) => (
                 <section className="mb-6 last:mb-0" key={group}>
-                  <div className="mb-2 px-3 font-semibold text-foreground text-sm">
+                  <div className="mb-2 px-3 font-semibold text-foreground text-xs">
                     {group}
                   </div>
                   <div className="flex flex-col gap-0.5">
@@ -351,16 +352,16 @@ export function KeyboardShortcutsDialog() {
                       .filter((shortcut) => shortcut.group === group)
                       .map((shortcut) => (
                         <div
-                          className="group flex flex-col gap-1.5 px-3 py-3 hover:bg-muted/50"
+                          className="group flex flex-col gap-1.5 px-3 py-2.5 hover:bg-muted/50"
                           key={shortcut.id}
                         >
                           <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-foreground text-sm">
+                            <span className="font-medium text-foreground text-xs">
                               {shortcut.label}
                             </span>
                             <ShortcutKeys keys={shortcut.keys} />
                           </div>
-                          <p className="text-muted-foreground text-sm leading-relaxed">
+                          <p className="text-muted-foreground text-xs leading-relaxed">
                             {shortcut.description}
                           </p>
                         </div>

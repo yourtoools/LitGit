@@ -207,17 +207,17 @@ function CloneSuccessPanel({
   successState: CloneSuccessState;
 }) {
   return (
-    <div className="space-y-4 px-6 py-5">
-      <section className="flex items-start gap-3 border border-emerald-500/20 bg-emerald-500/8 p-3.5">
+    <div className="space-y-4 px-4 py-4">
+      <section className="flex items-start gap-3 border border-emerald-500/20 bg-emerald-500/8 p-3">
         <CheckCircleIcon
           aria-hidden="true"
           className="mt-0.5 size-4.5 shrink-0 text-emerald-400"
         />
         <div className="min-w-0">
-          <p className="font-medium text-foreground text-sm">
+          <p className="font-medium text-foreground text-xs">
             Clone finished successfully
           </p>
-          <p className="mt-0.5 text-muted-foreground text-sm leading-relaxed">
+          <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
             Added to your workspace and saved in recent repositories.
           </p>
         </div>
@@ -231,7 +231,7 @@ function CloneSuccessPanel({
           <p className="text-muted-foreground text-xs uppercase tracking-[0.12em]">
             Repository
           </p>
-          <p className="mt-0.5 font-medium text-foreground text-sm">
+          <p className="mt-0.5 font-medium text-foreground text-xs">
             {successState.name}
           </p>
         </div>
@@ -277,12 +277,12 @@ function CloneFormPanel({
   urlInputId,
 }: CloneFormPanelProps) {
   return (
-    <div className="space-y-5 px-6 py-5">
+    <div className="space-y-5 px-4 py-4">
       {/* --- Form fields --- */}
       <fieldset className="space-y-4" disabled={isBusy}>
         {/* Repository URL */}
         <div className="grid gap-1.5">
-          <Label className="text-sm" htmlFor={urlInputId}>
+          <Label className="text-xs" htmlFor={urlInputId}>
             Repository URL
           </Label>
           <Input
@@ -292,7 +292,7 @@ function CloneFormPanel({
             aria-invalid={Boolean(errors.repositoryUrl)}
             autoCapitalize="none"
             autoCorrect="off"
-            className="h-9 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={urlInputId}
             onChange={(event) => {
               setRepositoryUrl(event.target.value);
@@ -321,7 +321,7 @@ function CloneFormPanel({
 
         {/* Destination folder + Browse */}
         <div className="grid gap-1.5">
-          <Label className="text-sm" htmlFor={destinationInputId}>
+          <Label className="text-xs" htmlFor={destinationInputId}>
             Destination folder
           </Label>
           <div className="flex gap-2">
@@ -332,7 +332,7 @@ function CloneFormPanel({
                   : undefined
               }
               aria-invalid={Boolean(errors.destinationParent)}
-              className="h-9 flex-1 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+              className="h-7 flex-1 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
               id={destinationInputId}
               onChange={(event) => {
                 setDestinationParent(event.target.value);
@@ -347,12 +347,13 @@ function CloneFormPanel({
               value={destinationParent}
             />
             <Button
-              className="h-9 shrink-0 gap-1.5 px-3 text-sm"
+              className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
               onClick={() => {
                 handlePickDestination().catch(() => {
                   return;
                 });
               }}
+              size="sm"
               type="button"
               variant="outline"
             >
@@ -376,7 +377,7 @@ function CloneFormPanel({
 
         {/* Folder name */}
         <div className="grid gap-1.5">
-          <Label className="text-sm" htmlFor={folderInputId}>
+          <Label className="text-xs" htmlFor={folderInputId}>
             Folder name
           </Label>
           <Input
@@ -384,7 +385,7 @@ function CloneFormPanel({
               errors.folderName ? `${folderInputId}-error` : undefined
             }
             aria-invalid={Boolean(errors.folderName)}
-            className="h-9 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={folderInputId}
             onChange={(event) => {
               setFolderName(event.target.value);
@@ -432,9 +433,9 @@ function CloneFormPanel({
       {formError ? (
         <section
           aria-live="polite"
-          className="border border-destructive/30 bg-destructive/8 p-4"
+          className="border border-destructive/30 bg-destructive/8 p-3"
         >
-          <p className="font-medium text-destructive text-sm">
+          <p className="font-medium text-destructive text-xs">
             Could not clone repository
           </p>
           <p className="mt-1 text-foreground/80 text-xs leading-relaxed">
@@ -446,9 +447,9 @@ function CloneFormPanel({
       {errors.sshKeyPair ? (
         <section
           aria-live="polite"
-          className="border border-amber-500/30 bg-amber-500/8 p-4"
+          className="border border-amber-500/30 bg-amber-500/8 p-3"
         >
-          <p className="font-medium text-amber-700 text-sm dark:text-amber-300">
+          <p className="font-medium text-amber-700 text-xs dark:text-amber-300">
             SSH key paths need attention
           </p>
           <p className="mt-1 text-foreground/80 text-xs leading-relaxed">
@@ -470,7 +471,7 @@ function CloneFormPanel({
             setRecurseSubmodules(checked === true);
           }}
         />
-        <span className="select-none text-foreground/85 text-sm">
+        <span className="select-none text-foreground/85 text-xs">
           Clone submodules recursively
         </span>
       </label>
@@ -480,7 +481,7 @@ function CloneFormPanel({
         <section
           aria-describedby={statusRegionId}
           aria-live="polite"
-          className="space-y-3 border border-primary/20 bg-primary/4 p-4"
+          className="space-y-3 border border-primary/20 bg-primary/4 p-3"
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
@@ -489,7 +490,7 @@ function CloneFormPanel({
                 className="size-4 shrink-0 animate-spin text-primary"
               />
               <p
-                className="min-w-0 truncate font-medium text-foreground text-sm"
+                className="min-w-0 truncate font-medium text-foreground text-xs"
                 id={statusRegionId}
               >
                 {progressMessage}
@@ -550,22 +551,26 @@ function CloneDialogFooter({
 
   if (successState) {
     return (
-      <DialogFooter className="m-0 border-border/60 bg-muted/22 px-6 py-4 sm:justify-between">
+      <DialogFooter className="m-0 border-border/60 bg-muted/22 px-4 py-3 sm:justify-between">
         <Button
+          className="text-xs"
           onClick={() => {
             onOpenChange(false);
           }}
+          size="sm"
           type="button"
           variant="outline"
         >
           Close
         </Button>
         <Button
+          className="text-xs"
           onClick={() => {
             handleOpenNow().catch(() => {
               return;
             });
           }}
+          size="sm"
           type="button"
         >
           <ArrowSquareOutIcon aria-hidden="true" className="size-4" />
@@ -576,24 +581,28 @@ function CloneDialogFooter({
   }
 
   return (
-    <DialogFooter className="m-0 border-border/60 bg-muted/22 px-6 py-4 sm:justify-between">
+    <DialogFooter className="m-0 border-border/60 bg-muted/22 px-4 py-3 sm:justify-between">
       <Button
+        className="text-xs"
         disabled={isBusy}
         onClick={() => {
           onOpenChange(false);
         }}
+        size="sm"
         type="button"
         variant="outline"
       >
         Cancel
       </Button>
       <Button
+        className="text-xs"
         disabled={isBusy}
         onClick={() => {
           handleClone().catch(() => {
             return;
           });
         }}
+        size="sm"
         type="button"
       >
         {actionIcon}
@@ -895,7 +904,7 @@ export function RepositoryCloneDialog({
         className="max-h-[min(92dvh,44rem)] max-w-[min(96vw,30rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,30rem)]"
         showCloseButton={!isBusy}
       >
-        <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">
+        <DialogHeader className="gap-1.5 border-border/50 border-b px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex size-8 shrink-0 items-center justify-center border border-border/50 bg-muted/25">
               {headerIcon}
@@ -904,7 +913,7 @@ export function RepositoryCloneDialog({
               {successState ? "Repository cloned" : "Clone a repository"}
             </DialogTitle>
           </div>
-          <DialogDescription className="max-w-[44ch] text-sm leading-relaxed">
+          <DialogDescription className="max-w-[44ch] text-xs leading-relaxed">
             {successState
               ? `"${successState.name}" is now available locally.`
               : "Clone from a remote URL into a local folder."}

@@ -47,16 +47,23 @@ export function RepositoryInitializeDialog({
 
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
-      <AlertDialogContent size="sm">
+      <AlertDialogContent className="gap-3 p-3 text-xs" size="sm">
         <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
+          <AlertDialogTitle className="text-sm">{title}</AlertDialogTitle>
+          <AlertDialogDescription className="text-xs">
+            {description}
+          </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={isInitializing} size="sm">
+        <AlertDialogFooter className="-mx-3 -mb-3 p-3">
+          <AlertDialogCancel
+            className="text-xs"
+            disabled={isInitializing}
+            size="sm"
+          >
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
+            className="text-xs"
             disabled={isInitializing}
             onClick={onConfirm}
             size="sm"

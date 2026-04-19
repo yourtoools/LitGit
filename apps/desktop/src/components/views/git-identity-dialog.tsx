@@ -143,19 +143,19 @@ export function GitIdentityDialog({
       open={open}
     >
       <DialogContent className="max-w-[min(96vw,32rem)] gap-0 overflow-hidden p-0">
-        <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">
+        <DialogHeader className="gap-1.5 border-border/50 border-b px-4 py-3">
           <DialogTitle className="text-sm">{title}</DialogTitle>
-          <DialogDescription className="max-w-[48ch] text-sm leading-relaxed">
+          <DialogDescription className="max-w-[48ch] text-xs leading-relaxed">
             {description}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 px-6 py-5">
-          <section className="border border-border/60 bg-muted/18 p-4">
-            <p className="font-medium text-foreground text-sm">
+        <div className="grid gap-4 px-4 py-4">
+          <section className="border border-border/60 bg-muted/18 p-3">
+            <p className="font-medium text-foreground text-xs">
               Current Git identity
             </p>
-            <p className="mt-1 text-muted-foreground text-sm">
+            <p className="mt-1 text-muted-foreground text-xs">
               {formatIdentityValue(
                 detectedIdentity?.name ?? null,
                 detectedIdentity?.email ?? null
@@ -167,7 +167,7 @@ export function GitIdentityDialog({
           </section>
 
           <div className="grid gap-1.5">
-            <Label className="text-sm" htmlFor="git-identity-name">
+            <Label className="text-xs" htmlFor="git-identity-name">
               Commit author name
             </Label>
             <Input
@@ -184,6 +184,7 @@ export function GitIdentityDialog({
                 setErrors((current) => ({ ...current, name: undefined }));
                 setFormError(null);
               }}
+              className="h-7 text-xs"
               placeholder="Jane Developer"
               value={formState.name}
             />
@@ -198,7 +199,7 @@ export function GitIdentityDialog({
           </div>
 
           <div className="grid gap-1.5">
-            <Label className="text-sm" htmlFor="git-identity-email">
+            <Label className="text-xs" htmlFor="git-identity-email">
               Commit author email
             </Label>
             <Input
@@ -215,6 +216,7 @@ export function GitIdentityDialog({
                 setErrors((current) => ({ ...current, email: undefined }));
                 setFormError(null);
               }}
+              className="h-7 text-xs"
               placeholder="jane@example.com"
               type="email"
               value={formState.email}
@@ -249,20 +251,24 @@ export function GitIdentityDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="m-0 border-border/60 bg-muted/22 px-6 py-4 sm:justify-between">
+        <DialogFooter className="m-0 border-border/60 bg-muted/22 px-4 py-3 sm:justify-between">
           <Button
+            className="text-xs"
             disabled={isSaving}
             onClick={() => onOpenChange(false)}
+            size="sm"
             type="button"
             variant="outline"
           >
             Cancel
           </Button>
           <Button
+            className="text-xs"
             disabled={isSaving}
             onClick={() => {
               handleSubmit().catch(() => undefined);
             }}
+            size="sm"
             type="button"
           >
             {isSaving ? "Saving..." : submitLabel}

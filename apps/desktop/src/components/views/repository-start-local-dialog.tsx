@@ -240,7 +240,7 @@ function TemplateSelect({
 
   return (
     <div className="grid gap-1.5">
-      <Label className="text-sm" htmlFor={id}>
+      <Label className="text-xs" htmlFor={id}>
         {label}
       </Label>
       <Combobox
@@ -294,17 +294,17 @@ function StartLocalSuccessPanel({
   successState: StartLocalSuccessState;
 }) {
   return (
-    <div className="space-y-4 px-6 py-5">
-      <section className="flex items-start gap-3 border border-emerald-500/20 bg-emerald-500/8 p-3.5">
+    <div className="space-y-4 px-4 py-4">
+      <section className="flex items-start gap-3 border border-emerald-500/20 bg-emerald-500/8 p-3">
         <CheckCircleIcon
           aria-hidden="true"
           className="mt-0.5 size-4.5 shrink-0 text-emerald-400"
         />
         <div className="min-w-0">
-          <p className="font-medium text-foreground text-sm">
+          <p className="font-medium text-foreground text-xs">
             Repository created successfully
           </p>
-          <p className="mt-0.5 text-muted-foreground text-sm leading-relaxed">
+          <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
             The new local repository is ready and has been added to your
             workspace.
           </p>
@@ -319,7 +319,7 @@ function StartLocalSuccessPanel({
           <p className="text-muted-foreground text-xs uppercase tracking-[0.12em]">
             Repository
           </p>
-          <p className="mt-0.5 font-medium text-foreground text-sm">
+          <p className="mt-0.5 font-medium text-foreground text-xs">
             {successState.name}
           </p>
         </div>
@@ -371,16 +371,16 @@ function StartLocalFormPanel({
     licenseTemplatesState.isLoading;
 
   return (
-    <div className="space-y-5 px-6 py-5">
+    <div className="space-y-5 px-4 py-4">
       <fieldset className="space-y-4" disabled={isBusy}>
         <div className="grid gap-1.5">
-          <Label className="text-sm" htmlFor={nameInputId}>
+          <Label className="text-xs" htmlFor={nameInputId}>
             Repository name
           </Label>
           <Input
             aria-describedby={errors.name ? `${nameInputId}-error` : undefined}
             aria-invalid={Boolean(errors.name)}
-            className="h-9 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={nameInputId}
             onChange={(event) => {
               setName(event.target.value);
@@ -404,7 +404,7 @@ function StartLocalFormPanel({
         </div>
 
         <div className="grid gap-1.5">
-          <Label className="text-sm" htmlFor={destinationInputId}>
+          <Label className="text-xs" htmlFor={destinationInputId}>
             Initialize in
           </Label>
           <div className="flex gap-2">
@@ -415,7 +415,7 @@ function StartLocalFormPanel({
                   : undefined
               }
               aria-invalid={Boolean(errors.destinationParent)}
-              className="h-9 flex-1 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+              className="h-7 flex-1 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
               id={destinationInputId}
               onChange={(event) => {
                 setDestinationParent(event.target.value);
@@ -430,12 +430,13 @@ function StartLocalFormPanel({
               value={destinationParent}
             />
             <Button
-              className="h-9 shrink-0 gap-1.5 px-3 text-sm"
+              className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
               onClick={() => {
                 handlePickDestination().catch(() => {
                   return;
                 });
               }}
+              size="sm"
               type="button"
               variant="outline"
             >
@@ -459,7 +460,7 @@ function StartLocalFormPanel({
         </div>
 
         <div className="grid gap-1.5">
-          <Label className="text-sm" htmlFor={defaultBranchInputId}>
+          <Label className="text-xs" htmlFor={defaultBranchInputId}>
             Default branch name
           </Label>
           <Input
@@ -467,7 +468,7 @@ function StartLocalFormPanel({
               errors.defaultBranch ? `${defaultBranchInputId}-error` : undefined
             }
             aria-invalid={Boolean(errors.defaultBranch)}
-            className="h-9 border-border/60 bg-background/60 px-3 font-mono text-sm placeholder:font-sans placeholder:text-muted-foreground/60"
+            className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={defaultBranchInputId}
             onChange={(event) => {
               setDefaultBranch(event.target.value);
@@ -538,9 +539,9 @@ function StartLocalFormPanel({
       {formError ? (
         <section
           aria-live="polite"
-          className="border border-destructive/30 bg-destructive/8 p-4"
+          className="border border-destructive/30 bg-destructive/8 p-3"
         >
-          <p className="font-medium text-destructive text-sm">
+          <p className="font-medium text-destructive text-xs">
             Could not create repository
           </p>
           <p className="mt-1 text-foreground/80 text-xs leading-relaxed">
@@ -553,7 +554,7 @@ function StartLocalFormPanel({
         <section
           aria-describedby={statusRegionId}
           aria-live="polite"
-          className="space-y-3 border border-primary/20 bg-primary/4 p-4"
+          className="space-y-3 border border-primary/20 bg-primary/4 p-3"
         >
           <div className="flex items-center gap-2.5">
             <SpinnerGapIcon
@@ -561,7 +562,7 @@ function StartLocalFormPanel({
               className="size-4 shrink-0 animate-spin text-primary"
             />
             <p
-              className="font-medium text-foreground text-sm"
+              className="font-medium text-foreground text-xs"
               id={statusRegionId}
             >
               Creating local repository...
@@ -587,22 +588,26 @@ function StartLocalDialogFooter({
 }: StartLocalDialogFooterProps) {
   if (successState) {
     return (
-      <DialogFooter className="m-0 border-border/60 bg-muted/22 px-6 py-4 sm:justify-between">
+      <DialogFooter className="m-0 border-border/60 bg-muted/22 px-4 py-3 sm:justify-between">
         <Button
+          className="text-xs"
           onClick={() => {
             onOpenChange(false);
           }}
+          size="sm"
           type="button"
           variant="outline"
         >
           Close
         </Button>
         <Button
+          className="text-xs"
           onClick={() => {
             handleOpenNow().catch(() => {
               return;
             });
           }}
+          size="sm"
           type="button"
         >
           <ArrowSquareOutIcon aria-hidden="true" className="size-4" />
@@ -619,25 +624,28 @@ function StartLocalDialogFooter({
   );
 
   return (
-    <DialogFooter className="m-0 border-border/60 bg-muted/22 px-6 py-4 sm:justify-between">
+    <DialogFooter className="m-0 border-border/60 bg-muted/22 px-4 py-3 sm:justify-between">
       <Button
+        className="text-xs"
         disabled={isBusy}
         onClick={() => {
           onOpenChange(false);
         }}
+        size="sm"
         type="button"
         variant="outline"
       >
         Cancel
       </Button>
       <Button
-        className={cn("min-w-38", isCreating && "pointer-events-none")}
+        className={cn("min-w-38 text-xs", isCreating && "pointer-events-none")}
         disabled={isBusy}
         onClick={() => {
           handleCreate().catch(() => {
             return;
           });
         }}
+        size="sm"
         type="button"
       >
         {actionIcon}
@@ -969,14 +977,14 @@ export function RepositoryStartLocalDialog({
           className="max-h-[min(92dvh,38rem)] max-w-[min(96vw,32rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"
           showCloseButton={!(isBusy || isGitIdentityDialogOpen)}
         >
-          <DialogHeader className="gap-1.5 border-border/50 border-b px-6 py-4">
+          <DialogHeader className="gap-1.5 border-border/50 border-b px-4 py-3">
             <div className="flex items-center gap-3">
               <div className="flex size-8 shrink-0 items-center justify-center border border-border/50 bg-muted/25">
                 {headerIcon}
               </div>
               <DialogTitle className="text-sm">{dialogTitle}</DialogTitle>
             </div>
-            <DialogDescription className="max-w-[48ch] text-sm leading-relaxed">
+            <DialogDescription className="max-w-[48ch] text-xs leading-relaxed">
               {dialogDescription}
             </DialogDescription>
           </DialogHeader>

@@ -35,23 +35,29 @@ export function DisconnectProviderDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="gap-3 p-3 text-xs sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Disconnect Account?</DialogTitle>
+          <DialogTitle className="text-sm">Disconnect Account?</DialogTitle>
           <DialogDescription className="text-xs">
             Are you sure you want to disconnect your {providerName} account?
             This will also remove any associated SSH keys.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="gap-2">
+        <DialogFooter className="-mx-3 -mb-3 gap-2 p-3">
           <Button
+            className="text-xs"
             onClick={() => onOpenChange(false)}
             size="sm"
             variant="outline"
           >
             Cancel
           </Button>
-          <Button onClick={handleDisconnect} size="sm" variant="destructive">
+          <Button
+            className="text-xs"
+            onClick={handleDisconnect}
+            size="sm"
+            variant="destructive"
+          >
             Disconnect
           </Button>
         </DialogFooter>

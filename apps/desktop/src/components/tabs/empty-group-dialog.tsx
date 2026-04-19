@@ -25,21 +25,27 @@ export function EmptyGroupDialog({
 }: EmptyGroupDialogProps) {
   return (
     <AlertDialog onOpenChange={onOpenChange} open={Boolean(group)}>
-      <AlertDialogContent size="sm">
+      <AlertDialogContent className="gap-3 p-3 text-xs" size="sm">
         <AlertDialogHeader>
-          <AlertDialogTitle>Empty tab group</AlertDialogTitle>
-          <AlertDialogDescription>
+          <AlertDialogTitle className="text-sm">Empty tab group</AlertDialogTitle>
+          <AlertDialogDescription className="text-xs">
             {group
               ? `Group "${group.name}" no longer has any tabs. Add a new tab to keep the group, or delete the empty group.`
               : "This group no longer has any tabs. Add a new tab to keep it, or delete the empty group."}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter className="sm:grid-cols-[1fr_1fr]">
-          <AlertDialogAction onClick={onKeepGroup} size="sm" variant="outline">
+        <AlertDialogFooter className="-mx-3 -mb-3 p-3 sm:grid-cols-[1fr_1fr]">
+          <AlertDialogAction
+            className="text-xs"
+            onClick={onKeepGroup}
+            size="sm"
+            variant="outline"
+          >
             Keep group
           </AlertDialogAction>
           {group && (
             <AlertDialogAction
+              className="text-xs"
               onClick={onDeleteGroup}
               size="sm"
               variant="destructive"

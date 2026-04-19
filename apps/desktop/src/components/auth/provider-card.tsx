@@ -339,17 +339,18 @@ export function ProviderCard({
       </div>
 
       <Dialog onOpenChange={setShowRemoveKeyDialog} open={showRemoveKeyDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="gap-3 p-3 text-xs sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base">Remove SSH Key?</DialogTitle>
+            <DialogTitle className="text-sm">Remove SSH Key?</DialogTitle>
             <DialogDescription className="text-xs">
               Are you sure you want to remove and delete this SSH key? This will
               remove it from your {providerName} account and delete the local
               key files.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2">
+          <DialogFooter className="-mx-3 -mb-3 gap-2 p-3">
             <Button
+              className="text-xs"
               onClick={() => setShowRemoveKeyDialog(false)}
               size="sm"
               variant="outline"
@@ -357,6 +358,7 @@ export function ProviderCard({
               Cancel
             </Button>
             <Button
+              className="text-xs"
               onClick={() => {
                 onRemoveKey();
                 setShowRemoveKeyDialog(false);
