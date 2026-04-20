@@ -139,14 +139,14 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { Antigravity } from "@litgit/ui/components/ui/svgs/antigravity";
-import { Bash } from "@litgit/ui/components/ui/svgs/bash";
-import { Linux } from "@litgit/ui/components/ui/svgs/linux";
-import { Powershell } from "@litgit/ui/components/ui/svgs/powershell";
-import { VisualStudio } from "@litgit/ui/components/ui/svgs/visual-studio";
-import { Vscode } from "@litgit/ui/components/ui/svgs/vscode";
-import { Cursor } from "@litgit/ui/components/ui/svgs/cursor";
-import { CursorDark } from "@litgit/ui/components/ui/svgs/cursor-dark";
+import { Antigravity } from "@litgit/ui/components/svgs/antigravity";
+import { Bash } from "@litgit/ui/components/svgs/bash";
+import { Linux } from "@litgit/ui/components/svgs/linux";
+import { Powershell } from "@litgit/ui/components/svgs/powershell";
+import { VisualStudio } from "@litgit/ui/components/svgs/visual-studio";
+import { Vscode } from "@litgit/ui/components/svgs/vscode";
+import { Cursor } from "@litgit/ui/components/svgs/cursor";
+import { CursorDark } from "@litgit/ui/components/svgs/cursor-dark";
 import { resolveLanguage } from "@/components/code-editor/utils/language-resolver";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import {
