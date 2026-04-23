@@ -32,7 +32,10 @@ const getRepoCacheState = (
   id: string,
   forceRefresh: boolean
 ): RepoCacheState => ({
-  hasCommits: !forceRefresh && Boolean(get().repoCommits[id]),
+  hasCommits:
+    !forceRefresh &&
+    Boolean(get().repoCommits[id]) &&
+    Boolean(get().repoHistoryGraphsById[id]),
   hasBranches: !forceRefresh && Boolean(get().repoBranches[id]),
   hasRemoteNames: !forceRefresh && Boolean(get().repoRemoteNames[id]),
   hasStashes: !forceRefresh && Boolean(get().repoStashes[id]),
@@ -123,6 +126,10 @@ const applyRepoPayloads = (
       repoCommits: {
         ...state.repoCommits,
         [id]: historyPayload.commits,
+      },
+      repoHistoryGraphsById: {
+        ...state.repoHistoryGraphsById,
+        [id]: historyPayload.graph,
       },
     }));
   }

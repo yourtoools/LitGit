@@ -700,7 +700,16 @@ pub(crate) fn set_provider_custom_ssh_key(
 // Tauri commands
 /// Generates an SSH key for a provider and uploads it.
 #[tauri::command]
-pub(crate) fn generate_provider_ssh_key(
+pub(crate) async fn generate_provider_ssh_key(
+    provider: String,
+    title: Option<String>,
+) -> Result<SshKeyInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || generate_provider_ssh_key_inner(provider, title))
+        .await
+        .map_err(|error| format!("Failed to generate provider SSH key: {error}"))?
+}
+
+fn generate_provider_ssh_key_inner(
     provider: String,
     title: Option<String>,
 ) -> Result<SshKeyInfo, String> {
@@ -710,21 +719,46 @@ pub(crate) fn generate_provider_ssh_key(
 
 /// Removes a provider SSH key.
 #[tauri::command]
-pub(crate) fn remove_provider_ssh_key_cmd(provider: String) -> Result<(), String> {
+pub(crate) async fn remove_provider_ssh_key_cmd(provider: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || remove_provider_ssh_key_cmd_inner(provider))
+        .await
+        .map_err(|error| format!("Failed to remove provider SSH key: {error}"))?
+}
+
+fn remove_provider_ssh_key_cmd_inner(provider: String) -> Result<(), String> {
     let provider = OAuthProvider::from_str(&provider).map_err(|e| e.to_string())?;
     remove_provider_ssh_key(&provider).map_err(|e| e.to_string())
 }
 
 /// Gets the SSH status for a provider.
 #[tauri::command]
-pub(crate) fn get_provider_ssh_status_cmd(provider: String) -> Result<ProviderSshStatus, String> {
+pub(crate) async fn get_provider_ssh_status_cmd(
+    provider: String,
+) -> Result<ProviderSshStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || get_provider_ssh_status_cmd_inner(provider))
+        .await
+        .map_err(|error| format!("Failed to get provider SSH status: {error}"))?
+}
+
+fn get_provider_ssh_status_cmd_inner(provider: String) -> Result<ProviderSshStatus, String> {
     let provider = OAuthProvider::from_str(&provider).map_err(|e| e.to_string())?;
     get_provider_ssh_status(&provider).map_err(|e| e.to_string())
 }
 
 /// Sets whether to use the system SSH agent for a provider.
 #[tauri::command]
-pub(crate) fn set_provider_ssh_use_system_agent(
+pub(crate) async fn set_provider_ssh_use_system_agent(
+    provider: String,
+    use_system_agent: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        set_provider_ssh_use_system_agent_inner(provider, use_system_agent)
+    })
+    .await
+    .map_err(|error| format!("Failed to update provider SSH agent mode: {error}"))?
+}
+
+fn set_provider_ssh_use_system_agent_inner(
     provider: String,
     use_system_agent: bool,
 ) -> Result<(), String> {
@@ -734,7 +768,18 @@ pub(crate) fn set_provider_ssh_use_system_agent(
 
 /// Sets a custom SSH key path for a provider.
 #[tauri::command]
-pub(crate) fn set_provider_custom_ssh_key_cmd(
+pub(crate) async fn set_provider_custom_ssh_key_cmd(
+    provider: String,
+    private_key_path: String,
+) -> Result<SshKeyInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        set_provider_custom_ssh_key_cmd_inner(provider, private_key_path)
+    })
+    .await
+    .map_err(|error| format!("Failed to set provider SSH key: {error}"))?
+}
+
+fn set_provider_custom_ssh_key_cmd_inner(
     provider: String,
     private_key_path: String,
 ) -> Result<SshKeyInfo, String> {

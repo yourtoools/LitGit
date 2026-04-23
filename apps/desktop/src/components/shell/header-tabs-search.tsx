@@ -18,42 +18,20 @@ import {
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
 import { PopoverContent } from "@litgit/ui/components/popover";
-import { Antigravity } from "@litgit/ui/components/svgs/antigravity";
-import { Bash } from "@litgit/ui/components/svgs/bash";
-import { Linux } from "@litgit/ui/components/svgs/linux";
-import { Powershell } from "@litgit/ui/components/svgs/powershell";
-import { Vscode } from "@litgit/ui/components/svgs/vscode";
-import { Cursor } from "@litgit/ui/components/svgs/cursor";
-import { CursorDark } from "@litgit/ui/components/svgs/cursor-dark";
-import { cn } from "@litgit/ui/lib/utils";
 import { useWindowEvent } from "@mantine/hooks";
-import {
-  ArrowClockwiseIcon,
-  ArrowCounterClockwiseIcon,
-  ArrowDownIcon,
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowsLeftRightIcon,
-  ArrowUpIcon,
-  CopyIcon,
-  DownloadSimpleIcon,
-  FileIcon,
-  FolderOpenIcon,
-  GearIcon,
-  GitBranchIcon,
-  MagnifyingGlassIcon,
-  PlusIcon,
-  TerminalWindowIcon,
-  UploadSimpleIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { FileIcon, GitBranchIcon, XIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { useTheme } from "next-themes";
-import { matchSorter } from "match-sorter";
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { renderHeaderTabsCommandIcon } from "@/components/shell/header-tabs-search-icons";
+import {
+  type HeaderTabsCommandPaletteItem,
+  type HeaderTabsSearchTabItem,
+  searchHeaderTabsPalette,
+} from "@/components/shell/header-tabs-search-search";
 import { UngroupConfirmDialog } from "@/components/tabs/ungroup-confirm-dialog";
 import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
 import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
@@ -85,6 +63,8 @@ import {
   getLauncherApplications,
   openPathWithApplication,
 } from "@/lib/tauri-settings-client";
+import { createWorkerClient } from "@/lib/workers/create-worker-client";
+import { runWorkerTask } from "@/lib/workers/run-worker-task";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { useRootActiveRepoContext } from "@/stores/repo/repo-root-selectors";
 import {
@@ -100,211 +80,14 @@ import { useTabStore } from "@/stores/tabs/use-tab-store";
 import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
 import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
-interface SearchTabItem {
-  groupId: string | null;
-  id: string;
-  repoId: string | null;
-  tabId: string;
-  title: string;
-  type: "closed" | "open";
-}
-
-interface CommandPaletteItem {
-  description: string;
-  disabled: boolean;
-  group: string;
-  id: string;
-  keywords: string[];
-  label: string;
-  shortcuts?: string[];
-  type: "command";
-}
-
-type PaletteItem = CommandPaletteItem | SearchTabItem;
+type PaletteItem = HeaderTabsCommandPaletteItem | HeaderTabsSearchTabItem;
 
 const SCROLLBAR_CLASSES =
   "[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2";
 
-function ExplorerIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={cn("size-[14px] shrink-0", className)}
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M3 7.25h8.1l1.4 1.6H21v8.9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-10.5Z"
-        fill="#FFD54F"
-      />
-      <path
-        d="M3 8.25a2 2 0 0 1 2-2h5.55l1.4 1.6H19a2 2 0 0 1 2 2v.4H3v-2Z"
-        fill="#64B5F6"
-      />
-      <path
-        d="M3 10.25h18l-1.38 6.08a2 2 0 0 1-1.95 1.56H5.33a2 2 0 0 1-1.95-1.56L3 10.25Z"
-        fill="#FFCA28"
-      />
-    </svg>
-  );
-}
-
-const renderCommandIcon = (commandId: string, resolvedTheme?: string) => {
-  if (commandId.startsWith("settings:") || commandId === "open-settings") {
-    return (
-      <GearIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-    );
-  }
-
-  if (commandId.startsWith("open-with:")) {
-    const appId = commandId.replace("open-with:", "");
-
-    switch (appId) {
-      case "file-manager":
-        return <ExplorerIcon className="mt-0.5 shrink-0" />;
-      case "terminal":
-        return <Powershell className="mt-0.5 size-3.5 shrink-0" />;
-      case "vscode":
-        return <Vscode className="mt-0.5 size-3.5 shrink-0" />;
-      case "cursor":
-        if (resolvedTheme === "dark") {
-          return <CursorDark className="mt-0.5 size-3.5 shrink-0" />;
-        }
-        return <Cursor className="mt-0.5 size-3.5 shrink-0" />;
-      case "antigravity":
-        return <Antigravity className="mt-0.5 size-3.5 shrink-0" />;
-
-      case "git-bash":
-        return <Bash className="mt-0.5 size-3.5 shrink-0" />;
-      case "wsl":
-        return <Linux className="mt-0.5 size-3.5 shrink-0" />;
-      default:
-        return (
-          <FolderOpenIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-        );
-    }
-  }
-
-  switch (commandId) {
-    case "new-tab": {
-      return (
-        <PlusIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "close-tab": {
-      return (
-        <XIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "reopen-tab": {
-      return (
-        <ArrowCounterClockwiseIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "next-tab": {
-      return (
-        <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "previous-tab": {
-      return (
-        <ArrowLeftIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "search-tabs": {
-      return (
-        <MagnifyingGlassIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "clone-repository": {
-      return (
-        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "create-local-repository": {
-      return (
-        <PlusIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "open-repository": {
-      return (
-        <FolderOpenIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "create-branch": {
-      return (
-        <GitBranchIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "pull": {
-      return (
-        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "pull-fetch-all": {
-      return (
-        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "pull-ff-only": {
-      return (
-        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "pull-rebase": {
-      return (
-        <ArrowDownIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "push": {
-      return (
-        <ArrowUpIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "undo-repo-action": {
-      return (
-        <ArrowCounterClockwiseIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "redo-repo-action": {
-      return (
-        <ArrowClockwiseIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "stash-changes": {
-      return (
-        <DownloadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "pop-stash": {
-      return (
-        <UploadSimpleIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "change-repository": {
-      return (
-        <ArrowsLeftRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "copy-repo-path": {
-      return (
-        <CopyIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    case "toggle-terminal": {
-      return (
-        <TerminalWindowIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-    default: {
-      return (
-        <GitBranchIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      );
-    }
-  }
-};
-
-const isCommandItem = (item: PaletteItem): item is CommandPaletteItem => {
+const isCommandItem = (
+  item: PaletteItem
+): item is HeaderTabsCommandPaletteItem => {
   return item.type === "command";
 };
 
@@ -485,7 +268,7 @@ export function HeaderTabsSearch() {
       ? tabs[(activeTabIndex - 1 + tabs.length) % tabs.length]
       : null;
 
-  const settingsCommands = useMemo<CommandPaletteItem[]>(() => {
+  const settingsCommands = useMemo<HeaderTabsCommandPaletteItem[]>(() => {
     return [
       {
         description: "Open workspace settings.",
@@ -571,8 +354,8 @@ export function HeaderTabsSearch() {
     ];
   }, []);
 
-  const launcherCommands = launcherApplications.map<CommandPaletteItem>(
-    (application) => ({
+  const launcherCommands =
+    launcherApplications.map<HeaderTabsCommandPaletteItem>((application) => ({
       description: activeRepo
         ? `Open ${activeRepo.name} with ${application.label}.`
         : `Open the active repository with ${application.label}.`,
@@ -589,10 +372,9 @@ export function HeaderTabsSearch() {
       ],
       label: `Open With: ${application.label}`,
       type: "command",
-    })
-  );
+    }));
 
-  const commands = useMemo<CommandPaletteItem[]>(() => {
+  const commands = useMemo<HeaderTabsCommandPaletteItem[]>(() => {
     return [
       {
         description: "Create a fresh empty tab.",
@@ -865,7 +647,7 @@ export function HeaderTabsSearch() {
   ]);
 
   const parsedItems = useMemo(() => {
-    const openItems: SearchTabItem[] = tabs.map((tab) => ({
+    const openItems: HeaderTabsSearchTabItem[] = tabs.map((tab) => ({
       groupId: tab.groupId,
       id: `open-${tab.id}`,
       repoId: tab.repoId,
@@ -881,7 +663,7 @@ export function HeaderTabsSearch() {
     );
     const hasOpenNewTab = openItems.some((item) => item.repoId === null);
 
-    const closedItems: SearchTabItem[] = [];
+    const closedItems: HeaderTabsSearchTabItem[] = [];
     let hasClosedNewTab = false;
     const seenClosedRepoIds = new Set<string>();
 
@@ -921,62 +703,80 @@ export function HeaderTabsSearch() {
 
     return { closedItems, openItems };
   }, [closedTabHistory, tabs]);
+  const searchWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      Parameters<typeof searchHeaderTabsPalette>[0],
+      ReturnType<typeof searchHeaderTabsPalette>
+    >
+  > | null>(null);
+  const [searchResults, setSearchResults] = useState(() =>
+    searchHeaderTabsPalette({
+      closedItems: [],
+      commands: [],
+      normalizedCommandQuery: "",
+      normalizedTabQuery: "",
+      openItems: [],
+    })
+  );
 
-  const filteredOpen = useMemo(() => {
-    if (normalizedDebouncedQuery.length === 0) {
-      return parsedItems.openItems;
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
     }
 
-    return matchSorter(parsedItems.openItems, normalizedDebouncedQuery, {
-      keys: ["title"],
-    });
-  }, [normalizedDebouncedQuery, parsedItems.openItems]);
+    try {
+      const client = createWorkerClient<
+        Parameters<typeof searchHeaderTabsPalette>[0],
+        ReturnType<typeof searchHeaderTabsPalette>
+      >(
+        () =>
+          new Worker(
+            new URL("./header-tabs-search.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "header-tabs-search" }
+      );
+      searchWorkerClientRef.current = client;
 
-  const filteredClosed = useMemo(() => {
-    if (normalizedDebouncedQuery.length === 0) {
-      return parsedItems.closedItems;
+      return () => {
+        searchWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      searchWorkerClientRef.current = null;
+      return;
     }
+  }, []);
 
-    return matchSorter(parsedItems.closedItems, normalizedDebouncedQuery, {
-      keys: ["title"],
-    });
-  }, [normalizedDebouncedQuery, parsedItems.closedItems]);
+  useEffect(() => {
+    const nextInput = {
+      closedItems: parsedItems.closedItems,
+      commands,
+      normalizedCommandQuery,
+      normalizedTabQuery: normalizedDebouncedQuery,
+      openItems: parsedItems.openItems,
+    };
+    const workerClient = searchWorkerClientRef.current;
+    let cancelled = false;
 
-  const filteredCommands = useMemo(() => {
-    if (normalizedCommandQuery.length === 0) {
-      return commands;
-    }
+    runWorkerTask(workerClient, nextInput, searchHeaderTabsPalette).then(
+      (result) => {
+        if (!cancelled) {
+          setSearchResults(result);
+        }
+      },
+      () => undefined
+    );
 
-    return matchSorter(commands, normalizedCommandQuery, {
-      keys: [
-        "label",
-        "description",
-        "group",
-        (command) => command.keywords,
-        (command) => command.shortcuts ?? [],
-        (command) =>
-          command.shortcuts
-            ? [
-                command.shortcuts.join(" "),
-                command.shortcuts.join("+"),
-                command.shortcuts.join(" + "),
-              ]
-            : [],
-      ],
-    });
-  }, [commands, normalizedCommandQuery]);
+    return () => {
+      cancelled = true;
+    };
+  }, [commands, normalizedCommandQuery, normalizedDebouncedQuery, parsedItems]);
 
-  const commandGroups = useMemo(() => {
-    const groupedCommands = new Map<string, CommandPaletteItem[]>();
-
-    for (const command of filteredCommands) {
-      const currentGroup = groupedCommands.get(command.group) ?? [];
-      currentGroup.push(command);
-      groupedCommands.set(command.group, currentGroup);
-    }
-
-    return Array.from(groupedCommands.entries());
-  }, [filteredCommands]);
+  const { commandGroups, filteredClosed, filteredCommands, filteredOpen } =
+    searchResults;
 
   const hasResults = isCommandMode
     ? filteredCommands.length > 0
@@ -1289,7 +1089,10 @@ export function HeaderTabsSearch() {
     setActiveTabFromUrl(newId);
   };
 
-  const handleCloseTab = (event: React.MouseEvent, item: SearchTabItem) => {
+  const handleCloseTab = (
+    event: React.MouseEvent,
+    item: HeaderTabsSearchTabItem
+  ) => {
     event.stopPropagation();
     event.preventDefault();
     requestCloseTab(item.tabId);
@@ -1409,9 +1212,11 @@ export function HeaderTabsSearch() {
                         disabled={item.disabled}
                         key={item.id}
                         value={item}
-                        >
-                        {renderCommandIcon(item.id, resolvedTheme)}
-                        <div className="min-w-0 flex-1">                          <div className="truncate font-medium">
+                      >
+                        {renderHeaderTabsCommandIcon(item.id, resolvedTheme)}
+                        <div className="min-w-0 flex-1">
+                          {" "}
+                          <div className="truncate font-medium">
                             {item.label}
                           </div>
                           <div className="line-clamp-2 text-[11px] text-muted-foreground group-data-highlighted:text-accent-foreground/80">

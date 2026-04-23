@@ -209,8 +209,7 @@ const SAMPLE_CODE = `function greet(name: string): string {
   return \`Hello, \${name}!\`;
 }
 
-const message = greet("World");
-console.log(message);
+export const message = greet("World");
 `;
 
 const SAMPLE_DIFF_ORIGINAL = `function greet(name: string): string {

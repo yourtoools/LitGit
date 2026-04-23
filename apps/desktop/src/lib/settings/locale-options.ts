@@ -117,21 +117,34 @@ const LOCALE_CANDIDATES = [
   "zh-TW",
 ] as const;
 
-const localeDisplayNames = new Intl.DisplayNames(["en"], {
-  fallback: "code",
-  type: "language",
-});
+let localeDisplayNamesCache: Intl.DisplayNames | null = null;
+let localeOptionByCodeCache: ReadonlyMap<string, LocaleOption> | null = null;
+let localeOptionsCache: readonly LocaleOption[] | null = null;
+let regionDisplayNamesCache: Intl.DisplayNames | null = null;
 
-const regionDisplayNames = new Intl.DisplayNames(["en"], {
-  fallback: "code",
-  type: "region",
-});
+const getLocaleDisplayNames = (): Intl.DisplayNames => {
+  localeDisplayNamesCache ??= new Intl.DisplayNames(["en"], {
+    fallback: "code",
+    type: "language",
+  });
+
+  return localeDisplayNamesCache;
+};
+
+const getRegionDisplayNames = (): Intl.DisplayNames => {
+  regionDisplayNamesCache ??= new Intl.DisplayNames(["en"], {
+    fallback: "code",
+    type: "region",
+  });
+
+  return regionDisplayNamesCache;
+};
 
 const buildLocaleOption = (code: string): LocaleOption => {
   const [languageCode = code, regionCode] = code.split("-");
-  const languageName = localeDisplayNames.of(languageCode) ?? languageCode;
+  const languageName = getLocaleDisplayNames().of(languageCode) ?? languageCode;
   const regionName = regionCode
-    ? (regionDisplayNames.of(regionCode) ?? regionCode)
+    ? (getRegionDisplayNames().of(regionCode) ?? regionCode)
     : null;
   const displayName = regionName
     ? `${languageName} (${regionName})`
@@ -155,11 +168,24 @@ const buildLocaleOption = (code: string): LocaleOption => {
   };
 };
 
-export const LOCALE_OPTIONS: readonly LocaleOption[] = [
-  SYSTEM_LOCALE_OPTION,
-  ...LOCALE_CANDIDATES.map(buildLocaleOption),
-];
+export const getLocaleOptions = (): readonly LocaleOption[] => {
+  if (localeOptionsCache) {
+    return localeOptionsCache;
+  }
+
+  const options = [SYSTEM_LOCALE_OPTION, ...LOCALE_CANDIDATES.map(buildLocaleOption)];
+  localeOptionsCache = options;
+  localeOptionByCodeCache = new Map(
+    options.map((option) => [option.code, option])
+  );
+
+  return localeOptionsCache;
+};
 
 export const getLocaleOption = (code: string): LocaleOption | null => {
-  return LOCALE_OPTIONS.find((option) => option.code === code) ?? null;
+  localeOptionByCodeCache ??= new Map(
+    getLocaleOptions().map((option) => [option.code, option])
+  );
+
+  return localeOptionByCodeCache.get(code) ?? null;
 };

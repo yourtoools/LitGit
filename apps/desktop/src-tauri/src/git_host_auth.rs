@@ -224,12 +224,10 @@ pub(crate) fn fetch_gitlab_avatar_for_username(
         .build();
     let agent = ureq::Agent::new_with_config(config);
 
-    let request = request
-        .body(())
-        .map_err(|e| GitHostAuthError::Http {
-            action: "build GitLab avatar request",
-            detail: e.to_string(),
-        })?;
+    let request = request.body(()).map_err(|e| GitHostAuthError::Http {
+        action: "build GitLab avatar request",
+        detail: e.to_string(),
+    })?;
 
     let payload = read_json_response(
         agent.run(request),
@@ -270,12 +268,10 @@ pub(crate) fn fetch_gitlab_avatar_for_user_id(
         .build();
     let agent = ureq::Agent::new_with_config(config);
 
-    let request = request
-        .body(())
-        .map_err(|e| GitHostAuthError::Http {
-            action: "build GitLab avatar request",
-            detail: e.to_string(),
-        })?;
+    let request = request.body(()).map_err(|e| GitHostAuthError::Http {
+        action: "build GitLab avatar request",
+        detail: e.to_string(),
+    })?;
 
     let payload = read_json_response(
         agent.run(request),
@@ -317,12 +313,10 @@ pub(crate) fn fetch_bitbucket_avatar_for_username(
             request = request.header("Authorization", format!("Bearer {token_str}"));
         }
 
-        let request = request
-            .body(())
-            .map_err(|e| GitHostAuthError::Http {
-                action: "build Bitbucket avatar request",
-                detail: e.to_string(),
-            })?;
+        let request = request.body(()).map_err(|e| GitHostAuthError::Http {
+            action: "build Bitbucket avatar request",
+            detail: e.to_string(),
+        })?;
 
         match read_json_response(
             agent.run(request),

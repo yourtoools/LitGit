@@ -28,9 +28,9 @@ struct QueuePromptRequest {
 
 /// Response from queuing a prompt
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct QueuePromptResponse {
-    prompt_id: String,
+    #[serde(rename = "promptId")]
+    prompt_id: serde::de::IgnoredAny,
 }
 
 /// Response containing user credentials
@@ -72,40 +72,54 @@ fn read_prompt_argument(args: &[String]) -> Option<&str> {
 
 /// Extracts host information from the prompt text
 fn extract_host_from_prompt(prompt: &str) -> Option<String> {
-    // Match patterns like "user@host's password" or "Password for 'https://user@host':"
-    if let Some(start) = prompt.find('@') {
-        let after_at = &prompt[start + 1..];
-        let end = after_at
-            .find('\'')
-            .or_else(|| after_at.find(' '))
-            .or_else(|| after_at.find('\''))
-            .unwrap_or(after_at.len());
-        let host = &after_at[..end];
-        if !host.is_empty() {
-            return Some(host.to_string());
-        }
-    }
-
+    // Match URL prompts like "Password for 'https://user@host:port':" first.
     if let Some(start) = prompt.find("for '") {
         let after_for = &prompt[start + 5..];
         if let Some(end) = after_for.find('\'') {
             let url = &after_for[..end];
             if let Some(host_start) = url.find("//") {
-                let after_scheme = &url[host_start + 2..];
-                let host_end = after_scheme
-                    .find('/')
-                    .or_else(|| after_scheme.find(':'))
-                    .or_else(|| after_scheme.find('@'))
-                    .and_then(|at| {
-                        let after_at = &after_scheme[at + 1..];
-                        after_at.find('/').map(|slash| at + 1 + slash)
-                    })
-                    .unwrap_or(after_scheme.len());
-                let host = &after_scheme[..host_end];
-                if !host.is_empty() {
-                    return Some(host.to_string());
+                let authority = &url[host_start + 2..];
+                let host_port = authority
+                    .rsplit_once('@')
+                    .map_or(authority, |(_, host)| host);
+                if let Some(bracketed) = host_port.strip_prefix('[') {
+                    let bracket_end = bracketed.find(']')?;
+                    let host = &bracketed[..bracket_end];
+                    if !host.is_empty() {
+                        return Some(host.to_string());
+                    }
+                } else {
+                    let host_end = host_port
+                        .find('/')
+                        .or_else(|| host_port.find(':'))
+                        .unwrap_or(host_port.len());
+                    let host = &host_port[..host_end];
+                    if !host.is_empty() {
+                        return Some(host.to_string());
+                    }
                 }
             }
+        }
+    }
+
+    // Match SSH prompts like "user@host's password:".
+    if let Some(start) = prompt.find('@') {
+        let after_at = &prompt[start + 1..];
+        let end = after_at
+            .find('\'')
+            .or_else(|| after_at.find(' '))
+            .unwrap_or(after_at.len());
+        let host_port = &after_at[..end];
+        let host = if let Some(bracketed) = host_port.strip_prefix('[') {
+            bracketed
+                .find(']')
+                .map(|bracket_end| &bracketed[..bracket_end])
+                .unwrap_or(host_port)
+        } else {
+            host_port.split(':').next().unwrap_or(host_port)
+        };
+        if !host.is_empty() {
+            return Some(host.to_string());
         }
     }
 
@@ -114,8 +128,8 @@ fn extract_host_from_prompt(prompt: &str) -> Option<String> {
 
 /// Extracts username from the prompt text
 fn extract_username_from_prompt(prompt: &str) -> Option<String> {
-    if let Some(start) = prompt.find("Username for '") {
-        let after_for = &prompt[start + 14..];
+    if let Some(start) = prompt.find("for '") {
+        let after_for = &prompt[start + 5..];
         if let Some(end) = after_for.find('\'') {
             let url = &after_for[..end];
             if let Some(at_pos) = url.find('@') {
@@ -220,8 +234,10 @@ fn run_askpass_unix(socket_path: &str, prompt: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to read queue response: {}", e))?;
 
     // Try to parse as QueuePromptResponse
-    let _prompt_id = match serde_json::from_str::<QueuePromptResponse>(&response_line) {
-        Ok(r) => r.prompt_id,
+    match serde_json::from_str::<QueuePromptResponse>(&response_line) {
+        Ok(QueuePromptResponse { prompt_id }) => {
+            let _ = prompt_id;
+        }
         Err(_) => {
             // Try to parse as error
             if let Ok(error) = serde_json::from_str::<ErrorResponse>(&response_line) {
@@ -307,8 +323,10 @@ fn run_askpass_windows(pipe_name: &str, prompt: &str) -> Result<String, String> 
     )?;
 
     // Try to parse as QueuePromptResponse
-    let _prompt_id = match serde_json::from_str::<QueuePromptResponse>(&response_line) {
-        Ok(r) => r.prompt_id,
+    match serde_json::from_str::<QueuePromptResponse>(&response_line) {
+        Ok(QueuePromptResponse { prompt_id }) => {
+            let _ = prompt_id;
+        }
         Err(_) => {
             if let Ok(error) = serde_json::from_str::<ErrorResponse>(&response_line) {
                 return Err(format!("Server error ({}): {}", error.code, error.error));
@@ -428,19 +446,26 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, OnceLock};
+
     use super::{
         extract_host_from_prompt, extract_username_from_prompt, read_prompt_argument,
-        resolve_prompt_output, take_next_ndjson_frame, PromptResponse,
+        resolve_prompt_output, run_askpass_unix, take_next_ndjson_frame, PromptResponse,
     };
 
+    fn askpass_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
     #[test]
-    fn test_read_prompt_argument_returns_first_prompt() {
+    fn read_prompt_argument_returns_first_prompt_argument() {
         let args = vec!["askpass".to_string(), "Password for host".to_string()];
         assert_eq!(read_prompt_argument(&args), Some("Password for host"));
     }
 
     #[test]
-    fn test_extract_host_from_ssh_prompt() {
+    fn extract_host_from_prompt_reads_ssh_host() {
         let prompt = "git@github.com's password:";
         assert_eq!(
             extract_host_from_prompt(prompt),
@@ -449,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_host_from_https_prompt() {
+    fn extract_host_from_prompt_reads_https_host() {
         let prompt = "Password for 'https://github.com':";
         assert_eq!(
             extract_host_from_prompt(prompt),
@@ -458,7 +483,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_host_from_https_with_user() {
+    fn extract_host_from_prompt_reads_https_host_with_username() {
         let prompt = "Password for 'https://user@github.com':";
         assert_eq!(
             extract_host_from_prompt(prompt),
@@ -467,7 +492,52 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_username_from_prompt() {
+    fn extract_host_from_prompt_reads_https_host_with_username_and_port() {
+        let prompt = "Password for 'https://user@github.com:8443':";
+        assert_eq!(
+            extract_host_from_prompt(prompt),
+            Some("github.com".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_host_from_prompt_reads_https_host_with_repository_path() {
+        let prompt = "Password for 'https://user@github.com/owner/repo.git':";
+        assert_eq!(
+            extract_host_from_prompt(prompt),
+            Some("github.com".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_host_from_prompt_reads_https_ipv6_host_with_port() {
+        let prompt = "Password for 'https://user@[2001:db8::1]:8443':";
+        assert_eq!(
+            extract_host_from_prompt(prompt),
+            Some("2001:db8::1".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_host_from_prompt_reads_ssh_ipv6_host_without_brackets() {
+        let prompt = "git@[2001:db8::1]'s password:";
+        assert_eq!(
+            extract_host_from_prompt(prompt),
+            Some("2001:db8::1".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_host_from_prompt_reads_ssh_ipv6_host_with_port() {
+        let prompt = "git@[2001:db8::1]:2222's password:";
+        assert_eq!(
+            extract_host_from_prompt(prompt),
+            Some("2001:db8::1".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_username_from_prompt_reads_https_username() {
         let prompt = "Username for 'https://myuser@github.com':";
         assert_eq!(
             extract_username_from_prompt(prompt),
@@ -476,7 +546,22 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_username_from_ssh_style() {
+    fn extract_username_from_prompt_reads_https_password_prompt_username() {
+        let prompt = "Password for 'https://myuser@github.com':";
+        assert_eq!(
+            extract_username_from_prompt(prompt),
+            Some("myuser".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_username_from_prompt_returns_none_without_embedded_username() {
+        let prompt = "Password for 'https://github.com/owner/repo.git':";
+        assert_eq!(extract_username_from_prompt(prompt), None);
+    }
+
+    #[test]
+    fn extract_username_from_prompt_reads_ssh_username() {
         let prompt = "myuser@github.com's password:";
         assert_eq!(
             extract_username_from_prompt(prompt),
@@ -485,7 +570,7 @@ mod tests {
     }
 
     #[test]
-    fn test_take_next_ndjson_frame_splits_buffer_by_newline() {
+    fn take_next_ndjson_frame_splits_buffer_on_newlines() {
         let mut pending = "{\"promptId\":\"first\"}\n{\"secret\":\"second\"}\n".to_string();
 
         let first = take_next_ndjson_frame(&mut pending);
@@ -498,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_prompt_output_prefers_username_for_username_prompt() {
+    fn resolve_prompt_output_prefers_username_for_username_prompt() {
         let response = PromptResponse {
             username: Some("octocat".to_string()),
             secret: Some("super-secret".to_string()),
@@ -510,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_prompt_output_prefers_secret_for_password_prompt() {
+    fn resolve_prompt_output_prefers_secret_for_password_prompt() {
         let response = PromptResponse {
             username: Some("octocat".to_string()),
             secret: Some("super-secret".to_string()),
@@ -522,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_prompt_output_rejects_empty_response() {
+    fn resolve_prompt_output_rejects_empty_prompt_response() {
         let response = PromptResponse {
             username: None,
             secret: None,
@@ -530,5 +615,33 @@ mod tests {
 
         let result = resolve_prompt_output("Password for 'https://github.com':", response);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_askpass_unix_requires_session_environment_variables() {
+        let _guard = askpass_env_lock().lock().expect("env lock");
+        std::env::remove_var("LITGIT_ASKPASS_SESSION");
+        std::env::remove_var("LITGIT_ASKPASS_SECRET");
+
+        let result = run_askpass_unix("/tmp/litgit.sock", "Password for 'https://github.com':");
+
+        assert_eq!(
+            result,
+            Err("Missing required environment variables. Ensure LITGIT_ASKPASS_SESSION and LITGIT_ASKPASS_SECRET are set.".to_string())
+        );
+    }
+
+    #[test]
+    fn run_askpass_unix_rejects_empty_prompt_before_connecting() {
+        let _guard = askpass_env_lock().lock().expect("env lock");
+        std::env::set_var("LITGIT_ASKPASS_SESSION", "session");
+        std::env::set_var("LITGIT_ASKPASS_SECRET", "secret");
+
+        let result = run_askpass_unix("/tmp/litgit.sock", "");
+
+        assert_eq!(result, Err("Empty prompt provided".to_string()));
+
+        std::env::remove_var("LITGIT_ASKPASS_SESSION");
+        std::env::remove_var("LITGIT_ASKPASS_SECRET");
     }
 }

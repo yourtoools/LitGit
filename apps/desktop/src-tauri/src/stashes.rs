@@ -1,4 +1,7 @@
-use crate::git_support::{git_command, git_error_message, validate_git_repo};
+use crate::git_support::{
+    ensure_git_output_success, git_command, git_error_message, run_git_output, validate_git_repo,
+    GitSupportError,
+};
 use serde::Serialize;
 use std::path::Path;
 use thiserror::Error;
@@ -19,6 +22,25 @@ impl From<StashError> for String {
     fn from(error: StashError) -> Self {
         error.to_string()
     }
+}
+
+fn map_git_support_error(error: GitSupportError) -> StashError {
+    match error {
+        GitSupportError::Io { action, source } => StashError::GitCommand { action, source },
+        GitSupportError::Message(message) => StashError::Message(message),
+    }
+}
+
+fn run_repo_git_output(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> Result<std::process::Output, StashError> {
+    run_git_output(repo_path, args, action).map_err(map_git_support_error)
+}
+
+fn ensure_output_success(output: &std::process::Output, fallback: &str) -> Result<(), StashError> {
+    ensure_git_output_success(output, fallback).map_err(map_git_support_error)
 }
 
 /// A stash entry mapped from `git stash list`.
@@ -77,33 +99,25 @@ fn parse_stash_row(row: &str) -> Result<Option<RepositoryStash>, StashError> {
 
 /// Returns all stash entries for the repository.
 #[tauri::command]
-pub(crate) fn get_repository_stashes(repo_path: String) -> Result<Vec<RepositoryStash>, String> {
-    get_repository_stashes_inner(repo_path).map_err(|e| e.to_string())
+pub(crate) async fn get_repository_stashes(
+    repo_path: String,
+) -> Result<Vec<RepositoryStash>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_stashes_inner(repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to read repository stashes: {error}"))?
 }
 
 fn get_repository_stashes_inner(repo_path: String) -> Result<Vec<RepositoryStash>, StashError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "stash",
-            "list",
-            "--format=%gd%x1f%gs%x1f%h%x1f%P%x1e",
-        ])
-        .output()
-        .map_err(|error| StashError::GitCommand {
-            action: "run git stash list",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        return Err(StashError::Message(git_error_message(
-            &output.stderr,
-            "Failed to read repository stashes",
-        )));
-    }
+    let output = run_repo_git_output(
+        &repo_path,
+        &["stash", "list", "--format=%gd%x1f%gs%x1f%h%x1f%P%x1e"],
+        "run git stash list",
+    )?;
+    ensure_output_success(&output, "Failed to read repository stashes")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut stashes = Vec::new();
@@ -118,94 +132,95 @@ fn get_repository_stashes_inner(repo_path: String) -> Result<Vec<RepositoryStash
 
 /// Applies a stash entry without removing it from the stash stack.
 #[tauri::command]
-pub(crate) fn apply_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
-    apply_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
+pub(crate) async fn apply_repository_stash(
+    repo_path: String,
+    stash_ref: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_repository_stash_inner(repo_path, stash_ref).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to apply stash: {error}"))?
 }
 
 fn apply_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<(), StashError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args(["-C", &repo_path, "stash", "apply", &stash_ref])
-        .output()
-        .map_err(|error| StashError::GitCommand {
-            action: "run git stash apply",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        return Err(StashError::Message(git_error_message(
-            &output.stderr,
-            "Failed to apply stash",
-        )));
-    }
+    let output = run_repo_git_output(
+        &repo_path,
+        &["stash", "apply", &stash_ref],
+        "run git stash apply",
+    )?;
+    ensure_output_success(&output, "Failed to apply stash")?;
 
     Ok(())
 }
 
 /// Applies a stash entry and removes it from the stash stack.
 #[tauri::command]
-pub(crate) fn pop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
-    pop_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
+pub(crate) async fn pop_repository_stash(
+    repo_path: String,
+    stash_ref: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pop_repository_stash_inner(repo_path, stash_ref).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to pop stash: {error}"))?
 }
 
 fn pop_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<(), StashError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args(["-C", &repo_path, "stash", "pop", &stash_ref])
-        .output()
-        .map_err(|error| StashError::GitCommand {
-            action: "run git stash pop",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        return Err(StashError::Message(git_error_message(
-            &output.stderr,
-            "Failed to pop stash",
-        )));
-    }
+    let output = run_repo_git_output(
+        &repo_path,
+        &["stash", "pop", &stash_ref],
+        "run git stash pop",
+    )?;
+    ensure_output_success(&output, "Failed to pop stash")?;
 
     Ok(())
 }
 
 /// Removes a stash entry from the stash stack.
 #[tauri::command]
-pub(crate) fn drop_repository_stash(repo_path: String, stash_ref: String) -> Result<(), String> {
-    drop_repository_stash_inner(repo_path, stash_ref).map_err(|e| e.to_string())
+pub(crate) async fn drop_repository_stash(
+    repo_path: String,
+    stash_ref: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        drop_repository_stash_inner(repo_path, stash_ref).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to drop stash: {error}"))?
 }
 
 fn drop_repository_stash_inner(repo_path: String, stash_ref: String) -> Result<(), StashError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| StashError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args(["-C", &repo_path, "stash", "drop", &stash_ref])
-        .output()
-        .map_err(|error| StashError::GitCommand {
-            action: "run git stash drop",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        return Err(StashError::Message(git_error_message(
-            &output.stderr,
-            "Failed to delete stash",
-        )));
-    }
+    let output = run_repo_git_output(
+        &repo_path,
+        &["stash", "drop", &stash_ref],
+        "run git stash drop",
+    )?;
+    ensure_output_success(&output, "Failed to delete stash")?;
 
     Ok(())
 }
 
 /// Creates a new stash entry, optionally including untracked files.
 #[tauri::command]
-pub(crate) fn create_repository_stash(
+pub(crate) async fn create_repository_stash(
     repo_path: String,
     stash_message: Option<String>,
     include_untracked: bool,
 ) -> Result<(), String> {
-    create_repository_stash_inner(repo_path, stash_message, include_untracked)
-        .map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        create_repository_stash_inner(repo_path, stash_message, include_untracked)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to create stash: {error}"))?
 }
 
 fn create_repository_stash_inner(
@@ -222,13 +237,11 @@ fn create_repository_stash_inner(
         .map(ToOwned::to_owned)
         .map_or_else(
             || {
-                let branch_output = git_command()
-                    .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
-                    .output()
-                    .map_err(|error| StashError::GitCommand {
-                        action: "resolve current branch",
-                        source: error,
-                    })?;
+                let branch_output = run_repo_git_output(
+                    &repo_path,
+                    &["rev-parse", "--abbrev-ref", "HEAD"],
+                    "resolve current branch",
+                )?;
 
                 if !branch_output.status.success() {
                     return Err(StashError::Message(git_error_message(
@@ -280,7 +293,10 @@ fn create_repository_stash_inner(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_repository_stash, get_repository_stashes, parse_stash_row, StashError};
+    use super::{
+        apply_repository_stash, create_repository_stash, drop_repository_stash,
+        get_repository_stashes, parse_stash_row, pop_repository_stash, StashError,
+    };
     use crate::git_support::git_command;
     use std::env;
     use std::fs;
@@ -298,8 +314,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn create_repository_stash_uses_default_branch_message_when_message_is_blank() {
+    #[tokio::test]
+    async fn create_repository_stash_uses_default_branch_message_when_message_is_blank() {
         let repo_path = create_temp_repository();
 
         write_repo_file(&repo_path.path, "tracked.txt", "first version");
@@ -313,9 +329,11 @@ mod tests {
             Some("   ".to_string()),
             false,
         )
+        .await
         .expect("stash should be created");
 
         let stashes = get_repository_stashes(repo_path.path.to_string_lossy().to_string())
+            .await
             .expect("stash list");
 
         assert_eq!(stashes.len(), 1);
@@ -325,8 +343,8 @@ mod tests {
         assert!(!stashes[0].short_hash.is_empty());
     }
 
-    #[test]
-    fn get_repository_stashes_returns_created_entry_after_stash_is_saved() {
+    #[tokio::test]
+    async fn get_repository_stashes_returns_created_entry_after_stash_is_saved() {
         let repo_path = create_temp_repository();
 
         write_repo_file(&repo_path.path, "tracked.txt", "first version");
@@ -340,9 +358,11 @@ mod tests {
             Some("Example stash".to_string()),
             false,
         )
+        .await
         .expect("stash should be created");
 
         let stashes = get_repository_stashes(repo_path.path.to_string_lossy().to_string())
+            .await
             .expect("stash list");
 
         assert_eq!(stashes.len(), 1);
@@ -350,6 +370,109 @@ mod tests {
         assert_eq!(stashes[0].r#ref, "stash@{0}");
         assert!(!stashes[0].anchor_commit_hash.is_empty());
         assert!(!stashes[0].short_hash.is_empty());
+    }
+
+    #[tokio::test]
+    async fn apply_repository_stash_restores_changes_without_dropping_entry() {
+        let repo_path = create_temp_repository();
+        write_repo_file(&repo_path.path, "tracked.txt", "first version");
+        git_in(&repo_path.path, &["add", "tracked.txt"]);
+        git_in(&repo_path.path, &["commit", "-m", "Initial commit"]);
+        write_repo_file(&repo_path.path, "tracked.txt", "updated version");
+
+        create_repository_stash(
+            repo_path.path.to_string_lossy().to_string(),
+            Some("Apply stash".to_string()),
+            false,
+        )
+        .await
+        .expect("stash should be created");
+
+        apply_repository_stash(
+            repo_path.path.to_string_lossy().to_string(),
+            "stash@{0}".to_string(),
+        )
+        .await
+        .expect("stash should apply");
+
+        let stashes = get_repository_stashes(repo_path.path.to_string_lossy().to_string())
+            .await
+            .expect("stash list");
+
+        assert_eq!(
+            fs::read_to_string(repo_path.path.join("tracked.txt")).expect("read tracked"),
+            "updated version"
+        );
+        assert_eq!(stashes.len(), 1);
+        assert_eq!(stashes[0].r#ref, "stash@{0}");
+    }
+
+    #[tokio::test]
+    async fn pop_repository_stash_restores_changes_and_removes_entry() {
+        let repo_path = create_temp_repository();
+        write_repo_file(&repo_path.path, "tracked.txt", "first version");
+        git_in(&repo_path.path, &["add", "tracked.txt"]);
+        git_in(&repo_path.path, &["commit", "-m", "Initial commit"]);
+        write_repo_file(&repo_path.path, "tracked.txt", "updated version");
+
+        create_repository_stash(
+            repo_path.path.to_string_lossy().to_string(),
+            Some("Pop stash".to_string()),
+            false,
+        )
+        .await
+        .expect("stash should be created");
+
+        pop_repository_stash(
+            repo_path.path.to_string_lossy().to_string(),
+            "stash@{0}".to_string(),
+        )
+        .await
+        .expect("stash should pop");
+
+        let stashes = get_repository_stashes(repo_path.path.to_string_lossy().to_string())
+            .await
+            .expect("stash list");
+
+        assert_eq!(
+            fs::read_to_string(repo_path.path.join("tracked.txt")).expect("read tracked"),
+            "updated version"
+        );
+        assert!(stashes.is_empty(), "stash should be removed");
+    }
+
+    #[tokio::test]
+    async fn drop_repository_stash_removes_entry_without_applying_changes() {
+        let repo_path = create_temp_repository();
+        write_repo_file(&repo_path.path, "tracked.txt", "first version");
+        git_in(&repo_path.path, &["add", "tracked.txt"]);
+        git_in(&repo_path.path, &["commit", "-m", "Initial commit"]);
+        write_repo_file(&repo_path.path, "tracked.txt", "updated version");
+
+        create_repository_stash(
+            repo_path.path.to_string_lossy().to_string(),
+            Some("Drop stash".to_string()),
+            false,
+        )
+        .await
+        .expect("stash should be created");
+
+        drop_repository_stash(
+            repo_path.path.to_string_lossy().to_string(),
+            "stash@{0}".to_string(),
+        )
+        .await
+        .expect("stash should drop");
+
+        let stashes = get_repository_stashes(repo_path.path.to_string_lossy().to_string())
+            .await
+            .expect("stash list");
+
+        assert_eq!(
+            fs::read_to_string(repo_path.path.join("tracked.txt")).expect("read tracked"),
+            "first version"
+        );
+        assert!(stashes.is_empty(), "stash should be removed");
     }
 
     fn create_temp_repository() -> TempRepository {

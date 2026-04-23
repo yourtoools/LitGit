@@ -45,7 +45,7 @@ import {
 } from "@/hooks/use-debounced-value";
 import {
   getLocaleOption,
-  LOCALE_OPTIONS,
+  getLocaleOptions,
   type LocaleOption,
   SYSTEM_LOCALE_CODE,
 } from "@/lib/settings/locale-options";
@@ -71,7 +71,8 @@ function UiSection({ query }: { query: string }) {
   const dateFormat = usePreferencesStore((state) => state.ui.dateFormat);
   const setDateFormat = usePreferencesStore((state) => state.setDateFormat);
   const [localeQuery, setLocaleQuery] = useState("");
-  const selectedLocaleOption = getLocaleOption(locale) ?? LOCALE_OPTIONS[0];
+  const localeOptions = getLocaleOptions();
+  const selectedLocaleOption = getLocaleOption(locale) ?? localeOptions[0];
   const debouncedLocaleQuery = useDebouncedValue(
     localeQuery,
     COMBOBOX_DEBOUNCE_DELAY_MS
@@ -80,10 +81,10 @@ function UiSection({ query }: { query: string }) {
     const normalizedQuery = normalizeComboboxQuery(debouncedLocaleQuery);
 
     if (normalizedQuery.length === 0) {
-      return LOCALE_OPTIONS;
+      return localeOptions;
     }
 
-    const filteredOptions = LOCALE_OPTIONS.filter((option) =>
+    const filteredOptions = localeOptions.filter((option) =>
       `${option.displayName} ${option.code}`
         .toLowerCase()
         .includes(normalizedQuery)
@@ -94,7 +95,7 @@ function UiSection({ query }: { query: string }) {
       selectedLocaleOption,
       (option, selectedOption) => option.code === selectedOption.code
     );
-  }, [debouncedLocaleQuery, selectedLocaleOption]);
+  }, [debouncedLocaleQuery, localeOptions, selectedLocaleOption]);
   const effectiveLocale =
     selectedLocaleOption.code === SYSTEM_LOCALE_CODE ||
     selectedLocaleOption.code.trim().length === 0

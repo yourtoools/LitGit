@@ -1,14 +1,16 @@
 use crate::git_support::{
-    git_command, git_error_message, is_git_repository_root, validate_repository_path,
+    ensure_git_output_success, git_command, git_error_message, is_git_repository_root,
+    run_git_output, run_git_tool_output, validate_repository_path, GitSupportError,
 };
 use crate::settings::{
-    apply_git_preferences_with_auth_session, normalize_git_identity_scope, write_git_identity,
-    GitIdentityWriteRequest, RepoCommandPreferences, SettingsState,
+    apply_git_preferences_with_auth_session_from_snapshot, normalize_git_identity_scope,
+    write_git_identity, GitIdentityWriteRequest, RepoCommandPreferences, SettingsCommandSnapshot,
+    SettingsState,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
@@ -36,6 +38,21 @@ impl From<RepositoryError> for String {
     fn from(error: RepositoryError) -> Self {
         error.to_string()
     }
+}
+
+fn map_git_support_error(error: GitSupportError) -> RepositoryError {
+    match error {
+        GitSupportError::Io { action, source } => RepositoryError::GitCommand { action, source },
+        GitSupportError::Message(message) => RepositoryError::Message(message),
+    }
+}
+
+fn run_repo_git_output(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> Result<std::process::Output, RepositoryError> {
+    run_git_output(repo_path, args, action).map_err(map_git_support_error)
 }
 
 /// Metadata returned when a repository folder is picked or created.
@@ -118,7 +135,6 @@ pub(crate) fn pick_git_repository() -> Result<Option<PickedRepository>, String> 
 
 /// Opens a native folder picker for clone destination selection.
 // Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
-#[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
 pub(crate) fn pick_clone_destination_folder() -> Result<Option<String>, String> {
     let Some(folder) = rfd::FileDialog::new().pick_folder() else {
@@ -130,7 +146,6 @@ pub(crate) fn pick_clone_destination_folder() -> Result<Option<String>, String> 
 
 /// Opens a native file picker used by settings flows.
 // Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
-#[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
 pub(crate) fn pick_settings_file() -> Result<Option<PickedFilePath>, String> {
     let Some(file) = rfd::FileDialog::new().pick_file() else {
@@ -144,7 +159,15 @@ pub(crate) fn pick_settings_file() -> Result<Option<PickedFilePath>, String> {
 
 /// Creates a new local Git repository with optional templates and initial commit.
 #[tauri::command]
-pub(crate) fn create_local_repository(
+pub(crate) async fn create_local_repository(
+    input: CreateLocalRepositoryRequest,
+) -> Result<PickedRepository, String> {
+    tauri::async_runtime::spawn_blocking(move || create_local_repository_inner(input))
+        .await
+        .map_err(|error| format!("Failed to create repository: {error}"))?
+}
+
+fn create_local_repository_inner(
     input: CreateLocalRepositoryRequest,
 ) -> Result<PickedRepository, String> {
     let CreateLocalRepositoryRequest {
@@ -254,6 +277,7 @@ pub(crate) async fn clone_git_repository(
 
     let destination_path = destination_parent_path.join(trimmed_folder);
     let command_preferences = preferences.unwrap_or_default();
+    let settings_snapshot = state.command_snapshot()?;
 
     if destination_path.exists() {
         return Err("Destination folder already exists".to_string());
@@ -312,33 +336,34 @@ pub(crate) async fn clone_git_repository(
     );
 
     let mut clone_result = run_clone_command(
-        &app,
-        &state,
-        trimmed_url,
-        &destination_path,
+        app.clone(),
+        settings_snapshot.clone(),
+        trimmed_url.to_string(),
+        destination_path.clone(),
         recurse_submodules,
-        &command_preferences,
-        &auth_session,
-    )?;
+        command_preferences.clone(),
+        auth_session.clone(),
+    )
+    .await?;
 
     let mut approved_retry_credential: Option<ApprovedCloneCredential> = None;
 
-    if !clone_result.succeeded && should_retry_clone_with_auth_prompt(
-        trimmed_url,
-        &clone_result.stderr_output,
-    ) {
+    if !clone_result.succeeded
+        && should_retry_clone_with_auth_prompt(trimmed_url, &clone_result.stderr_output)
+    {
         approved_retry_credential =
             prompt_for_clone_retry_credentials(&app, auth_state_ref, &session_id, trimmed_url)
                 .await?;
         clone_result = run_clone_command(
-            &app,
-            &state,
-            trimmed_url,
-            &destination_path,
+            app.clone(),
+            settings_snapshot.clone(),
+            trimmed_url.to_string(),
+            destination_path.clone(),
             recurse_submodules,
-            &command_preferences,
-            &auth_session,
-        )?;
+            command_preferences.clone(),
+            auth_session.clone(),
+        )
+        .await?;
     }
 
     let clone_succeeded = clone_result.succeeded;
@@ -426,9 +451,16 @@ pub(crate) async fn clone_git_repository(
 
 /// Filters repository paths and returns only existing folders that contain `.git`.
 // Tauri keeps this command result-wrapped so the frontend invoke contract stays stable.
-#[expect(clippy::unnecessary_wraps)]
 #[tauri::command]
-pub(crate) fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Vec<String>, String> {
+pub(crate) async fn validate_opened_repositories(
+    repo_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || validate_opened_repositories_inner(repo_paths))
+        .await
+        .map_err(|error| format!("Failed to validate opened repositories: {error}"))?
+}
+
+fn validate_opened_repositories_inner(repo_paths: Vec<String>) -> Result<Vec<String>, String> {
     let valid_paths = repo_paths
         .into_iter()
         .filter(|repo_path| {
@@ -442,26 +474,29 @@ pub(crate) fn validate_opened_repositories(repo_paths: Vec<String>) -> Result<Ve
 
 /// Creates an initial commit in an existing repository folder.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn create_repository_initial_commit(
+pub(crate) async fn create_repository_initial_commit(
+    repo_path: String,
+    git_identity: Option<GitIdentityWriteRequest>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        create_repository_initial_commit_inner(repo_path, git_identity)
+    })
+    .await
+    .map_err(|error| format!("Failed to create initial commit: {error}"))?
+}
+
+fn create_repository_initial_commit_inner(
     repo_path: String,
     git_identity: Option<GitIdentityWriteRequest>,
 ) -> Result<(), String> {
     validate_repository_path(Path::new(&repo_path))?;
 
     if !is_git_repository_root(Path::new(&repo_path)) {
-        let init_output = git_command()
-            .args(["-C", &repo_path, "init"])
-            .output()
-            .map_err(|error| format!("Failed to run git init: {error}"))?;
-
-        if !init_output.status.success() {
-            return Err(git_error_message(
-                &init_output.stderr,
-                "Failed to initialize repository",
-            ));
-        }
+        let init_output = run_git_output(&repo_path, &["init"], "run git init")
+            .map_err(|error| error.to_string())?;
+        ensure_git_output_success(&init_output, "Failed to initialize repository")
+            .map_err(|error| error.to_string())?;
     }
 
     if repository_has_initial_commit(&repo_path)? {
@@ -478,48 +513,29 @@ pub(crate) fn create_repository_initial_commit(
             .map_err(|error| format!("Failed to create README.md: {error}"))?;
     }
 
-    let add_output = git_command()
-        .args(["-C", &repo_path, "add", "--", "README.md"])
-        .output()
-        .map_err(|error| format!("Failed to run git add: {error}"))?;
+    let add_output = run_git_output(&repo_path, &["add", "--", "README.md"], "run git add")
+        .map_err(|error| error.to_string())?;
+    ensure_git_output_success(&add_output, "Failed to stage README.md")
+        .map_err(|error| error.to_string())?;
 
-    if !add_output.status.success() {
-        return Err(git_error_message(
-            &add_output.stderr,
-            "Failed to stage README.md",
-        ));
-    }
-
-    let commit_output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "commit",
-            "--allow-empty",
-            "-m",
-            "Initial commit",
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git commit: {error}"))?;
-
-    if !commit_output.status.success() {
-        return Err(git_error_message(
-            &commit_output.stderr,
-            "Failed to create initial commit",
-        ));
-    }
+    let commit_output = run_git_output(
+        &repo_path,
+        &["commit", "--allow-empty", "-m", "Initial commit"],
+        "run git commit",
+    )
+    .map_err(|error| error.to_string())?;
+    ensure_git_output_success(&commit_output, "Failed to create initial commit")
+        .map_err(|error| error.to_string())?;
 
     Ok(())
 }
 
 fn repository_has_initial_commit(repo_path: &str) -> Result<bool, RepositoryError> {
-    let output = git_command()
-        .args(["-C", repo_path, "rev-parse", "--verify", "HEAD"])
-        .output()
-        .map_err(|error| RepositoryError::GitCommand {
-            action: "check repository history",
-            source: error,
-        })?;
+    let output = run_repo_git_output(
+        repo_path,
+        &["rev-parse", "--verify", "HEAD"],
+        "check repository history",
+    )?;
 
     Ok(output.status.success())
 }
@@ -571,63 +587,67 @@ fn parse_clone_progress(line: &str) -> Option<CloneRepositoryProgress> {
     None
 }
 
-fn run_clone_command(
-    app: &AppHandle,
-    state: &State<'_, SettingsState>,
-    repository_url: &str,
-    destination_path: &Path,
+async fn run_clone_command(
+    app: AppHandle,
+    settings_snapshot: SettingsCommandSnapshot,
+    repository_url: String,
+    destination_path: PathBuf,
     recurse_submodules: bool,
-    command_preferences: &RepoCommandPreferences,
-    auth_session: &crate::askpass_state::GitAuthSessionHandle,
+    command_preferences: RepoCommandPreferences,
+    auth_session: crate::askpass_state::GitAuthSessionHandle,
 ) -> Result<CloneExecutionResult, String> {
-    let mut clone_command = git_command();
-    apply_git_preferences_with_auth_session(
-        &mut clone_command,
-        command_preferences,
-        Some(state),
-        Some(auth_session),
-    )?;
-    clone_command.args([
-        "clone",
-        "--progress",
-        repository_url,
-        destination_path.to_string_lossy().as_ref(),
-    ]);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut clone_command = git_command();
+        apply_git_preferences_with_auth_session_from_snapshot(
+            &mut clone_command,
+            &command_preferences,
+            Some(&settings_snapshot),
+            Some(&auth_session),
+        )?;
+        clone_command.args([
+            "clone",
+            "--progress",
+            &repository_url,
+            destination_path.to_string_lossy().as_ref(),
+        ]);
 
-    if recurse_submodules {
-        clone_command.arg("--recurse-submodules");
-    }
+        if recurse_submodules {
+            clone_command.arg("--recurse-submodules");
+        }
 
-    let mut child = clone_command
-        .stderr(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("Failed to run git clone: {error}"))?;
+        let mut child = clone_command
+            .stderr(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("Failed to run git clone: {error}"))?;
 
-    let mut stderr_output = String::new();
+        let mut stderr_output = String::new();
 
-    if let Some(stderr) = child.stderr.take() {
-        let stderr_reader = BufReader::new(stderr);
+        if let Some(stderr) = child.stderr.take() {
+            let stderr_reader = BufReader::new(stderr);
 
-        for line_result in stderr_reader.lines() {
-            let line =
-                line_result.map_err(|error| format!("Failed to read git clone output: {error}"))?;
-            stderr_output.push_str(&line);
-            stderr_output.push('\n');
-            if let Some(progress) = parse_clone_progress(&line) {
-                emit_clone_progress(app, progress);
+            for line_result in stderr_reader.lines() {
+                let line = line_result
+                    .map_err(|error| format!("Failed to read git clone output: {error}"))?;
+                stderr_output.push_str(&line);
+                stderr_output.push('\n');
+                if let Some(progress) = parse_clone_progress(&line) {
+                    emit_clone_progress(&app, progress);
+                }
             }
         }
-    }
 
-    let status = child
-        .wait()
-        .map_err(|error| format!("Failed to finalize git clone: {error}"))?;
+        let status = child
+            .wait()
+            .map_err(|error| format!("Failed to finalize git clone: {error}"))?;
 
-    Ok(CloneExecutionResult {
-        stderr_output,
-        succeeded: status.success(),
+        Ok(CloneExecutionResult {
+            stderr_output,
+            succeeded: status.success(),
+        })
     })
+    .await
+    .map_err(|error| format!("Failed to run git clone: {error}"))?
 }
 
 fn clone_prompt_provider_from_url(repository_url: &str) -> Option<&'static str> {
@@ -648,10 +668,7 @@ fn clone_prompt_provider_from_url(repository_url: &str) -> Option<&'static str> 
     }
 }
 
-fn should_retry_clone_with_auth_prompt(
-    repository_url: &str,
-    stderr_output: &str,
-) -> bool {
+fn should_retry_clone_with_auth_prompt(repository_url: &str, stderr_output: &str) -> bool {
     if clone_prompt_provider_from_url(repository_url).is_none() {
         return false;
     }
@@ -776,13 +793,11 @@ pub(crate) fn validate_repository_name(name: &str) -> Result<(), RepositoryError
 ///
 /// Returns an error when the name does not follow Git branch naming conventions.
 pub(crate) fn validate_branch_name(name: &str) -> Result<(), RepositoryError> {
-    let output = git_command()
-        .args(["check-ref-format", "--branch", name])
-        .output()
-        .map_err(|error| RepositoryError::GitCommand {
-            action: "validate default branch name",
-            source: error,
-        })?;
+    let output = run_git_tool_output(
+        &["check-ref-format", "--branch", name],
+        "validate default branch name",
+    )
+    .map_err(map_git_support_error)?;
 
     if !output.status.success() {
         return Err(RepositoryError::Message(
@@ -857,13 +872,8 @@ fn initialize_git_repository(
     repo_path: &Path,
     default_branch: &str,
 ) -> Result<(), RepositoryError> {
-    let init_output = git_command()
-        .args(["-C", repo_path.to_string_lossy().as_ref(), "init"])
-        .output()
-        .map_err(|error| RepositoryError::GitCommand {
-            action: "run git init",
-            source: error,
-        })?;
+    let repo_path_string = repo_path.to_string_lossy().to_string();
+    let init_output = run_repo_git_output(&repo_path_string, &["init"], "run git init")?;
 
     if !init_output.status.success() {
         return Err(RepositoryError::Message(git_error_message(
@@ -872,19 +882,11 @@ fn initialize_git_repository(
         )));
     }
 
-    let branch_output = git_command()
-        .args([
-            "-C",
-            repo_path.to_string_lossy().as_ref(),
-            "checkout",
-            "-b",
-            default_branch,
-        ])
-        .output()
-        .map_err(|error| RepositoryError::GitCommand {
-            action: "run git checkout",
-            source: error,
-        })?;
+    let branch_output = run_repo_git_output(
+        &repo_path_string,
+        &["checkout", "-b", default_branch],
+        "run git checkout",
+    )?;
 
     if !branch_output.status.success() {
         return Err(RepositoryError::Message(git_error_message(
@@ -968,13 +970,7 @@ fn write_repository_files(
 fn create_initial_commit(repo_path: &Path) -> Result<(), RepositoryError> {
     let repo_path_string = repo_path.to_string_lossy().to_string();
 
-    let add_output = git_command()
-        .args(["-C", &repo_path_string, "add", "-A"])
-        .output()
-        .map_err(|error| RepositoryError::GitCommand {
-            action: "run git add",
-            source: error,
-        })?;
+    let add_output = run_repo_git_output(&repo_path_string, &["add", "-A"], "run git add")?;
 
     if !add_output.status.success() {
         return Err(RepositoryError::Message(git_error_message(
@@ -983,13 +979,11 @@ fn create_initial_commit(repo_path: &Path) -> Result<(), RepositoryError> {
         )));
     }
 
-    let commit_output = git_command()
-        .args(["-C", &repo_path_string, "commit", "-m", "Initial commit"])
-        .output()
-        .map_err(|error| RepositoryError::GitCommand {
-            action: "run git commit",
-            source: error,
-        })?;
+    let commit_output = run_repo_git_output(
+        &repo_path_string,
+        &["commit", "-m", "Initial commit"],
+        "run git commit",
+    )?;
 
     if !commit_output.status.success() {
         return Err(RepositoryError::Message(git_error_message(
@@ -1010,16 +1004,17 @@ fn folder_name(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_repository_initial_commit, oauth_first_unsupported_auth_message,
-        parse_clone_progress, should_retry_clone_with_auth_prompt,
-        validate_clone_repository_url, validate_opened_repositories, CreateLocalRepositoryRequest,
-        RepoCommandPreferences,
+        create_local_repository, create_repository_initial_commit,
+        oauth_first_unsupported_auth_message, parse_clone_progress,
+        should_retry_clone_with_auth_prompt, validate_clone_repository_url,
+        validate_opened_repositories, CreateLocalRepositoryRequest, RepoCommandPreferences,
     };
     use crate::git_support::git_command;
     use crate::settings::GitIdentityWriteRequest;
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
+    use std::process::Output;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TempTestDirectory {
@@ -1040,6 +1035,14 @@ mod tests {
         fn path_string(&self) -> String {
             self.path.to_string_lossy().to_string()
         }
+    }
+
+    fn git_output(repo_path: &str, args: &[&str]) -> Output {
+        git_command()
+            .args(["-C", repo_path])
+            .args(args)
+            .output()
+            .expect("git command should run")
     }
 
     impl Drop for TempTestDirectory {
@@ -1065,15 +1068,17 @@ mod tests {
             operation: "clone".to_string(),
         };
         settings_state.set_askpass_socket_path(std::env::temp_dir().join("litgit-test.sock"));
+        let settings_snapshot = settings_state
+            .command_snapshot()
+            .expect("settings snapshot should build");
 
-        crate::settings::apply_auth_session_environment(
+        crate::settings::apply_git_preferences_with_auth_session_from_snapshot(
             &mut command,
-            Some(&settings_state),
+            &preferences,
+            Some(&settings_snapshot),
             Some(&session),
         )
-        .expect("preferences should apply");
-        crate::settings::apply_git_preferences(&mut command, &preferences, None)
-            .expect("git preferences should apply");
+        .expect("git preferences should apply");
 
         let envs = command
             .get_envs()
@@ -1206,8 +1211,58 @@ mod tests {
         );
     }
 
-    #[test]
-    fn validate_opened_repositories_returns_only_existing_git_directories() {
+    #[tokio::test]
+    async fn create_local_repository_creates_repository_with_initial_commit() {
+        let parent_dir = TempTestDirectory::new("create-local-parent");
+
+        let repository = create_local_repository(CreateLocalRepositoryRequest {
+            default_branch: "main".to_string(),
+            destination_parent: parent_dir.path_string(),
+            git_identity: Some(GitIdentityWriteRequest {
+                email: "dev@example.com".to_string(),
+                name: "Lit Git Dev".to_string(),
+                scope: "local".to_string(),
+            }),
+            gitignore_template_content: Some("dist/\n".to_string()),
+            gitignore_template_key: Some("node".to_string()),
+            license_template_content: Some("MIT License\n".to_string()),
+            license_template_key: Some("mit".to_string()),
+            name: "litgit-local".to_string(),
+        })
+        .await
+        .expect("local repository should be created");
+
+        let repo_path = repository.path;
+        let head_output = git_output(&repo_path, &["rev-parse", "--verify", "HEAD"]);
+        let branch_output = git_output(&repo_path, &["branch", "--show-current"]);
+        let status_output = git_output(&repo_path, &["status", "--short"]);
+
+        assert!(repository.has_initial_commit);
+        assert!(repository.is_git_repository);
+        assert_eq!(repository.name, "litgit-local");
+        assert!(head_output.status.success(), "HEAD should exist");
+        assert_eq!(
+            String::from_utf8_lossy(&branch_output.stdout).trim(),
+            "main"
+        );
+        assert_eq!(String::from_utf8_lossy(&status_output.stdout), "");
+        assert_eq!(
+            fs::read_to_string(PathBuf::from(&repo_path).join("README.md")).expect("read readme"),
+            "# litgit-local\n"
+        );
+        assert_eq!(
+            fs::read_to_string(PathBuf::from(&repo_path).join(".gitignore"))
+                .expect("read gitignore"),
+            "dist/\n"
+        );
+        assert_eq!(
+            fs::read_to_string(PathBuf::from(&repo_path).join("LICENSE")).expect("read license"),
+            "MIT License\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_opened_repositories_returns_only_existing_git_directories() {
         let git_repo = TempTestDirectory::new("opened-repo");
         let plain_dir = TempTestDirectory::new("plain-dir");
         let missing_path = plain_dir.path.join("missing");
@@ -1221,25 +1276,27 @@ mod tests {
             plain_dir.path_string(),
             missing_path.to_string_lossy().to_string(),
         ])
+        .await
         .expect("opened repositories should validate");
 
         assert_eq!(valid_paths, vec![git_repo.path_string()]);
     }
 
-    #[test]
-    fn validate_opened_repositories_rejects_invalid_git_file_markers() {
+    #[tokio::test]
+    async fn validate_opened_repositories_rejects_invalid_git_file_markers() {
         let fake_repo = TempTestDirectory::new("fake-git-file");
         fs::write(fake_repo.path.join(".git"), "gitdir: /missing/location")
             .expect("fake git file should be written");
 
-        let valid_paths =
-            validate_opened_repositories(vec![fake_repo.path_string()]).expect("validation");
+        let valid_paths = validate_opened_repositories(vec![fake_repo.path_string()])
+            .await
+            .expect("validation");
 
         assert!(valid_paths.is_empty());
     }
 
-    #[test]
-    fn create_repository_initial_commit_applies_local_git_identity_when_initializing_repo() {
+    #[tokio::test]
+    async fn create_repository_initial_commit_applies_local_git_identity_when_initializing_repo() {
         let repo_path = TempTestDirectory::new("initial-commit");
         let repo_path_string = repo_path.path_string();
 
@@ -1250,7 +1307,8 @@ mod tests {
                 name: "Lit Git Dev".to_string(),
                 scope: "local".to_string(),
             }),
-        );
+        )
+        .await;
 
         assert!(result.is_ok(), "initial commit should succeed: {result:?}");
 
@@ -1303,7 +1361,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_scp_style_ssh_repository_url() {
+    fn is_scp_style_ssh_repository_url_accepts_only_scp_style_urls() {
         use super::is_scp_style_ssh_repository_url;
 
         assert!(is_scp_style_ssh_repository_url(

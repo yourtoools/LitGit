@@ -4,6 +4,7 @@ import type {
   LatestRepositoryCommitMessage,
   RepositoryBranch,
   RepositoryCommit,
+  RepositoryCommitGraphPayload,
   RepositoryFileEntry,
   RepositoryStash,
   RepositoryWorkingTreeItem,
@@ -12,6 +13,10 @@ import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 const EMPTY_BRANCHES: RepositoryBranch[] = [];
 const EMPTY_COMMITS: RepositoryCommit[] = [];
+const EMPTY_COMMIT_GRAPH: RepositoryCommitGraphPayload = {
+  commitLanes: {},
+  graphWidth: 60,
+};
 const EMPTY_FILES: RepositoryFileEntry[] = [];
 const EMPTY_REMOTE_NAMES: string[] = [];
 const EMPTY_STASHES: RepositoryStash[] = [];
@@ -98,6 +103,15 @@ export const useRepoBranches = (repoId: null | string): RepositoryBranch[] =>
 export const useRepoCommits = (repoId: null | string): RepositoryCommit[] =>
   useRepoStore((state) =>
     repoId ? (state.repoCommits[repoId] ?? EMPTY_COMMITS) : EMPTY_COMMITS
+  );
+
+export const useRepoHistoryGraph = (
+  repoId: null | string
+): RepositoryCommitGraphPayload =>
+  useRepoStore((state) =>
+    repoId
+      ? (state.repoHistoryGraphsById[repoId] ?? EMPTY_COMMIT_GRAPH)
+      : EMPTY_COMMIT_GRAPH
   );
 
 export const useRepoFiles = (repoId: null | string): RepositoryFileEntry[] =>

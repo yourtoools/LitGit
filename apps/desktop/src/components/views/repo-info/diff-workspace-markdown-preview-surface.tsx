@@ -1,5 +1,7 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { createWorkerClient } from "@/lib/workers/create-worker-client";
+import { runWorkerTask } from "@/lib/workers/run-worker-task";
 import {
   type MarkdownBlock,
   parseMarkdownBlocks,
@@ -235,12 +237,69 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 export function DiffWorkspaceMarkdownPreviewSurface({
   markdown,
 }: DiffWorkspaceMarkdownPreviewSurfaceProps) {
+  const workerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<{ markdown: string }, { blocks: MarkdownBlock[] }>
+  > | null>(null);
   const normalized =
     markdown.trim().length === 0 ? "_(Empty markdown file)_" : markdown;
-  const renderedBlocks = useMemo(
-    () => parseMarkdownBlocks(normalized).map(renderMarkdownBlock),
-    [normalized]
-  );
+  const [blocks, setBlocks] = useState<MarkdownBlock[]>([]);
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
+    }
+
+    try {
+      const client = createWorkerClient<
+        { markdown: string },
+        { blocks: MarkdownBlock[] }
+      >(
+        () =>
+          new Worker(
+            new URL("./diff-workspace-markdown-preview.worker.ts", import.meta.url),
+            { type: "module" }
+          )
+      );
+      workerClientRef.current = client;
+
+      return () => {
+        workerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      workerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const workerClient = workerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      { markdown: normalized },
+      (payload) => ({
+        blocks: parseMarkdownBlocks(payload.markdown),
+      })
+    )
+      .then((result) => {
+        if (!cancelled) {
+          setBlocks(result.blocks);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBlocks([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalized]);
+
+  const renderedBlocks = blocks.map(renderMarkdownBlock);
 
   return (
     <div className="h-full overflow-auto px-5 py-4">

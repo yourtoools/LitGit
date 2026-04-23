@@ -84,7 +84,6 @@ export function AiStep({
             hasStoredValue: boolean;
             storageMode: "secure" | "session";
           }) => {
-            console.log("[AI Step] Secret status loaded:", status);
             setSecretStatus(status);
           }
         )
@@ -419,16 +418,6 @@ export function AiStep({
               // - Has stored secret (was previously configured)
               // - AND current form is still valid (user hasn't broken it)
               const showContinueOnly = hasStoredSecret && currentFormIsValid;
-
-              console.log("[AI Step] Button logic:", {
-                hasStoredSecret,
-                hasApiKey,
-                currentFormIsValid,
-                showContinueOnly,
-                showCustomUrl,
-                customEndpoint: customEndpoint.trim().length,
-                model: model.trim().length,
-              });
 
               if (showContinueOnly) {
                 return (

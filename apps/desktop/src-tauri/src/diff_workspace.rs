@@ -10,11 +10,11 @@ use tauri::State;
 use crate::commit_messages::{resolve_commit_identity_for_history, CommitAuthorIdentity};
 use crate::git_support::{
     decode_text_content_with_encoding, encode_text_with_encoding, git_command,
-    load_commit_contents, load_working_tree_contents, validate_git_repo,
+    load_commit_contents, load_working_tree_contents, run_git_output, validate_git_repo,
     validate_repo_relative_file_path, write_temp_bytes, GitSupportError,
 };
 use crate::integrations_store::load_integrations_config;
-use crate::settings::SettingsState;
+use crate::settings::{GitHubIdentityCacheRecord, SettingsState};
 
 const DEFAULT_HISTORY_LIMIT: usize = 200;
 const MAX_HISTORY_LIMIT: usize = 1_000;
@@ -181,10 +181,7 @@ fn write_cached_payload<T: Clone>(
 }
 
 fn resolve_head_revision(repo_path: &str) -> Option<String> {
-    let output = git_command()
-        .args(["-C", repo_path, "rev-parse", "HEAD"])
-        .output()
-        .ok()?;
+    let output = run_git_output(repo_path, &["rev-parse", "HEAD"], "resolve HEAD").ok()?;
 
     if !output.status.success() {
         return None;
@@ -338,6 +335,38 @@ fn build_file_blame_cache_key(
     identity_state_fingerprint: &str,
 ) -> String {
     format!("{repo_path}\x1f{cache_revision}\x1f{file_path}\x1f{identity_state_fingerprint}")
+}
+
+fn clone_diff_workspace_settings_state(state: &SettingsState) -> Result<SettingsState, String> {
+    let github_identity_cache = state
+        .mutate_github_identity_cache(|cache| cache.clone())
+        .map_err(|error| error.to_string())?;
+    let cloned_state = SettingsState::default();
+    cloned_state.set_github_identity_cache_file_path(state.github_identity_cache_file_path());
+    cloned_state
+        .mutate_github_identity_cache(|cache| *cache = github_identity_cache)
+        .map_err(|error| error.to_string())?;
+    Ok(cloned_state)
+}
+
+fn sync_diff_workspace_settings_state_cache(
+    state: &SettingsState,
+    github_identity_cache: HashMap<String, GitHubIdentityCacheRecord>,
+) -> Result<(), String> {
+    state
+        .mutate_github_identity_cache(|cache| {
+            for (key, snapshot_record) in github_identity_cache {
+                match cache.get(&key) {
+                    Some(live_record)
+                        if live_record.stored_at_unix_seconds
+                            >= snapshot_record.stored_at_unix_seconds => {}
+                    _ => {
+                        cache.insert(key, snapshot_record);
+                    }
+                }
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 fn parse_hunk_range(token: &str) -> Option<(usize, usize)> {
@@ -504,7 +533,7 @@ fn parse_history_entries(raw_output: &str) -> Vec<RepositoryFileHistoryEntry> {
 fn parse_blame_header(line: &str) -> Option<(String, usize)> {
     let mut fields = line.split_whitespace();
     let commit_hash = fields.next()?;
-    let _old_line_number = fields.next()?;
+    fields.next()?.parse::<usize>().ok()?;
     let new_line_number = fields.next()?;
 
     let is_hash_like = commit_hash.len() >= 7
@@ -657,9 +686,21 @@ fn read_file_bytes_for_encoding_detection(
 
 /// Returns parsed unified-diff hunks for a working-tree file.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn get_repository_file_hunks(
+pub(crate) async fn get_repository_file_hunks(
+    repo_path: String,
+    file_path: String,
+    ignore_trim_whitespace: bool,
+) -> Result<RepositoryFileHunks, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_file_hunks_inner(repo_path, file_path, ignore_trim_whitespace)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to load file hunks: {error}"))?
+}
+
+fn get_repository_file_hunks_inner(
     repo_path: String,
     file_path: String,
     ignore_trim_whitespace: bool,
@@ -680,9 +721,27 @@ pub(crate) fn get_repository_file_hunks(
 
 /// Returns parsed unified-diff hunks for a file in a specific commit.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn get_repository_commit_file_hunks(
+pub(crate) async fn get_repository_commit_file_hunks(
+    repo_path: String,
+    commit_hash: String,
+    file_path: String,
+    ignore_trim_whitespace: bool,
+) -> Result<RepositoryCommitFileHunks, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_commit_file_hunks_inner(
+            repo_path,
+            commit_hash,
+            file_path,
+            ignore_trim_whitespace,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to load commit file hunks: {error}"))?
+}
+
+fn get_repository_commit_file_hunks_inner(
     repo_path: String,
     commit_hash: String,
     file_path: String,
@@ -705,13 +764,21 @@ pub(crate) fn get_repository_commit_file_hunks(
 
 /// Returns revision history for a file, following renames.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn get_repository_file_history(
+pub(crate) async fn get_repository_file_history(
     repo_path: String,
     file_path: String,
     limit: Option<usize>,
     state: State<'_, SettingsState>,
+) -> Result<RepositoryFileHistoryPayload, String> {
+    get_repository_file_history_with_state(repo_path, file_path, limit, state.inner()).await
+}
+
+fn get_repository_file_history_inner(
+    repo_path: String,
+    file_path: String,
+    limit: Option<usize>,
+    state: &SettingsState,
 ) -> Result<RepositoryFileHistoryPayload, String> {
     validate_git_repo(Path::new(&repo_path))?;
     validate_repo_relative_file_path(&file_path)?;
@@ -720,7 +787,7 @@ pub(crate) fn get_repository_file_history(
         .clamp(1, MAX_HISTORY_LIMIT);
     let resolved_head_revision =
         resolve_head_revision(&repo_path).unwrap_or_else(|| "NO_HEAD".to_string());
-    let identity_state_fingerprint = identity_state_cache_key_component(state.inner());
+    let identity_state_fingerprint = identity_state_cache_key_component(state);
     let cache_key = build_file_history_cache_key(
         &repo_path,
         &resolved_head_revision,
@@ -733,21 +800,22 @@ pub(crate) fn get_repository_file_history(
         return Ok(cached_payload);
     }
 
-    let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
+    let resolved_limit_arg = resolved_limit.to_string();
+    let output = run_git_output(
+        &repo_path,
+        &[
             "log",
             "--follow",
             "--date=iso-strict",
             "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e",
             "-n",
-            &resolved_limit.to_string(),
+            &resolved_limit_arg,
             "--",
             &file_path,
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git log for file history: {error}"))?;
+        ],
+        "run git log for file history",
+    )
+    .map_err(|error| error.to_string())?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -764,7 +832,7 @@ pub(crate) fn get_repository_file_history(
         .map(|entry| {
             let identity = resolve_cached_commit_identity(
                 &mut commit_identity_cache,
-                state.inner(),
+                state,
                 &entry.author_email,
                 &entry.author,
             );
@@ -797,15 +865,48 @@ pub(crate) fn get_repository_file_history(
     Ok(payload)
 }
 
+async fn get_repository_file_history_with_state(
+    repo_path: String,
+    file_path: String,
+    limit: Option<usize>,
+    state: &SettingsState,
+) -> Result<RepositoryFileHistoryPayload, String> {
+    let history_state = clone_diff_workspace_settings_state(state)?;
+
+    let (payload, github_identity_cache) = tauri::async_runtime::spawn_blocking(move || {
+        let payload =
+            get_repository_file_history_inner(repo_path, file_path, limit, &history_state)?;
+        let github_identity_cache = history_state
+            .mutate_github_identity_cache(|cache| cache.clone())
+            .map_err(|error| error.to_string())?;
+
+        Ok::<_, String>((payload, github_identity_cache))
+    })
+    .await
+    .map_err(|error| format!("Failed to load file history: {error}"))??;
+
+    sync_diff_workspace_settings_state_cache(state, github_identity_cache)?;
+
+    Ok(payload)
+}
+
 /// Returns line-by-line blame metadata for a file at a revision.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn get_repository_file_blame(
+pub(crate) async fn get_repository_file_blame(
     repo_path: String,
     file_path: String,
     revision: Option<String>,
     state: State<'_, SettingsState>,
+) -> Result<RepositoryFileBlamePayload, String> {
+    get_repository_file_blame_with_state(repo_path, file_path, revision, state.inner()).await
+}
+
+fn get_repository_file_blame_inner(
+    repo_path: String,
+    file_path: String,
+    revision: Option<String>,
+    state: &SettingsState,
 ) -> Result<RepositoryFileBlamePayload, String> {
     validate_git_repo(Path::new(&repo_path))?;
     validate_repo_relative_file_path(&file_path)?;
@@ -819,7 +920,7 @@ pub(crate) fn get_repository_file_blame(
     } else {
         resolved_revision.to_string()
     };
-    let identity_state_fingerprint = identity_state_cache_key_component(state.inner());
+    let identity_state_fingerprint = identity_state_cache_key_component(state);
     let cache_key = build_file_blame_cache_key(
         &repo_path,
         &cache_revision,
@@ -831,18 +932,18 @@ pub(crate) fn get_repository_file_blame(
         return Ok(cached_payload);
     }
 
-    let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
+    let output = run_git_output(
+        &repo_path,
+        &[
             "blame",
             "--line-porcelain",
             resolved_revision,
             "--",
             &file_path,
-        ])
-        .output()
-        .map_err(|error| format!("Failed to run git blame: {error}"))?;
+        ],
+        "run git blame",
+    )
+    .map_err(|error| error.to_string())?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -857,7 +958,7 @@ pub(crate) fn get_repository_file_blame(
     let lines = parse_blame_output_with_resolver(
         &String::from_utf8_lossy(&output.stdout),
         |email, author| {
-            resolve_cached_commit_identity(&mut commit_identity_cache, state.inner(), email, author)
+            resolve_cached_commit_identity(&mut commit_identity_cache, state, email, author)
         },
     );
 
@@ -877,11 +978,49 @@ pub(crate) fn get_repository_file_blame(
     Ok(payload)
 }
 
+async fn get_repository_file_blame_with_state(
+    repo_path: String,
+    file_path: String,
+    revision: Option<String>,
+    state: &SettingsState,
+) -> Result<RepositoryFileBlamePayload, String> {
+    let blame_state = clone_diff_workspace_settings_state(state)?;
+
+    let (payload, github_identity_cache) = tauri::async_runtime::spawn_blocking(move || {
+        let payload =
+            get_repository_file_blame_inner(repo_path, file_path, revision, &blame_state)?;
+        let github_identity_cache = blame_state
+            .mutate_github_identity_cache(|cache| cache.clone())
+            .map_err(|error| error.to_string())?;
+
+        Ok::<_, String>((payload, github_identity_cache))
+    })
+    .await
+    .map_err(|error| format!("Failed to load file blame: {error}"))??;
+
+    sync_diff_workspace_settings_state_cache(state, github_identity_cache)?;
+
+    Ok(payload)
+}
+
 /// Saves text to a repository file using the requested encoding.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn save_repository_file_text(
+pub(crate) async fn save_repository_file_text(
+    repo_path: String,
+    file_path: String,
+    text: String,
+    encoding: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_repository_file_text_inner(repo_path, file_path, text, encoding)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to save file content: {error}"))?
+}
+
+fn save_repository_file_text_inner(
     repo_path: String,
     file_path: String,
     text: String,
@@ -906,9 +1045,21 @@ pub(crate) fn save_repository_file_text(
 
 /// Reads repository file text using the requested encoding.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn get_repository_file_text(
+pub(crate) async fn get_repository_file_text(
+    repo_path: String,
+    file_path: String,
+    encoding: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_file_text_inner(repo_path, file_path, encoding)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to read file text: {error}"))?
+}
+
+fn get_repository_file_text_inner(
     repo_path: String,
     file_path: String,
     encoding: Option<String>,
@@ -921,9 +1072,21 @@ pub(crate) fn get_repository_file_text(
 
 /// Detects the text encoding of a repository file or file revision.
 // Tauri command arguments are owned because the IPC boundary deserializes them.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn detect_repository_file_encoding(
+pub(crate) async fn detect_repository_file_encoding(
+    repo_path: String,
+    file_path: String,
+    revision: Option<String>,
+) -> Result<RepositoryFileDetectedEncoding, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        detect_repository_file_encoding_inner(repo_path, file_path, revision)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to detect file encoding: {error}"))?
+}
+
+fn detect_repository_file_encoding_inner(
     repo_path: String,
     file_path: String,
     revision: Option<String>,
@@ -941,17 +1104,23 @@ pub(crate) fn detect_repository_file_encoding(
 #[cfg(test)]
 mod tests {
     use crate::commit_messages::CommitAuthorIdentity;
+    use crate::git_support::{encode_text_with_encoding, git_command};
     use crate::integrations_store::{
         save_integrations_config, IntegrationsConfig, ProviderConfig, ProviderProfile,
     };
     use crate::settings::SettingsState;
+    use serde_json::json;
     use std::collections::HashMap;
+    use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        build_file_history_cache_key, identity_state_cache_key_component,
-        parse_blame_output_with_resolver, parse_history_entries, parse_hunks_from_patch,
+        build_file_history_cache_key, detect_repository_file_encoding,
+        get_repository_commit_file_hunks, get_repository_file_hunks, get_repository_file_text,
+        identity_state_cache_key_component, parse_blame_output_with_resolver,
+        parse_history_entries, parse_hunks_from_patch, save_repository_file_text,
     };
 
     #[test]
@@ -1065,6 +1234,11 @@ index 1111111..2222222 100644
     }
 
     #[test]
+    fn parse_blame_header_rejects_rows_with_invalid_old_line_number() {
+        assert_eq!(super::parse_blame_header("deadbeef nope 1 1"), None);
+    }
+
+    #[test]
     fn file_history_cache_key_changes_when_connected_github_profile_changes() {
         run_with_temp_home("diff-workspace-cache-key", || {
             let state = SettingsState::default();
@@ -1106,7 +1280,222 @@ index 1111111..2222222 100644
         });
     }
 
-    fn test_environment_lock() -> &'static Mutex<()> {
+    #[tokio::test]
+    async fn get_repository_file_hunks_returns_working_tree_hunks() {
+        let repo = TempRepository::create();
+        repo.write_file("notes.txt", "first line\nsecond line\n");
+        repo.git(&["add", "notes.txt"]);
+        repo.git(&["commit", "-m", "Add notes"]);
+        repo.write_file("notes.txt", "first line\nchanged line\nthird line\n");
+
+        let payload = get_repository_file_hunks(
+            repo.path.to_string_lossy().to_string(),
+            "notes.txt".to_string(),
+            false,
+        )
+        .await
+        .expect("working tree hunks");
+
+        assert_eq!(payload.path, "notes.txt");
+        assert_eq!(payload.hunks.len(), 1);
+        assert!(payload.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line == "-second line"));
+        assert!(payload.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line == "+changed line"));
+        assert!(payload.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line == "+third line"));
+    }
+
+    #[tokio::test]
+    async fn get_repository_commit_file_hunks_returns_commit_hunks() {
+        let repo = TempRepository::create();
+        repo.write_file("notes.txt", "first line\nsecond line\n");
+        repo.git(&["add", "notes.txt"]);
+        repo.git(&["commit", "-m", "Add notes"]);
+        repo.write_file("notes.txt", "first line\nchanged line\nthird line\n");
+        repo.git(&["commit", "-am", "Update notes"]);
+        let commit_hash = repo.git_output(&["rev-parse", "HEAD"]);
+
+        let payload = get_repository_commit_file_hunks(
+            repo.path.to_string_lossy().to_string(),
+            commit_hash.trim().to_string(),
+            "notes.txt".to_string(),
+            false,
+        )
+        .await
+        .expect("commit hunks");
+
+        assert_eq!(payload.commit_hash, commit_hash.trim());
+        assert_eq!(payload.path, "notes.txt");
+        assert_eq!(payload.hunks.len(), 1);
+        assert!(payload.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line == "-second line"));
+        assert!(payload.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line == "+changed line"));
+    }
+
+    #[tokio::test]
+    async fn save_repository_file_text_and_get_repository_file_text_round_trip_requested_encoding()
+    {
+        let repo = TempRepository::create();
+        repo.commit_file("notes.txt", "seed text\n", "Seed notes");
+
+        save_repository_file_text(
+            repo.path.to_string_lossy().to_string(),
+            "docs/latin1.txt".to_string(),
+            "Cafe €".to_string(),
+            Some("windows-1252".to_string()),
+        )
+        .await
+        .expect("save encoded text");
+
+        let text = get_repository_file_text(
+            repo.path.to_string_lossy().to_string(),
+            "docs/latin1.txt".to_string(),
+            Some("windows-1252".to_string()),
+        )
+        .await
+        .expect("read encoded text");
+
+        assert_eq!(text, "Cafe €");
+    }
+
+    #[tokio::test]
+    async fn detect_repository_file_encoding_reads_working_tree_and_commit_content() {
+        let repo = TempRepository::create();
+        repo.commit_file("notes.txt", "hello\n", "Seed notes");
+
+        let encoded =
+            encode_text_with_encoding("Cafe €", Some("windows-1252")).expect("encoded content");
+        let file_path = repo.path.join("latin1.txt");
+        fs::write(&file_path, &encoded).expect("write encoded file");
+        repo.git(&["add", "latin1.txt"]);
+        repo.git(&["commit", "-m", "Add latin1 file"]);
+        let commit_hash = repo.git_output(&["rev-parse", "HEAD"]);
+
+        let working_tree_encoding = detect_repository_file_encoding(
+            repo.path.to_string_lossy().to_string(),
+            "latin1.txt".to_string(),
+            None,
+        )
+        .await
+        .expect("detect working tree encoding");
+        let commit_encoding = detect_repository_file_encoding(
+            repo.path.to_string_lossy().to_string(),
+            "latin1.txt".to_string(),
+            Some(commit_hash.trim().to_string()),
+        )
+        .await
+        .expect("detect commit encoding");
+
+        assert_eq!(working_tree_encoding.encoding, "windows-1252");
+        assert_eq!(commit_encoding.encoding, "windows-1252");
+    }
+
+    #[test]
+    fn get_repository_file_history_returns_entries_for_file_via_tauri_command() {
+        run_with_temp_home("diff-workspace-history-command", || {
+            let repo = TempRepository::create();
+            repo.commit_file("notes.txt", "hello\n", "Add notes");
+            repo.write_file("notes.txt", "hello\nworld\n");
+            repo.git(&["commit", "-am", "Expand notes"]);
+
+            let app = tauri::test::mock_builder()
+                .manage(SettingsState::default())
+                .invoke_handler(tauri::generate_handler![super::get_repository_file_history])
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .expect("history test app should build");
+            let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+                .build()
+                .expect("history test webview should build");
+
+            let payload = tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: "get_repository_file_history".into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "http://tauri.localhost"
+                        .parse()
+                        .expect("valid tauri test URL"),
+                    body: tauri::ipc::InvokeBody::Json(json!({
+                        "repoPath": repo.path.to_string_lossy().to_string(),
+                        "filePath": "notes.txt",
+                        "limit": 10
+                    })),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_string(),
+                },
+            )
+            .expect("history IPC response")
+            .deserialize::<serde_json::Value>()
+            .expect("history payload JSON");
+
+            assert_eq!(payload["path"], "notes.txt");
+            assert_eq!(payload["entries"].as_array().map(Vec::len), Some(2));
+            assert_eq!(payload["entries"][0]["messageSummary"], "Expand notes");
+            assert_eq!(payload["entries"][1]["messageSummary"], "Add notes");
+        });
+    }
+
+    #[test]
+    fn get_repository_file_blame_returns_lines_for_file_via_tauri_command() {
+        run_with_temp_home("diff-workspace-blame-command", || {
+            let repo = TempRepository::create();
+            repo.commit_file("notes.txt", "hello\n", "Add notes");
+            repo.write_file("notes.txt", "hello\nworld\n");
+            repo.git(&["commit", "-am", "Expand notes"]);
+
+            let app = tauri::test::mock_builder()
+                .manage(SettingsState::default())
+                .invoke_handler(tauri::generate_handler![super::get_repository_file_blame])
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .expect("blame test app should build");
+            let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+                .build()
+                .expect("blame test webview should build");
+
+            let payload = tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: "get_repository_file_blame".into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "http://tauri.localhost"
+                        .parse()
+                        .expect("valid tauri test URL"),
+                    body: tauri::ipc::InvokeBody::Json(json!({
+                        "repoPath": repo.path.to_string_lossy().to_string(),
+                        "filePath": "notes.txt",
+                        "revision": null
+                    })),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_string(),
+                },
+            )
+            .expect("blame IPC response")
+            .deserialize::<serde_json::Value>()
+            .expect("blame payload JSON");
+
+            assert_eq!(payload["path"], "notes.txt");
+            assert_eq!(payload["revision"], "HEAD");
+            assert_eq!(payload["lines"].as_array().map(Vec::len), Some(2));
+            assert_eq!(payload["lines"][0]["text"], "hello");
+            assert_eq!(payload["lines"][1]["text"], "world");
+        });
+    }
+
+    fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
     }
@@ -1120,7 +1509,7 @@ index 1111111..2222222 100644
     }
 
     fn run_with_temp_home<T>(label: &str, callback: impl FnOnce() -> T) -> T {
-        let _guard = test_environment_lock()
+        let _guard = environment_lock()
             .lock()
             .expect("test environment lock should not be poisoned");
         let temp_home = create_temp_dir(label);
@@ -1169,6 +1558,83 @@ index 1111111..2222222 100644
                     use_system_agent: true,
                 },
             )]),
+        }
+    }
+
+    struct TempRepository {
+        path: PathBuf,
+    }
+
+    impl TempRepository {
+        fn create() -> Self {
+            let unique_suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock should be after unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "litgit-diff-workspace-command-test-{unique_suffix}"
+            ));
+
+            fs::create_dir_all(&path).expect("temp repo directory should be created");
+            Self::git_in(&path, &["init", "-b", "main"]);
+            Self::git_in(&path, &["config", "user.name", "LitGit Tests"]);
+            Self::git_in(&path, &["config", "user.email", "tests@example.com"]);
+
+            Self { path }
+        }
+
+        fn commit_file(&self, relative_path: &str, contents: &str, message: &str) {
+            self.write_file(relative_path, contents);
+            self.git(&["add", relative_path]);
+            self.git(&["commit", "-m", message]);
+        }
+
+        fn write_file(&self, relative_path: &str, contents: &str) {
+            let file_path = self.path.join(relative_path);
+            if let Some(parent_path) = file_path.parent() {
+                fs::create_dir_all(parent_path).expect("parent directory should exist");
+            }
+            fs::write(file_path, contents).expect("repo file should be written");
+        }
+
+        fn git(&self, args: &[&str]) {
+            Self::git_in(&self.path, args);
+        }
+
+        fn git_output(&self, args: &[&str]) -> String {
+            let output = git_command()
+                .args(["-C", self.path.to_string_lossy().as_ref()])
+                .args(args)
+                .output()
+                .expect("git command should run");
+
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
+
+        fn git_in(path: &Path, args: &[&str]) {
+            let output = git_command()
+                .args(["-C", path.to_string_lossy().as_ref()])
+                .args(args)
+                .output()
+                .expect("git command should run");
+
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    impl Drop for TempRepository {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
         }
     }
 }

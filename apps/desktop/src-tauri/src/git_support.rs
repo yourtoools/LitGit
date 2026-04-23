@@ -199,6 +199,59 @@ pub(crate) fn git_command() -> Command {
     command
 }
 
+/// Runs a git command without repository context and captures full output.
+pub(crate) fn run_git_tool_output(
+    args: &[&str],
+    action: &'static str,
+) -> Result<std::process::Output, GitSupportError> {
+    git_command()
+        .args(args)
+        .output()
+        .map_err(|source| GitSupportError::Io { action, source })
+}
+
+/// Runs a git command in the target repository and captures full output.
+pub(crate) fn run_git_output(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> Result<std::process::Output, GitSupportError> {
+    git_command()
+        .args(["-C", repo_path])
+        .args(args)
+        .output()
+        .map_err(|source| GitSupportError::Io { action, source })
+}
+
+/// Runs a git command in the target repository and captures only the exit status.
+pub(crate) fn run_git_status(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> Result<std::process::ExitStatus, GitSupportError> {
+    git_command()
+        .args(["-C", repo_path])
+        .args(args)
+        .status()
+        .map_err(|source| GitSupportError::Io { action, source })
+}
+
+/// Converts a failed git output into a user-facing error message.
+pub(crate) fn ensure_git_output_success(
+    output: &std::process::Output,
+    fallback: &str,
+) -> Result<(), GitSupportError> {
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(GitSupportError::Message(git_process_error_message(
+        &output.stdout,
+        &output.stderr,
+        fallback,
+    )))
+}
+
 /// Extracts a human-readable error message from git stderr.
 ///
 /// Detects authentication failures and returns a user-friendly message.
@@ -660,13 +713,11 @@ pub(crate) fn load_working_tree_contents(
 ) -> Result<FileContentPair, GitSupportError> {
     validate_repo_relative_file_path(file_path)?;
 
-    let old_output = git_command()
-        .args(["-C", repo_path, "show", &format!("HEAD:{file_path}")])
-        .output()
-        .map_err(|error| GitSupportError::Io {
-            action: "run git show",
-            source: error,
-        })?;
+    let old_output = run_git_output(
+        repo_path,
+        &["show", &format!("HEAD:{file_path}")],
+        "run git show",
+    )?;
     let old_content = old_output.status.success().then_some(old_output.stdout);
 
     let new_content = fs::read(Path::new(repo_path).join(file_path)).ok();
@@ -684,32 +735,18 @@ pub(crate) fn load_commit_contents(
 ) -> Result<FileContentPair, GitSupportError> {
     validate_repo_relative_file_path(file_path)?;
 
-    let old_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "show",
-            &format!("{commit_hash}^:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| GitSupportError::Io {
-            action: "run git show for previous commit file",
-            source: error,
-        })?;
+    let old_output = run_git_output(
+        repo_path,
+        &["show", &format!("{commit_hash}^:{file_path}")],
+        "run git show for previous commit file",
+    )?;
     let old_content = old_output.status.success().then_some(old_output.stdout);
 
-    let new_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "show",
-            &format!("{commit_hash}:{file_path}"),
-        ])
-        .output()
-        .map_err(|error| GitSupportError::Io {
-            action: "run git show for commit file",
-            source: error,
-        })?;
+    let new_output = run_git_output(
+        repo_path,
+        &["show", &format!("{commit_hash}:{file_path}")],
+        "run git show for commit file",
+    )?;
     let new_content = new_output.status.success().then_some(new_output.stdout);
 
     Ok((old_content, new_content))
@@ -720,17 +757,24 @@ mod tests {
     use encoding_rs::UTF_8;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::process::Command;
+    use std::process::{Command, Output};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+
+    #[cfg(windows)]
+    use std::os::windows::process::ExitStatusExt;
 
     use super::{
         build_git_credential_descriptor, decode_text_content_with_encoding, encode_image_data_url,
-        encode_text_with_encoding, git_error_message, git_process_error_message,
-        is_git_authentication_message, is_git_repository_root, is_probably_text_content,
-        load_commit_contents, load_working_tree_contents, resolve_file_extension,
-        resolve_image_mime_type, resolve_text_encoding, validate_git_repo,
-        validate_launcher_repository_root, validate_repo_relative_file_path,
-        validate_repository_path, write_temp_bytes, GitSupportError,
+        encode_text_with_encoding, ensure_git_output_success, git_error_message,
+        git_process_error_message, is_git_authentication_message, is_git_repository_root,
+        is_probably_text_content, load_commit_contents, load_working_tree_contents,
+        resolve_file_extension, resolve_image_mime_type, resolve_text_encoding, run_git_output,
+        run_git_status, validate_git_repo, validate_launcher_repository_root,
+        validate_repo_relative_file_path, validate_repository_path, write_temp_bytes,
+        GitSupportError,
     };
 
     fn create_temp_path(name: &str) -> PathBuf {
@@ -757,6 +801,24 @@ mod tests {
         }
 
         let _ = fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    fn failed_exit_status() -> std::process::ExitStatus {
+        std::process::ExitStatus::from_raw(1 << 8)
+    }
+
+    #[cfg(windows)]
+    fn failed_exit_status() -> std::process::ExitStatus {
+        std::process::ExitStatus::from_raw(1)
+    }
+
+    fn failed_output(stdout: &[u8], stderr: &[u8]) -> Output {
+        Output {
+            status: failed_exit_status(),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
     }
 
     #[test]
@@ -841,6 +903,85 @@ mod tests {
             ),
             "husky - pre-commit hook exited with code 1"
         );
+    }
+
+    #[test]
+    fn git_process_error_message_prefers_stderr_when_both_streams_have_content() {
+        let message = git_process_error_message(
+            b"stdout hook failure",
+            b"fatal: refusing to merge unrelated histories",
+            "Fallback error",
+        );
+
+        assert_eq!(message, "fatal: refusing to merge unrelated histories");
+    }
+
+    #[test]
+    fn git_process_error_message_maps_auth_failures_from_stderr_to_friendly_message() {
+        let message = git_process_error_message(
+            b"stdout hook failure",
+            b"fatal: Authentication failed for 'https://github.com/example/repo.git/'",
+            "Fallback error",
+        );
+
+        assert_eq!(
+            message,
+            "Authentication required or credentials were rejected for this HTTPS remote. Configure a Git credential helper or use SSH, then try again."
+        );
+    }
+
+    #[test]
+    fn ensure_git_output_success_returns_friendly_auth_message_for_failed_output() {
+        let output = failed_output(
+            b"",
+            b"fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+        );
+
+        assert_eq!(
+            ensure_git_output_success(&output, "Fallback error"),
+            Err(GitSupportError::Message(
+                "Authentication required or credentials were rejected for this HTTPS remote. Configure a Git credential helper or use SSH, then try again.".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn run_git_output_executes_in_repository_context() {
+        let temp_dir = create_temp_dir("run-git-output");
+        Command::new("git")
+            .args(["init", "--quiet", temp_dir.to_string_lossy().as_ref()])
+            .output()
+            .expect("git init should run");
+
+        let output = run_git_output(
+            temp_dir.to_string_lossy().as_ref(),
+            &["rev-parse", "--is-inside-work-tree"],
+            "run git rev-parse",
+        )
+        .expect("git output should run");
+
+        remove_temp_path(&temp_dir);
+        assert!(output.status.success(), "git rev-parse should succeed");
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "true");
+    }
+
+    #[test]
+    fn run_git_status_executes_in_repository_context() {
+        let temp_dir = create_temp_dir("run-git-status");
+        Command::new("git")
+            .args(["init", "--quiet", temp_dir.to_string_lossy().as_ref()])
+            .output()
+            .expect("git init should run");
+
+        let status = run_git_status(
+            temp_dir.to_string_lossy().as_ref(),
+            &["rev-parse", "--is-inside-work-tree"],
+            "run git rev-parse",
+        )
+        .expect("git status should run");
+
+        remove_temp_path(&temp_dir);
+        assert!(status.success(), "git rev-parse should succeed");
     }
 
     #[test]

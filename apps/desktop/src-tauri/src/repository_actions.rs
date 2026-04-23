@@ -1,12 +1,14 @@
 use crate::git_support::{
-    git_command, git_error_message, git_process_error_message, validate_git_repo,
+    git_command, git_error_message, git_process_error_message, run_git_output, run_git_status,
+    run_git_tool_output, validate_git_repo, GitSupportError,
 };
 use crate::repository_publishing::{
     create_remote_repository, validate_publish_request, PublishRepositoryRequest,
 };
 use crate::settings::{
-    apply_git_preferences, apply_git_preferences_with_auth_session, begin_network_operation,
-    RepoCommandPreferences, SettingsState,
+    apply_git_preferences_from_snapshot, apply_git_preferences_with_auth_session_from_snapshot,
+    begin_network_operation_with_active_paths, RepoCommandPreferences, SettingsCommandSnapshot,
+    SettingsState,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -88,6 +90,29 @@ impl RepositoryActionsError {
     }
 }
 
+fn map_git_support_error(error: GitSupportError) -> RepositoryActionsError {
+    match error {
+        GitSupportError::Io { action, source } => RepositoryActionsError::Io { action, source },
+        GitSupportError::Message(message) => RepositoryActionsError::message(message),
+    }
+}
+
+fn run_repo_git_output(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> RepositoryActionsResult<std::process::Output> {
+    run_git_output(repo_path, args, action).map_err(map_git_support_error)
+}
+
+fn run_repo_git_status(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> RepositoryActionsResult<std::process::ExitStatus> {
+    run_git_status(repo_path, args, action).map_err(map_git_support_error)
+}
+
 fn ensure_repo(repo_path: &str) -> RepositoryActionsResult<()> {
     validate_git_repo(Path::new(repo_path)).map_err(RepositoryActionsError::message)
 }
@@ -124,10 +149,7 @@ fn resolve_push_upstream_plan(
 }
 
 fn resolve_head_hash(repo_path: &str) -> RepositoryActionsResult<String> {
-    let output = git_command()
-        .args(["-C", repo_path, "rev-parse", "HEAD"])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("resolve HEAD", error))?;
+    let output = run_repo_git_output(repo_path, &["rev-parse", "HEAD"], "resolve HEAD")?;
 
     if !output.status.success() {
         return Err(RepositoryActionsError::message(git_error_message(
@@ -148,10 +170,9 @@ fn is_missing_remote_repository_message(message: &str) -> bool {
 }
 
 fn validate_tag_name(name: &str) -> RepositoryActionsResult<()> {
-    let output = git_command()
-        .args(["check-ref-format", &format!("refs/tags/{name}")])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("validate tag name", error))?;
+    let ref_name = format!("refs/tags/{name}");
+    let output = run_git_tool_output(&["check-ref-format", &ref_name], "validate tag name")
+        .map_err(map_git_support_error)?;
 
     if !output.status.success() {
         return Err(RepositoryActionsError::message(
@@ -167,11 +188,7 @@ fn run_git_text_command(
     args: &[&str],
     fallback: &str,
 ) -> RepositoryActionsResult<String> {
-    let output = git_command()
-        .args(["-C", repo_path])
-        .args(args)
-        .output()
-        .map_err(|error| RepositoryActionsError::io("run git command", error))?;
+    let output = run_repo_git_output(repo_path, args, "run git command")?;
 
     if !output.status.success() {
         return Err(RepositoryActionsError::message(git_error_message(
@@ -200,10 +217,7 @@ fn resolve_current_branch_name(repo_path: &str) -> RepositoryActionsResult<Strin
 }
 
 fn repository_has_any_remote(repo_path: &str) -> RepositoryActionsResult<bool> {
-    let remote_output = git_command()
-        .args(["-C", repo_path, "remote"])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("read repository remotes", error))?;
+    let remote_output = run_repo_git_output(repo_path, &["remote"], "read repository remotes")?;
 
     if !remote_output.status.success() {
         return Err(RepositoryActionsError::message(git_error_message(
@@ -221,7 +235,7 @@ fn repository_has_any_remote(repo_path: &str) -> RepositoryActionsResult<bool> {
 fn resolve_origin_remote_missing_on_server(
     repo_path: &str,
     command_preferences: &RepoCommandPreferences,
-    state: &State<'_, SettingsState>,
+    settings_snapshot: &SettingsCommandSnapshot,
     has_origin_remote: bool,
 ) -> RepositoryActionsResult<bool> {
     if !has_origin_remote {
@@ -229,8 +243,12 @@ fn resolve_origin_remote_missing_on_server(
     }
 
     let mut health_check_command = git_command();
-    apply_git_preferences(&mut health_check_command, command_preferences, Some(state))
-        .map_err(RepositoryActionsError::message)?;
+    apply_git_preferences_from_snapshot(
+        &mut health_check_command,
+        command_preferences,
+        Some(settings_snapshot),
+    )
+    .map_err(RepositoryActionsError::message)?;
 
     let health_check_output = health_check_command
         .args([
@@ -289,27 +307,22 @@ fn resolve_publish_request(
 }
 
 fn configure_origin_remote(repo_path: &str, clone_url: &str) -> RepositoryActionsResult<()> {
-    let origin_exists_output = git_command()
-        .args(["-C", repo_path, "remote", "get-url", "origin"])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?;
+    let origin_exists_output = run_repo_git_output(
+        repo_path,
+        &["remote", "get-url", "origin"],
+        "verify origin remote",
+    )?;
     let remote_subcommand = if origin_exists_output.status.success() {
         "set-url"
     } else {
         "add"
     };
 
-    let configure_origin_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "remote",
-            remote_subcommand,
-            "origin",
-            clone_url,
-        ])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("configure origin remote", error))?;
+    let configure_origin_output = run_repo_git_output(
+        repo_path,
+        &["remote", remote_subcommand, "origin", clone_url],
+        "configure origin remote",
+    )?;
 
     if !configure_origin_output.status.success() {
         return Err(RepositoryActionsError::message(git_error_message(
@@ -322,17 +335,11 @@ fn configure_origin_remote(repo_path: &str, clone_url: &str) -> RepositoryAction
 }
 
 fn resolve_upstream_ref(repo_path: &str) -> RepositoryActionsResult<Option<String>> {
-    let upstream_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{u}",
-        ])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("check branch upstream", error))?;
+    let upstream_output = run_repo_git_output(
+        repo_path,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        "check branch upstream",
+    )?;
 
     if !upstream_output.status.success() {
         return Ok(None);
@@ -372,17 +379,11 @@ fn verify_commit_on_head_ancestry_path(
     target: &str,
     head_hash: &str,
 ) -> RepositoryActionsResult<()> {
-    let ancestor_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "merge-base",
-            "--is-ancestor",
-            target,
-            head_hash,
-        ])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("verify commit ancestry", error))?;
+    let ancestor_output = run_repo_git_output(
+        repo_path,
+        &["merge-base", "--is-ancestor", target, head_hash],
+        "verify commit ancestry",
+    )?;
 
     if !ancestor_output.status.success() {
         return Err(RepositoryActionsError::message(
@@ -414,10 +415,11 @@ fn collect_head_descendants(repo_path: &str, target: &str) -> RepositoryActionsR
 }
 
 fn resolve_current_head_ref(repo_path: &str) -> RepositoryActionsResult<String> {
-    let current_head_ref_output = git_command()
-        .args(["-C", repo_path, "symbolic-ref", "-q", "HEAD"])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("read current branch ref", error))?;
+    let current_head_ref_output = run_repo_git_output(
+        repo_path,
+        &["symbolic-ref", "-q", "HEAD"],
+        "read current branch ref",
+    )?;
 
     if current_head_ref_output.status.success() {
         let value = String::from_utf8_lossy(&current_head_ref_output.stdout)
@@ -438,17 +440,11 @@ fn update_rewritten_history_head(
     next_head_hash: &str,
 ) -> RepositoryActionsResult<()> {
     let update_ref_target = resolve_current_head_ref(repo_path)?;
-    let update_ref_output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "update-ref",
-            &update_ref_target,
-            next_head_hash,
-            head_hash,
-        ])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("update rewritten history", error))?;
+    let update_ref_output = run_repo_git_output(
+        repo_path,
+        &["update-ref", &update_ref_target, next_head_hash, head_hash],
+        "update rewritten history",
+    )?;
 
     if !update_ref_output.status.success() {
         return Err(RepositoryActionsError::message(git_process_error_message(
@@ -458,9 +454,11 @@ fn update_rewritten_history_head(
         )));
     }
 
-    let _ = git_command()
-        .args(["-C", repo_path, "update-ref", "ORIG_HEAD", head_hash])
-        .output();
+    let _ = run_repo_git_output(
+        repo_path,
+        &["update-ref", "ORIG_HEAD", head_hash],
+        "update ORIG_HEAD",
+    );
 
     Ok(())
 }
@@ -469,17 +467,16 @@ fn read_commit_rewrite_metadata(
     repo_path: &str,
     commit_hash: &str,
 ) -> RepositoryActionsResult<CommitRewriteMetadata> {
-    let output = git_command()
-        .args([
-            "-C",
-            repo_path,
+    let output = run_repo_git_output(
+        repo_path,
+        &[
             "show",
             "-s",
             "--format=%T%x00%P%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B",
             commit_hash,
-        ])
-        .output()
-        .map_err(|error| RepositoryActionsError::io("read commit metadata", error))?;
+        ],
+        "read commit metadata",
+    )?;
 
     if !output.status.success() {
         return Err(RepositoryActionsError::message(git_error_message(
@@ -637,9 +634,19 @@ fn resolve_rewritten_parent_hash(
 
 /// Checks out a commit in detached HEAD mode.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn checkout_repository_commit(repo_path: String, target: String) -> Result<(), String> {
+pub(crate) async fn checkout_repository_commit(
+    repo_path: String,
+    target: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        checkout_repository_commit_inner(repo_path, target)
+    })
+    .await
+    .map_err(|error| format!("Failed to checkout commit: {error}"))?
+}
+
+fn checkout_repository_commit_inner(repo_path: String, target: String) -> Result<(), String> {
     (|| -> RepositoryActionsResult<()> {
         ensure_repo(&repo_path)?;
 
@@ -651,10 +658,11 @@ pub(crate) fn checkout_repository_commit(repo_path: String, target: String) -> R
             ));
         }
 
-        let output = git_command()
-            .args(["-C", &repo_path, "switch", "--detach", trimmed_target])
-            .output()
-            .map_err(|error| RepositoryActionsError::io("run git switch --detach", error))?;
+        let output = run_repo_git_output(
+            &repo_path,
+            &["switch", "--detach", trimmed_target],
+            "run git switch --detach",
+        )?;
 
         if !output.status.success() {
             return Err(RepositoryActionsError::message(git_error_message(
@@ -670,11 +678,38 @@ pub(crate) fn checkout_repository_commit(repo_path: String, target: String) -> R
 
 /// Pushes the current branch and can publish a repository when no remote exists.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn push_repository_branch(
-    app: tauri::AppHandle,
+pub(crate) async fn push_repository_branch<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, SettingsState>,
+    repo_path: String,
+    preferences: Option<RepoCommandPreferences>,
+    force_with_lease: Option<bool>,
+    publish_request: Option<PublishRepositoryRequest>,
+) -> Result<(), String> {
+    let settings_snapshot = state
+        .inner()
+        .command_snapshot()
+        .map_err(RepositoryActionsError::message)
+        .map_err(|error| error.to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        push_repository_branch_inner(
+            app,
+            settings_snapshot,
+            repo_path,
+            preferences,
+            force_with_lease,
+            publish_request,
+        )
+    })
+    .await
+    .map_err(|error| format!("Failed to push branch: {error}"))?
+}
+
+fn push_repository_branch_inner<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    settings_snapshot: SettingsCommandSnapshot,
     repo_path: String,
     preferences: Option<RepoCommandPreferences>,
     force_with_lease: Option<bool>,
@@ -683,16 +718,18 @@ pub(crate) fn push_repository_branch(
     (|| -> RepositoryActionsResult<()> {
         ensure_repo(&repo_path)?;
         let command_preferences = preferences.unwrap_or_default();
-        let _network_operation = begin_network_operation(&state, &repo_path)
+        let _network_operation =
+            begin_network_operation_with_active_paths(&settings_snapshot.active_network_repo_paths, &repo_path)
             .map_err(RepositoryActionsError::message)?;
         let branch_name = resolve_current_branch_name(&repo_path)?;
         let has_any_remote = repository_has_any_remote(&repo_path)?;
         let origin_remote_output = if has_any_remote {
             Some(
-                git_command()
-                    .args(["-C", &repo_path, "remote", "get-url", "origin"])
-                    .output()
-                    .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?,
+                run_repo_git_output(
+                    &repo_path,
+                    &["remote", "get-url", "origin"],
+                    "verify origin remote",
+                )?,
             )
         } else {
             None
@@ -716,17 +753,16 @@ pub(crate) fn push_repository_branch(
             let origin_remote_missing_on_server = resolve_origin_remote_missing_on_server(
                 &repo_path,
                 &command_preferences,
-                &state,
+                &settings_snapshot,
                 has_origin_remote,
             )?;
 
             if origin_remote_missing_on_server {
-                let remove_origin_output = git_command()
-                    .args(["-C", &repo_path, "remote", "remove", "origin"])
-                    .output()
-                    .map_err(|error| {
-                        RepositoryActionsError::io("remove stale origin remote", error)
-                    })?;
+                let remove_origin_output = run_repo_git_output(
+                    &repo_path,
+                    &["remote", "remove", "origin"],
+                    "remove stale origin remote",
+                )?;
 
                 if !remove_origin_output.status.success() {
                     return Err(RepositoryActionsError::message(git_error_message(
@@ -767,10 +803,10 @@ pub(crate) fn push_repository_branch(
         };
 
         let mut push_command = git_command();
-        apply_git_preferences_with_auth_session(
+        apply_git_preferences_with_auth_session_from_snapshot(
             &mut push_command,
             &command_preferences,
-            Some(&state),
+            Some(&settings_snapshot),
             Some(&auth_session),
         )
         .map_err(RepositoryActionsError::message)?;
@@ -842,11 +878,30 @@ pub(crate) fn push_repository_branch(
 
 /// Runs pull/fetch action modes and reports whether HEAD changed.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn pull_repository_action(
-    app: tauri::AppHandle,
+pub(crate) async fn pull_repository_action<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, SettingsState>,
+    repo_path: String,
+    mode: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<PullActionResult, String> {
+    let settings_snapshot = state
+        .inner()
+        .command_snapshot()
+        .map_err(RepositoryActionsError::message)
+        .map_err(|error| error.to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        pull_repository_action_inner(app, settings_snapshot, repo_path, mode, preferences)
+    })
+    .await
+    .map_err(|error| format!("Failed to execute pull action: {error}"))?
+}
+
+fn pull_repository_action_inner<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    settings_snapshot: SettingsCommandSnapshot,
     repo_path: String,
     mode: String,
     preferences: Option<RepoCommandPreferences>,
@@ -854,8 +909,11 @@ pub(crate) fn pull_repository_action(
     (|| -> RepositoryActionsResult<PullActionResult> {
         ensure_repo(&repo_path)?;
         let command_preferences = preferences.unwrap_or_default();
-        let _network_operation =
-            begin_network_operation(&state, &repo_path).map_err(RepositoryActionsError::message)?;
+        let _network_operation = begin_network_operation_with_active_paths(
+            &settings_snapshot.active_network_repo_paths,
+            &repo_path,
+        )
+        .map_err(RepositoryActionsError::message)?;
 
         let head_before = resolve_head_hash(&repo_path)?;
 
@@ -865,10 +923,11 @@ pub(crate) fn pull_repository_action(
         };
 
         // Get origin remote URL for credential management
-        let origin_remote_output = git_command()
-            .args(["-C", &repo_path, "remote", "get-url", "origin"])
-            .output()
-            .map_err(|error| RepositoryActionsError::io("verify origin remote", error))?;
+        let origin_remote_output = run_repo_git_output(
+            &repo_path,
+            &["remote", "get-url", "origin"],
+            "verify origin remote",
+        )?;
         let origin_remote_url = if origin_remote_output.status.success() {
             String::from_utf8_lossy(&origin_remote_output.stdout)
                 .trim()
@@ -895,10 +954,10 @@ pub(crate) fn pull_repository_action(
 
         let mut pull_command = git_command();
         pull_command.args(["-C", &repo_path]);
-        apply_git_preferences_with_auth_session(
+        apply_git_preferences_with_auth_session_from_snapshot(
             &mut pull_command,
             &command_preferences,
-            Some(&state),
+            Some(&settings_snapshot),
             Some(&auth_session),
         )
         .map_err(RepositoryActionsError::message)?;
@@ -982,10 +1041,35 @@ pub(crate) fn pull_repository_action(
 
 /// Runs merge, fast-forward-only merge, or rebase against a target reference.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn run_repository_merge_action(
+pub(crate) async fn run_repository_merge_action(
     state: State<'_, SettingsState>,
+    repo_path: String,
+    mode: String,
+    target_ref: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<MergeRepositoryPayload, String> {
+    let settings_snapshot = state
+        .inner()
+        .command_snapshot()
+        .map_err(RepositoryActionsError::message)
+        .map_err(|error| error.to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        run_repository_merge_action_inner(
+            settings_snapshot,
+            repo_path,
+            mode,
+            target_ref,
+            preferences,
+        )
+    })
+    .await
+    .map_err(|error| format!("Failed to run merge action: {error}"))?
+}
+
+fn run_repository_merge_action_inner(
+    settings_snapshot: SettingsCommandSnapshot,
     repo_path: String,
     mode: String,
     target_ref: String,
@@ -1003,18 +1087,12 @@ pub(crate) fn run_repository_merge_action(
         }
 
         let target_resolution = format!("{trimmed_target_ref}^{{commit}}");
-        let target_exists = git_command()
-            .args([
-                "-C",
-                &repo_path,
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                &target_resolution,
-            ])
-            .status()
-            .map_err(|error| RepositoryActionsError::io("resolve target reference", error))?
-            .success();
+        let target_exists = run_repo_git_status(
+            &repo_path,
+            &["rev-parse", "--verify", "--quiet", &target_resolution],
+            "resolve target reference",
+        )?
+        .success();
 
         if !target_exists {
             return Err(RepositoryActionsError::message(format!(
@@ -1022,10 +1100,11 @@ pub(crate) fn run_repository_merge_action(
             )));
         }
 
-        let current_branch_output = git_command()
-            .args(["-C", &repo_path, "rev-parse", "--abbrev-ref", "HEAD"])
-            .output()
-            .map_err(|error| RepositoryActionsError::io("inspect current branch", error))?;
+        let current_branch_output = run_repo_git_output(
+            &repo_path,
+            &["rev-parse", "--abbrev-ref", "HEAD"],
+            "inspect current branch",
+        )?;
 
         if !current_branch_output.status.success() {
             return Err(RepositoryActionsError::message(git_error_message(
@@ -1049,8 +1128,12 @@ pub(crate) fn run_repository_merge_action(
 
         let mut command = git_command();
         command.args(["-C", &repo_path]);
-        apply_git_preferences(&mut command, &command_preferences, Some(&state))
-            .map_err(RepositoryActionsError::message)?;
+        apply_git_preferences_from_snapshot(
+            &mut command,
+            &command_preferences,
+            Some(&settings_snapshot),
+        )
+        .map_err(RepositoryActionsError::message)?;
 
         match mode.as_str() {
             "ff-only" => {
@@ -1098,12 +1181,19 @@ pub(crate) fn run_repository_merge_action(
 
 /// Cherry-picks a commit onto the current branch.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn cherry_pick_repository_commit(
+pub(crate) async fn cherry_pick_repository_commit(
     repo_path: String,
     target: String,
 ) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cherry_pick_repository_commit_inner(repo_path, target)
+    })
+    .await
+    .map_err(|error| format!("Failed to cherry-pick commit: {error}"))?
+}
+
+fn cherry_pick_repository_commit_inner(repo_path: String, target: String) -> Result<(), String> {
     (|| -> RepositoryActionsResult<()> {
         ensure_repo(&repo_path)?;
 
@@ -1115,10 +1205,11 @@ pub(crate) fn cherry_pick_repository_commit(
             ));
         }
 
-        let output = git_command()
-            .args(["-C", &repo_path, "cherry-pick", trimmed_target])
-            .output()
-            .map_err(|error| RepositoryActionsError::io("run git cherry-pick", error))?;
+        let output = run_repo_git_output(
+            &repo_path,
+            &["cherry-pick", trimmed_target],
+            "run git cherry-pick",
+        )?;
 
         if !output.status.success() {
             return Err(RepositoryActionsError::message(git_process_error_message(
@@ -1135,9 +1226,17 @@ pub(crate) fn cherry_pick_repository_commit(
 
 /// Reverts a commit with `--no-edit`.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn revert_repository_commit(repo_path: String, target: String) -> Result<(), String> {
+pub(crate) async fn revert_repository_commit(
+    repo_path: String,
+    target: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || revert_repository_commit_inner(repo_path, target))
+        .await
+        .map_err(|error| format!("Failed to revert commit: {error}"))?
+}
+
+fn revert_repository_commit_inner(repo_path: String, target: String) -> Result<(), String> {
     (|| -> RepositoryActionsResult<()> {
         ensure_repo(&repo_path)?;
 
@@ -1149,10 +1248,11 @@ pub(crate) fn revert_repository_commit(repo_path: String, target: String) -> Res
             ));
         }
 
-        let output = git_command()
-            .args(["-C", &repo_path, "revert", "--no-edit", trimmed_target])
-            .output()
-            .map_err(|error| RepositoryActionsError::io("run git revert", error))?;
+        let output = run_repo_git_output(
+            &repo_path,
+            &["revert", "--no-edit", trimmed_target],
+            "run git revert",
+        )?;
 
         if !output.status.success() {
             return Err(RepositoryActionsError::message(git_process_error_message(
@@ -1169,9 +1269,22 @@ pub(crate) fn revert_repository_commit(repo_path: String, target: String) -> Res
 
 /// Creates lightweight or annotated tags at a target reference.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn create_repository_tag(
+pub(crate) async fn create_repository_tag(
+    repo_path: String,
+    tag_name: String,
+    target: String,
+    annotated: Option<bool>,
+    annotation_message: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        create_repository_tag_inner(repo_path, tag_name, target, annotated, annotation_message)
+    })
+    .await
+    .map_err(|error| format!("Failed to create tag: {error}"))?
+}
+
+fn create_repository_tag_inner(
     repo_path: String,
     tag_name: String,
     target: String,
@@ -1204,24 +1317,24 @@ pub(crate) fn create_repository_tag(
             .unwrap_or(trimmed_tag_name);
 
         let output = if is_annotated {
-            git_command()
-                .args([
-                    "-C",
-                    &repo_path,
+            run_repo_git_output(
+                &repo_path,
+                &[
                     "tag",
                     "-a",
                     trimmed_tag_name,
                     trimmed_target,
                     "-m",
                     resolved_annotation_message,
-                ])
-                .output()
-                .map_err(|error| RepositoryActionsError::io("run git tag -a", error))?
+                ],
+                "run git tag -a",
+            )?
         } else {
-            git_command()
-                .args(["-C", &repo_path, "tag", trimmed_tag_name, trimmed_target])
-                .output()
-                .map_err(|error| RepositoryActionsError::io("run git tag", error))?
+            run_repo_git_output(
+                &repo_path,
+                &["tag", trimmed_tag_name, trimmed_target],
+                "run git tag",
+            )?
         };
 
         if !output.status.success() {
@@ -1238,9 +1351,21 @@ pub(crate) fn create_repository_tag(
 
 /// Rewrites the target commit message and replays descendants on top of rewritten parents.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn reword_repository_commit(
+pub(crate) async fn reword_repository_commit(
+    repo_path: String,
+    target: String,
+    summary: String,
+    description: String,
+) -> Result<RewordRepositoryCommitResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        reword_repository_commit_inner(repo_path, target, summary, description)
+    })
+    .await
+    .map_err(|error| format!("Failed to reword commit: {error}"))?
+}
+
+fn reword_repository_commit_inner(
     repo_path: String,
     target: String,
     summary: String,
@@ -1297,9 +1422,17 @@ pub(crate) fn reword_repository_commit(
 
 /// Drops a commit from the current HEAD ancestry by rewriting descendants.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn drop_repository_commit(
+pub(crate) async fn drop_repository_commit(
+    repo_path: String,
+    target: String,
+) -> Result<DropRepositoryCommitResult, String> {
+    tauri::async_runtime::spawn_blocking(move || drop_repository_commit_inner(repo_path, target))
+        .await
+        .map_err(|error| format!("Failed to drop commit: {error}"))?
+}
+
+fn drop_repository_commit_inner(
     repo_path: String,
     target: String,
 ) -> Result<DropRepositoryCommitResult, String> {
@@ -1392,17 +1525,21 @@ pub(crate) fn drop_repository_commit(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_commit_message_text, checkout_repository_commit, drop_repository_commit,
-        resolve_head_hash, resolve_publish_request, resolve_push_upstream_plan,
-        reword_repository_commit,
+        build_commit_message_text, checkout_repository_commit, cherry_pick_repository_commit,
+        create_repository_tag, drop_repository_commit, pull_repository_action,
+        push_repository_branch, resolve_head_hash, resolve_publish_request,
+        resolve_push_upstream_plan, revert_repository_commit, reword_repository_commit,
+        run_repository_merge_action,
     };
+    use crate::askpass_state::GitAuthBrokerState;
     use crate::git_support::git_command;
     use crate::repository_publishing::PublishRepositoryRequest;
-    use crate::settings::RepoCommandPreferences;
+    use crate::settings::{RepoCommandPreferences, SettingsState};
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tauri::Manager;
 
     #[test]
     fn push_repository_branch_requires_publish_request_when_no_remote_exists() {
@@ -1481,8 +1618,8 @@ mod tests {
         assert_eq!(message, "Add tests\n\nCover edge cases");
     }
 
-    #[test]
-    fn checkout_repository_commit_switches_to_head_commit() {
+    #[tokio::test]
+    async fn checkout_repository_commit_switches_to_head_commit() {
         let repo_path = TempRepository::create();
         TempRepository::write_file(&repo_path.path, "tracked.txt", "initial");
         repo_path.git(&["add", "tracked.txt"]);
@@ -1492,14 +1629,15 @@ mod tests {
             .expect("head hash should resolve");
 
         checkout_repository_commit(repo_path.path.to_string_lossy().to_string(), head_hash)
+            .await
             .expect("checkout should succeed");
 
         let detached_head = repo_path.git_output(&["rev-parse", "--abbrev-ref", "HEAD"]);
         assert_eq!(detached_head.trim(), "HEAD");
     }
 
-    #[test]
-    fn checkout_repository_commit_rejects_unknown_commit() {
+    #[tokio::test]
+    async fn checkout_repository_commit_rejects_unknown_commit() {
         let repo_path = TempRepository::create();
         TempRepository::write_file(&repo_path.path, "tracked.txt", "initial");
         repo_path.git(&["add", "tracked.txt"]);
@@ -1509,6 +1647,7 @@ mod tests {
             repo_path.path.to_string_lossy().to_string(),
             "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string(),
         )
+        .await
         .expect_err("checkout should fail");
 
         assert!(
@@ -1517,8 +1656,217 @@ mod tests {
         );
     }
 
-    #[test]
-    fn reword_repository_commit_rewrites_target_and_descendants() {
+    #[tokio::test]
+    async fn push_repository_branch_pushes_to_origin_and_sets_upstream() {
+        let remote = TempRepository::create_bare("push-remote");
+        let repo = TempRepository::create();
+        TempRepository::write_file(&repo.path, "tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+
+        let app = tauri::test::mock_builder()
+            .manage(SettingsState::default())
+            .manage(GitAuthBrokerState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("repository actions test app should build");
+        let settings_state = app.state::<SettingsState>();
+        settings_state.set_askpass_socket_path(
+            std::env::temp_dir().join("litgit-repository-actions-push.sock"),
+        );
+
+        push_repository_branch(
+            app.handle().clone(),
+            app.state::<SettingsState>(),
+            repo.path.to_string_lossy().to_string(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("push should succeed");
+
+        let remote_head = remote.git_output(&["rev-parse", "refs/heads/main"]);
+        let local_head = repo.git_output(&["rev-parse", "HEAD"]);
+        assert_eq!(remote_head.trim(), local_head.trim());
+
+        let upstream = repo.git_output(&[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ]);
+        assert_eq!(upstream.trim(), "origin/main");
+    }
+
+    #[tokio::test]
+    async fn pull_repository_action_fast_forwards_when_remote_has_new_commit() {
+        let remote = TempRepository::create_bare("pull-remote");
+        let repo = TempRepository::create();
+        TempRepository::write_file(&repo.path, "tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+        repo.git(&["push", "-u", "origin", "main"]);
+
+        let clone = TempRepository::create();
+        clone.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+        clone.git(&["fetch", "origin", "main"]);
+        clone.git(&["switch", "-c", "main", "--track", "origin/main"]);
+        TempRepository::write_file(&clone.path, "tracked.txt", "updated upstream");
+        clone.git(&["commit", "-am", "Remote update"]);
+        clone.git(&["push", "origin", "main"]);
+
+        let app = tauri::test::mock_builder()
+            .manage(SettingsState::default())
+            .manage(GitAuthBrokerState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("repository actions test app should build");
+        let settings_state = app.state::<SettingsState>();
+        settings_state.set_askpass_socket_path(
+            std::env::temp_dir().join("litgit-repository-actions-pull.sock"),
+        );
+
+        let result = pull_repository_action(
+            app.handle().clone(),
+            app.state::<SettingsState>(),
+            repo.path.to_string_lossy().to_string(),
+            "pull-ff-only".to_string(),
+            None,
+        )
+        .await
+        .expect("pull should succeed");
+
+        assert!(result.head_changed);
+        assert_eq!(
+            fs::read_to_string(repo.path.join("tracked.txt")).unwrap(),
+            "updated upstream"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_repository_merge_action_merges_target_branch_into_current_branch() {
+        let repo = TempRepository::create();
+        TempRepository::write_file(&repo.path, "tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&["switch", "-c", "feature"]);
+        TempRepository::write_file(&repo.path, "tracked.txt", "feature change");
+        repo.git(&["commit", "-am", "Feature commit"]);
+        let feature_head = repo.git_output(&["rev-parse", "HEAD"]);
+        repo.git(&["switch", "main"]);
+
+        let app = tauri::test::mock_builder()
+            .manage(SettingsState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("repository actions test app should build");
+
+        let result = run_repository_merge_action(
+            app.state::<SettingsState>(),
+            repo.path.to_string_lossy().to_string(),
+            "merge".to_string(),
+            "feature".to_string(),
+            None,
+        )
+        .await
+        .expect("merge should succeed");
+
+        assert!(result.head_changed);
+        let head = repo.git_output(&["rev-parse", "HEAD"]);
+        assert_eq!(head.trim(), feature_head.trim());
+    }
+
+    #[tokio::test]
+    async fn cherry_pick_repository_commit_applies_target_commit_to_current_branch() {
+        let repo = TempRepository::create();
+        TempRepository::write_file(&repo.path, "tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&["switch", "-c", "feature"]);
+        TempRepository::write_file(&repo.path, "tracked.txt", "feature change");
+        repo.git(&["commit", "-am", "Feature commit"]);
+        let feature_commit = repo.git_output(&["rev-parse", "HEAD"]);
+        repo.git(&["switch", "main"]);
+
+        cherry_pick_repository_commit(
+            repo.path.to_string_lossy().to_string(),
+            feature_commit.trim().to_string(),
+        )
+        .await
+        .expect("cherry-pick should succeed");
+
+        assert_eq!(
+            fs::read_to_string(repo.path.join("tracked.txt")).unwrap(),
+            "feature change"
+        );
+        let message = repo.git_output(&["show", "-s", "--format=%s", "HEAD"]);
+        assert_eq!(message.trim(), "Feature commit");
+    }
+
+    #[tokio::test]
+    async fn revert_repository_commit_creates_inverse_commit_for_target() {
+        let repo = TempRepository::create();
+        TempRepository::write_file(&repo.path, "tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        TempRepository::write_file(&repo.path, "tracked.txt", "second");
+        repo.git(&["commit", "-am", "Second commit"]);
+        let second_commit = repo.git_output(&["rev-parse", "HEAD"]);
+
+        revert_repository_commit(
+            repo.path.to_string_lossy().to_string(),
+            second_commit.trim().to_string(),
+        )
+        .await
+        .expect("revert should succeed");
+
+        assert_eq!(
+            fs::read_to_string(repo.path.join("tracked.txt")).unwrap(),
+            "initial"
+        );
+        let message = repo.git_output(&["show", "-s", "--format=%s", "HEAD"]);
+        assert!(message.trim().starts_with("Revert \"Second commit\""));
+    }
+
+    #[tokio::test]
+    async fn create_repository_tag_creates_annotated_tag_with_message() {
+        let repo = TempRepository::create();
+        TempRepository::write_file(&repo.path, "tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+
+        create_repository_tag(
+            repo.path.to_string_lossy().to_string(),
+            "v1.0.0".to_string(),
+            "HEAD".to_string(),
+            Some(true),
+            Some("Release v1.0.0".to_string()),
+        )
+        .await
+        .expect("tag should succeed");
+
+        let message =
+            repo.git_output(&["for-each-ref", "refs/tags/v1.0.0", "--format=%(contents)"]);
+        assert_eq!(message.trim(), "Release v1.0.0");
+    }
+
+    #[tokio::test]
+    async fn reword_repository_commit_rewrites_target_and_descendants() {
         let repo_path = TempRepository::create();
         TempRepository::write_file(&repo_path.path, "tracked.txt", "one");
         repo_path.git(&["add", "tracked.txt"]);
@@ -1541,6 +1889,7 @@ mod tests {
             "First rewritten".to_string(),
             "Updated body".to_string(),
         )
+        .await
         .expect("reword should succeed");
 
         assert_ne!(result.head_hash, old_head_hash);
@@ -1559,8 +1908,8 @@ mod tests {
         assert_eq!(current_head.trim(), result.head_hash);
     }
 
-    #[test]
-    fn drop_repository_commit_rewrites_head_and_selects_parent_when_dropping_tip() {
+    #[tokio::test]
+    async fn drop_repository_commit_rewrites_head_and_selects_parent_when_dropping_tip() {
         let repo_path = TempRepository::create();
         TempRepository::write_file(&repo_path.path, "tracked.txt", "one");
         repo_path.git(&["add", "tracked.txt"]);
@@ -1579,6 +1928,7 @@ mod tests {
 
         let result =
             drop_repository_commit(repo_path.path.to_string_lossy().to_string(), second_hash)
+                .await
                 .expect("drop should succeed");
 
         assert_eq!(result.head_hash, first_hash);
@@ -1589,6 +1939,28 @@ mod tests {
 
         let current_head = repo_path.git_output(&["rev-parse", "HEAD"]);
         assert_eq!(current_head.trim(), first_hash);
+    }
+
+    #[tokio::test]
+    async fn drop_repository_commit_rejects_dropping_the_only_root_commit() {
+        let repo = TempRepository::create();
+        TempRepository::write_file(&repo.path, "tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        let root_commit = repo.git_output(&["rev-parse", "HEAD"]);
+
+        let error = drop_repository_commit(
+            repo.path.to_string_lossy().to_string(),
+            root_commit.trim().to_string(),
+        )
+        .await
+        .err()
+        .expect("dropping root commit should fail");
+
+        assert_eq!(
+            error,
+            "The root commit cannot be dropped because it would leave the branch empty."
+        );
     }
 
     #[test]
@@ -1634,19 +2006,35 @@ mod tests {
 
     impl TempRepository {
         fn create() -> Self {
+            Self::create_with_args("repo", &["init", "-b", "main"])
+        }
+
+        fn create_bare(label: &str) -> Self {
+            Self::create_with_args(label, &["init", "--bare"])
+        }
+
+        fn create_with_args(label: &str, init_args: &[&str]) -> Self {
+            let path = Self::temp_path(label);
+
+            fs::create_dir_all(&path).expect("temp repo directory should be created");
+            Self::git_in(&path, init_args);
+
+            if !init_args.contains(&"--bare") {
+                Self::git_in(&path, &["config", "user.name", "LitGit Tests"]);
+                Self::git_in(&path, &["config", "user.email", "tests@example.com"]);
+            }
+
+            Self { path }
+        }
+
+        fn temp_path(label: &str) -> PathBuf {
             let unique_suffix = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("clock should be after unix epoch")
                 .as_nanos();
-            let path =
-                env::temp_dir().join(format!("litgit-repository-actions-test-{unique_suffix}"));
-
-            fs::create_dir_all(&path).expect("temp repo directory should be created");
-            Self::git_in(&path, &["init", "-b", "main"]);
-            Self::git_in(&path, &["config", "user.name", "LitGit Tests"]);
-            Self::git_in(&path, &["config", "user.email", "tests@example.com"]);
-
-            Self { path }
+            env::temp_dir().join(format!(
+                "litgit-repository-actions-test-{label}-{unique_suffix}"
+            ))
         }
 
         fn write_file(repo_path: &Path, relative_path: &str, contents: &str) {

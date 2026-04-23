@@ -8,7 +8,23 @@ const LOW_SIGNAL_LINE_PATTERN = /^(summary:|checked\b|tasks:|cached:|time:)/i;
 const HEAD_REF_PATTERN = /(^|,\s*)HEAD(?:\s*->|,|$)/;
 
 export function resolveErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = error.message;
+
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message;
+    }
+  }
+
+  return fallback;
 }
 
 export function resolveErrorSummary(error: unknown, fallback: string) {

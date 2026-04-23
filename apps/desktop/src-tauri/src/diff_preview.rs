@@ -4,10 +4,9 @@ use std::path::Path;
 
 use super::{RepositoryCommitFileDiff, RepositoryFileDiff};
 use crate::git_support::{
-    decode_text_content_with_encoding, encode_image_data_url, git_command,
-    is_probably_text_content, load_commit_contents, load_working_tree_contents,
-    resolve_file_extension, resolve_image_mime_type, validate_git_repo, write_temp_bytes,
-    GitSupportError,
+    decode_text_content_with_encoding, encode_image_data_url, is_probably_text_content,
+    load_commit_contents, load_working_tree_contents, resolve_file_extension,
+    resolve_image_mime_type, validate_git_repo, write_temp_bytes, GitSupportError,
 };
 
 const DIFF_CHANGED_LINE_LIMIT: usize = 500;
@@ -164,17 +163,18 @@ fn compute_changed_line_count_with_git(old: &[u8], new: &[u8]) -> Option<usize> 
     let old_path = write_temp_bytes("old", old)?;
     let new_path = write_temp_bytes("new", new)?;
 
-    let output = git_command()
-        .args([
+    let output = crate::git_support::run_git_tool_output(
+        &[
             "diff",
             "--no-index",
             "--numstat",
             "--",
             old_path.to_string_lossy().as_ref(),
             new_path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .ok()?;
+        ],
+        "compute changed line count",
+    )
+    .ok()?;
 
     let _ = fs::remove_file(&old_path);
     let _ = fs::remove_file(&new_path);
@@ -409,12 +409,17 @@ fn build_content_payload(
 
 /// Evaluates whether a working-tree file can be safely rendered in the selected preview mode.
 #[tauri::command]
-pub(crate) fn get_repository_file_preflight(
+pub(crate) async fn get_repository_file_preflight(
     repo_path: String,
     file_path: String,
     mode: String,
 ) -> Result<RepositoryFilePreflight, String> {
-    get_repository_file_preflight_inner(repo_path, file_path, mode).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_file_preflight_inner(repo_path, file_path, mode)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to load file preflight: {error}"))?
 }
 
 fn get_repository_file_preflight_inner(
@@ -451,14 +456,18 @@ fn get_repository_file_preflight_inner(
 
 /// Evaluates whether a commit file can be safely rendered in the selected preview mode.
 #[tauri::command]
-pub(crate) fn get_repository_commit_file_preflight(
+pub(crate) async fn get_repository_commit_file_preflight(
     repo_path: String,
     commit_hash: String,
     file_path: String,
     mode: String,
 ) -> Result<RepositoryCommitFilePreflight, String> {
-    get_repository_commit_file_preflight_inner(repo_path, commit_hash, file_path, mode)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_commit_file_preflight_inner(repo_path, commit_hash, file_path, mode)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to load commit file preflight: {error}"))?
 }
 
 fn get_repository_commit_file_preflight_inner(
@@ -497,15 +506,19 @@ fn get_repository_commit_file_preflight_inner(
 
 /// Returns working-tree file content for diff/file preview modes.
 #[tauri::command]
-pub(crate) fn get_repository_file_content(
+pub(crate) async fn get_repository_file_content(
     repo_path: String,
     file_path: String,
     mode: String,
     force_render: bool,
     encoding: Option<String>,
 ) -> Result<RepositoryFileDiff, String> {
-    get_repository_file_content_inner(repo_path, file_path, mode, force_render, encoding)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_file_content_inner(repo_path, file_path, mode, force_render, encoding)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to load file content: {error}"))?
 }
 
 fn get_repository_file_content_inner(
@@ -574,7 +587,7 @@ fn get_repository_file_content_inner(
 
 /// Returns commit file content for diff/file preview modes.
 #[tauri::command]
-pub(crate) fn get_repository_commit_file_content(
+pub(crate) async fn get_repository_commit_file_content(
     repo_path: String,
     commit_hash: String,
     file_path: String,
@@ -582,15 +595,19 @@ pub(crate) fn get_repository_commit_file_content(
     force_render: bool,
     encoding: Option<String>,
 ) -> Result<RepositoryCommitFileDiff, String> {
-    get_repository_commit_file_content_inner(
-        repo_path,
-        commit_hash,
-        file_path,
-        mode,
-        force_render,
-        encoding,
-    )
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_commit_file_content_inner(
+            repo_path,
+            commit_hash,
+            file_path,
+            mode,
+            force_render,
+            encoding,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to load commit file content: {error}"))?
 }
 
 fn get_repository_commit_file_content_inner(
@@ -662,9 +679,16 @@ fn get_repository_commit_file_content_inner(
 #[cfg(test)]
 mod tests {
     use super::{
-        compute_changed_line_count, resolve_preflight_gate, PreviewGate, PreviewMode,
+        compute_changed_line_count, get_repository_commit_file_content,
+        get_repository_commit_file_preflight, get_repository_file_content,
+        get_repository_file_preflight, resolve_preflight_gate, PreviewGate, PreviewMode,
         NON_TEXT_SIZE_LIMIT_BYTES,
     };
+    use crate::git_support::git_command;
+    use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn binary_gate_wins_over_size_gate() {
@@ -731,5 +755,175 @@ mod tests {
             compute_changed_line_count(Some(content.as_slice()), Some(content.as_slice()));
 
         assert_eq!(changed, Some(0));
+    }
+
+    #[tokio::test]
+    async fn get_repository_file_preflight_reports_text_diff_metadata_for_working_tree_changes() {
+        let repo = TempRepository::create();
+        repo.write_file("notes.txt", "first line\nsecond line\n");
+        repo.git(&["add", "notes.txt"]);
+        repo.git(&["commit", "-m", "Add notes"]);
+        repo.write_file("notes.txt", "first line\nchanged line\nthird line\n");
+
+        let preflight = get_repository_file_preflight(
+            repo.path.to_string_lossy().to_string(),
+            "notes.txt".to_string(),
+            "diff".to_string(),
+        )
+        .await
+        .expect("working tree preflight");
+
+        assert_eq!(preflight.path, "notes.txt");
+        assert_eq!(preflight.mode, "diff");
+        assert_eq!(preflight.viewer_kind, "text");
+        assert_eq!(preflight.gate, "none");
+        assert_eq!(preflight.line_count_changed, Some(3));
+        assert!(!preflight.is_binary);
+    }
+
+    #[tokio::test]
+    async fn get_repository_commit_file_preflight_reports_text_file_metadata_for_commit() {
+        let repo = TempRepository::create();
+        repo.write_file("notes.txt", "first line\nsecond line\n");
+        repo.git(&["add", "notes.txt"]);
+        repo.git(&["commit", "-m", "Add notes"]);
+        repo.write_file("notes.txt", "first line\nchanged line\nthird line\n");
+        repo.git(&["commit", "-am", "Update notes"]);
+        let commit_hash = repo.git_output(&["rev-parse", "HEAD"]);
+
+        let preflight = get_repository_commit_file_preflight(
+            repo.path.to_string_lossy().to_string(),
+            commit_hash.trim().to_string(),
+            "notes.txt".to_string(),
+            "file".to_string(),
+        )
+        .await
+        .expect("commit preflight");
+
+        assert_eq!(preflight.commit_hash, commit_hash.trim());
+        assert_eq!(preflight.path, "notes.txt");
+        assert_eq!(preflight.mode, "file");
+        assert_eq!(preflight.viewer_kind, "text");
+        assert_eq!(preflight.gate, "none");
+        assert_eq!(preflight.line_count_file, Some(3));
+        assert!(!preflight.is_binary);
+    }
+
+    #[tokio::test]
+    async fn get_repository_file_content_returns_old_and_new_text_for_working_tree_diff() {
+        let repo = TempRepository::create();
+        repo.write_file("notes.txt", "first line\nsecond line\n");
+        repo.git(&["add", "notes.txt"]);
+        repo.git(&["commit", "-m", "Add notes"]);
+        repo.write_file("notes.txt", "first line\nchanged line\nthird line\n");
+
+        let diff = get_repository_file_content(
+            repo.path.to_string_lossy().to_string(),
+            "notes.txt".to_string(),
+            "diff".to_string(),
+            false,
+            None,
+        )
+        .await
+        .expect("working tree diff content");
+
+        assert_eq!(diff.path, "notes.txt");
+        assert_eq!(diff.viewer_kind, "text");
+        assert_eq!(diff.old_text, "first line\nsecond line\n");
+        assert_eq!(diff.new_text, "first line\nchanged line\nthird line\n");
+    }
+
+    #[tokio::test]
+    async fn get_repository_commit_file_content_returns_old_and_new_text_for_commit_diff() {
+        let repo = TempRepository::create();
+        repo.write_file("notes.txt", "first line\nsecond line\n");
+        repo.git(&["add", "notes.txt"]);
+        repo.git(&["commit", "-m", "Add notes"]);
+        repo.write_file("notes.txt", "first line\nchanged line\nthird line\n");
+        repo.git(&["commit", "-am", "Update notes"]);
+        let commit_hash = repo.git_output(&["rev-parse", "HEAD"]);
+
+        let diff = get_repository_commit_file_content(
+            repo.path.to_string_lossy().to_string(),
+            commit_hash.trim().to_string(),
+            "notes.txt".to_string(),
+            "diff".to_string(),
+            false,
+            None,
+        )
+        .await
+        .expect("commit diff content");
+
+        assert_eq!(diff.commit_hash, commit_hash.trim());
+        assert_eq!(diff.path, "notes.txt");
+        assert_eq!(diff.viewer_kind, "text");
+        assert_eq!(diff.old_text, "first line\nsecond line\n");
+        assert_eq!(diff.new_text, "first line\nchanged line\nthird line\n");
+    }
+
+    struct TempRepository {
+        path: PathBuf,
+    }
+
+    impl TempRepository {
+        fn create() -> Self {
+            let unique_suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock should be after unix epoch")
+                .as_nanos();
+            let path = env::temp_dir().join(format!("litgit-diff-preview-test-{unique_suffix}"));
+
+            fs::create_dir_all(&path).expect("temp repo directory should be created");
+            Self::git_in(&path, &["init", "-b", "main"]);
+            Self::git_in(&path, &["config", "user.name", "LitGit Tests"]);
+            Self::git_in(&path, &["config", "user.email", "tests@example.com"]);
+
+            Self { path }
+        }
+
+        fn write_file(&self, relative_path: &str, contents: &str) {
+            let file_path = self.path.join(relative_path);
+            fs::write(file_path, contents).expect("repo file should be written");
+        }
+
+        fn git(&self, args: &[&str]) {
+            Self::git_in(&self.path, args);
+        }
+
+        fn git_output(&self, args: &[&str]) -> String {
+            let output = git_command()
+                .args(["-C", self.path.to_string_lossy().as_ref()])
+                .args(args)
+                .output()
+                .expect("git command should run");
+
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
+
+        fn git_in(path: &Path, args: &[&str]) {
+            let output = git_command()
+                .args(["-C", path.to_string_lossy().as_ref()])
+                .args(args)
+                .output()
+                .expect("git command should run");
+
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    impl Drop for TempRepository {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }

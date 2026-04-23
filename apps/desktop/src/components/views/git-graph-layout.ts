@@ -1,6 +1,7 @@
 import { type Edge, type Node, Position } from "@xyflow/react";
 import type {
   RepositoryCommit,
+  RepositoryCommitGraphPayload,
   RepositoryCommitSyncState,
 } from "@/stores/repo/repo-store-types";
 
@@ -44,11 +45,20 @@ const GIT_NODE_SIZE_BY_TYPE: Record<GitTimelineRowType, number> = {
   tag: 28,
   wip: 28,
 };
-const MAX_NODE_SIZE = 28;
 const DEFAULT_ROW_HEIGHT = 48;
 const NODE_OPTICAL_VERTICAL_OFFSET = -1;
 const DEFAULT_DASH_PATTERN = "4 3";
 const REF_ROW_LANE_OFFSET = 2;
+
+function resolveGraphWidth(maxLane: number): number {
+  const graphWidth =
+    LANE_OFFSET_X +
+    (maxLane + REF_ROW_LANE_OFFSET) * LANE_SPACING_X +
+    28 +
+    18;
+
+  return Math.max(MIN_TIMELINE_GRAPH_COLUMN_WIDTH, graphWidth);
+}
 
 export function resolveGitTimelineNodeSize(type: GitTimelineRowType): number {
   return GIT_NODE_SIZE_BY_TYPE[type];
@@ -58,66 +68,81 @@ function getLaneColor(lane: number): string {
   return LANE_COLORS[Math.abs(lane) % LANE_COLORS.length] ?? "#00c8ff";
 }
 
-function getLowestUnusedLane(usedLanes: Set<number>): number {
-  let lane = 0;
-
-  while (usedLanes.has(lane)) {
-    lane += 1;
-  }
-
-  return lane;
+function resolveCommitLane(
+  graph: RepositoryCommitGraphPayload,
+  commitHash: string
+): number {
+  return graph.commitLanes[commitHash]?.lane ?? 0;
 }
 
-function buildCommitLaneMap(commits: RepositoryCommit[]): Map<string, number> {
-  const commitHashSet = new Set(commits.map((commit) => commit.hash));
-  const laneByHash = new Map<string, number>();
-
-  for (const commit of commits) {
-    if (!laneByHash.has(commit.hash)) {
-      const usedLanes = new Set(laneByHash.values());
-      laneByHash.set(commit.hash, getLowestUnusedLane(usedLanes));
-    }
-
-    const commitLane = laneByHash.get(commit.hash) ?? 0;
-    const [primaryParentHash, ...mergeParentHashes] = commit.parentHashes;
-
-    if (
-      primaryParentHash &&
-      commitHashSet.has(primaryParentHash) &&
-      !laneByHash.has(primaryParentHash)
-    ) {
-      laneByHash.set(primaryParentHash, commitLane);
-    }
-
-    for (const mergeParentHash of mergeParentHashes) {
-      if (
-        !commitHashSet.has(mergeParentHash) ||
-        laneByHash.has(mergeParentHash)
-      ) {
-        continue;
-      }
-
-      const usedLanes = new Set(laneByHash.values());
-      laneByHash.set(mergeParentHash, getLowestUnusedLane(usedLanes));
-    }
-  }
-
-  return laneByHash;
+function resolveCommitLaneColor(
+  graph: RepositoryCommitGraphPayload,
+  commitHash: string
+): string {
+  return graph.commitLanes[commitHash]?.color ?? getLaneColor(0);
 }
 
 export function resolveGitGraphColumnWidth(
-  commits: RepositoryCommit[]
+  graph: RepositoryCommitGraphPayload
 ): number {
-  const laneByHash = buildCommitLaneMap(commits);
-  const lanes = [...laneByHash.values()];
-  const maxLane = lanes.length === 0 ? 0 : Math.max(...lanes);
-  const maxLaneCenterOffset =
-    LANE_OFFSET_X + (maxLane + REF_ROW_LANE_OFFSET) * LANE_SPACING_X;
-  const horizontalSafetyMargin = 18;
-  const graphWidth =
-    maxLaneCenterOffset + MAX_NODE_SIZE + horizontalSafetyMargin;
+  return Math.max(MIN_TIMELINE_GRAPH_COLUMN_WIDTH, graph.graphWidth);
+}
 
-  return Math.max(MIN_TIMELINE_GRAPH_COLUMN_WIDTH, graphWidth);
+export function projectVisibleGitGraph(
+  commits: RepositoryCommit[],
+  graph: RepositoryCommitGraphPayload
+): RepositoryCommitGraphPayload {
+  const graphHashes = Object.keys(graph.commitLanes);
+  const visibleHashes = new Set(commits.map((commit) => commit.hash));
+
+  if (
+    commits.length === graphHashes.length &&
+    graphHashes.every((hash) => visibleHashes.has(hash))
+  ) {
+    return graph;
+  }
+
+  if (commits.length === 0) {
+    return {
+      commitLanes: {},
+      graphWidth: MIN_TIMELINE_GRAPH_COLUMN_WIDTH,
+    };
+  }
+
+  const usedVisibleLanes = [...new Set(
+    commits.map((commit) => resolveCommitLane(graph, commit.hash))
+  )].sort((left, right) => left - right);
+  const projectedLaneByOriginalLane = new Map(
+    usedVisibleLanes.map((lane, index) => [lane, index])
+  );
+  const commitLanes = Object.fromEntries(
+    commits.map((commit) => {
+      const lane =
+        projectedLaneByOriginalLane.get(resolveCommitLane(graph, commit.hash)) ?? 0;
+
+      return [
+        commit.hash,
+        {
+          color: getLaneColor(lane),
+          lane,
+          parentLanes: commit.parentHashes
+            .filter((parentHash) => visibleHashes.has(parentHash))
+            .map(
+              (parentHash) =>
+                projectedLaneByOriginalLane.get(
+                  resolveCommitLane(graph, parentHash)
+                ) ?? 0
+            ),
+        },
+      ];
+    })
+  );
+  const maxLane = usedVisibleLanes.length > 0 ? usedVisibleLanes.length - 1 : 0;
+
+  return {
+    commitLanes,
+    graphWidth: resolveGraphWidth(maxLane),
+  };
 }
 
 function resolveGraphColumnStartX(branchColumnWidth: number): number {
@@ -125,12 +150,10 @@ function resolveGraphColumnStartX(branchColumnWidth: number): number {
 }
 
 export function getCommitLaneColor(
-  commits: RepositoryCommit[],
+  graph: RepositoryCommitGraphPayload,
   commitHash: string
 ): string {
-  const laneByHash = buildCommitLaneMap(commits);
-  const lane = laneByHash.get(commitHash) ?? 0;
-  return getLaneColor(lane);
+  return resolveCommitLaneColor(graph, commitHash);
 }
 
 function createNode(
@@ -220,6 +243,7 @@ function createEdge(
 export function buildGitGraphLayout(
   rows: GitTimelineRow[],
   commits: RepositoryCommit[],
+  graph: RepositoryCommitGraphPayload,
   selectedRowId: string | null,
   rowHeight: number = DEFAULT_ROW_HEIGHT,
   branchColumnWidth: number = TIMELINE_BRANCH_COLUMN_WIDTH,
@@ -233,9 +257,8 @@ export function buildGitGraphLayout(
   const rowIndexById = new Map(rows.map((row, index) => [row.id, index]));
   const rowIndexByCommitHash = new Map<string, number>();
   const nodeIdByRowId = new Map<string, string>();
-  const laneByHash = buildCommitLaneMap(commits);
   const rowLaneById = new Map<string, number>();
-  const baseGraphWidth = resolveGitGraphColumnWidth(commits);
+  const baseGraphWidth = resolveGitGraphColumnWidth(graph);
   const targetGraphWidth = graphColumnWidth ?? baseGraphWidth;
   const graphScaleX =
     baseGraphWidth > 0 ? targetGraphWidth / baseGraphWidth : 1;
@@ -261,8 +284,8 @@ export function buildGitGraphLayout(
       continue;
     }
 
-    const lane = laneByHash.get(rowCommitHash) ?? 0;
-    const color = getLaneColor(lane);
+    const lane = resolveCommitLane(graph, rowCommitHash);
+    const color = resolveCommitLaneColor(graph, rowCommitHash);
     const isReferenceRow = row.type === "stash" || row.type === "tag";
     const referenceLaneOffset = isReferenceRow ? REF_ROW_LANE_OFFSET : 0;
     const positionedLane = isCompactGraph
@@ -308,8 +331,6 @@ export function buildGitGraphLayout(
       continue;
     }
 
-    const sourceLane = laneByHash.get(row.commitHash) ?? 0;
-
     const parentHashes = isCompactGraph
       ? sourceCommit.parentHashes.slice(0, 1)
       : sourceCommit.parentHashes;
@@ -333,8 +354,7 @@ export function buildGitGraphLayout(
         continue;
       }
 
-      const parentLane = laneByHash.get(parentHash) ?? sourceLane;
-      const color = getLaneColor(parentLane);
+      const color = resolveCommitLaneColor(graph, parentHash);
       const targetCommit = commitByHash.get(parentHash);
       const shouldUseDottedConnector =
         sourceCommit.syncState === "pullable" ||
@@ -376,7 +396,7 @@ export function buildGitGraphLayout(
       continue;
     }
 
-    const lane = laneByHash.get(row.anchorCommitHash) ?? 0;
+    const lane = resolveCommitLane(graph, row.anchorCommitHash);
     const sourceLane = rowLaneById.get(row.id) ?? lane;
     const targetLane = rowLaneById.get(targetRow.id) ?? lane;
     edges.push(
@@ -384,7 +404,7 @@ export function buildGitGraphLayout(
         `graph-edge:${row.id}:${targetRow.id}`,
         sourceNodeId,
         targetNodeId,
-        getLaneColor(lane),
+        resolveCommitLaneColor(graph, row.anchorCommitHash),
         true,
         dashedStrokePattern,
         sourceLane === targetLane ? "default" : "smoothstep"
@@ -418,7 +438,7 @@ export function buildGitGraphLayout(
       continue;
     }
 
-    const lane = laneByHash.get(row.anchorCommitHash) ?? 0;
+    const lane = resolveCommitLane(graph, row.anchorCommitHash);
     const sourceLane = rowLaneById.get(row.id) ?? lane;
     const targetLane = rowLaneById.get(targetRow.id) ?? lane;
     edges.push(
@@ -426,7 +446,7 @@ export function buildGitGraphLayout(
         `graph-edge:${row.id}:${targetRow.id}`,
         sourceNodeId,
         targetNodeId,
-        getLaneColor(lane),
+        resolveCommitLaneColor(graph, row.anchorCommitHash),
         true,
         dashedStrokePattern,
         sourceLane === targetLane ? "default" : "smoothstep"

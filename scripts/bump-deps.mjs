@@ -26,6 +26,7 @@
 
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 
 // ============================================================================
@@ -47,6 +48,21 @@ const PACKAGE_JSON_PATH_REGEX = /[/\\]package\.json$/;
 const MAJOR_VERSION_REGEX = /^(\d+)/;
 const GITHUB_REPO_REGEX = /github\.com[/:]([\w.-]+)\/([\w.-]+)/;
 const GIT_SUFFIX_REGEX = /\.git$/;
+
+async function runCommand(command, args, cwd = ROOT_DIR) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      shell: false,
+      stdio: "inherit",
+    });
+
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      resolve(code ?? 1);
+    });
+  });
+}
 
 /**
  * @typedef {"stable" | "canary" | "beta" | "alpha" | "rc" | "next"} VersionType
@@ -858,11 +874,8 @@ async function runCleanup() {
 
   // Clear bun cache
   console.log("\n  Running bun pm cache rm...");
-  const cacheResult = Bun.spawnSync(["bun", "pm", "cache", "rm"], {
-    cwd: ROOT_DIR,
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-  if (cacheResult.exitCode === 0) {
+  const cacheExitCode = await runCommand("bun", ["pm", "cache", "rm"]);
+  if (cacheExitCode === 0) {
     console.log("  ✓ Cleared bun cache");
   } else {
     console.log("  ⚠ Failed to clear bun cache");
@@ -870,11 +883,8 @@ async function runCleanup() {
 
   // Run bun install
   console.log("\nInstalling dependencies...");
-  const installResult = Bun.spawnSync(["bun", "install"], {
-    cwd: ROOT_DIR,
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-  if (installResult.exitCode === 0) {
+  const installExitCode = await runCommand("bun", ["install"]);
+  if (installExitCode === 0) {
     console.log("  ✓ bun install completed");
   } else {
     console.log("  ⚠ bun install failed");
@@ -883,11 +893,8 @@ async function runCleanup() {
 
   // Run bun audit --fix automatically after install
   console.log("\nRunning bun audit --fix...");
-  const auditFixResult = Bun.spawnSync(["bun", "audit", "--fix"], {
-    cwd: ROOT_DIR,
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-  if (auditFixResult.exitCode === 0) {
+  const auditFixExitCode = await runCommand("bun", ["audit", "--fix"]);
+  if (auditFixExitCode === 0) {
     console.log("  ✓ bun audit --fix completed");
   } else {
     console.log("  ⚠ bun audit --fix found vulnerabilities or completed with warnings");

@@ -18,7 +18,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const ROOT_DIR = process.cwd();
@@ -148,6 +148,20 @@ function formatSkillsAddCommand(lockedSkill) {
   return `bunx ${buildSkillsAddArgs(lockedSkill).map(quoteShellArg).join(" ")}`;
 }
 
+async function runCommand(command, args) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      shell: false,
+      stdio: "inherit",
+    });
+
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      resolve(code ?? 1);
+    });
+  });
+}
+
 async function main() {
   try {
     const { positionals, values } = parseArgs({
@@ -190,20 +204,13 @@ Options:
       }
 
       console.log(`Updating ${lockedSkill.name}...`);
-      const result = Bun.spawnSync(["bunx", ...buildSkillsAddArgs(lockedSkill)], {
-        stdio: ["inherit", "inherit", "inherit"],
-      });
+      const exitCode = await runCommand("bunx", buildSkillsAddArgs(lockedSkill));
 
-      if (result.success === false) {
-        console.error("Internal process error");
-        process.exit(1);
-      }
-
-      if (result.exitCode !== 0) {
+      if (exitCode !== 0) {
         console.error(
           `Failed while updating skill "${lockedSkill.name}" from "${lockedSkill.source}"`,
         );
-        process.exit(result.exitCode ?? 1);
+        process.exit(exitCode);
       }
     }
 

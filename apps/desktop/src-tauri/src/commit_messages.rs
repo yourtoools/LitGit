@@ -13,11 +13,11 @@ use crate::settings::{
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 use ureq::http;
 
@@ -85,12 +85,49 @@ fn ai_http_agent() -> &'static ureq::Agent {
     })
 }
 
+fn emit_ai_commit_generation_progress<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    repo_path: &str,
+    stage: &str,
+    message: &str,
+) {
+    let _ = app.emit(
+        "ai-commit-generation-progress",
+        AiCommitGenerationProgressPayload {
+            message: message.to_string(),
+            repo_path: repo_path.to_string(),
+            stage: stage.to_string(),
+        },
+    );
+}
+
+fn emit_ai_commit_generation_chunk<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    repo_path: &str,
+    content: &str,
+) {
+    let _ = app.emit(
+        "ai-commit-generation-chunk",
+        AiCommitGenerationChunkPayload {
+            content: content.to_string(),
+            repo_path: repo_path.to_string(),
+        },
+    );
+}
+
 /// AI model descriptor returned by provider model-list endpoints.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AiModelInfo {
     id: String,
     label: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AiCommitGenerationChunkPayload {
+    content: String,
+    repo_path: String,
 }
 
 /// Generated commit message payload returned by AI-assisted commit flows.
@@ -102,6 +139,14 @@ pub(crate) struct GeneratedCommitMessage {
     provider_kind: String,
     schema_fallback_used: bool,
     title: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AiCommitGenerationProgressPayload {
+    message: String,
+    repo_path: String,
+    stage: String,
 }
 
 /// Input payload for AI commit message generation.
@@ -868,7 +913,7 @@ fn resolve_bitbucket_identity_from_email(normalized: &str) -> Option<CommitAutho
 /// Creates a commit from staged changes using summary/description and command preferences.
 // Tauri command arguments mirror the frontend invoke payload.
 #[tauri::command]
-pub(crate) fn commit_repository_changes(
+pub(crate) async fn commit_repository_changes(
     repo_path: String,
     summary: String,
     description: String,
@@ -877,16 +922,20 @@ pub(crate) fn commit_repository_changes(
     skip_hooks: bool,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
-    commit_repository_changes_inner(
-        repo_path,
-        summary,
-        description,
-        include_all,
-        amend,
-        skip_hooks,
-        preferences,
-    )
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        commit_repository_changes_inner(
+            repo_path,
+            summary,
+            description,
+            include_all,
+            amend,
+            skip_hooks,
+            preferences,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to commit repository changes: {error}"))?
 }
 
 fn commit_repository_changes_inner(
@@ -1087,6 +1136,17 @@ fn map_ai_http_error(error: ureq::Error) -> String {
         },
         _ => format!("Failed to reach AI endpoint: {error}"),
     }
+}
+
+fn supports_ai_streaming(provider: &str, request_kind: AiRequestKind) -> bool {
+    if provider.trim() == "ollama" {
+        return false;
+    }
+
+    matches!(
+        request_kind,
+        AiRequestKind::Anthropic | AiRequestKind::Gemini | AiRequestKind::OpenAiCompatible
+    )
 }
 
 fn parse_ai_model_list(value: &serde_json::Value) -> Result<Vec<AiModelInfo>, CommitMessageError> {
@@ -1404,6 +1464,117 @@ fn send_ai_json_request(
         .map_err(|e| CommitMessageError::Message(map_ai_http_error(e)))
 }
 
+fn send_ai_stream_request(
+    url: &str,
+    request_kind: AiRequestKind,
+    secret: &str,
+    request_body: &serde_json::Value,
+) -> Result<http::Response<ureq::Body>, CommitMessageError> {
+    let mut request = create_ai_post_request(url, request_kind, secret)?;
+    request.headers_mut().insert(
+        http::header::ACCEPT,
+        http::HeaderValue::from_static("text/event-stream"),
+    );
+    *request.body_mut() = request_body.to_string();
+    ai_http_agent()
+        .run(request)
+        .map_err(|e| CommitMessageError::Message(map_ai_http_error(e)))
+}
+
+fn extract_openai_stream_delta(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("delta")?
+        .get("content")?
+        .as_str()
+}
+
+fn extract_anthropic_stream_delta(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("delta")?
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+}
+
+fn extract_gemini_stream_delta(value: &serde_json::Value) -> Option<String> {
+    extract_gemini_message_content(value).filter(|chunk| !chunk.is_empty())
+}
+
+fn read_ai_streamed_response_string(
+    response: http::Response<ureq::Body>,
+    request_kind: AiRequestKind,
+    mut report_chunk: impl FnMut(&str),
+) -> Result<String, CommitMessageError> {
+    let reader = response.into_body().into_reader();
+    let mut buffered = BufReader::new(reader);
+    let mut line = String::new();
+    let mut accumulated = String::new();
+
+    loop {
+        line.clear();
+        let bytes_read =
+            buffered
+                .read_line(&mut line)
+                .map_err(|error| CommitMessageError::Http {
+                    action: "read AI response stream",
+                    detail: error.to_string(),
+                })?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        let trimmed = line.trim();
+
+        if !(trimmed.starts_with("data: ") || trimmed.starts_with("data:")) {
+            continue;
+        }
+
+        let data = trimmed
+            .strip_prefix("data:")
+            .map(str::trim)
+            .unwrap_or_default();
+
+        if data.is_empty() || data == "[DONE]" {
+            continue;
+        }
+
+        let payload: serde_json::Value = match serde_json::from_str(data) {
+            Ok(payload) => payload,
+            Err(_) => continue,
+        };
+
+        match request_kind {
+            AiRequestKind::Anthropic => {
+                if let Some(chunk) =
+                    extract_anthropic_stream_delta(&payload).filter(|value| !value.is_empty())
+                {
+                    accumulated.push_str(chunk);
+                    report_chunk(&accumulated);
+                }
+            }
+            AiRequestKind::Gemini => {
+                if let Some(chunk) = extract_gemini_stream_delta(&payload) {
+                    accumulated.push_str(&chunk);
+                    report_chunk(&accumulated);
+                }
+            }
+            AiRequestKind::OpenAiCompatible => {
+                if let Some(chunk) =
+                    extract_openai_stream_delta(&payload).filter(|value| !value.is_empty())
+                {
+                    accumulated.push_str(chunk);
+                    report_chunk(&accumulated);
+                }
+            }
+        }
+    }
+
+    Ok(accumulated)
+}
+
 struct CommitPromptInputs {
     changed_files: String,
     diff_stat: String,
@@ -1499,6 +1670,7 @@ fn build_commit_generation_prompt_with_budget(
 }
 
 fn build_commit_message_request_payload(
+    provider: &str,
     request_kind: AiRequestKind,
     base_url: &str,
     model: &str,
@@ -1506,6 +1678,7 @@ fn build_commit_message_request_payload(
     output_token_limit: usize,
 ) -> (String, serde_json::Value) {
     let schema = build_commit_message_schema();
+    let use_streaming = supports_ai_streaming(provider, request_kind);
     match request_kind {
         AiRequestKind::Anthropic => (
             format!("{base_url}/messages"),
@@ -1528,6 +1701,7 @@ fn build_commit_message_request_payload(
                         "content": prompt
                     }
                 ],
+                "stream": true,
                 "max_tokens": output_token_limit,
                 "temperature": 0.2,
                 "output_config": {
@@ -1540,7 +1714,7 @@ fn build_commit_message_request_payload(
             }),
         ),
         AiRequestKind::Gemini => (
-            format!("{base_url}/models/{model}:generateContent"),
+            format!("{base_url}/models/{model}:streamGenerateContent?alt=sse"),
             serde_json::json!({
                 "system_instruction": {
                     "parts": [
@@ -1583,6 +1757,7 @@ fn build_commit_message_request_payload(
                         "content": prompt
                     }
                 ],
+                "stream": use_streaming,
                 "max_tokens": output_token_limit,
                 "temperature": 0.2,
                 "response_format": {
@@ -1599,25 +1774,35 @@ fn build_commit_message_request_payload(
 }
 
 fn request_generated_commit_message(
-    request_url: &str,
-    request_kind: AiRequestKind,
-    secret: &str,
-    request_body: &serde_json::Value,
-    model: &str,
-    prompt: &str,
-    output_token_limit: usize,
+    request: GeneratedCommitMessageRequest<'_>,
+    mut report_chunk: impl FnMut(&str),
 ) -> Result<(String, bool), CommitMessageError> {
     let mut schema_fallback_used = false;
-    let response = match send_ai_json_request(request_url, request_kind, secret, request_body) {
+    let use_streaming = supports_ai_streaming(request.provider, request.request_kind);
+    let response = match if use_streaming {
+        send_ai_stream_request(
+            request.request_url,
+            request.request_kind,
+            request.secret,
+            request.request_body,
+        )
+    } else {
+        send_ai_json_request(
+            request.request_url,
+            request.request_kind,
+            request.secret,
+            request.request_body,
+        )
+    } {
         Ok(response) => response,
         Err(error)
-            if request_kind == AiRequestKind::OpenAiCompatible
+            if request.request_kind == AiRequestKind::OpenAiCompatible
                 && (error.to_string().contains("response_format")
                     || error.to_string().contains("json_schema")) =>
         {
             schema_fallback_used = true;
             let fallback_body = serde_json::json!({
-                "model": model,
+                "model": request.model,
                 "messages": [
                     {
                         "role": "system",
@@ -1625,19 +1810,81 @@ fn request_generated_commit_message(
                     },
                     {
                         "role": "user",
-                        "content": build_legacy_json_commit_prompt(prompt)
+                        "content": build_legacy_json_commit_prompt(request.prompt)
                     }
                 ],
-                "max_tokens": output_token_limit,
-                "temperature": 0.2
+                "max_tokens": request.output_token_limit,
+                "temperature": 0.2,
+                "stream": supports_ai_streaming(request.provider, request.request_kind)
             });
 
-            send_ai_json_request(request_url, request_kind, secret, &fallback_body)?
+            if use_streaming {
+                send_ai_stream_request(
+                    request.request_url,
+                    request.request_kind,
+                    request.secret,
+                    &fallback_body,
+                )?
+            } else {
+                send_ai_json_request(
+                    request.request_url,
+                    request.request_kind,
+                    request.secret,
+                    &fallback_body,
+                )?
+            }
         }
         Err(error) => return Err(error),
     };
-    let body = read_ureq_response_string(response)?;
+    let body = if use_streaming {
+        read_ai_streamed_response_string(response, request.request_kind, &mut report_chunk)?
+    } else {
+        read_ureq_response_string(response)?
+    };
     Ok((body, schema_fallback_used))
+}
+
+struct GeneratedCommitMessageRequest<'a> {
+    provider: &'a str,
+    request_url: &'a str,
+    request_kind: AiRequestKind,
+    secret: &'a str,
+    request_body: &'a serde_json::Value,
+    model: &'a str,
+    prompt: &'a str,
+    output_token_limit: usize,
+}
+
+struct GenerateCommitMessageWithSecretRequest<'a> {
+    repo_path: &'a str,
+    provider: &'a str,
+    base_url: &'a str,
+    secret: &'a str,
+    model: &'a str,
+    instruction: &'a str,
+    max_input_tokens: usize,
+    max_output_tokens: usize,
+}
+
+fn parse_generated_commit_message_response(
+    body: &str,
+    request_kind: AiRequestKind,
+    was_streamed: bool,
+) -> Result<GeneratedCommitMessage, CommitMessageError> {
+    if was_streamed {
+        return parse_generated_commit_message(body);
+    }
+
+    let payload: serde_json::Value = serde_json::from_str(body).map_err(|_| {
+        CommitMessageError::Message("The configured AI endpoint returned invalid JSON.".to_string())
+    })?;
+    let content = extract_ai_commit_message_content(&payload, request_kind).ok_or_else(|| {
+        CommitMessageError::Message(
+            "The configured AI endpoint did not return a parseable commit message.".to_string(),
+        )
+    })?;
+
+    parse_generated_commit_message(&content)
 }
 
 fn truncate_for_ai_budget(value: &str, max_chars: usize) -> String {
@@ -1708,60 +1955,58 @@ pub(crate) async fn list_ai_models(
     .map_err(|error| format!("Failed to list AI models: {error}"))?
 }
 
-#[expect(clippy::too_many_arguments)]
 fn generate_repository_commit_message_with_secret(
-    repo_path: &str,
-    provider: &str,
-    base_url: &str,
-    secret: &str,
-    model: &str,
-    instruction: &str,
-    max_input_tokens: usize,
-    max_output_tokens: usize,
+    request: GenerateCommitMessageWithSecretRequest<'_>,
+    mut report_progress: impl FnMut(&str, &str),
+    mut report_chunk: impl FnMut(&str),
 ) -> Result<GeneratedCommitMessage, CommitMessageError> {
-    validate_git_repo(Path::new(repo_path))
+    validate_git_repo(Path::new(request.repo_path))
         .map_err(|e| CommitMessageError::Message(e.to_string()))?;
 
-    let trimmed_model = model.trim();
+    let trimmed_model = request.model.trim();
     if trimmed_model.is_empty() {
         return Err(CommitMessageError::Message(
             "Select an AI model before generating a commit message".to_string(),
         ));
     }
 
-    let prompt_inputs = collect_commit_prompt_inputs(repo_path)?;
-    let prompt =
-        build_commit_generation_prompt_with_budget(&prompt_inputs, instruction, max_input_tokens);
-    let request_kind = get_ai_request_kind(provider, base_url);
-    let output_token_limit = max_output_tokens
+    report_progress("preparing", "Collecting staged diff context");
+    let prompt_inputs = collect_commit_prompt_inputs(request.repo_path)?;
+    let prompt = build_commit_generation_prompt_with_budget(
+        &prompt_inputs,
+        request.instruction,
+        request.max_input_tokens,
+    );
+    let request_kind = get_ai_request_kind(request.provider, request.base_url);
+    let use_streaming = supports_ai_streaming(request.provider, request_kind);
+    let output_token_limit = request
+        .max_output_tokens
         .max(COMMIT_MESSAGE_DEFAULT_OUTPUT_TOKEN_LIMIT)
         .clamp(32, COMMIT_MESSAGE_MAX_OUTPUT_TOKEN_LIMIT);
+    report_progress("requesting", "Requesting commit message from AI provider");
     let (request_url, request_body) = build_commit_message_request_payload(
+        request.provider,
         request_kind,
-        base_url,
+        request.base_url,
         trimmed_model,
         &prompt,
         output_token_limit,
     );
-    let (body, schema_fallback_used) = request_generated_commit_message(
-        &request_url,
+    let generated_message_request = GeneratedCommitMessageRequest {
+        provider: request.provider,
+        request_url: &request_url,
         request_kind,
-        secret,
-        &request_body,
-        trimmed_model,
-        &prompt,
+        secret: request.secret,
+        request_body: &request_body,
+        model: trimmed_model,
+        prompt: &prompt,
         output_token_limit,
-    )?;
-    let payload: serde_json::Value = serde_json::from_str(&body).map_err(|_| {
-        CommitMessageError::Message("The configured AI endpoint returned invalid JSON.".to_string())
-    })?;
-    let content = extract_ai_commit_message_content(&payload, request_kind).ok_or_else(|| {
-        CommitMessageError::Message(
-            "The configured AI endpoint did not return a parseable commit message.".to_string(),
-        )
-    })?;
-
-    let mut generated = parse_generated_commit_message(&content)?;
+    };
+    let (body, schema_fallback_used) =
+        request_generated_commit_message(generated_message_request, &mut report_chunk)?;
+    report_progress("parsing", "Parsing AI response");
+    let mut generated =
+        parse_generated_commit_message_response(&body, request_kind, use_streaming)?;
     generated.prompt_mode = commit_prompt_mode_label(prompt_inputs.prompt_mode).to_string();
     generated.provider_kind = ai_request_kind_label(request_kind).to_string();
     generated.schema_fallback_used = schema_fallback_used;
@@ -1771,7 +2016,8 @@ fn generate_repository_commit_message_with_secret(
 
 /// Generates a commit message from staged changes using the configured AI provider.
 #[tauri::command]
-pub(crate) async fn generate_repository_commit_message(
+pub(crate) async fn generate_repository_commit_message<R: tauri::Runtime>(
+    app: AppHandle<R>,
     state: State<'_, SettingsState>,
     input: GenerateRepositoryCommitMessageRequest,
 ) -> Result<GeneratedCommitMessage, String> {
@@ -1787,18 +2033,41 @@ pub(crate) async fn generate_repository_commit_message(
     let secret = resolve_ai_provider_secret(&state, &provider).map_err(|e| e.to_string())?;
     let base_url = resolve_ai_base_url(&provider, &custom_endpoint).map_err(|e| e.to_string())?;
 
+    emit_ai_commit_generation_progress(&app, &repo_path, "queued", "Queued AI commit generation");
     tauri::async_runtime::spawn_blocking(move || {
-        generate_repository_commit_message_with_secret(
-            &repo_path,
-            &provider,
-            &base_url,
-            &secret,
-            &model,
-            &instruction,
+        let request = GenerateCommitMessageWithSecretRequest {
+            repo_path: &repo_path,
+            provider: &provider,
+            base_url: &base_url,
+            secret: &secret,
+            model: &model,
+            instruction: &instruction,
             max_input_tokens,
             max_output_tokens,
-        )
-        .map_err(|e| e.to_string())
+        };
+        let result = generate_repository_commit_message_with_secret(
+            request,
+            |stage, message| {
+                emit_ai_commit_generation_progress(&app, &repo_path, stage, message);
+            },
+            |content| {
+                emit_ai_commit_generation_chunk(&app, &repo_path, content);
+            },
+        );
+
+        match &result {
+            Ok(_) => emit_ai_commit_generation_progress(
+                &app,
+                &repo_path,
+                "completed",
+                "AI commit message ready",
+            ),
+            Err(error) => {
+                emit_ai_commit_generation_progress(&app, &repo_path, "failed", &error.to_string())
+            }
+        }
+
+        result.map_err(|e| e.to_string())
     })
     .await
     .map_err(|error| format!("Failed to generate commit message: {error}"))?
@@ -1807,14 +2076,18 @@ pub(crate) async fn generate_repository_commit_message(
 #[cfg(test)]
 mod tests {
     use super::{
-        cache_github_identity, extract_ai_message_content, get_cached_github_identity,
-        get_commit_prompt_mode, github_identity_cache_file_path, github_identity_cache_key,
-        initialize_github_identity_cache_at_path, is_github_identity_cache_entry_fresh,
-        now_unix_seconds, parse_ai_model_list, parse_generated_commit_message, resolve_ai_base_url,
+        build_commit_message_request_payload, cache_github_identity,
+        emit_ai_commit_generation_progress, extract_ai_message_content, get_ai_request_kind,
+        get_cached_github_identity, get_commit_prompt_mode, github_identity_cache_file_path,
+        github_identity_cache_key, initialize_github_identity_cache_at_path,
+        is_github_identity_cache_entry_fresh, now_unix_seconds, parse_ai_model_list,
+        parse_generated_commit_message, parse_generated_commit_message_response,
+        read_ai_streamed_response_string, resolve_ai_base_url,
         resolve_commit_author_identity_from_email_and_author_label,
         resolve_commit_identity_for_history, resolve_github_identity_from_email,
-        save_github_identity_cache_to_disk, truncate_for_ai_budget, CommitPromptMode,
-        GenerateRepositoryCommitMessageRequest, GitHubIdentity, GITHUB_IDENTITY_CACHE_VERSION,
+        save_github_identity_cache_to_disk, supports_ai_streaming, truncate_for_ai_budget,
+        AiRequestKind, CommitPromptMode, GenerateRepositoryCommitMessageRequest, GitHubIdentity,
+        GITHUB_IDENTITY_CACHE_VERSION,
     };
     use crate::integrations_store::{
         save_integrations_config, IntegrationsConfig, ProviderConfig, ProviderProfile, StoredToken,
@@ -1824,8 +2097,10 @@ mod tests {
     use std::collections::HashMap;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tauri::Listener;
+    use ureq::{http::Response, Body};
 
     fn create_temp_path(name: &str) -> PathBuf {
         let timestamp = SystemTime::now()
@@ -1844,13 +2119,43 @@ mod tests {
         path
     }
 
-    fn test_environment_lock() -> &'static Mutex<()> {
+    #[test]
+    fn emit_ai_commit_generation_progress_emits_app_event_payload() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("commit message test app should build");
+        let received_payloads = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let received_payloads_for_listener = Arc::clone(&received_payloads);
+
+        let handler_id = app.listen("ai-commit-generation-progress", move |event| {
+            let payload =
+                serde_json::from_str(event.payload()).expect("event payload should be valid json");
+            received_payloads_for_listener
+                .lock()
+                .expect("event payloads lock should succeed")
+                .push(payload);
+        });
+
+        emit_ai_commit_generation_progress(app.handle(), "/tmp/repo", "preparing", "Preparing");
+
+        app.unlisten(handler_id);
+
+        let payloads = received_payloads
+            .lock()
+            .expect("event payloads lock should succeed");
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0]["repoPath"], "/tmp/repo");
+        assert_eq!(payloads[0]["stage"], "preparing");
+        assert_eq!(payloads[0]["message"], "Preparing");
+    }
+
+    fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
     fn run_with_temp_home<T>(label: &str, callback: impl FnOnce() -> T) -> T {
-        let _guard = test_environment_lock()
+        let _guard = environment_lock()
             .lock()
             .expect("test environment lock should not be poisoned");
         let temp_home = create_temp_dir(label);
@@ -1965,6 +2270,96 @@ mod tests {
     }
 
     #[test]
+    fn supports_ai_streaming_returns_true_for_gemini_requests() {
+        let request_kind =
+            get_ai_request_kind("google", "https://generativelanguage.googleapis.com/v1beta");
+
+        assert!(supports_ai_streaming("google", request_kind));
+    }
+
+    #[test]
+    fn supports_ai_streaming_returns_false_for_ollama_requests() {
+        let request_kind = get_ai_request_kind("ollama", "http://localhost:11434/v1");
+
+        assert!(!supports_ai_streaming("ollama", request_kind));
+    }
+
+    #[test]
+    fn build_commit_message_request_payload_uses_gemini_stream_endpoint() {
+        let (request_url, _) = build_commit_message_request_payload(
+            "google",
+            get_ai_request_kind("google", "https://generativelanguage.googleapis.com/v1beta"),
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-2.5-flash",
+            "Summarize staged changes",
+            96,
+        );
+
+        assert_eq!(
+            request_url,
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
+        );
+    }
+
+    #[test]
+    fn build_commit_message_request_payload_disables_stream_for_ollama() {
+        let (_, request_body) = build_commit_message_request_payload(
+            "ollama",
+            get_ai_request_kind("ollama", "http://localhost:11434/v1"),
+            "http://localhost:11434/v1",
+            "qwen3:8b",
+            "Summarize staged changes",
+            96,
+        );
+
+        assert_eq!(request_body.get("stream"), Some(&serde_json::json!(false)));
+    }
+
+    #[test]
+    fn read_ai_streamed_response_string_accumulates_gemini_text_chunks() {
+        let response = Response::builder()
+            .status(200)
+            .body(
+                Body::builder()
+                    .mime_type("text/event-stream")
+                    .charset("utf-8")
+                    .data(
+                        concat!(
+                            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"title\\\":\\\"Add\"}]}}]}\n\n",
+                            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" Gemini streaming\\\",\\\"body\\\":\\\"\\\"}\"}]}}]}\n\n",
+                        ),
+                    ),
+            )
+            .expect("stream response should build");
+        let received_chunks = Arc::new(Mutex::new(Vec::<String>::new()));
+        let received_chunks_for_stream = Arc::clone(&received_chunks);
+
+        let body = read_ai_streamed_response_string(
+            response,
+            get_ai_request_kind("google", ""),
+            |content| {
+                received_chunks_for_stream
+                    .lock()
+                    .expect("chunk list lock should succeed")
+                    .push(content.to_string());
+            },
+        )
+        .expect("gemini stream should parse");
+
+        assert_eq!(body, "{\"title\":\"Add Gemini streaming\",\"body\":\"\"}");
+        assert_eq!(
+            received_chunks
+                .lock()
+                .expect("chunk list lock should succeed")
+                .as_slice(),
+            [
+                "{\"title\":\"Add".to_string(),
+                "{\"title\":\"Add Gemini streaming\",\"body\":\"\"}".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn resolve_ai_base_url_returns_openai_default_when_endpoint_is_blank() {
         let base_url = resolve_ai_base_url("openai", "   ").expect("openai default base url");
 
@@ -2035,6 +2430,40 @@ mod tests {
             generated.body,
             "Wire settings and repo composer.\n\nTrim prompt inputs."
         );
+    }
+
+    #[test]
+    fn parse_generated_commit_message_response_accepts_streamed_openai_json_directly() {
+        let generated = parse_generated_commit_message_response(
+            r#"{"title":"Add AI commit generation","body":"Stream chunks into JSON."}"#,
+            AiRequestKind::OpenAiCompatible,
+            true,
+        )
+        .expect("streamed openai-compatible content should parse");
+
+        assert_eq!(generated.title, "Add AI commit generation");
+        assert_eq!(generated.body, "Stream chunks into JSON.");
+    }
+
+    #[test]
+    fn parse_generated_commit_message_response_extracts_non_stream_openai_message_content() {
+        let generated = parse_generated_commit_message_response(
+            r#"{
+                "choices": [
+                    {
+                        "message": {
+                            "content": "{\"title\":\"Add AI commit generation\",\"body\":\"Use provider envelope.\"}"
+                        }
+                    }
+                ]
+            }"#,
+            AiRequestKind::OpenAiCompatible,
+            false,
+        )
+        .expect("non-stream openai-compatible payload should parse");
+
+        assert_eq!(generated.title, "Add AI commit generation");
+        assert_eq!(generated.body, "Use provider envelope.");
     }
 
     #[test]
@@ -2387,7 +2816,7 @@ mod tests {
     fn commit_repository_changes_rejects_empty_summary() {
         let repo_path = create_temp_git_repo();
 
-        let error = super::commit_repository_changes(
+        let error = tauri::async_runtime::block_on(super::commit_repository_changes(
             repo_path.to_string_lossy().to_string(),
             "   ".to_string(),
             String::new(),
@@ -2395,7 +2824,7 @@ mod tests {
             false,
             false,
             None,
-        )
+        ))
         .expect_err("commit should fail with empty summary");
 
         assert_eq!(error, "Commit summary is required");
@@ -2409,7 +2838,7 @@ mod tests {
         fs::write(repo_path.join("test.txt"), "content").expect("write file");
         git_in(&repo_path, &["add", "test.txt"]);
 
-        super::commit_repository_changes(
+        tauri::async_runtime::block_on(super::commit_repository_changes(
             repo_path.to_string_lossy().to_string(),
             "Test commit".to_string(),
             String::new(),
@@ -2417,7 +2846,7 @@ mod tests {
             false,
             false,
             None,
-        )
+        ))
         .expect("commit should succeed");
 
         let log = git_output(&repo_path, &["log", "--oneline"]);
@@ -2435,7 +2864,7 @@ mod tests {
 
         fs::write(repo_path.join("test.txt"), "updated").expect("update file");
 
-        super::commit_repository_changes(
+        tauri::async_runtime::block_on(super::commit_repository_changes(
             repo_path.to_string_lossy().to_string(),
             "Update file".to_string(),
             String::new(),
@@ -2443,7 +2872,7 @@ mod tests {
             false,
             false,
             None,
-        )
+        ))
         .expect("commit with include_all should succeed");
 
         let log = git_output(&repo_path, &["log", "--oneline"]);

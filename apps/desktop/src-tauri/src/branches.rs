@@ -2,10 +2,14 @@ use crate::git_host_auth::{
     fetch_bitbucket_avatar_for_username, fetch_github_avatar_for_account,
     fetch_gitlab_avatar_for_username,
 };
-use crate::git_support::{git_command, git_error_message, validate_git_repo};
+use crate::git_support::{
+    ensure_git_output_success, git_command, git_error_message, run_git_output, run_git_status,
+    validate_git_repo, GitSupportError,
+};
 use crate::repository::validate_branch_name;
 use crate::settings::{
-    apply_git_preferences_with_auth_session, begin_network_operation, RepoCommandPreferences,
+    apply_git_preferences_with_auth_session_from_snapshot,
+    begin_network_operation_with_active_paths, RepoCommandPreferences, SettingsCommandSnapshot,
     SettingsState,
 };
 use serde::Serialize;
@@ -35,6 +39,33 @@ impl From<BranchError> for String {
     fn from(error: BranchError) -> Self {
         error.to_string()
     }
+}
+
+fn map_git_support_error(error: GitSupportError) -> BranchError {
+    match error {
+        GitSupportError::Io { action, source } => BranchError::GitCommand { action, source },
+        GitSupportError::Message(message) => BranchError::Message(message),
+    }
+}
+
+fn run_repo_git_output(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> Result<std::process::Output, BranchError> {
+    run_git_output(repo_path, args, action).map_err(map_git_support_error)
+}
+
+fn run_repo_git_status(
+    repo_path: &str,
+    args: &[&str],
+    action: &'static str,
+) -> Result<std::process::ExitStatus, BranchError> {
+    run_git_status(repo_path, args, action).map_err(map_git_support_error)
+}
+
+fn ensure_output_success(output: &std::process::Output, fallback: &str) -> Result<(), BranchError> {
+    ensure_git_output_success(output, fallback).map_err(map_git_support_error)
 }
 
 /// Repository reference entry for local branches, remote branches, and tags.
@@ -95,7 +126,7 @@ fn parse_github_owner_from_remote_url(remote_url: &str) -> Option<String> {
         let owner = segments.next()?.trim();
         let repository = segments.next()?.trim();
 
-        if owner.is_empty() || repository.is_empty() {
+        if owner.is_empty() || repository.is_empty() || segments.next().is_some() {
             return None;
         }
 
@@ -130,11 +161,13 @@ fn fetch_github_owner_avatar_url(owner: &str) -> Result<Option<String>, BranchEr
 // GitLab avatar fetching support
 fn parse_gitlab_owner_from_remote_url(remote_url: &str) -> Option<String> {
     fn parse_owner(path: &str) -> Option<String> {
-        let mut segments = path.split('/');
+        let normalized = path.trim().trim_start_matches('/');
+        let path_without_query = normalized.split(['?', '#']).next().unwrap_or_default();
+        let mut segments = path_without_query.split('/');
         let owner = segments.next()?.trim();
         let repository = segments.next()?.trim();
 
-        if owner.is_empty() || repository.is_empty() {
+        if owner.is_empty() || repository.is_empty() || segments.next().is_some() {
             return None;
         }
 
@@ -169,11 +202,13 @@ fn fetch_gitlab_owner_avatar_url(owner: &str) -> Result<Option<String>, BranchEr
 // Bitbucket avatar fetching support
 fn parse_bitbucket_owner_from_remote_url(remote_url: &str) -> Option<String> {
     fn parse_owner(path: &str) -> Option<String> {
-        let mut segments = path.split('/');
+        let normalized = path.trim().trim_start_matches('/');
+        let path_without_query = normalized.split(['?', '#']).next().unwrap_or_default();
+        let mut segments = path_without_query.split('/');
         let owner = segments.next()?.trim();
         let repository = segments.next()?.trim();
 
-        if owner.is_empty() || repository.is_empty() {
+        if owner.is_empty() || repository.is_empty() || segments.next().is_some() {
             return None;
         }
 
@@ -266,29 +301,31 @@ fn parse_branch_row(
 
 /// Returns sorted repository refs with optional ahead/behind counts for current branch.
 #[tauri::command]
-pub(crate) fn get_repository_branches(repo_path: String) -> Result<Vec<RepositoryBranch>, String> {
-    get_repository_branches_inner(repo_path).map_err(|e| e.to_string())
+pub(crate) async fn get_repository_branches(
+    repo_path: String,
+) -> Result<Vec<RepositoryBranch>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_branches_inner(repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to read repository branches: {error}"))?
 }
 
 fn get_repository_branches_inner(repo_path: String) -> Result<Vec<RepositoryBranch>, BranchError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
+    let output = run_repo_git_output(
+        &repo_path,
+        &[
             "for-each-ref",
             "--sort=-committerdate",
             "--format=%(HEAD)\t%(refname)\t%(refname:short)\t%(objectname:short)\t%(committerdate:iso-strict)\t%(objectname)\t%(upstream:short)",
             "refs/heads",
             "refs/remotes",
             "refs/tags",
-        ])
-        .output()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git for-each-ref",
-            source: error,
-        })?;
+        ],
+        "run git for-each-ref",
+    )?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -317,20 +354,12 @@ fn get_repository_branches_inner(repo_path: String) -> Result<Vec<RepositoryBran
 
     let current_branch_sync_counts = if let Some(upstream_ref) = current_branch_upstream.as_deref()
     {
-        let sync_count_output = git_command()
-            .args([
-                "-C",
-                &repo_path,
-                "rev-list",
-                "--left-right",
-                "--count",
-                &format!("HEAD...{upstream_ref}"),
-            ])
-            .output()
-            .map_err(|error| BranchError::GitCommand {
-                action: "run git rev-list",
-                source: error,
-            })?;
+        let revision_range = format!("HEAD...{upstream_ref}");
+        let sync_count_output = run_repo_git_output(
+            &repo_path,
+            &["rev-list", "--left-right", "--count", &revision_range],
+            "run git rev-list",
+        )?;
 
         if sync_count_output.status.success() {
             parse_branch_sync_counts(&String::from_utf8_lossy(&sync_count_output.stdout))
@@ -349,27 +378,19 @@ fn get_repository_branches_inner(repo_path: String) -> Result<Vec<RepositoryBran
 
 /// Returns configured remote names for the repository.
 #[tauri::command]
-pub(crate) fn get_repository_remote_names(repo_path: String) -> Result<Vec<String>, String> {
-    get_repository_remote_names_inner(repo_path).map_err(|e| e.to_string())
+pub(crate) async fn get_repository_remote_names(repo_path: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_remote_names_inner(repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to read repository remotes: {error}"))?
 }
 
 fn get_repository_remote_names_inner(repo_path: String) -> Result<Vec<String>, BranchError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args(["-C", &repo_path, "remote"])
-        .output()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git remote",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        return Err(BranchError::Message(git_error_message(
-            &output.stderr,
-            "Failed to read repository remotes",
-        )));
-    }
+    let output = run_repo_git_output(&repo_path, &["remote"], "run git remote")?;
+    ensure_output_success(&output, "Failed to read repository remotes")?;
 
     Ok(parse_remote_names_output(&String::from_utf8_lossy(
         &output.stdout,
@@ -392,20 +413,8 @@ async fn get_repository_remote_avatars_inner(
     validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        let output = git_command()
-            .args(["-C", &repo_path, "remote", "-v"])
-            .output()
-            .map_err(|error| BranchError::GitCommand {
-                action: "run git remote -v",
-                source: error,
-            })?;
-
-        if !output.status.success() {
-            return Err(BranchError::Message(git_error_message(
-                &output.stderr,
-                "Failed to read repository remotes",
-            )));
-        }
+        let output = run_repo_git_output(&repo_path, &["remote", "-v"], "run git remote -v")?;
+        ensure_output_success(&output, "Failed to read repository remotes")?;
 
         let remote_urls = parse_remote_urls_output(&String::from_utf8_lossy(&output.stdout));
         let mut avatars_by_owner: HashMap<String, Option<String>> = HashMap::new();
@@ -466,11 +475,15 @@ async fn get_repository_remote_avatars_inner(
 
 /// Creates a new local branch from the current HEAD.
 #[tauri::command]
-pub(crate) fn create_repository_branch(
+pub(crate) async fn create_repository_branch(
     repo_path: String,
     branch_name: String,
 ) -> Result<(), String> {
-    create_repository_branch_inner(repo_path, branch_name).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        create_repository_branch_inner(repo_path, branch_name).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to create branch: {error}"))?
 }
 
 fn create_repository_branch_inner(
@@ -487,35 +500,29 @@ fn create_repository_branch_inner(
 
     validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args(["-C", &repo_path, "switch", "-c", trimmed_branch_name])
-        .output()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git switch",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(BranchError::Message(if stderr.is_empty() {
-            "Failed to create branch".to_string()
-        } else {
-            stderr
-        }));
-    }
+    let output = run_repo_git_output(
+        &repo_path,
+        &["switch", "-c", trimmed_branch_name],
+        "run git switch",
+    )?;
+    ensure_output_success(&output, "Failed to create branch")?;
 
     Ok(())
 }
 
 /// Creates a new local branch at a specific target reference.
 #[tauri::command]
-pub(crate) fn create_repository_branch_at_reference(
+pub(crate) async fn create_repository_branch_at_reference(
     repo_path: String,
     branch_name: String,
     target: String,
 ) -> Result<(), String> {
-    create_repository_branch_at_reference_inner(repo_path, branch_name, target)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        create_repository_branch_at_reference_inner(repo_path, branch_name, target)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to create branch at reference: {error}"))?
 }
 
 fn create_repository_branch_at_reference_inner(
@@ -540,40 +547,27 @@ fn create_repository_branch_at_reference_inner(
 
     validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "switch",
-            "-c",
-            trimmed_branch_name,
-            trimmed_target,
-        ])
-        .output()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git switch",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(BranchError::Message(if stderr.is_empty() {
-            "Failed to create branch".to_string()
-        } else {
-            stderr
-        }));
-    }
+    let output = run_repo_git_output(
+        &repo_path,
+        &["switch", "-c", trimmed_branch_name, trimmed_target],
+        "run git switch",
+    )?;
+    ensure_output_success(&output, "Failed to create branch")?;
 
     Ok(())
 }
 
 /// Deletes a local branch.
 #[tauri::command]
-pub(crate) fn delete_repository_branch(
+pub(crate) async fn delete_repository_branch(
     repo_path: String,
     branch_name: String,
 ) -> Result<(), String> {
-    delete_repository_branch_inner(repo_path, branch_name).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        delete_repository_branch_inner(repo_path, branch_name).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to delete branch: {error}"))?
 }
 
 fn delete_repository_branch_inner(
@@ -590,35 +584,29 @@ fn delete_repository_branch_inner(
 
     validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args(["-C", &repo_path, "branch", "-d", trimmed_branch_name])
-        .output()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git branch",
-            source: error,
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(BranchError::Message(if stderr.is_empty() {
-            "Failed to delete branch".to_string()
-        } else {
-            stderr
-        }));
-    }
+    let output = run_repo_git_output(
+        &repo_path,
+        &["branch", "-d", trimmed_branch_name],
+        "run git branch",
+    )?;
+    ensure_output_success(&output, "Failed to delete branch")?;
 
     Ok(())
 }
 
 /// Renames a local branch.
 #[tauri::command]
-pub(crate) fn rename_repository_branch(
+pub(crate) async fn rename_repository_branch(
     repo_path: String,
     branch_name: String,
     new_branch_name: String,
 ) -> Result<(), String> {
-    rename_repository_branch_inner(repo_path, branch_name, new_branch_name)
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        rename_repository_branch_inner(repo_path, branch_name, new_branch_name)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to rename branch: {error}"))?
 }
 
 fn rename_repository_branch_inner(
@@ -645,20 +633,11 @@ fn rename_repository_branch_inner(
     validate_branch_name(trimmed_new_branch_name)
         .map_err(|e| BranchError::Message(e.to_string()))?;
 
-    let output = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "branch",
-            "-m",
-            trimmed_branch_name,
-            trimmed_new_branch_name,
-        ])
-        .output()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git branch",
-            source: error,
-        })?;
+    let output = run_repo_git_output(
+        &repo_path,
+        &["branch", "-m", trimmed_branch_name, trimmed_new_branch_name],
+        "run git branch",
+    )?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -674,20 +653,35 @@ fn rename_repository_branch_inner(
 
 /// Deletes a branch from a remote.
 #[tauri::command]
-pub(crate) fn delete_remote_repository_branch(
-    app: tauri::AppHandle,
+pub(crate) async fn delete_remote_repository_branch<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, SettingsState>,
     repo_path: String,
     remote_name: String,
     branch_name: String,
 ) -> Result<(), String> {
-    delete_remote_repository_branch_inner(app, state, repo_path, remote_name, branch_name)
-        .map_err(|e| e.to_string())
+    let settings_snapshot = state
+        .inner()
+        .command_snapshot()
+        .map_err(BranchError::Message)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        delete_remote_repository_branch_inner(
+            app,
+            settings_snapshot,
+            repo_path,
+            remote_name,
+            branch_name,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to delete remote branch: {error}"))?
 }
 
-fn delete_remote_repository_branch_inner(
-    app: tauri::AppHandle,
-    state: State<'_, SettingsState>,
+fn delete_remote_repository_branch_inner<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    settings_snapshot: SettingsCommandSnapshot,
     repo_path: String,
     remote_name: String,
     branch_name: String,
@@ -708,8 +702,11 @@ fn delete_remote_repository_branch_inner(
     validate_branch_name(trimmed_branch_name).map_err(|e| BranchError::Message(e.to_string()))?;
 
     let command_preferences = RepoCommandPreferences::default();
-    let _network_operation = begin_network_operation(&state, &repo_path)
-        .map_err(|e| BranchError::Message(e.to_string()))?;
+    let _network_operation = begin_network_operation_with_active_paths(
+        &settings_snapshot.active_network_repo_paths,
+        &repo_path,
+    )
+    .map_err(|e| BranchError::Message(e.to_string()))?;
 
     let auth_state = app.state::<crate::askpass_state::GitAuthBrokerState>();
     let auth_state_ref: &crate::askpass_state::GitAuthBrokerState = &auth_state;
@@ -722,10 +719,10 @@ fn delete_remote_repository_branch_inner(
     );
 
     let mut command = git_command();
-    apply_git_preferences_with_auth_session(
+    apply_git_preferences_with_auth_session_from_snapshot(
         &mut command,
         &command_preferences,
-        Some(&state),
+        Some(&settings_snapshot),
         Some(&auth_session),
     )
     .map_err(BranchError::Message)?;
@@ -756,8 +753,8 @@ fn delete_remote_repository_branch_inner(
 
 /// Sets or publishes upstream tracking for a local branch.
 #[tauri::command]
-pub(crate) fn set_repository_branch_upstream(
-    app: tauri::AppHandle,
+pub(crate) async fn set_repository_branch_upstream<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, SettingsState>,
     repo_path: String,
     local_branch_name: String,
@@ -765,21 +762,30 @@ pub(crate) fn set_repository_branch_upstream(
     remote_branch_name: String,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
-    set_repository_branch_upstream_inner(
-        app,
-        state,
-        repo_path,
-        local_branch_name,
-        remote_name,
-        remote_branch_name,
-        preferences,
-    )
-    .map_err(|e| e.to_string())
+    let settings_snapshot = state
+        .inner()
+        .command_snapshot()
+        .map_err(BranchError::Message)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        set_repository_branch_upstream_inner(
+            app,
+            settings_snapshot,
+            repo_path,
+            local_branch_name,
+            remote_name,
+            remote_branch_name,
+            preferences,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to set branch upstream: {error}"))?
 }
 
-fn set_repository_branch_upstream_inner(
-    app: tauri::AppHandle,
-    state: State<'_, SettingsState>,
+fn set_repository_branch_upstream_inner<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    settings_snapshot: SettingsCommandSnapshot,
     repo_path: String,
     local_branch_name: String,
     remote_name: String,
@@ -814,32 +820,26 @@ fn set_repository_branch_upstream_inner(
         .map_err(|e| BranchError::Message(e.to_string()))?;
 
     let remote_ref = format!("refs/remotes/{trimmed_remote_name}/{trimmed_remote_branch_name}");
-    let has_remote_branch = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &remote_ref,
-        ])
-        .status()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git show-ref",
-            source: error,
-        })?
-        .success();
+    let has_remote_branch = run_repo_git_status(
+        &repo_path,
+        &["show-ref", "--verify", "--quiet", &remote_ref],
+        "run git show-ref",
+    )?
+    .success();
 
     let command_preferences = preferences.unwrap_or_default();
-    let _network_operation = begin_network_operation(&state, &repo_path)
-        .map_err(|e| BranchError::Message(e.to_string()))?;
+    let _network_operation = begin_network_operation_with_active_paths(
+        &settings_snapshot.active_network_repo_paths,
+        &repo_path,
+    )
+    .map_err(|e| BranchError::Message(e.to_string()))?;
 
     let output = if has_remote_branch {
         let mut command = git_command();
-        apply_git_preferences_with_auth_session(
+        apply_git_preferences_with_auth_session_from_snapshot(
             &mut command,
             &command_preferences,
-            Some(&state),
+            Some(&settings_snapshot),
             None,
         )
         .map_err(|e| BranchError::Message(e.to_string()))?;
@@ -871,10 +871,10 @@ fn set_repository_branch_upstream_inner(
         );
 
         let mut command = git_command();
-        apply_git_preferences_with_auth_session(
+        apply_git_preferences_with_auth_session_from_snapshot(
             &mut command,
             &command_preferences,
-            Some(&state),
+            Some(&settings_snapshot),
             Some(&auth_session),
         )
         .map_err(|e| BranchError::Message(e.to_string()))?;
@@ -917,11 +917,15 @@ fn set_repository_branch_upstream_inner(
 
 /// Switches to a local branch or tracks a remote branch.
 #[tauri::command]
-pub(crate) fn switch_repository_branch(
+pub(crate) async fn switch_repository_branch(
     repo_path: String,
     branch_name: String,
 ) -> Result<(), String> {
-    switch_repository_branch_inner(repo_path, branch_name).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        switch_repository_branch_inner(repo_path, branch_name).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to switch branch: {error}"))?
 }
 
 fn switch_repository_branch_inner(
@@ -930,75 +934,37 @@ fn switch_repository_branch_inner(
 ) -> Result<(), BranchError> {
     validate_git_repo(Path::new(&repo_path)).map_err(|e| BranchError::Message(e.to_string()))?;
 
-    let is_remote_ref = git_command()
-        .args([
-            "-C",
-            &repo_path,
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/remotes/{branch_name}"),
-        ])
-        .status()
-        .map_err(|error| BranchError::GitCommand {
-            action: "run git show-ref",
-            source: error,
-        })?
-        .success();
+    let remote_ref = format!("refs/remotes/{branch_name}");
+    let is_remote_ref = run_repo_git_status(
+        &repo_path,
+        &["show-ref", "--verify", "--quiet", &remote_ref],
+        "run git show-ref",
+    )?
+    .success();
 
     let output = if is_remote_ref {
         let local_name = branch_name
             .split_once('/')
             .map_or(branch_name.as_str(), |(_, local)| local);
-        let local_branch_exists = git_command()
-            .args([
-                "-C",
-                &repo_path,
-                "show-ref",
-                "--verify",
-                "--quiet",
-                &format!("refs/heads/{local_name}"),
-            ])
-            .status()
-            .map_err(|error| BranchError::GitCommand {
-                action: "run git show-ref",
-                source: error,
-            })?
-            .success();
+        let local_ref = format!("refs/heads/{local_name}");
+        let local_branch_exists = run_repo_git_status(
+            &repo_path,
+            &["show-ref", "--verify", "--quiet", &local_ref],
+            "run git show-ref",
+        )?
+        .success();
 
         if local_branch_exists {
-            git_command()
-                .args(["-C", &repo_path, "switch", local_name])
-                .output()
-                .map_err(|error| BranchError::GitCommand {
-                    action: "run git switch",
-                    source: error,
-                })?
+            run_repo_git_output(&repo_path, &["switch", local_name], "run git switch")?
         } else {
-            git_command()
-                .args([
-                    "-C",
-                    &repo_path,
-                    "switch",
-                    "--track",
-                    "-c",
-                    local_name,
-                    &branch_name,
-                ])
-                .output()
-                .map_err(|error| BranchError::GitCommand {
-                    action: "run git switch",
-                    source: error,
-                })?
+            run_repo_git_output(
+                &repo_path,
+                &["switch", "--track", "-c", local_name, &branch_name],
+                "run git switch",
+            )?
         }
     } else {
-        git_command()
-            .args(["-C", &repo_path, "switch", &branch_name])
-            .output()
-            .map_err(|error| BranchError::GitCommand {
-                action: "run git switch",
-                source: error,
-            })?
+        run_repo_git_output(&repo_path, &["switch", &branch_name], "run git switch")?
     };
 
     if !output.status.success() {
@@ -1016,16 +982,21 @@ fn switch_repository_branch_inner(
 #[cfg(test)]
 mod tests {
     use super::{
-        create_repository_branch, create_repository_branch_at_reference, delete_repository_branch,
-        get_repository_branches, get_repository_remote_names, parse_branch_row,
-        parse_branch_sync_counts, parse_github_owner_from_remote_url, parse_remote_names_output,
-        parse_remote_urls_output, rename_repository_branch, switch_repository_branch,
+        create_repository_branch, create_repository_branch_at_reference,
+        delete_remote_repository_branch, delete_repository_branch, get_repository_branches,
+        get_repository_remote_names, parse_bitbucket_owner_from_remote_url, parse_branch_row,
+        parse_branch_sync_counts, parse_github_owner_from_remote_url,
+        parse_gitlab_owner_from_remote_url, parse_remote_names_output, parse_remote_urls_output,
+        rename_repository_branch, set_repository_branch_upstream, switch_repository_branch,
     };
+    use crate::askpass_state::GitAuthBrokerState;
     use crate::git_support::git_command;
+    use crate::settings::SettingsState;
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tauri::Manager;
 
     #[test]
     fn parse_remote_names_output_returns_trimmed_names_in_order() {
@@ -1084,6 +1055,128 @@ mod tests {
     }
 
     #[test]
+    fn parse_github_owner_from_remote_url_rejects_extra_path_segments() {
+        assert_eq!(
+            parse_github_owner_from_remote_url("https://github.com/litgit/LitGit/tree/main"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_github_owner_from_remote_url_ignores_query_and_hash_suffixes() {
+        assert_eq!(
+            parse_github_owner_from_remote_url("https://github.com/acme/platform.git?ref=main"),
+            Some("acme".to_string())
+        );
+        assert_eq!(
+            parse_github_owner_from_remote_url("https://github.com/acme/platform.git#readme"),
+            Some("acme".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_github_owner_from_remote_url_ignores_query_slashes() {
+        assert_eq!(
+            parse_github_owner_from_remote_url("https://github.com/acme/platform.git?path=foo/bar"),
+            Some("acme".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_gitlab_owner_from_remote_url_supports_gitlab_url_variants() {
+        assert_eq!(
+            parse_gitlab_owner_from_remote_url("git@gitlab.com:litgit/LitGit.git"),
+            Some("litgit".to_string())
+        );
+        assert_eq!(
+            parse_gitlab_owner_from_remote_url("https://gitlab.com/acme/platform"),
+            Some("acme".to_string())
+        );
+        assert_eq!(
+            parse_gitlab_owner_from_remote_url("ssh://git@gitlab.com/open-source-org/tooling.git"),
+            Some("open-source-org".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_gitlab_owner_from_remote_url_rejects_extra_path_segments() {
+        assert_eq!(
+            parse_gitlab_owner_from_remote_url("https://gitlab.com/acme/platform/-/tree/main"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_gitlab_owner_from_remote_url_ignores_query_and_hash_suffixes() {
+        assert_eq!(
+            parse_gitlab_owner_from_remote_url("https://gitlab.com/acme/platform.git?ref=main"),
+            Some("acme".to_string())
+        );
+        assert_eq!(
+            parse_gitlab_owner_from_remote_url("https://gitlab.com/acme/platform.git#readme"),
+            Some("acme".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_gitlab_owner_from_remote_url_ignores_query_slashes() {
+        assert_eq!(
+            parse_gitlab_owner_from_remote_url("https://gitlab.com/acme/platform.git?path=foo/bar"),
+            Some("acme".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_bitbucket_owner_from_remote_url_supports_bitbucket_url_variants() {
+        assert_eq!(
+            parse_bitbucket_owner_from_remote_url("git@bitbucket.org:litgit/LitGit.git"),
+            Some("litgit".to_string())
+        );
+        assert_eq!(
+            parse_bitbucket_owner_from_remote_url("https://bitbucket.org/acme/platform"),
+            Some("acme".to_string())
+        );
+        assert_eq!(
+            parse_bitbucket_owner_from_remote_url(
+                "ssh://git@bitbucket.org/open-source-org/tooling.git"
+            ),
+            Some("open-source-org".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_bitbucket_owner_from_remote_url_rejects_extra_path_segments() {
+        assert_eq!(
+            parse_bitbucket_owner_from_remote_url("https://bitbucket.org/acme/platform/src/main"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_bitbucket_owner_from_remote_url_ignores_query_and_hash_suffixes() {
+        assert_eq!(
+            parse_bitbucket_owner_from_remote_url(
+                "https://bitbucket.org/acme/platform.git?ref=main"
+            ),
+            Some("acme".to_string())
+        );
+        assert_eq!(
+            parse_bitbucket_owner_from_remote_url("https://bitbucket.org/acme/platform.git#readme"),
+            Some("acme".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_bitbucket_owner_from_remote_url_ignores_query_slashes() {
+        assert_eq!(
+            parse_bitbucket_owner_from_remote_url(
+                "https://bitbucket.org/acme/platform.git?path=foo/bar"
+            ),
+            Some("acme".to_string())
+        );
+    }
+
+    #[test]
     fn parse_branch_sync_counts_returns_none_for_incomplete_or_invalid_output() {
         assert_eq!(parse_branch_sync_counts(""), None);
         assert_eq!(parse_branch_sync_counts("2"), None);
@@ -1111,8 +1204,8 @@ mod tests {
         assert!(parse_branch_row(row, Some((1, 1))).is_none());
     }
 
-    #[test]
-    fn create_repository_branch_creates_a_new_branch() {
+    #[tokio::test]
+    async fn create_repository_branch_creates_a_new_branch() {
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
         repo.git(&["add", "tracked.txt"]);
@@ -1122,14 +1215,15 @@ mod tests {
             repo.path.to_string_lossy().to_string(),
             "feature".to_string(),
         )
+        .await
         .expect("branch should be created");
 
         let current_branch = repo.git_output(&["rev-parse", "--abbrev-ref", "HEAD"]);
         assert_eq!(current_branch.trim(), "feature");
     }
 
-    #[test]
-    fn create_repository_branch_rejects_duplicate_names() {
+    #[tokio::test]
+    async fn create_repository_branch_rejects_duplicate_names() {
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
         repo.git(&["add", "tracked.txt"]);
@@ -1141,13 +1235,14 @@ mod tests {
             repo.path.to_string_lossy().to_string(),
             "feature".to_string(),
         )
+        .await
         .expect_err("duplicate branch should fail");
 
         assert!(error.contains("already exists"), "{error}");
     }
 
-    #[test]
-    fn create_repository_branch_at_reference_uses_requested_target() {
+    #[tokio::test]
+    async fn create_repository_branch_at_reference_uses_requested_target() {
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "first");
         repo.git(&["add", "tracked.txt"]);
@@ -1162,14 +1257,15 @@ mod tests {
             "release".to_string(),
             initial_commit.trim().to_string(),
         )
+        .await
         .expect("branch at reference should be created");
 
         let release_commit = repo.git_output(&["rev-parse", "release"]);
         assert_eq!(release_commit.trim(), initial_commit.trim());
     }
 
-    #[test]
-    fn delete_repository_branch_removes_non_current_branch() {
+    #[tokio::test]
+    async fn delete_repository_branch_removes_non_current_branch() {
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
         repo.git(&["add", "tracked.txt"]);
@@ -1181,14 +1277,15 @@ mod tests {
             repo.path.to_string_lossy().to_string(),
             "feature".to_string(),
         )
+        .await
         .expect("branch should be deleted");
 
         let branches = repo.git_output(&["branch", "--format=%(refname:short)"]);
         assert!(!branches.lines().any(|branch| branch == "feature"));
     }
 
-    #[test]
-    fn rename_repository_branch_renames_existing_branch() {
+    #[tokio::test]
+    async fn rename_repository_branch_renames_existing_branch() {
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
         repo.git(&["add", "tracked.txt"]);
@@ -1201,6 +1298,7 @@ mod tests {
             "feature".to_string(),
             "release".to_string(),
         )
+        .await
         .expect("branch should be renamed");
 
         let branches = repo.git_output(&["branch", "--format=%(refname:short)"]);
@@ -1208,8 +1306,8 @@ mod tests {
         assert!(!branches.lines().any(|branch| branch == "feature"));
     }
 
-    #[test]
-    fn switch_repository_branch_switches_existing_local_branch() {
+    #[tokio::test]
+    async fn switch_repository_branch_switches_existing_local_branch() {
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
         repo.git(&["add", "tracked.txt"]);
@@ -1221,14 +1319,15 @@ mod tests {
             repo.path.to_string_lossy().to_string(),
             "feature".to_string(),
         )
+        .await
         .expect("local branch switch should succeed");
 
         let current_branch = repo.git_output(&["rev-parse", "--abbrev-ref", "HEAD"]);
         assert_eq!(current_branch.trim(), "feature");
     }
 
-    #[test]
-    fn switch_repository_branch_tracks_remote_branch_when_local_branch_is_missing() {
+    #[tokio::test]
+    async fn switch_repository_branch_tracks_remote_branch_when_local_branch_is_missing() {
         let remote = TempRepository::create_bare("remote");
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
@@ -1252,6 +1351,7 @@ mod tests {
             repo.path.to_string_lossy().to_string(),
             "origin/feature".to_string(),
         )
+        .await
         .expect("remote branch switch should create a tracking branch");
 
         let current_branch = repo.git_output(&["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -1266,8 +1366,8 @@ mod tests {
         assert_eq!(upstream.trim(), "origin/feature");
     }
 
-    #[test]
-    fn get_repository_remote_names_returns_configured_remotes() {
+    #[tokio::test]
+    async fn get_repository_remote_names_returns_configured_remotes() {
         let remote = TempRepository::create_bare("origin");
         let repo = TempRepository::create();
         repo.git(&[
@@ -1283,8 +1383,9 @@ mod tests {
             "https://github.com/litgit/litgit.git",
         ]);
 
-        let remote_names =
-            get_repository_remote_names(repo.path.to_string_lossy().to_string()).expect("remotes");
+        let remote_names = get_repository_remote_names(repo.path.to_string_lossy().to_string())
+            .await
+            .expect("remotes");
 
         assert_eq!(
             remote_names,
@@ -1292,8 +1393,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn get_repository_branches_includes_current_branch_tag_and_remote_branch() {
+    #[tokio::test]
+    async fn get_repository_branches_includes_current_branch_tag_and_remote_branch() {
         let remote = TempRepository::create_bare("origin");
         let repo = TempRepository::create();
         repo.write_file("tracked.txt", "initial");
@@ -1309,8 +1410,9 @@ mod tests {
         repo.git(&["push", "-u", "origin", "main"]);
         repo.git(&["fetch", "origin"]);
 
-        let branches =
-            get_repository_branches(repo.path.to_string_lossy().to_string()).expect("branches");
+        let branches = get_repository_branches(repo.path.to_string_lossy().to_string())
+            .await
+            .expect("branches");
 
         assert!(branches.iter().any(|branch| {
             branch.name == "main"
@@ -1324,6 +1426,95 @@ mod tests {
         assert!(branches
             .iter()
             .any(|branch| branch.name == "v1.0.0" && branch.ref_type == "tag"));
+    }
+
+    #[tokio::test]
+    async fn delete_remote_repository_branch_removes_branch_from_remote() {
+        let remote = TempRepository::create_bare("origin");
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+        repo.git(&["push", "-u", "origin", "main"]);
+        repo.git(&["switch", "-c", "feature"]);
+        repo.git(&["push", "-u", "origin", "feature"]);
+        repo.git(&["switch", "main"]);
+
+        let app = tauri::test::mock_builder()
+            .manage(SettingsState::default())
+            .manage(GitAuthBrokerState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("branches test app should build");
+        let settings_state = app.state::<SettingsState>();
+        settings_state
+            .set_askpass_socket_path(std::env::temp_dir().join("litgit-branches-delete.sock"));
+
+        delete_remote_repository_branch(
+            app.handle().clone(),
+            app.state::<SettingsState>(),
+            repo.path.to_string_lossy().to_string(),
+            "origin".to_string(),
+            "feature".to_string(),
+        )
+        .await
+        .expect("remote branch delete should succeed");
+
+        let remote_refs = remote.git_output(&["branch", "--format=%(refname:short)"]);
+        assert!(!remote_refs.lines().any(|branch| branch == "feature"));
+    }
+
+    #[tokio::test]
+    async fn set_repository_branch_upstream_pushes_branch_when_remote_branch_is_missing() {
+        let remote = TempRepository::create_bare("origin");
+        let repo = TempRepository::create();
+        repo.write_file("tracked.txt", "initial");
+        repo.git(&["add", "tracked.txt"]);
+        repo.git(&["commit", "-m", "Initial commit"]);
+        repo.git(&[
+            "remote",
+            "add",
+            "origin",
+            remote.path.to_string_lossy().as_ref(),
+        ]);
+        repo.git(&["switch", "-c", "feature"]);
+
+        let app = tauri::test::mock_builder()
+            .manage(SettingsState::default())
+            .manage(GitAuthBrokerState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("branches test app should build");
+        let settings_state = app.state::<SettingsState>();
+        settings_state
+            .set_askpass_socket_path(std::env::temp_dir().join("litgit-branches-upstream.sock"));
+
+        set_repository_branch_upstream(
+            app.handle().clone(),
+            app.state::<SettingsState>(),
+            repo.path.to_string_lossy().to_string(),
+            "feature".to_string(),
+            "origin".to_string(),
+            "feature".to_string(),
+            None,
+        )
+        .await
+        .expect("setting upstream should publish the missing remote branch");
+
+        let upstream = repo.git_output(&[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ]);
+        assert_eq!(upstream.trim(), "origin/feature");
+
+        let remote_refs = remote.git_output(&["branch", "--format=%(refname:short)"]);
+        assert!(remote_refs.lines().any(|branch| branch == "feature"));
     }
 
     struct TempRepository {

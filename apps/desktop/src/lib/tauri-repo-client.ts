@@ -29,6 +29,7 @@ import type {
   RepoDataFetchResult,
   RepositoryBranch,
   RepositoryCommit,
+  RepositoryCommitGraphPayload,
   RepositoryCommitFile,
   RepositoryCommitFileDiff,
   RepositoryCommitFileHunks,
@@ -442,18 +443,68 @@ function parseRepositoryWorkingTreeItems(
   return value.map(parseRepositoryWorkingTreeItem);
 }
 
-function parseRepositoryHistoryPayload(value: unknown): RepositoryCommit[] {
+function parseRepositoryCommitGraphPayload(
+  value: unknown
+): RepositoryCommitGraphPayload {
   if (!isRecord(value)) {
     throw new Error("Invalid repository history payload");
   }
 
-  const { commits } = value;
+  const { commitLanes, graphWidth } = value;
+
+  if (!isRecord(commitLanes) || typeof graphWidth !== "number") {
+    throw new Error("Invalid repository history payload");
+  }
+
+  const parsedCommitLanes = Object.fromEntries(
+    Object.entries(commitLanes).map(([commitHash, entry]) => {
+      if (
+        !isRecord(entry) ||
+        typeof entry.color !== "string" ||
+        typeof entry.lane !== "number" ||
+        !(
+          Array.isArray(entry.parentLanes) &&
+          entry.parentLanes.every(
+            (parentLane): parentLane is number => typeof parentLane === "number"
+          )
+        )
+      ) {
+        throw new Error("Invalid repository history payload");
+      }
+
+      return [
+        commitHash,
+        {
+          color: entry.color,
+          lane: entry.lane,
+          parentLanes: entry.parentLanes,
+        },
+      ];
+    })
+  );
+
+  return {
+    commitLanes: parsedCommitLanes,
+    graphWidth,
+  };
+}
+
+function parseRepositoryHistoryPayload(value: unknown): RepositoryHistoryPayload {
+  if (!isRecord(value)) {
+    throw new Error("Invalid repository history payload");
+  }
+
+  const { commits, graph } = value;
 
   if (!Array.isArray(commits)) {
     throw new Error("Invalid repository history payload");
   }
 
-  return commits.map(parseRepositoryCommit);
+  return {
+    commits: commits.map(parseRepositoryCommit),
+    graph: parseRepositoryCommitGraphPayload(graph),
+    id: "",
+  };
 }
 
 function parseRepositoryCommitFile(value: unknown): RepositoryCommitFile {
@@ -577,9 +628,9 @@ async function loadHistoryForRepo(
     invokeCommand: "get_repository_history",
     repoPath: path,
   });
-  const commits = parseRepositoryHistoryPayload(result);
+  const historyPayload = parseRepositoryHistoryPayload(result);
 
-  return { commits, id };
+  return { ...historyPayload, id };
 }
 
 async function loadBranchesForRepo(id: string, path: string) {

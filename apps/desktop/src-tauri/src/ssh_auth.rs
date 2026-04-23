@@ -215,7 +215,13 @@ pub(crate) fn get_ssh_key_info(key_path: &Path) -> Result<SshKeyInfo, String> {
 
 /// Tauri command to list all SSH keys.
 #[tauri::command]
-pub(crate) fn list_ssh_keys() -> Result<Vec<SshKeyInfo>, String> {
+pub(crate) async fn list_ssh_keys() -> Result<Vec<SshKeyInfo>, String> {
+    tauri::async_runtime::spawn_blocking(list_ssh_keys_inner)
+        .await
+        .map_err(|error| format!("Failed to list SSH keys: {error}"))?
+}
+
+fn list_ssh_keys_inner() -> Result<Vec<SshKeyInfo>, String> {
     let ssh_dir = default_ssh_dir();
     if !ssh_dir.exists() {
         return Ok(Vec::new());
@@ -254,7 +260,19 @@ pub(crate) fn list_ssh_keys() -> Result<Vec<SshKeyInfo>, String> {
 
 /// Tauri command to generate a new SSH key.
 #[tauri::command]
-pub(crate) fn generate_ssh_key(
+pub(crate) async fn generate_ssh_key(
+    key_type: String,
+    comment: Option<String>,
+    passphrase: Option<String>,
+) -> Result<SshKeyInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        generate_ssh_key_inner(key_type, comment, passphrase)
+    })
+    .await
+    .map_err(|error| format!("Failed to generate SSH key: {error}"))?
+}
+
+fn generate_ssh_key_inner(
     key_type: String,
     comment: Option<String>,
     passphrase: Option<String>,
@@ -372,7 +390,16 @@ pub(crate) fn copy_public_key(key_path: String) -> Result<String, String> {
 
 /// Tauri command to test SSH connection to a host.
 #[tauri::command]
-pub(crate) fn test_ssh_connection(host: String, key_path: Option<String>) -> Result<bool, String> {
+pub(crate) async fn test_ssh_connection(
+    host: String,
+    key_path: Option<String>,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || test_ssh_connection_inner(host, key_path))
+        .await
+        .map_err(|error| format!("Failed to test SSH connection: {error}"))?
+}
+
+fn test_ssh_connection_inner(host: String, key_path: Option<String>) -> Result<bool, String> {
     let mut cmd = Command::new("ssh");
     cmd.arg("-o").arg("StrictHostKeyChecking=no");
     cmd.arg("-o").arg("BatchMode=yes");
@@ -414,7 +441,13 @@ pub(crate) fn test_ssh_connection(host: String, key_path: Option<String>) -> Res
 /// with the name `litgit_rsa`. If a key already exists at this location,
 /// an error is returned.
 #[tauri::command]
-pub(crate) fn generate_litgit_key_with_dialog() -> Result<SshKeyInfo, String> {
+pub(crate) async fn generate_litgit_key_with_dialog() -> Result<SshKeyInfo, String> {
+    tauri::async_runtime::spawn_blocking(generate_litgit_key_with_dialog_inner)
+        .await
+        .map_err(|error| format!("Failed to generate LitGit SSH key: {error}"))?
+}
+
+fn generate_litgit_key_with_dialog_inner() -> Result<SshKeyInfo, String> {
     let ssh_dir = ensure_ssh_dir()?;
     let key_path = ssh_dir.join("litgit_rsa");
 

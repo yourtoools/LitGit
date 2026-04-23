@@ -93,6 +93,17 @@ export interface RepositoryCommit {
 
 export type RepositoryCommitSyncState = "normal" | "pullable";
 
+export interface RepositoryCommitGraphNode {
+  color: string;
+  lane: number;
+  parentLanes: number[];
+}
+
+export interface RepositoryCommitGraphPayload {
+  commitLanes: Record<string, RepositoryCommitGraphNode>;
+  graphWidth: number;
+}
+
 export interface RepositoryBranch {
   aheadCount?: number;
   behindCount?: number;
@@ -485,6 +496,7 @@ export interface RepoStoreState {
     LatestRepositoryCommitMessage | null
   >;
   repoCommits: Record<string, RepositoryCommit[]>;
+  repoHistoryGraphsById: Record<string, RepositoryCommitGraphPayload>;
   repoFilesById: Record<string, RepositoryFileEntry[]>;
   repoGitIdentities: Record<string, GitIdentityStatus | undefined>;
   repoHistoryRewriteHintById: Record<string, boolean>;
@@ -557,5 +569,6 @@ export interface RepoDataFetchResult {
 
 export interface RepositoryHistoryPayload {
   commits: RepositoryCommit[];
+  graph: RepositoryCommitGraphPayload;
   id: string;
 }

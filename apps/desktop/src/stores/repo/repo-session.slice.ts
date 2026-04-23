@@ -151,6 +151,7 @@ export const createRepoSessionSlice = (
       activeRepoId,
       openedRepos,
       repoCommits,
+      repoHistoryGraphsById,
       repoBranches,
       repoFilesById,
       repoRemoteNames,
@@ -168,6 +169,7 @@ export const createRepoSessionSlice = (
     const nextOpenedRepos = openedRepos.filter((repo) => repo.id !== id);
 
     const nextRepoCommits = clearRepoDataById(repoCommits, id);
+    const nextRepoHistoryGraphsById = clearRepoDataById(repoHistoryGraphsById, id);
     const nextRepoBranches = clearRepoDataById(repoBranches, id);
     const nextRepoFilesById = clearRepoDataById(repoFilesById, id);
     const nextRepoRemoteNames = clearRepoDataById(repoRemoteNames, id);
@@ -184,6 +186,7 @@ export const createRepoSessionSlice = (
     set({
       openedRepos: nextOpenedRepos,
       repoCommits: nextRepoCommits,
+      repoHistoryGraphsById: nextRepoHistoryGraphsById,
       repoBranches: nextRepoBranches,
       repoFilesById: nextRepoFilesById,
       repoRemoteNames: nextRepoRemoteNames,
@@ -317,6 +320,7 @@ export const createRepoSessionSlice = (
 
       set((state) => {
         let nextRepoCommits = state.repoCommits;
+        let nextRepoHistoryGraphsById = state.repoHistoryGraphsById;
         let nextRepoBranches = state.repoBranches;
         let nextRepoFilesById = state.repoFilesById;
         let nextRepoStashes = state.repoStashes;
@@ -325,6 +329,10 @@ export const createRepoSessionSlice = (
 
         for (const staleRepoId of staleRepoIds) {
           nextRepoCommits = clearRepoDataById(nextRepoCommits, staleRepoId);
+          nextRepoHistoryGraphsById = clearRepoDataById(
+            nextRepoHistoryGraphsById,
+            staleRepoId
+          );
           nextRepoBranches = clearRepoDataById(nextRepoBranches, staleRepoId);
           nextRepoFilesById = clearRepoDataById(nextRepoFilesById, staleRepoId);
           nextRepoStashes = clearRepoDataById(nextRepoStashes, staleRepoId);
@@ -343,6 +351,7 @@ export const createRepoSessionSlice = (
             (repo) => !staleRepoIds.has(repo.id)
           ),
           repoCommits: nextRepoCommits,
+          repoHistoryGraphsById: nextRepoHistoryGraphsById,
           repoBranches: nextRepoBranches,
           repoFilesById: nextRepoFilesById,
           repoStashes: nextRepoStashes,

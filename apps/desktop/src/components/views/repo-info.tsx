@@ -19,14 +19,6 @@ import {
 import { Button } from "@litgit/ui/components/button";
 import { Checkbox } from "@litgit/ui/components/checkbox";
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@litgit/ui/components/combobox";
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -56,7 +48,6 @@ import {
   DropdownMenuTrigger,
 } from "@litgit/ui/components/dropdown-menu";
 import { Input } from "@litgit/ui/components/input";
-import { InputGroupAddon, InputGroupInput } from "@litgit/ui/components/input-group";
 import { Label } from "@litgit/ui/components/label";
 import {
   Select,
@@ -77,6 +68,14 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@litgit/ui/components/sidebar";
+import { Antigravity } from "@litgit/ui/components/svgs/antigravity";
+import { Bash } from "@litgit/ui/components/svgs/bash";
+import { Cursor } from "@litgit/ui/components/svgs/cursor";
+import { CursorDark } from "@litgit/ui/components/svgs/cursor-dark";
+import { Linux } from "@litgit/ui/components/svgs/linux";
+import { Powershell } from "@litgit/ui/components/svgs/powershell";
+import { VisualStudio } from "@litgit/ui/components/svgs/visual-studio";
+import { Vscode } from "@litgit/ui/components/svgs/vscode";
 import { Textarea } from "@litgit/ui/components/textarea";
 import {
   Tooltip,
@@ -90,7 +89,6 @@ import {
   ArrowCounterClockwiseIcon,
   ArrowLineDownIcon,
   ArrowLineUpIcon,
-  ArrowsClockwiseIcon,
   CaretDownIcon,
   CaretRightIcon,
   CheckCircleIcon,
@@ -121,7 +119,9 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useSearch } from "@tanstack/react-router";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { intlFormat } from "date-fns";
 import { useTheme } from "next-themes";
 import {
@@ -138,15 +138,6 @@ import {
   useTransition,
 } from "react";
 import { toast } from "sonner";
-
-import { Antigravity } from "@litgit/ui/components/svgs/antigravity";
-import { Bash } from "@litgit/ui/components/svgs/bash";
-import { Linux } from "@litgit/ui/components/svgs/linux";
-import { Powershell } from "@litgit/ui/components/svgs/powershell";
-import { VisualStudio } from "@litgit/ui/components/svgs/visual-studio";
-import { Vscode } from "@litgit/ui/components/svgs/vscode";
-import { Cursor } from "@litgit/ui/components/svgs/cursor";
-import { CursorDark } from "@litgit/ui/components/svgs/cursor-dark";
 import { resolveLanguage } from "@/components/code-editor/utils/language-resolver";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import {
@@ -185,10 +176,59 @@ import {
 import { ImageDiffViewer } from "@/components/views/repo-info/image-diff-viewer";
 import { PublishRepositoryDialog } from "@/components/views/repo-info/publish-repository-dialog";
 import {
-  COMBOBOX_DEBOUNCE_DELAY_MS,
-  normalizeComboboxQuery,
-  useDebouncedValue,
-} from "@/hooks/use-debounced-value";
+  finalizeAiCommitGenerationState,
+  getNextAiCommitGenerationState,
+} from "@/components/views/repo-info-ai-commit-generation-state";
+import {
+  type BuildRepoInfoAllFilesModelInput,
+  buildRepoInfoAllFilesModel,
+} from "@/components/views/repo-info-all-files-model";
+import { resolveWipAuthorAvatarUrl } from "@/components/views/repo-info-author-avatar";
+import {
+  type BuildRepoInfoCommitFilesModelInput,
+  buildRepoInfoCommitFilesModel,
+} from "@/components/views/repo-info-commit-files-model";
+import {
+  createRenderBudget,
+  type RenderBudget,
+  useProgressiveRenderLimit,
+} from "@/components/views/repo-info-progressive-render";
+import {
+  type BuildRepoInfoReferenceModelInput,
+  buildRepoInfoReferenceModel,
+} from "@/components/views/repo-info-reference-model";
+import {
+  type BranchTreeNode,
+  type BuildRepoInfoSidebarGroupsInput,
+  buildRepoInfoSidebarGroups,
+  type SidebarEntry,
+} from "@/components/views/repo-info-sidebar-model";
+import {
+  type BuildRepoInfoTimelineRowsInput,
+  buildRepoInfoTimelineRows,
+  WORKING_TREE_ROW_ID,
+} from "@/components/views/repo-info-timeline-model";
+import {
+  type ChangeTreeNode,
+  type CommitFileTreeNode,
+  collectCommitTreeChangeSummary as collectCommitTreeChangeSummaryModel,
+  collectExpandableCommitTreeKeys as collectExpandableCommitTreeKeysModel,
+  collectExpandableTreeKeys as collectExpandableTreeKeysModel,
+  collectTreeStatusCounts as collectTreeStatusCountsModel,
+} from "@/components/views/repo-info-tree-utils";
+import {
+  type BuildRepoInfoVisibleCountsModelInput,
+  buildRepoInfoVisibleCountsModel,
+} from "@/components/views/repo-info-visible-counts-model";
+import {
+  type BuildRepoInfoVisibleGraphModelInput,
+  buildRepoInfoVisibleGraphModel,
+} from "@/components/views/repo-info-visible-graph-model";
+import {
+  type BuildRepoInfoWorkingTreeModelInput,
+  buildRepoInfoWorkingTreeModel,
+} from "@/components/views/repo-info-working-tree-model";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import { getRepositoryRemoteAvatars } from "@/lib/tauri-repo-client";
@@ -198,6 +238,8 @@ import {
   getLauncherApplications,
   openPathWithApplication,
 } from "@/lib/tauri-settings-client";
+import { createWorkerClient } from "@/lib/workers/create-worker-client";
+import { runWorkerTask } from "@/lib/workers/run-worker-task";
 import {
   DEFAULT_REPO_FILE_BROWSER_STATE,
   DEFAULT_REPO_TIMELINE_PREFERENCES,
@@ -214,6 +256,7 @@ import {
   useRepoCommits,
   useRepoFiles,
   useRepoGitIdentity,
+  useRepoHistoryGraph,
   useRepoHistoryRewriteHint,
   useRepoLoadingState,
   useRepoRedoDepth,
@@ -235,7 +278,6 @@ import type {
   RepositoryCommitFileDiff,
   RepositoryFileBlameLine,
   RepositoryFileDiff,
-  RepositoryFileEntry,
   RepositoryFileHistoryEntry,
   RepositoryFileHunk,
   RepositoryFilePreflight,
@@ -243,26 +285,6 @@ import type {
   RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
 import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
-
-interface SidebarEntry {
-  active?: boolean;
-  isRemote?: boolean;
-  name: string;
-  pendingPushCount?: number;
-  pendingSyncCount?: number;
-  searchName: string;
-  stashMessage?: string;
-  stashRef?: string;
-  type: "branch" | "stash" | "tag";
-}
-
-interface SidebarGroupItem {
-  count: number;
-  entries: SidebarEntry[];
-  key: string;
-  name: string;
-  treeNodes?: BranchTreeNode[];
-}
 
 function renderSidebarGroupSectionIcon(groupKey: string): ReactNode {
   if (groupKey === "local") {
@@ -284,39 +306,11 @@ function renderSidebarGroupSectionIcon(groupKey: string): ReactNode {
   return null;
 }
 
-interface BranchTreeNode {
-  children: BranchTreeNode[];
-  entry: SidebarEntry | null;
-  fullPath: string;
-  name: string;
-}
-
 interface TimelineColumnDefinition {
   align?: "center" | "left";
   id: RepoTimelineColumnId;
   label: string;
   width: string;
-}
-
-interface TimelineReferenceRowData {
-  anchorCommitHash: string;
-  id: string;
-  label: string;
-  type: "stash" | "tag";
-}
-
-interface ChangeTreeNode {
-  children: Map<string, ChangeTreeNode>;
-  fullPath: string;
-  item: RepositoryWorkingTreeItem | null;
-  name: string;
-}
-
-interface CommitFileTreeNode {
-  children: Map<string, CommitFileTreeNode>;
-  file: RepositoryCommitFile | null;
-  fullPath: string;
-  name: string;
 }
 
 type ChangesViewMode = "path" | "tree";
@@ -566,21 +560,7 @@ function normalizeCommitRefLabel(rawReference: string): string | null {
   return trimmedReference;
 }
 
-function resolveTagNameFromCommitRef(rawReference: string): string | null {
-  const trimmedReference = rawReference.trim();
-
-  if (!trimmedReference.startsWith("tag: ")) {
-    return null;
-  }
-
-  return normalizeCommitRefLabel(trimmedReference);
-}
-
 const TREE_STATUS_SUMMARY_ORDER = ["M", "A", "D", "R", "C", "U", "T", "?"];
-const GITHUB_NOREPLY_EMAIL_SUFFIX = "@users.noreply.github.com";
-const GITLAB_NOREPLY_EMAIL_SUFFIX = "@users.noreply.gitlab.com";
-const BITBUCKET_NOREPLY_EMAIL_SUFFIX = "@users.noreply.bitbucket.org";
-const ASCII_DIGITS_PATTERN = /^\d+$/;
 const IMAGE_PREVIEWABLE_EXTENSIONS = new Set([
   "png",
   "jpg",
@@ -621,6 +601,51 @@ const PREVIEW_UNAVAILABLE_ASCII_ART = `       _____________
     |    [ ! ]   |  |
     |            | /
     |____________|/`;
+const EMPTY_ALL_FILES_MODEL = {
+  allFilesTree: [],
+  filteredRepositoryFiles: [],
+} satisfies ReturnType<typeof buildRepoInfoAllFilesModel>;
+const EMPTY_COMMIT_FILES_MODEL = {
+  filteredFiles: [],
+  sortedPathRows: [],
+  summary: {
+    addedCount: 0,
+    modifiedCount: 0,
+    removedCount: 0,
+    totalCount: 0,
+  },
+  tree: [],
+} satisfies ReturnType<typeof buildRepoInfoCommitFilesModel>;
+const EMPTY_REFERENCE_MODEL = {
+  commitHashByEntryKey: {},
+  commitRefEntriesByCommitHash: {},
+  graphEntryTypeByReferenceName: {},
+  sidebarEntryByTimelineRowId: {},
+  timelineRowIdByEntryKey: {},
+} satisfies ReturnType<typeof buildRepoInfoReferenceModel>;
+const EMPTY_SIDEBAR_RESULTS = {
+  filteredSidebarEntryCount: 0,
+  filteredSidebarGroups: [],
+} satisfies ReturnType<typeof buildRepoInfoSidebarGroups>;
+const EMPTY_VISIBLE_COUNTS_MODEL = {
+  allFilesVisibleNodeCount: 0,
+  selectedCommitVisibleNodeCount: 0,
+  selectedReferenceVisibleNodeCount: 0,
+  sidebarVisibleNodeCount: 0,
+  stagedVisibleNodeCount: 0,
+  unstagedVisibleNodeCount: 0,
+} satisfies ReturnType<typeof buildRepoInfoVisibleCountsModel>;
+const EMPTY_VISIBLE_GRAPH_MODEL = {
+  currentBranchLaneColor: "",
+  visibleHistoryGraph: {
+    commitLanes: {},
+    graphWidth: 0,
+  },
+} satisfies ReturnType<typeof buildRepoInfoVisibleGraphModel>;
+const EMPTY_WORKING_TREE_MODEL = {
+  stagedTree: [],
+  unstagedTree: [],
+} satisfies ReturnType<typeof buildRepoInfoWorkingTreeModel>;
 
 const LAUNCHER_ICON_CLASS = "size-[15px] shrink-0";
 
@@ -683,553 +708,8 @@ function LauncherItemIcon({
   }
 }
 
-function isValidGitHubUsername(username: string): boolean {
-  const length = username.length;
-  if (length === 0 || length > 39) {
-    return false;
-  }
-
-  if (username.startsWith("-") || username.endsWith("-")) {
-    return false;
-  }
-
-  for (const character of username) {
-    const isAlphabet =
-      (character >= "a" && character <= "z") ||
-      (character >= "A" && character <= "Z");
-    const isDigit = character >= "0" && character <= "9";
-
-    if (!(isAlphabet || isDigit || character === "-")) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function isValidBitbucketUsername(username: string): boolean {
-  const length = username.length;
-  if (length === 0 || length > 39) {
-    return false;
-  }
-
-  // Bitbucket usernames: alphanumeric, hyphens, underscores, periods
-  // cannot start with hyphen or underscore
-  if (username.startsWith("-") || username.startsWith("_")) {
-    return false;
-  }
-
-  for (const character of username) {
-    const isAlphabet =
-      (character >= "a" && character <= "z") ||
-      (character >= "A" && character <= "Z");
-    const isDigit = character >= "0" && character <= "9";
-
-    if (
-      !(
-        isAlphabet ||
-        isDigit ||
-        character === "-" ||
-        character === "_" ||
-        character === "."
-      )
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function resolveCommitAuthorAvatarFromIdentityEmail(
-  email: string | null
-): string | null {
-  const normalizedEmail = email?.trim().toLowerCase() ?? "";
-
-  // Try GitHub
-  const githubAvatar = resolveGitHubAvatarFromIdentityEmail(normalizedEmail);
-  if (githubAvatar) {
-    return githubAvatar;
-  }
-
-  // Try GitLab
-  const gitlabAvatar = resolveGitLabAvatarFromIdentityEmail(normalizedEmail);
-  if (gitlabAvatar) {
-    return gitlabAvatar;
-  }
-
-  // Try Bitbucket
-  const bitbucketAvatar =
-    resolveBitbucketAvatarFromIdentityEmail(normalizedEmail);
-  if (bitbucketAvatar) {
-    return bitbucketAvatar;
-  }
-
-  return null;
-}
-
-function resolveGitHubAvatarFromIdentityEmail(
-  email: string | null
-): string | null {
-  const normalizedEmail = email?.trim().toLowerCase() ?? "";
-
-  if (!normalizedEmail.endsWith(GITHUB_NOREPLY_EMAIL_SUFFIX)) {
-    return null;
-  }
-
-  const localPart = normalizedEmail.slice(
-    0,
-    -GITHUB_NOREPLY_EMAIL_SUFFIX.length
-  );
-
-  if (localPart.length === 0) {
-    return null;
-  }
-
-  const plusSeparatorIndex = localPart.indexOf("+");
-
-  if (plusSeparatorIndex >= 0) {
-    const left = localPart.slice(0, plusSeparatorIndex);
-    const right = localPart.slice(plusSeparatorIndex + 1);
-    let username: string | null = null;
-
-    if (isValidGitHubUsername(right)) {
-      username = right;
-    } else if (isValidGitHubUsername(left)) {
-      username = left;
-    }
-
-    if (ASCII_DIGITS_PATTERN.test(left)) {
-      return `https://avatars.githubusercontent.com/u/${left}?v=4`;
-    }
-
-    return username ? `https://github.com/${username}.png` : null;
-  }
-
-  if (isValidGitHubUsername(localPart)) {
-    return `https://github.com/${localPart}.png`;
-  }
-
-  return null;
-}
-
-function resolveGitLabAvatarFromIdentityEmail(
-  normalizedEmail: string
-): string | null {
-  if (!normalizedEmail.endsWith(GITLAB_NOREPLY_EMAIL_SUFFIX)) {
-    return null;
-  }
-
-  const localPart = normalizedEmail.slice(
-    0,
-    -GITLAB_NOREPLY_EMAIL_SUFFIX.length
-  );
-
-  if (localPart.length === 0) {
-    return null;
-  }
-
-  // Check if it's a numeric ID
-  if (ASCII_DIGITS_PATTERN.test(localPart)) {
-    // GitLab uses Gravatar with the user ID
-    return `https://secure.gravatar.com/avatar/${localPart}?s=80&d=identicon`;
-  }
-
-  // It's a username - GitLab doesn't have a direct username-based avatar URL
-  // The avatar would need to be fetched via API with a token
-  return null;
-}
-
-function resolveBitbucketAvatarFromIdentityEmail(
-  normalizedEmail: string
-): string | null {
-  if (!normalizedEmail.endsWith(BITBUCKET_NOREPLY_EMAIL_SUFFIX)) {
-    return null;
-  }
-
-  const localPart = normalizedEmail.slice(
-    0,
-    -BITBUCKET_NOREPLY_EMAIL_SUFFIX.length
-  );
-
-  if (localPart.length === 0) {
-    return null;
-  }
-
-  // Bitbucket format: account_id:username or just username
-  const colonIndex = localPart.indexOf(":");
-
-  if (colonIndex >= 0) {
-    const accountId = localPart.slice(0, colonIndex);
-    const username = localPart.slice(colonIndex + 1);
-
-    if (
-      isValidBitbucketUsername(username) &&
-      ASCII_DIGITS_PATTERN.test(accountId)
-    ) {
-      // Return a URL using Bitbucket's avatar service with initials
-      return `https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/${username}-0.png`;
-    }
-  }
-
-  // Just username - we can't construct an avatar URL without the account ID
-  return null;
-}
-
-function resolveWipAuthorAvatarUrl(
-  commits: RepositoryCommit[],
-  identityEmail: string | null,
-  identityName: string | null
-): string | null {
-  const normalizedIdentityEmail = identityEmail?.trim().toLowerCase() ?? "";
-
-  if (normalizedIdentityEmail.length > 0) {
-    for (const commit of commits) {
-      if (!(commit.authorAvatarUrl && commit.authorEmail)) {
-        continue;
-      }
-
-      if (commit.authorEmail.trim().toLowerCase() === normalizedIdentityEmail) {
-        return commit.authorAvatarUrl;
-      }
-    }
-  }
-
-  const normalizedIdentityName = identityName?.trim().toLowerCase() ?? "";
-
-  if (normalizedIdentityName.length > 0) {
-    for (const commit of commits) {
-      if (!commit.authorAvatarUrl) {
-        continue;
-      }
-
-      if (commit.author.trim().toLowerCase() === normalizedIdentityName) {
-        return commit.authorAvatarUrl;
-      }
-    }
-  }
-
-  return resolveCommitAuthorAvatarFromIdentityEmail(identityEmail);
-}
-
-function createEmptyTreeNode(name: string, fullPath: string): ChangeTreeNode {
-  return {
-    children: new Map<string, ChangeTreeNode>(),
-    fullPath,
-    item: null,
-    name,
-  };
-}
-
-function buildRepositoryFileTree(
-  files: RepositoryFileEntry[],
-  workingTreeItemByPath: Map<string, RepositoryWorkingTreeItem>,
-  sortOrder: RepoFileBrowserSortOrder
-): ChangeTreeNode[] {
-  const items = files.map((file) => ({
-    ...(workingTreeItemByPath.get(file.path) ?? {
-      isUntracked: false,
-      path: file.path,
-      stagedStatus: " ",
-      unstagedStatus: " ",
-    }),
-  })) satisfies RepositoryWorkingTreeItem[];
-
-  return buildChangeTree(items, sortOrder);
-}
-
-function buildChangeTree(
-  items: RepositoryWorkingTreeItem[],
-  sortOrder: RepoFileBrowserSortOrder = "asc"
-): ChangeTreeNode[] {
-  const root = createEmptyTreeNode("", "");
-
-  for (const item of items) {
-    const normalizedPath = item.path.replaceAll("\\", "/");
-    const segments = normalizedPath
-      .split("/")
-      .filter((segment) => segment.length > 0);
-
-    let cursor = root;
-    let segmentPath = "";
-
-    for (const segment of segments) {
-      segmentPath =
-        segmentPath.length > 0 ? `${segmentPath}/${segment}` : segment;
-      const existing = cursor.children.get(segment);
-
-      if (existing) {
-        cursor = existing;
-        continue;
-      }
-
-      const nextNode = createEmptyTreeNode(segment, segmentPath);
-      cursor.children.set(segment, nextNode);
-      cursor = nextNode;
-    }
-
-    cursor.item = item;
-  }
-
-  const toSortedArray = (node: ChangeTreeNode): ChangeTreeNode[] =>
-    Array.from(node.children.values())
-      .map((childNode) => ({
-        ...childNode,
-        children: new Map(
-          toSortedArray(childNode).map((entry) => [entry.name, entry])
-        ),
-      }))
-      .sort((left, right) => {
-        const leftIsFolder = left.item === null;
-        const rightIsFolder = right.item === null;
-
-        if (leftIsFolder !== rightIsFolder) {
-          return leftIsFolder ? -1 : 1;
-        }
-
-        const comparison = left.name.localeCompare(right.name);
-
-        return sortOrder === "asc" ? comparison : comparison * -1;
-      });
-
-  return toSortedArray(root);
-}
-
-function createEmptyCommitTreeNode(
-  name: string,
-  fullPath: string
-): CommitFileTreeNode {
-  return {
-    children: new Map<string, CommitFileTreeNode>(),
-    file: null,
-    fullPath,
-    name,
-  };
-}
-
-function buildCommitFileTree(
-  files: RepositoryCommitFile[],
-  sortOrder: RepoFileBrowserSortOrder = "asc"
-): CommitFileTreeNode[] {
-  const root = createEmptyCommitTreeNode("", "");
-
-  for (const file of files) {
-    const normalizedPath = file.path.replaceAll("\\", "/");
-    const segments = normalizedPath
-      .split("/")
-      .filter((segment) => segment.length > 0);
-
-    let cursor = root;
-    let segmentPath = "";
-
-    for (const segment of segments) {
-      segmentPath =
-        segmentPath.length > 0 ? `${segmentPath}/${segment}` : segment;
-      const existing = cursor.children.get(segment);
-
-      if (existing) {
-        cursor = existing;
-        continue;
-      }
-
-      const nextNode = createEmptyCommitTreeNode(segment, segmentPath);
-      cursor.children.set(segment, nextNode);
-      cursor = nextNode;
-    }
-
-    cursor.file = file;
-  }
-
-  const toSortedArray = (node: CommitFileTreeNode): CommitFileTreeNode[] =>
-    Array.from(node.children.values())
-      .map((childNode) => ({
-        ...childNode,
-        children: new Map(
-          toSortedArray(childNode).map((entry) => [entry.name, entry])
-        ),
-      }))
-      .sort((left, right) => {
-        const leftIsFolder = left.file === null;
-        const rightIsFolder = right.file === null;
-
-        if (leftIsFolder !== rightIsFolder) {
-          return leftIsFolder ? -1 : 1;
-        }
-
-        const comparison = left.name.localeCompare(right.name);
-
-        return sortOrder === "asc" ? comparison : comparison * -1;
-      });
-
-  return toSortedArray(root);
-}
-
-function createEmptyBranchTreeNode(
-  name: string,
-  fullPath: string
-): BranchTreeNode {
-  return {
-    children: [],
-    entry: null,
-    fullPath,
-    name,
-  };
-}
-
-function buildBranchTree(entries: SidebarEntry[]): BranchTreeNode[] {
-  const root = createEmptyBranchTreeNode("", "");
-  const childMapByPath = new Map<string, Map<string, BranchTreeNode>>([
-    ["", new Map<string, BranchTreeNode>()],
-  ]);
-
-  for (const entry of entries) {
-    const segments = entry.name
-      .split("/")
-      .filter((segment) => segment.length > 0);
-
-    if (segments.length === 0) {
-      continue;
-    }
-
-    let cursor = root;
-    let segmentPath = "";
-    let childrenByName =
-      childMapByPath.get("") ?? new Map<string, BranchTreeNode>();
-
-    for (const segment of segments) {
-      segmentPath =
-        segmentPath.length > 0 ? `${segmentPath}/${segment}` : segment;
-      const existing = childrenByName.get(segment);
-
-      if (existing) {
-        cursor = existing;
-        childrenByName =
-          childMapByPath.get(segmentPath) ?? new Map<string, BranchTreeNode>();
-        continue;
-      }
-
-      const nextNode = createEmptyBranchTreeNode(segment, segmentPath);
-      cursor.children.push(nextNode);
-      childrenByName.set(segment, nextNode);
-      childMapByPath.set(segmentPath, new Map<string, BranchTreeNode>());
-      cursor = nextNode;
-      childrenByName = childMapByPath.get(segmentPath) ?? new Map();
-    }
-
-    cursor.entry = entry;
-  }
-
-  const toSortedArray = (node: BranchTreeNode): BranchTreeNode[] =>
-    node.children
-      .map((childNode) => ({
-        ...childNode,
-        children: toSortedArray(childNode),
-      }))
-      .sort((left, right) => {
-        const leftIsFolder = left.entry === null;
-        const rightIsFolder = right.entry === null;
-
-        if (leftIsFolder !== rightIsFolder) {
-          return leftIsFolder ? -1 : 1;
-        }
-
-        return left.name.localeCompare(right.name);
-      });
-
-  const compressBranchTree = (nodes: BranchTreeNode[]): BranchTreeNode[] => {
-    return nodes.map((node) => {
-      if (node.entry) {
-        return node;
-      }
-
-      const compressedChildren = compressBranchTree(node.children);
-
-      if (compressedChildren.length !== 1) {
-        return {
-          ...node,
-          children: compressedChildren,
-        };
-      }
-
-      const [onlyChild] = compressedChildren;
-
-      if (!onlyChild || onlyChild.entry) {
-        return {
-          ...node,
-          children: compressedChildren,
-        };
-      }
-
-      return {
-        ...onlyChild,
-        fullPath: onlyChild.fullPath,
-        name: `${node.name}/${onlyChild.name}`,
-      };
-    });
-  };
-
-  return compressBranchTree(toSortedArray(root));
-}
-
-function filterBranchTree(
-  nodes: BranchTreeNode[],
-  normalizedFilter: string
-): { count: number; nodes: BranchTreeNode[] } {
-  if (normalizedFilter.length === 0) {
-    return {
-      count: countBranchTreeEntries(nodes),
-      nodes,
-    };
-  }
-
-  let count = 0;
-  const filteredNodes = nodes.flatMap((node) => {
-    const filteredChildren = filterBranchTree(node.children, normalizedFilter);
-    const matchesSelf =
-      node.fullPath.toLowerCase().includes(normalizedFilter) ||
-      node.entry?.searchName.includes(normalizedFilter) === true;
-
-    if (!matchesSelf && filteredChildren.count === 0) {
-      return [];
-    }
-
-    if (node.entry) {
-      count += 1;
-    } else {
-      count += filteredChildren.count;
-    }
-
-    return {
-      ...node,
-      children: filteredChildren.nodes,
-    };
-  });
-
-  return {
-    count,
-    nodes: filteredNodes,
-  };
-}
-
-function countBranchTreeEntries(nodes: BranchTreeNode[]): number {
-  let total = 0;
-
-  for (const node of nodes) {
-    if (node.entry) {
-      total += 1;
-    }
-
-    if (node.children.length > 0) {
-      total += countBranchTreeEntries(node.children);
-    }
-  }
-
-  return total;
-}
-
 const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
-const WORKING_TREE_ROW_ID = "__working_tree__";
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
 const TIMELINE_ROW_HEIGHT = 36;
 const TIMELINE_GRAPH_COLUMN_MIN_WIDTH = 60;
@@ -1536,7 +1016,6 @@ export function RepoInfo() {
     revertCommit,
     rewordCommitMessage,
     saveFileText,
-    setActiveRepo,
     setBranchUpstream,
     stageAll,
     stageFile,
@@ -1547,6 +1026,7 @@ export function RepoInfo() {
   } = useRepoActions();
   const branches = useRepoBranches(activeRepoId);
   const commits = useRepoCommits(activeRepoId);
+  const historyGraph = useRepoHistoryGraph(activeRepoId);
   const allRepositoryFiles = useRepoFiles(activeRepoId);
   const activeRepoIdentity = useRepoGitIdentity(activeRepoId);
   const requiresForcePushAfterHistoryRewrite =
@@ -1561,8 +1041,7 @@ export function RepoInfo() {
   const commitDraftPrefill = useRepoCommitDraftPrefill(activeRepoId);
   const { isLoadingBranches, isLoadingHistory, isLoadingStatus, isLoadingWip } =
     useRepoLoadingState();
-  const { isBackgroundRefreshing, lastLoadedAt } =
-    useRepoRefreshStatus(activeRepoId);
+  useRepoRefreshStatus(activeRepoId);
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
     Record<string, boolean>
   >({
@@ -1603,6 +1082,12 @@ export function RepoInfo() {
   const [isCommitting, setIsCommitting] = useState(false);
   const [isGeneratingAiCommitMessage, setIsGeneratingAiCommitMessage] =
     useState(false);
+  const [aiCommitGenerationStatusMessage, setAiCommitGenerationStatusMessage] =
+    useState<string | null>(null);
+  const [aiCommitGenerationPreview, setAiCommitGenerationPreview] =
+    useState("");
+  const aiCommitGenerationStatusMessageRef = useRef<string | null>(null);
+  const aiCommitGenerationPreviewRef = useRef("");
   const [lastAiCommitGeneration, setLastAiCommitGeneration] = useState<null | {
     promptMode: string;
     providerKind: string;
@@ -1838,6 +1323,8 @@ export function RepoInfo() {
   const commitSummaryInputRef = useRef<HTMLInputElement | null>(null);
   const commitDetailsLayoutRef = useRef<HTMLDivElement | null>(null);
   const mainScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const branchCreateRowRef = useRef<HTMLDivElement | null>(null);
+  const workingTreeTimelineRowRef = useRef<HTMLButtonElement | null>(null);
   const timelineRowElementsRef = useRef(
     new Map<string, HTMLButtonElement | null>()
   );
@@ -1978,6 +1465,57 @@ export function RepoInfo() {
 
   const activeRepo = openedRepos.find((repo) => repo.id === activeRepoId);
   const activeRepoPath = activeRepo?.path ?? null;
+
+  useEffect(() => {
+    if (!tauriRuntime) {
+      return;
+    }
+
+    let disposed = false;
+    const unlistenProgressPromise = listen<{
+      message: string;
+      repoPath: string;
+      stage: string;
+    }>("ai-commit-generation-progress", (event) => {
+      const payload = event.payload;
+
+      if (disposed || payload.repoPath !== activeRepoPath) {
+        return;
+      }
+
+      const nextState = getNextAiCommitGenerationState(
+        {
+          preview: aiCommitGenerationPreviewRef.current,
+          statusMessage: aiCommitGenerationStatusMessageRef.current,
+        },
+        payload
+      );
+
+      aiCommitGenerationStatusMessageRef.current = nextState.statusMessage;
+      aiCommitGenerationPreviewRef.current = nextState.preview;
+      setAiCommitGenerationStatusMessage(nextState.statusMessage);
+      setAiCommitGenerationPreview(nextState.preview);
+    });
+    const unlistenChunkPromise = listen<{
+      content: string;
+      repoPath: string;
+    }>("ai-commit-generation-chunk", (event) => {
+      const payload = event.payload;
+
+      if (disposed || payload.repoPath !== activeRepoPath) {
+        return;
+      }
+
+      aiCommitGenerationPreviewRef.current = payload.content;
+      setAiCommitGenerationPreview(payload.content);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenProgressPromise.then((unlisten) => unlisten());
+      unlistenChunkPromise.then((unlisten) => unlisten());
+    };
+  }, [activeRepoPath, tauriRuntime]);
 
   const handleOpenPath = useCallback(
     async (application: ExternalLauncherApplication) => {
@@ -2226,14 +1764,24 @@ export function RepoInfo() {
   }, [workingTreeItems]);
   const canCommit = draftCommitSummary.trim().length > 0 && hasStagedChanges;
   const hasRemoteConfigured = activeRepoRemoteNames.length > 0;
-  const unstagedTree = useMemo(
-    () => buildChangeTree(unstagedItems, fileTreeSortOrder),
-    [fileTreeSortOrder, unstagedItems]
+  const workingTreeModelInput = useMemo<BuildRepoInfoWorkingTreeModelInput>(
+    () => ({
+      sortOrder: fileTreeSortOrder,
+      stagedItems,
+      unstagedItems,
+    }),
+    [fileTreeSortOrder, stagedItems, unstagedItems]
   );
-  const stagedTree = useMemo(
-    () => buildChangeTree(stagedItems, fileTreeSortOrder),
-    [fileTreeSortOrder, stagedItems]
-  );
+  const workingTreeWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoWorkingTreeModelInput,
+      ReturnType<typeof buildRepoInfoWorkingTreeModel>
+    >
+  > | null>(null);
+  const [workingTreeModel, setWorkingTreeModel] = useState<
+    ReturnType<typeof buildRepoInfoWorkingTreeModel>
+  >(EMPTY_WORKING_TREE_MODEL);
+  const { stagedTree, unstagedTree } = workingTreeModel;
   const normalizedRepositoryFileFilter = debouncedRepositoryFileFilterInputValue
     .trim()
     .toLowerCase();
@@ -2241,33 +1789,211 @@ export function RepoInfo() {
     () => new Map(workingTreeItems.map((item) => [item.path, item])),
     [workingTreeItems]
   );
-  const filteredRepositoryFiles = useMemo(
-    () =>
-      normalizedRepositoryFileFilter.length === 0
-        ? allRepositoryFiles
-        : allRepositoryFiles.filter((file) =>
-            file.path.toLowerCase().includes(normalizedRepositoryFileFilter)
+  const allFilesModelInput = useMemo<BuildRepoInfoAllFilesModelInput>(
+    () => ({
+      allRepositoryFiles,
+      normalizedRepositoryFileFilter,
+      sortOrder: fileTreeSortOrder,
+      workingTreeItems,
+    }),
+    [
+      allRepositoryFiles,
+      normalizedRepositoryFileFilter,
+      fileTreeSortOrder,
+      workingTreeItems,
+    ]
+  );
+  const allFilesWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoAllFilesModelInput,
+      ReturnType<typeof buildRepoInfoAllFilesModel>
+    >
+  > | null>(null);
+  const [allFilesModel, setAllFilesModel] = useState<
+    ReturnType<typeof buildRepoInfoAllFilesModel>
+  >(EMPTY_ALL_FILES_MODEL);
+  const { allFilesTree, filteredRepositoryFiles } = allFilesModel;
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
+    }
+
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoAllFilesModelInput,
+        ReturnType<typeof buildRepoInfoAllFilesModel>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-all-files.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
           ),
-    [allRepositoryFiles, normalizedRepositoryFileFilter]
+        { label: "repo-info:all-files" }
+      );
+      allFilesWorkerClientRef.current = client;
+
+      return () => {
+        allFilesWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      allFilesWorkerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
+    }
+
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoWorkingTreeModelInput,
+        ReturnType<typeof buildRepoInfoWorkingTreeModel>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-working-tree.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:working-tree" }
+      );
+      workingTreeWorkerClientRef.current = client;
+
+      return () => {
+        workingTreeWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      workingTreeWorkerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const workerClient = workingTreeWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      workingTreeModelInput,
+      buildRepoInfoWorkingTreeModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setWorkingTreeModel(result);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workingTreeModelInput]);
+
+  useEffect(() => {
+    const workerClient = allFilesWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      allFilesModelInput,
+      buildRepoInfoAllFilesModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setAllFilesModel(result);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [allFilesModelInput]);
+
+  const visibleGraphModelInput = useMemo<BuildRepoInfoVisibleGraphModelInput>(
+    () => ({
+      historyGraph,
+      localHeadCommitHash: localHeadCommit?.hash ?? null,
+      timelineCommits,
+    }),
+    [historyGraph, localHeadCommit?.hash, timelineCommits]
   );
-  const allFilesTree = useMemo(
-    () =>
-      buildRepositoryFileTree(
-        filteredRepositoryFiles,
-        workingTreeItemByPath,
-        fileTreeSortOrder
-      ),
-    [fileTreeSortOrder, filteredRepositoryFiles, workingTreeItemByPath]
-  );
+  const visibleGraphWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoVisibleGraphModelInput,
+      ReturnType<typeof buildRepoInfoVisibleGraphModel>
+    >
+  > | null>(null);
+  const [visibleGraphModel, setVisibleGraphModel] = useState<
+    ReturnType<typeof buildRepoInfoVisibleGraphModel>
+  >(EMPTY_VISIBLE_GRAPH_MODEL);
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
+    }
+
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoVisibleGraphModelInput,
+        ReturnType<typeof buildRepoInfoVisibleGraphModel>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-visible-graph.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:visible-graph" }
+      );
+      visibleGraphWorkerClientRef.current = client;
+
+      return () => {
+        visibleGraphWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      visibleGraphWorkerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const workerClient = visibleGraphWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      visibleGraphModelInput,
+      buildRepoInfoVisibleGraphModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setVisibleGraphModel(result);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleGraphModelInput]);
+
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
-  const currentBranchLaneColor = useMemo(
-    () =>
-      localHeadCommit?.hash
-        ? getCommitLaneColor(timelineCommits, localHeadCommit.hash)
-        : getCommitLaneColor(timelineCommits, ""),
-    [localHeadCommit?.hash, timelineCommits]
-  );
+  const { currentBranchLaneColor, visibleHistoryGraph } = visibleGraphModel;
   const currentLocalBranch = useMemo(
     () =>
       branches.find(
@@ -2345,213 +2071,160 @@ export function RepoInfo() {
         : ([] as RepositoryCommitFile[]),
     [commitFilesByHash, selectedCommit]
   );
-  const selectedCommitFileByPath = useMemo(
-    () => new Map(selectedCommitFiles.map((file) => [file.path, file])),
-    [selectedCommitFiles]
-  );
-  const commitViewFiles = useMemo<RepositoryCommitFile[]>(() => {
-    if (!showAllCommitFiles) {
-      return selectedCommitFiles;
-    }
-
-    return allRepositoryFiles.map((file) => {
-      const matchingCommitFile = selectedCommitFileByPath.get(file.path);
-
-      if (matchingCommitFile) {
-        return matchingCommitFile;
-      }
-
-      return {
-        additions: 0,
-        deletions: 0,
-        path: file.path,
-        previousPath: null,
-        status: " ",
-      };
-    });
-  }, [
-    allRepositoryFiles,
-    selectedCommitFileByPath,
-    selectedCommitFiles,
-    showAllCommitFiles,
-  ]);
   const normalizedCommitFileFilter = debouncedCommitFileFilterInputValue
     .trim()
     .toLowerCase();
-  const filteredCommitFiles = useMemo(() => {
-    if (!showAllCommitFiles) {
-      return commitViewFiles;
-    }
-
-    return normalizedCommitFileFilter.length === 0
-      ? commitViewFiles
-      : commitViewFiles.filter((file) =>
-          file.path.toLowerCase().includes(normalizedCommitFileFilter)
-        );
-  }, [commitViewFiles, normalizedCommitFileFilter, showAllCommitFiles]);
-  const sortedCommitPathRows = useMemo(() => {
-    const nextFiles = [...filteredCommitFiles];
-
-    nextFiles.sort((left, right) => {
-      const comparison = left.path.localeCompare(right.path);
-
-      return commitFileSortOrder === "asc" ? comparison : comparison * -1;
-    });
-
-    return nextFiles;
-  }, [commitFileSortOrder, filteredCommitFiles]);
-  const selectedCommitTree = useMemo(
-    () => buildCommitFileTree(filteredCommitFiles, commitFileSortOrder),
-    [commitFileSortOrder, filteredCommitFiles]
+  const commitFilesModelInput = useMemo<BuildRepoInfoCommitFilesModelInput>(
+    () => ({
+      allRepositoryFiles,
+      normalizedCommitFileFilter,
+      selectedFiles: selectedCommitFiles,
+      showAllCommitFiles,
+      sortOrder: commitFileSortOrder,
+    }),
+    [
+      allRepositoryFiles,
+      normalizedCommitFileFilter,
+      selectedCommitFiles,
+      showAllCommitFiles,
+      commitFileSortOrder,
+    ]
   );
-  const selectedCommitFileSummary = useMemo(() => {
-    let addedCount = 0;
-    let modifiedCount = 0;
-    let removedCount = 0;
+  const commitFilesWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoCommitFilesModelInput,
+      ReturnType<typeof buildRepoInfoCommitFilesModel>
+    >
+  > | null>(null);
+  const [selectedCommitFilesModel, setSelectedCommitFilesModel] = useState<
+    ReturnType<typeof buildRepoInfoCommitFilesModel>
+  >(EMPTY_COMMIT_FILES_MODEL);
+  const {
+    filteredFiles: filteredCommitFiles,
+    sortedPathRows: sortedCommitPathRows,
+    summary: selectedCommitFileSummary,
+    tree: selectedCommitTree,
+  } = selectedCommitFilesModel;
+  const timelineRowsInput = useMemo<BuildRepoInfoTimelineRowsInput>(
+    () => ({
+      hasAnyWorkingTreeChanges,
+      hiddenSidebarGraphEntryKeys,
+      localHeadCommitHash: localHeadCommit?.hash ?? null,
+      stashes,
+      timelineCommits,
+      wipAuthorAvatarUrl,
+      wipAuthorName,
+    }),
+    [
+      hasAnyWorkingTreeChanges,
+      hiddenSidebarGraphEntryKeys,
+      localHeadCommit?.hash,
+      stashes,
+      timelineCommits,
+      wipAuthorAvatarUrl,
+      wipAuthorName,
+    ]
+  );
+  const timelineWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<BuildRepoInfoTimelineRowsInput, GitTimelineRow[]>
+  > | null>(null);
+  const [timelineRows, setTimelineRows] = useState<GitTimelineRow[]>([]);
 
-    for (const file of selectedCommitFiles) {
-      const status = file.status.charAt(0);
-
-      if (status === "A") {
-        addedCount += 1;
-        continue;
-      }
-
-      if (status === "D") {
-        removedCount += 1;
-        continue;
-      }
-
-      modifiedCount += 1;
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
     }
 
-    return {
-      addedCount,
-      modifiedCount,
-      removedCount,
-      totalCount: selectedCommitFiles.length,
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoTimelineRowsInput,
+        GitTimelineRow[]
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-timeline.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:timeline" }
+      );
+      timelineWorkerClientRef.current = client;
+
+      return () => {
+        timelineWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      timelineWorkerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const workerClient = timelineWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      timelineRowsInput,
+      buildRepoInfoTimelineRows
+    ).then(
+      (rows) => {
+        if (!cancelled) {
+          setTimelineRows(rows);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
     };
-  }, [selectedCommitFiles]);
-  const timelineReferenceRowsByCommitHash = useMemo(() => {
-    const rowsByCommitHash = new Map<string, TimelineReferenceRowData[]>();
-    const commitHashSet = new Set(timelineCommits.map((commit) => commit.hash));
-    const seenStashRefs = new Set<string>();
-    const seenTagNames = new Set<string>();
-
-    for (const stash of stashes) {
-      if (
-        seenStashRefs.has(stash.ref) ||
-        !commitHashSet.has(stash.anchorCommitHash)
-      ) {
-        continue;
-      }
-
-      seenStashRefs.add(stash.ref);
-      const existingRows = rowsByCommitHash.get(stash.anchorCommitHash) ?? [];
-      existingRows.push({
-        anchorCommitHash: stash.anchorCommitHash,
-        id: `stash:${stash.ref}`,
-        label: formatStashLabel(stash),
-        type: "stash",
-      });
-      rowsByCommitHash.set(stash.anchorCommitHash, existingRows);
-    }
-
-    for (const commit of timelineCommits) {
-      const tagNames = new Set<string>();
-
-      for (const rawReference of commit.refs) {
-        const tagName = resolveTagNameFromCommitRef(rawReference);
-
-        if (!tagName) {
-          continue;
-        }
-
-        tagNames.add(tagName);
-      }
-
-      for (const tagName of tagNames) {
-        if (seenTagNames.has(tagName)) {
-          continue;
-        }
-
-        seenTagNames.add(tagName);
-        const existingRows = rowsByCommitHash.get(commit.hash) ?? [];
-        existingRows.push({
-          anchorCommitHash: commit.hash,
-          id: `tag:${tagName}`,
-          label: tagName,
-          type: "tag",
-        });
-        rowsByCommitHash.set(commit.hash, existingRows);
-      }
-    }
-
-    return rowsByCommitHash;
-  }, [stashes, timelineCommits]);
-  const timelineRows = useMemo<GitTimelineRow[]>(() => {
-    const rows: GitTimelineRow[] = [];
-
-    if (hasAnyWorkingTreeChanges) {
-      rows.push({
-        anchorCommitHash: localHeadCommit?.hash,
-        author: wipAuthorName,
-        authorAvatarUrl: wipAuthorAvatarUrl,
-        id: WORKING_TREE_ROW_ID,
-        type: "wip",
-      });
-    }
-
-    for (const commit of timelineCommits) {
-      const referenceRows =
-        timelineReferenceRowsByCommitHash.get(commit.hash) ?? [];
-
-      for (const referenceRow of referenceRows) {
-        if (referenceRow.type === "stash") {
-          const stashRef = referenceRow.id.slice("stash:".length);
-
-          if (hiddenSidebarGraphEntryKeys[`stash:${stashRef}`]) {
-            continue;
-          }
-        }
-
-        if (
-          referenceRow.type === "tag" &&
-          referenceRow.label &&
-          hiddenSidebarGraphEntryKeys[`tag:${referenceRow.label}`]
-        ) {
-          continue;
-        }
-
-        rows.push({
-          anchorCommitHash: referenceRow.anchorCommitHash,
-          id: referenceRow.id,
-          label: referenceRow.label,
-          type: referenceRow.type,
-        });
-      }
-
-      rows.push({
-        commitHash: commit.hash,
-        id: commit.hash,
-        syncState: commit.syncState,
-        type: "commit",
-      });
-    }
-
-    return rows;
-  }, [
-    hasAnyWorkingTreeChanges,
-    localHeadCommit?.hash,
-    timelineReferenceRowsByCommitHash,
-    wipAuthorAvatarUrl,
-    wipAuthorName,
-    hiddenSidebarGraphEntryKeys,
-    timelineCommits,
-  ]);
+  }, [timelineRowsInput]);
   const timelineRowById = useMemo(
     () => new Map(timelineRows.map((row) => [row.id, row])),
     [timelineRows]
+  );
+  const timelineDisplayRows = useMemo(
+    () => timelineRows.filter((row) => row.type !== "wip"),
+    [timelineRows]
+  );
+  const timelineDisplayRowIndexById = useMemo(
+    () => new Map(timelineDisplayRows.map((row, index) => [row.id, index])),
+    [timelineDisplayRows]
+  );
+  const timelineVirtualizer = useVirtualizer({
+    count: timelineDisplayRows.length,
+    estimateSize: () => TIMELINE_ROW_HEIGHT,
+    getItemKey: (index) => timelineDisplayRows[index]?.id ?? index,
+    getScrollElement: () => mainScrollContainerRef.current,
+    overscan: 16,
+  });
+  const virtualTimelineRows = timelineVirtualizer.getVirtualItems();
+  const timelineVirtualRowsOffset = virtualTimelineRows[0]?.start ?? 0;
+  const visibleTimelineRows = useMemo(
+    () =>
+      virtualTimelineRows
+        .map((virtualRow) => timelineDisplayRows[virtualRow.index] ?? null)
+        .filter((row): row is GitTimelineRow => row !== null),
+    [timelineDisplayRows, virtualTimelineRows]
+  );
+  const visibleTimelineCommitHashes = useMemo(
+    () =>
+      new Set(
+        visibleTimelineRows
+          .map((row) => row.commitHash ?? row.anchorCommitHash ?? null)
+          .filter((hash): hash is string => hash !== null)
+      ),
+    [visibleTimelineRows]
+  );
+  const visibleTimelineCommits = useMemo(
+    () =>
+      timelineCommits.filter((commit) =>
+        visibleTimelineCommitHashes.has(commit.hash)
+      ),
+    [timelineCommits, visibleTimelineCommitHashes]
   );
   const selectedTimelineRow = useMemo(
     () =>
@@ -2622,110 +2295,180 @@ export function RepoInfo() {
         : ([] as RepositoryCommitFile[]),
     [commitFilesByHash, selectedReferenceRevision]
   );
-  const selectedReferenceFileByPath = useMemo(
-    () => new Map(selectedReferenceFiles.map((file) => [file.path, file])),
-    [selectedReferenceFiles]
+  const referenceFilesModelInput = useMemo<BuildRepoInfoCommitFilesModelInput>(
+    () => ({
+      allRepositoryFiles,
+      normalizedCommitFileFilter,
+      selectedFiles: selectedReferenceFiles,
+      showAllCommitFiles,
+      sortOrder: commitFileSortOrder,
+    }),
+    [
+      allRepositoryFiles,
+      normalizedCommitFileFilter,
+      selectedReferenceFiles,
+      showAllCommitFiles,
+      commitFileSortOrder,
+    ]
   );
-  const referenceViewFiles = useMemo<RepositoryCommitFile[]>(() => {
-    if (!showAllCommitFiles) {
-      return selectedReferenceFiles;
+  const [selectedReferenceFilesModel, setSelectedReferenceFilesModel] =
+    useState<ReturnType<typeof buildRepoInfoCommitFilesModel>>(
+      EMPTY_COMMIT_FILES_MODEL
+    );
+  const {
+    filteredFiles: filteredReferenceFiles,
+    sortedPathRows: sortedSelectedReferencePathRows,
+    summary: selectedReferenceFileSummary,
+    tree: selectedReferenceTree,
+  } = selectedReferenceFilesModel;
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
     }
 
-    return allRepositoryFiles.map((file) => {
-      const matchingReferenceFile = selectedReferenceFileByPath.get(file.path);
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoCommitFilesModelInput,
+        ReturnType<typeof buildRepoInfoCommitFilesModel>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-commit-files.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:commit-files" }
+      );
+      commitFilesWorkerClientRef.current = client;
 
-      if (matchingReferenceFile) {
-        return matchingReferenceFile;
-      }
-
-      return {
-        additions: 0,
-        deletions: 0,
-        path: file.path,
-        previousPath: null,
-        status: " ",
+      return () => {
+        commitFilesWorkerClientRef.current = null;
+        client.dispose();
       };
-    });
-  }, [
-    allRepositoryFiles,
-    selectedReferenceFileByPath,
-    selectedReferenceFiles,
-    showAllCommitFiles,
-  ]);
-  const filteredReferenceFiles = useMemo(() => {
-    if (!showAllCommitFiles) {
-      return referenceViewFiles;
+    } catch {
+      commitFilesWorkerClientRef.current = null;
+      return;
     }
+  }, []);
 
-    return normalizedCommitFileFilter.length === 0
-      ? referenceViewFiles
-      : referenceViewFiles.filter((file) =>
-          file.path.toLowerCase().includes(normalizedCommitFileFilter)
-        );
-  }, [normalizedCommitFileFilter, referenceViewFiles, showAllCommitFiles]);
-  const selectedReferenceFileSummary = useMemo(() => {
-    let addedCount = 0;
-    let modifiedCount = 0;
-    let removedCount = 0;
+  useEffect(() => {
+    const workerClient = commitFilesWorkerClientRef.current;
+    let cancelled = false;
 
-    for (const file of selectedReferenceFiles) {
-      const status = file.status.charAt(0);
+    runWorkerTask(
+      workerClient,
+      commitFilesModelInput,
+      buildRepoInfoCommitFilesModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setSelectedCommitFilesModel(result);
+        }
+      },
+      () => undefined
+    );
 
-      if (status === "A") {
-        addedCount += 1;
-        continue;
-      }
-
-      if (status === "D") {
-        removedCount += 1;
-        continue;
-      }
-
-      modifiedCount += 1;
-    }
-
-    return {
-      addedCount,
-      modifiedCount,
-      removedCount,
-      totalCount: selectedReferenceFiles.length,
+    return () => {
+      cancelled = true;
     };
-  }, [selectedReferenceFiles]);
-  const sortedSelectedReferencePathRows = useMemo(() => {
-    const nextFiles = [...filteredReferenceFiles];
+  }, [commitFilesModelInput]);
 
-    nextFiles.sort((left, right) => {
-      const comparison = left.path.localeCompare(right.path);
+  useEffect(() => {
+    const workerClient = commitFilesWorkerClientRef.current;
+    let cancelled = false;
 
-      return commitFileSortOrder === "asc" ? comparison : comparison * -1;
-    });
+    runWorkerTask(
+      workerClient,
+      referenceFilesModelInput,
+      buildRepoInfoCommitFilesModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setSelectedReferenceFilesModel(result);
+        }
+      },
+      () => undefined
+    );
 
-    return nextFiles;
-  }, [commitFileSortOrder, filteredReferenceFiles]);
-  const selectedReferenceTree = useMemo(
-    () => buildCommitFileTree(filteredReferenceFiles, commitFileSortOrder),
-    [commitFileSortOrder, filteredReferenceFiles]
+    return () => {
+      cancelled = true;
+    };
+  }, [referenceFilesModelInput]);
+  const referenceModelInput = useMemo<BuildRepoInfoReferenceModelInput>(
+    () => ({
+      branches,
+      currentBranch,
+      stashes,
+      timelineCommits,
+      timelineRows,
+    }),
+    [branches, currentBranch, stashes, timelineCommits, timelineRows]
   );
-  const timelineRowIdByStashRef = useMemo(() => {
-    const rowIds = new Map<string, string>();
+  const referenceWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoReferenceModelInput,
+      ReturnType<typeof buildRepoInfoReferenceModel>
+    >
+  > | null>(null);
+  const [referenceModel, setReferenceModel] = useState<
+    ReturnType<typeof buildRepoInfoReferenceModel>
+  >(EMPTY_REFERENCE_MODEL);
 
-    for (const stash of stashes) {
-      rowIds.set(stash.ref, `stash:${stash.ref}`);
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
     }
 
-    return rowIds;
-  }, [stashes]);
-  const timelineRowIdByTagName = useMemo(() => {
-    const rowIds = new Map<string, string>();
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoReferenceModelInput,
+        ReturnType<typeof buildRepoInfoReferenceModel>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-reference.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:reference" }
+      );
+      referenceWorkerClientRef.current = client;
 
-    for (const row of timelineRows) {
-      if (row.type === "tag" && row.label) {
-        rowIds.set(row.label, row.id);
-      }
+      return () => {
+        referenceWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      referenceWorkerClientRef.current = null;
+      return;
     }
+  }, []);
 
-    return rowIds;
-  }, [timelineRows]);
+  useEffect(() => {
+    const workerClient = referenceWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      referenceModelInput,
+      buildRepoInfoReferenceModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setReferenceModel(result);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [referenceModelInput]);
+
   const commitByHash = useMemo(
     () => new Map(timelineCommits.map((commit) => [commit.hash, commit])),
     [timelineCommits]
@@ -2745,9 +2488,9 @@ export function RepoInfo() {
   const resolvedTimelineGraphColumnWidth = useMemo(
     () =>
       timelineVisibleColumns.includes("graph")
-        ? resolveGitGraphColumnWidth(timelineCommits)
+        ? resolveGitGraphColumnWidth(visibleHistoryGraph)
         : 0,
-    [timelineCommits, timelineVisibleColumns]
+    [timelineVisibleColumns, visibleHistoryGraph]
   );
   let timelineGraphTargetWidth = resolvedTimelineGraphColumnWidth;
 
@@ -2841,139 +2584,250 @@ export function RepoInfo() {
 
     return avatarByHash;
   }, [timelineCommits]);
-  const sidebarGroups = useMemo<SidebarGroupItem[]>(() => {
-    const localEntries: SidebarEntry[] = [];
-    const remoteEntries: SidebarEntry[] = [];
-    const stashEntries: SidebarEntry[] = stashes.map((stash) => {
-      const label = formatStashLabel(stash);
-
-      return {
-        name: label,
-        searchName: label.toLowerCase(),
-        stashMessage: stash.message,
-        stashRef: stash.ref,
-        type: "stash",
-      };
-    });
-    const tagEntries: SidebarEntry[] = [];
-
-    for (const branch of branches) {
-      if (branch.refType === "tag") {
-        tagEntries.push({
-          active: branch.isCurrent,
-          name: branch.name,
-          searchName: branch.name.toLowerCase(),
-          type: "tag",
-        });
-        continue;
-      }
-
-      const branchEntry: SidebarEntry = {
-        active: branch.isCurrent,
-        isRemote: branch.isRemote,
-        name: branch.name,
-        pendingPushCount:
-          (branch.aheadCount ?? 0) > 0 ? branch.aheadCount : undefined,
-        pendingSyncCount:
-          (branch.behindCount ?? 0) > 0 ? branch.behindCount : undefined,
-        searchName: branch.name.toLowerCase(),
-        type: "branch",
-      };
-
-      if (branch.isRemote) {
-        remoteEntries.push(branchEntry);
-        continue;
-      }
-
-      localEntries.push(branchEntry);
-    }
-
-    return [
-      {
-        count: localEntries.length,
-        entries: localEntries,
-        key: "local",
-        name: "LOCAL",
-        treeNodes: buildBranchTree(localEntries),
-      },
-      {
-        count: remoteEntries.length,
-        entries: remoteEntries,
-        key: "remote",
-        name: "REMOTE",
-        treeNodes: buildBranchTree(remoteEntries),
-      },
-      {
-        count: stashEntries.length,
-        entries: stashEntries,
-        key: "stashes",
-        name: "STASHES",
-      },
-      {
-        count: tagEntries.length,
-        entries: tagEntries,
-        key: "tags",
-        name: "TAGS",
-      },
-    ];
-  }, [branches, stashes]);
   const normalizedSidebarFilter = deferredSidebarFilterQuery
     .trim()
     .toLowerCase();
-  const filteredSidebarGroups = useMemo<SidebarGroupItem[]>(() => {
-    if (normalizedSidebarFilter.length === 0) {
-      return sidebarGroups;
-    }
-
-    return sidebarGroups.map((group) => {
-      const entries = group.entries.filter((entry) =>
-        entry.searchName.includes(normalizedSidebarFilter)
-      );
-      const filteredTree = group.treeNodes
-        ? filterBranchTree(group.treeNodes, normalizedSidebarFilter)
-        : null;
-
-      return {
-        ...group,
-        count: filteredTree ? filteredTree.count : entries.length,
-        entries,
-        treeNodes: filteredTree?.nodes,
-      };
-    });
-  }, [normalizedSidebarFilter, sidebarGroups]);
-  const filteredSidebarEntryCount = useMemo(
-    () =>
-      filteredSidebarGroups.reduce((total, group) => total + group.count, 0),
-    [filteredSidebarGroups]
+  const sidebarGroupsInput = useMemo<BuildRepoInfoSidebarGroupsInput>(
+    () => ({
+      branches,
+      normalizedSidebarFilter,
+      stashes,
+    }),
+    [branches, normalizedSidebarFilter, stashes]
   );
-  const graphEntryTypeByReferenceName = useMemo(() => {
-    const entryTypeByReferenceName = new Map<string, "branch" | "tag">();
+  const sidebarWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoSidebarGroupsInput,
+      ReturnType<typeof buildRepoInfoSidebarGroups>
+    >
+  > | null>(null);
+  const [sidebarResults, setSidebarResults] = useState<
+    ReturnType<typeof buildRepoInfoSidebarGroups>
+  >(EMPTY_SIDEBAR_RESULTS);
 
-    for (const branch of branches) {
-      if (branch.refType !== "branch" && branch.refType !== "tag") {
-        continue;
-      }
-
-      entryTypeByReferenceName.set(
-        branch.name,
-        branch.refType === "tag" ? "tag" : "branch"
-      );
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
     }
 
-    return entryTypeByReferenceName;
-  }, [branches]);
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoSidebarGroupsInput,
+        ReturnType<typeof buildRepoInfoSidebarGroups>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-sidebar.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:sidebar" }
+      );
+      sidebarWorkerClientRef.current = client;
+
+      return () => {
+        sidebarWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      sidebarWorkerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const workerClient = sidebarWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      sidebarGroupsInput,
+      buildRepoInfoSidebarGroups
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setSidebarResults(result);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sidebarGroupsInput]);
+
+  const { filteredSidebarEntryCount, filteredSidebarGroups } = sidebarResults;
+  const visibleCountsModelInput = useMemo<BuildRepoInfoVisibleCountsModelInput>(
+    () => ({
+      allFilesTree,
+      changesViewMode,
+      collapsedBranchFolderKeys,
+      commitDetailsViewMode,
+      expandedCommitTreeNodePaths,
+      expandedTreeNodePaths,
+      filteredSidebarGroups,
+      selectedCommitHash: selectedCommit?.hash ?? null,
+      selectedCommitTree,
+      selectedReferenceRevision,
+      selectedReferenceTree,
+      sortedCommitPathRowsLength: sortedCommitPathRows.length,
+      sortedSelectedReferencePathRowsLength:
+        sortedSelectedReferencePathRows.length,
+      stagedItemsLength: stagedItems.length,
+      stagedTree,
+      unstagedItemsLength: unstagedItems.length,
+      unstagedTree,
+    }),
+    [
+      allFilesTree,
+      changesViewMode,
+      collapsedBranchFolderKeys,
+      commitDetailsViewMode,
+      expandedCommitTreeNodePaths,
+      expandedTreeNodePaths,
+      filteredSidebarGroups,
+      selectedCommit?.hash,
+      selectedCommitTree,
+      selectedReferenceRevision,
+      selectedReferenceTree,
+      sortedCommitPathRows.length,
+      sortedSelectedReferencePathRows.length,
+      stagedItems.length,
+      stagedTree,
+      unstagedItems.length,
+      unstagedTree,
+    ]
+  );
+  const visibleCountsWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoVisibleCountsModelInput,
+      ReturnType<typeof buildRepoInfoVisibleCountsModel>
+    >
+  > | null>(null);
+  const [visibleCountsModel, setVisibleCountsModel] = useState<
+    ReturnType<typeof buildRepoInfoVisibleCountsModel>
+  >(EMPTY_VISIBLE_COUNTS_MODEL);
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
+    }
+
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoVisibleCountsModelInput,
+        ReturnType<typeof buildRepoInfoVisibleCountsModel>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-visible-counts.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:visible-counts" }
+      );
+      visibleCountsWorkerClientRef.current = client;
+
+      return () => {
+        visibleCountsWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      visibleCountsWorkerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const workerClient = visibleCountsWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      visibleCountsModelInput,
+      buildRepoInfoVisibleCountsModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          setVisibleCountsModel(result);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleCountsModelInput]);
+
+  const {
+    allFilesVisibleNodeCount,
+    selectedCommitVisibleNodeCount,
+    selectedReferenceVisibleNodeCount,
+    sidebarVisibleNodeCount,
+    stagedVisibleNodeCount,
+    unstagedVisibleNodeCount,
+  } = visibleCountsModel;
+  const sidebarRenderLimit = useProgressiveRenderLimit(
+    sidebarVisibleNodeCount,
+    [activeRepoId, normalizedSidebarFilter, collapsedBranchFolderKeys],
+    { chunkSize: 240, initialCount: 240 }
+  );
+  const allFilesRenderLimit = useProgressiveRenderLimit(
+    allFilesVisibleNodeCount,
+    [activeRepoId, normalizedRepositoryFileFilter, fileTreeSortOrder],
+    { chunkSize: 240, initialCount: 240 }
+  );
+  const unstagedRenderLimit = useProgressiveRenderLimit(
+    unstagedVisibleNodeCount,
+    [activeRepoId, changesViewMode, fileTreeSortOrder, expandedTreeNodePaths],
+    { chunkSize: 200, initialCount: 200 }
+  );
+  const stagedRenderLimit = useProgressiveRenderLimit(
+    stagedVisibleNodeCount,
+    [activeRepoId, changesViewMode, fileTreeSortOrder, expandedTreeNodePaths],
+    { chunkSize: 200, initialCount: 200 }
+  );
+  const selectedCommitRenderLimit = useProgressiveRenderLimit(
+    selectedCommitVisibleNodeCount,
+    [
+      activeRepoId,
+      selectedCommit?.hash ?? "",
+      commitDetailsViewMode,
+      expandedCommitTreeNodePaths,
+    ],
+    { chunkSize: 220, initialCount: 220 }
+  );
+  const selectedReferenceRenderLimit = useProgressiveRenderLimit(
+    selectedReferenceVisibleNodeCount,
+    [
+      activeRepoId,
+      selectedReferenceRevision ?? "",
+      commitDetailsViewMode,
+      expandedCommitTreeNodePaths,
+    ],
+    { chunkSize: 220, initialCount: 220 }
+  );
   const isReferenceHiddenInGraph = useCallback(
     (referenceName: string): boolean => {
       if (referenceName === currentBranch) {
         return false;
       }
 
-      const entryType = graphEntryTypeByReferenceName.get(referenceName);
+      const entryType =
+        referenceModel.graphEntryTypeByReferenceName[referenceName];
       const visibilityKey = `${entryType ?? "branch"}:${referenceName}`;
 
       return hiddenSidebarGraphEntryKeys[visibilityKey] === true;
     },
-    [currentBranch, graphEntryTypeByReferenceName, hiddenSidebarGraphEntryKeys]
+    [
+      currentBranch,
+      hiddenSidebarGraphEntryKeys,
+      referenceModel.graphEntryTypeByReferenceName,
+    ]
   );
 
   useEffect(() => {
@@ -4812,12 +4666,25 @@ export function RepoInfo() {
       </>
     );
   };
+  const renderProgressiveLoadingMessage = (label: string) => (
+    <p className="px-2 py-1 text-muted-foreground text-xs">
+      Loading more {label}...
+    </p>
+  );
   const renderSidebarBranchTreeNodes = (
     groupKey: string,
     nodes: BranchTreeNode[],
-    depth = 0
+    depth = 0,
+    budget: RenderBudget = createRenderBudget(Number.POSITIVE_INFINITY)
   ): ReactNode => {
-    return nodes.map((node) => {
+    const renderedNodes: ReactNode[] = [];
+
+    for (const node of nodes) {
+      if (budget.remaining <= 0) {
+        break;
+      }
+
+      budget.remaining -= 1;
       const hasChildren = node.children.length > 0;
 
       if (node.entry) {
@@ -4833,7 +4700,7 @@ export function RepoInfo() {
         const remoteGroupItemInsetRem =
           groupKey === "remote" ? SIDEBAR_TREE_DEPTH_PADDING_REM : 0;
 
-        return (
+        renderedNodes.push(
           <SidebarMenuItem key={entryMenuKey}>
             <ContextMenu
               onOpenChange={(open) => {
@@ -4921,6 +4788,8 @@ export function RepoInfo() {
             </ContextMenu>
           </SidebarMenuItem>
         );
+
+        continue;
       }
 
       const folderStateKey = `${groupKey}:${node.fullPath}`;
@@ -4930,7 +4799,7 @@ export function RepoInfo() {
       const remoteGroupItemInsetRem =
         groupKey === "remote" && depth > 0 ? SIDEBAR_TREE_DEPTH_PADDING_REM : 0;
 
-      return (
+      renderedNodes.push(
         <div key={folderStateKey}>
           <button
             className="focus-visible:desktop-focus flex w-full items-center gap-1.5 px-1 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
@@ -4969,12 +4838,129 @@ export function RepoInfo() {
           </button>
           {hasChildren && !isCollapsed ? (
             <div>
-              {renderSidebarBranchTreeNodes(groupKey, node.children, depth + 1)}
+              {renderSidebarBranchTreeNodes(
+                groupKey,
+                node.children,
+                depth + 1,
+                budget
+              )}
             </div>
           ) : null}
         </div>
       );
-    });
+
+      if (budget.remaining <= 0) {
+        break;
+      }
+    }
+
+    return renderedNodes;
+  };
+  const renderSidebarFlatEntries = (
+    groupKey: string,
+    entries: SidebarEntry[],
+    budget: RenderBudget
+  ): ReactNode => {
+    const renderedEntries: ReactNode[] = [];
+
+    for (const entry of entries) {
+      if (budget.remaining <= 0) {
+        break;
+      }
+
+      budget.remaining -= 1;
+      const entryMenuKey = `${groupKey}-${entry.stashRef ?? entry.name}`;
+      const entryActionsLabel = resolveSidebarEntryActionsLabel(entry);
+      const isEntryMenuOpen =
+        openEntryContextMenuKey === entryMenuKey ||
+        openEntryDropdownMenuKey === entryMenuKey;
+      const isEntryContextMenuOpen = openEntryContextMenuKey === entryMenuKey;
+      const isEntryDropdownMenuOpen = openEntryDropdownMenuKey === entryMenuKey;
+
+      renderedEntries.push(
+        <SidebarMenuItem key={entryMenuKey}>
+          <ContextMenu
+            onOpenChange={(open) => {
+              handleEntryContextMenuOpenChange(entryMenuKey, open);
+            }}
+            open={isEntryContextMenuOpen}
+          >
+            <ContextMenuTrigger>
+              <SidebarMenuButton
+                aria-label={entry.name}
+                className={cn(
+                  "group gap-1.5 rounded-none py-1 text-xs",
+                  isSidebarEntrySelected(entry) || isEntryMenuOpen
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                )}
+                disabled={isSwitchingBranch}
+                onClick={() => {
+                  handleSidebarEntryClick(entry);
+                }}
+                onDoubleClick={() => {
+                  handleSidebarEntryDoubleClick(entry);
+                }}
+              >
+                {renderSidebarEntryLeadIndicator(groupKey, entry)}
+                {renderEntryIcon(entry)}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<span className="min-w-0 flex-1 truncate" />}
+                  >
+                    {renderHighlightedEntryName(entry.name)}
+                  </TooltipTrigger>
+                  <TooltipContent align="start" side="right" sideOffset={6}>
+                    {entry.name}
+                  </TooltipContent>
+                </Tooltip>
+                {renderSidebarBranchCounts(entry)}
+                <DropdownMenu
+                  onOpenChange={(open) => {
+                    handleEntryDropdownMenuOpenChange(entryMenuKey, open);
+                  }}
+                  open={isEntryDropdownMenuOpen}
+                >
+                  <DropdownMenuTrigger
+                    render={
+                      <button
+                        aria-label={`More options for ${entry.name}`}
+                        className={cn(
+                          "ml-0.5 inline-flex size-4 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
+                          isEntryMenuOpen && "opacity-100",
+                          entry.active && "hover:bg-accent-foreground/10"
+                        )}
+                        onClick={(event) => event.stopPropagation()}
+                        type="button"
+                      />
+                    }
+                  >
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<span className="inline-flex items-center" />}
+                      >
+                        <DotsThreeVerticalIcon className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipContent align="start" side="right" sideOffset={6}>
+                        {entryActionsLabel}
+                      </TooltipContent>
+                    </Tooltip>
+                  </DropdownMenuTrigger>
+                  {isEntryDropdownMenuOpen
+                    ? renderEntryDropdownMenuContent(entry)
+                    : null}
+                </DropdownMenu>
+              </SidebarMenuButton>
+            </ContextMenuTrigger>
+            {isEntryContextMenuOpen
+              ? renderEntryContextMenuContent(entry)
+              : null}
+          </ContextMenu>
+        </SidebarMenuItem>
+      );
+    }
+
+    return renderedEntries;
   };
 
   const handleCheckoutBranch = async (entry: SidebarEntry) => {
@@ -5891,79 +5877,81 @@ export function RepoInfo() {
 
   const getCommitHashForEntry = useCallback(
     (entry: SidebarEntry): string | null => {
+      let entryKey: string | null = `${entry.type}:${entry.name}`;
+
       if (entry.type === "stash") {
-        const matchingStash = stashes.find(
-          (stash) => stash.ref === entry.stashRef
-        );
-        return matchingStash?.anchorCommitHash ?? null;
+        entryKey = entry.stashRef ? `stash:${entry.stashRef}` : null;
       }
 
-      if (!(entry.type === "branch" || entry.type === "tag")) {
-        return null;
-      }
-
-      for (const commit of timelineCommits) {
-        for (const rawReference of commit.refs) {
-          const normalizedReference = normalizeCommitRefLabel(rawReference);
-
-          if (normalizedReference === entry.name) {
-            return commit.hash;
-          }
-        }
-      }
-
-      return null;
+      return entryKey
+        ? (referenceModel.commitHashByEntryKey[entryKey] ?? null)
+        : null;
     },
-    [stashes, timelineCommits]
+    [referenceModel.commitHashByEntryKey]
   );
 
   const getTimelineRowIdForEntry = useCallback(
     (entry: SidebarEntry): string | null => {
+      let entryKey: string | null = `${entry.type}:${entry.name}`;
+
       if (entry.type === "stash") {
-        return entry.stashRef
-          ? (timelineRowIdByStashRef.get(entry.stashRef) ?? null)
-          : null;
+        entryKey = entry.stashRef ? `stash:${entry.stashRef}` : null;
       }
 
-      if (entry.type === "tag") {
-        return timelineRowIdByTagName.get(entry.name) ?? null;
+      if (!entryKey) {
+        return null;
       }
 
-      if (entry.type === "branch") {
-        return getCommitHashForEntry(entry);
-      }
-
-      return null;
+      return (
+        referenceModel.timelineRowIdByEntryKey[entryKey] ??
+        (entry.type === "branch" ? getCommitHashForEntry(entry) : null)
+      );
     },
-    [getCommitHashForEntry, timelineRowIdByStashRef, timelineRowIdByTagName]
+    [getCommitHashForEntry, referenceModel.timelineRowIdByEntryKey]
   );
 
-  const scrollTimelineRowIntoView = useCallback((rowId: string) => {
-    globalThis.requestAnimationFrame(() => {
-      const rowElement = timelineRowElementsRef.current.get(rowId);
-      const scroller = mainScrollContainerRef.current;
+  const scrollTimelineRowIntoView = useCallback(
+    (rowId: string) => {
+      globalThis.requestAnimationFrame(() => {
+        const rowElement = timelineRowElementsRef.current.get(rowId);
+        const scroller = mainScrollContainerRef.current;
 
-      if (!(rowElement && scroller)) {
-        return;
-      }
+        if (!scroller) {
+          return;
+        }
 
-      const rowTop = rowElement.offsetTop;
-      const rowBottom = rowTop + rowElement.offsetHeight;
-      const visibleTop = scroller.scrollTop;
-      const visibleBottom = visibleTop + scroller.clientHeight;
+        if (!rowElement) {
+          const displayRowIndex = timelineDisplayRowIndexById.get(rowId);
 
-      if (rowTop >= visibleTop && rowBottom <= visibleBottom) {
-        return;
-      }
+          if (typeof displayRowIndex !== "number") {
+            return;
+          }
 
-      const targetScrollTop =
-        rowTop - (scroller.clientHeight - rowElement.offsetHeight) / 2;
+          timelineVirtualizer.scrollToIndex(displayRowIndex, {
+            align: "center",
+          });
+          return;
+        }
 
-      scroller.scrollTo({
-        top: Math.max(0, targetScrollTop),
+        const rowTop = rowElement.offsetTop;
+        const rowBottom = rowTop + rowElement.offsetHeight;
+        const visibleTop = scroller.scrollTop;
+        const visibleBottom = visibleTop + scroller.clientHeight;
+
+        if (rowTop >= visibleTop && rowBottom <= visibleBottom) {
+          return;
+        }
+
+        const targetScrollTop =
+          rowTop - (scroller.clientHeight - rowElement.offsetHeight) / 2;
+
+        scroller.scrollTo({
+          top: Math.max(0, targetScrollTop),
+        });
       });
-    });
-  }, []);
+    },
+    [timelineDisplayRowIndexById, timelineVirtualizer]
+  );
 
   const setTimelineRowElement = useCallback(
     (rowId: string, element: HTMLButtonElement | null) => {
@@ -5991,36 +5979,9 @@ export function RepoInfo() {
 
   const getSidebarEntryForTimelineRow = useCallback(
     (row: GitTimelineRow): SidebarEntry | null => {
-      if (row.type === "stash") {
-        const stashRef = row.id.slice("stash:".length);
-        const stash = stashes.find((item) => item.ref === stashRef);
-
-        if (!stash) {
-          return null;
-        }
-
-        const label = formatStashLabel(stash);
-        return {
-          name: label,
-          searchName: label.toLowerCase(),
-          stashMessage: stash.message,
-          stashRef: stash.ref,
-          type: "stash",
-        };
-      }
-
-      if (row.type === "tag" && row.label) {
-        return {
-          active: false,
-          name: row.label,
-          searchName: row.label.toLowerCase(),
-          type: "tag",
-        };
-      }
-
-      return null;
+      return referenceModel.sidebarEntryByTimelineRowId[row.id] ?? null;
     },
-    [stashes]
+    [referenceModel.sidebarEntryByTimelineRowId]
   );
 
   const renderEntryDropdownMenuContent = (entry: SidebarEntry) => {
@@ -6867,53 +6828,6 @@ export function RepoInfo() {
     );
   };
 
-  const createSidebarEntryFromRefName = (
-    referenceName: string
-  ): SidebarEntry => {
-    const matchingBranch = branches.find(
-      (branch) => branch.name === referenceName
-    );
-
-    if (matchingBranch) {
-      return {
-        active: matchingBranch.isCurrent,
-        isRemote: matchingBranch.isRemote,
-        name: matchingBranch.name,
-        searchName: matchingBranch.name.toLowerCase(),
-        type: matchingBranch.refType === "tag" ? "tag" : "branch",
-      };
-    }
-
-    return {
-      active: referenceName === currentBranch,
-      isRemote: referenceName.includes("/"),
-      name: referenceName,
-      searchName: referenceName.toLowerCase(),
-      type: "branch",
-    };
-  };
-
-  const getCommitRefEntries = (commit: RepositoryCommit): SidebarEntry[] => {
-    const uniqueEntries = new Map<string, SidebarEntry>();
-
-    for (const rawReference of commit.refs) {
-      const normalizedReference = normalizeCommitRefLabel(rawReference);
-
-      if (!normalizedReference) {
-        continue;
-      }
-
-      const entry = createSidebarEntryFromRefName(normalizedReference);
-      const key = `${entry.type}:${entry.name}`;
-
-      if (!uniqueEntries.has(key)) {
-        uniqueEntries.set(key, entry);
-      }
-    }
-
-    return Array.from(uniqueEntries.values());
-  };
-
   const renderCommitResetSubmenu = (
     target: string,
     targetLabel: string,
@@ -6954,7 +6868,8 @@ export function RepoInfo() {
   );
 
   const renderCommitRowContextMenuContent = (commit: RepositoryCommit) => {
-    const commitRefEntries = getCommitRefEntries(commit);
+    const commitRefEntries =
+      referenceModel.commitRefEntriesByCommitHash[commit.hash] ?? [];
     const mergeTargetEntry =
       commitRefEntries.find(
         (entry) =>
@@ -7187,25 +7102,7 @@ export function RepoInfo() {
     nodes: ChangeTreeNode[],
     section: ChangeTreeSection
   ): Record<string, boolean> => {
-    const nextState: Record<string, boolean> = {};
-
-    const visitNode = (node: ChangeTreeNode) => {
-      if (node.children.size === 0) {
-        return;
-      }
-
-      nextState[getTreeNodeStateKey(section, node.fullPath)] = true;
-
-      for (const childNode of node.children.values()) {
-        visitNode(childNode);
-      }
-    };
-
-    for (const node of nodes) {
-      visitNode(node);
-    }
-
-    return nextState;
+    return collectExpandableTreeKeysModel(nodes, section, getTreeNodeStateKey);
   };
 
   const getStatusCodes = (
@@ -7272,64 +7169,11 @@ export function RepoInfo() {
     node: ChangeTreeNode,
     section: "staged" | "unstaged"
   ) => {
-    const counts = new Map<string, number>();
-
-    const visitNode = (current: ChangeTreeNode) => {
-      if (current.item) {
-        const statusCodes = getStatusCodes(current.item, section);
-
-        for (const code of statusCodes) {
-          counts.set(code, (counts.get(code) ?? 0) + 1);
-        }
-
-        return;
-      }
-
-      for (const child of current.children.values()) {
-        visitNode(child);
-      }
-    };
-
-    visitNode(node);
-
-    return counts;
+    return collectTreeStatusCountsModel(node, section);
   };
 
   const collectCommitTreeChangeSummary = (node: CommitFileTreeNode) => {
-    let addedCount = 0;
-    let modifiedCount = 0;
-    let removedCount = 0;
-
-    const visitNode = (current: CommitFileTreeNode) => {
-      if (current.file) {
-        const statusCode = current.file.status.charAt(0);
-
-        if (statusCode === "A") {
-          addedCount += 1;
-          return;
-        }
-
-        if (statusCode === "D") {
-          removedCount += 1;
-          return;
-        }
-
-        modifiedCount += 1;
-        return;
-      }
-
-      for (const child of current.children.values()) {
-        visitNode(child);
-      }
-    };
-
-    visitNode(node);
-
-    return {
-      addedCount,
-      modifiedCount,
-      removedCount,
-    };
+    return collectCommitTreeChangeSummaryModel(node);
   };
 
   const handleUnstageAll = async () => {
@@ -8606,23 +8450,11 @@ export function RepoInfo() {
     nodes: CommitFileTreeNode[],
     commitHash: string
   ): Record<string, boolean> => {
-    const nextState: Record<string, boolean> = {};
-    const stack = [...nodes];
-
-    while (stack.length > 0) {
-      const currentNode = stack.pop();
-
-      if (!currentNode || currentNode.children.size === 0) {
-        continue;
-      }
-
-      nextState[getCommitTreeNodeStateKey(commitHash, currentNode.fullPath)] =
-        true;
-
-      stack.push(...Array.from(currentNode.children.values()));
-    }
-
-    return nextState;
+    return collectExpandableCommitTreeKeysModel(
+      nodes,
+      commitHash,
+      getCommitTreeNodeStateKey
+    );
   };
   const collapseCommitTree = (commitHash: string) => {
     setExpandedCommitTreeNodePaths((current) => {
@@ -8666,9 +8498,17 @@ export function RepoInfo() {
   const renderCommitTreeNodes = (
     nodes: CommitFileTreeNode[],
     commitHash: string,
-    depth = 0
+    depth = 0,
+    budget: RenderBudget = createRenderBudget(Number.POSITIVE_INFINITY)
   ): ReactNode => {
-    return nodes.map((node) => {
+    const renderedNodes: ReactNode[] = [];
+
+    for (const node of nodes) {
+      if (budget.remaining <= 0) {
+        break;
+      }
+
+      budget.remaining -= 1;
       const nodeStateKey = getCommitTreeNodeStateKey(commitHash, node.fullPath);
       const isExpanded = expandedCommitTreeNodePaths[nodeStateKey] ?? depth < 1;
       const hasChildren = node.children.size > 0;
@@ -8692,7 +8532,7 @@ export function RepoInfo() {
           diffRowStateClassName = "hover:bg-accent/20";
         }
 
-        return (
+        renderedNodes.push(
           <button
             className={cn(
               "focus-visible:desktop-focus flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
@@ -8736,9 +8576,11 @@ export function RepoInfo() {
             )}
           </button>
         );
+
+        continue;
       }
 
-      return (
+      renderedNodes.push(
         <div key={`${commitHash}-${node.fullPath}`}>
           <button
             className="focus-visible:desktop-focus flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-muted-foreground text-xs hover:bg-accent/20 hover:text-foreground"
@@ -8777,18 +8619,33 @@ export function RepoInfo() {
             ? renderCommitTreeNodes(
                 Array.from(node.children.values()),
                 commitHash,
-                depth + 1
+                depth + 1,
+                budget
               )
             : null}
         </div>
       );
-    });
+
+      if (budget.remaining <= 0) {
+        break;
+      }
+    }
+
+    return renderedNodes;
   };
   const renderCommitPathRows = (
     files: RepositoryCommitFile[],
-    commitHash: string
+    commitHash: string,
+    budget: RenderBudget = createRenderBudget(Number.POSITIVE_INFINITY)
   ): ReactNode => {
-    return files.map((file) => {
+    const renderedRows: ReactNode[] = [];
+
+    for (const file of files) {
+      if (budget.remaining <= 0) {
+        break;
+      }
+
+      budget.remaining -= 1;
       const loadingKey = `${commitHash}:${file.path}`;
       const canOpenDiff = showAllCommitFiles || file.status.trim().length > 0;
       let diffRowStateClassName = "";
@@ -8802,7 +8659,7 @@ export function RepoInfo() {
         diffRowStateClassName = "hover:bg-accent/20";
       }
 
-      return (
+      renderedRows.push(
         <button
           className={cn(
             "focus-visible:desktop-focus flex w-full items-center gap-1.5 px-2 py-0.5 text-left text-xs transition-colors",
@@ -8842,7 +8699,9 @@ export function RepoInfo() {
           )}
         </button>
       );
-    });
+    }
+
+    return renderedRows;
   };
 
   useEffect(() => {
@@ -9051,9 +8910,17 @@ export function RepoInfo() {
   const renderChangeTreeNodes = (
     nodes: ChangeTreeNode[],
     section: ChangeTreeSection,
-    depth = 0
+    depth = 0,
+    budget: RenderBudget = createRenderBudget(Number.POSITIVE_INFINITY)
   ): ReactNode => {
-    return nodes.map((node) => {
+    const renderedNodes: ReactNode[] = [];
+
+    for (const node of nodes) {
+      if (budget.remaining <= 0) {
+        break;
+      }
+
+      budget.remaining -= 1;
       const hasChildren = node.children.size > 0;
       const nodeStateKey = getTreeNodeStateKey(section, node.fullPath);
       const isExpanded = expandedTreeNodePaths[nodeStateKey] ?? depth < 1;
@@ -9074,7 +8941,7 @@ export function RepoInfo() {
         const isDiffOpened = openedDiffPath === item.path;
         const canToggleStage = section !== "all";
 
-        return (
+        renderedNodes.push(
           <ContextMenu key={`${section}-${node.fullPath}`}>
             <ContextMenuTrigger>
               <div
@@ -9132,9 +8999,11 @@ export function RepoInfo() {
               : renderChangeContextMenuContent(item.path, section)}
           </ContextMenu>
         );
+
+        continue;
       }
 
-      return (
+      renderedNodes.push(
         <div key={`${section}-${node.fullPath}`}>
           <ContextMenu>
             <ContextMenuTrigger>
@@ -9206,27 +9075,42 @@ export function RepoInfo() {
               {renderChangeTreeNodes(
                 Array.from(node.children.values()),
                 section,
-                depth + 1
+                depth + 1,
+                budget
               )}
             </div>
           ) : null}
         </div>
       );
-    });
+
+      if (budget.remaining <= 0) {
+        break;
+      }
+    }
+
+    return renderedNodes;
   };
 
   const renderFlatChangeRows = (
     items: RepositoryWorkingTreeItem[],
-    section: "staged" | "unstaged"
+    section: "staged" | "unstaged",
+    budget: RenderBudget = createRenderBudget(Number.POSITIVE_INFINITY)
   ) => {
-    return items.map((item) => {
+    const renderedRows: ReactNode[] = [];
+
+    for (const item of items) {
+      if (budget.remaining <= 0) {
+        break;
+      }
+
+      budget.remaining -= 1;
       const isBusy = isUpdatingFilePath === item.path;
       const nextAction = section === "unstaged" ? "stage" : "unstage";
       const nextLabel = section === "unstaged" ? "Stage" : "Unstage";
       const isLoadingDiff = isLoadingDiffPath === item.path;
       const isDiffOpened = openedDiffPath === item.path;
 
-      return (
+      renderedRows.push(
         <ContextMenu key={`${section}-${item.path}`}>
           <ContextMenuTrigger>
             <div
@@ -9277,7 +9161,9 @@ export function RepoInfo() {
           {renderChangeContextMenuContent(item.path, section)}
         </ContextMenu>
       );
-    });
+    }
+
+    return renderedRows;
   };
 
   const renderChangesSectionContent = (
@@ -9285,6 +9171,14 @@ export function RepoInfo() {
     tree: ChangeTreeNode[],
     section: "staged" | "unstaged"
   ) => {
+    const renderLimit =
+      section === "unstaged" ? unstagedRenderLimit : stagedRenderLimit;
+    const totalVisibleCount =
+      section === "unstaged"
+        ? unstagedVisibleNodeCount
+        : stagedVisibleNodeCount;
+    const renderBudget = createRenderBudget(renderLimit);
+
     if (items.length === 0) {
       return (
         <p className="px-2 py-1.5 text-muted-foreground text-xs">
@@ -9294,10 +9188,24 @@ export function RepoInfo() {
     }
 
     if (changesViewMode === "tree") {
-      return renderChangeTreeNodes(tree, section);
+      return (
+        <>
+          {renderChangeTreeNodes(tree, section, 0, renderBudget)}
+          {renderLimit < totalVisibleCount
+            ? renderProgressiveLoadingMessage("files")
+            : null}
+        </>
+      );
     }
 
-    return renderFlatChangeRows(items, section);
+    return (
+      <>
+        {renderFlatChangeRows(items, section, renderBudget)}
+        {renderLimit < totalVisibleCount
+          ? renderProgressiveLoadingMessage("files")
+          : null}
+      </>
+    );
   };
   const renderAllFilesSectionContent = () => {
     if (allRepositoryFiles.length === 0) {
@@ -9316,7 +9224,16 @@ export function RepoInfo() {
       );
     }
 
-    return renderChangeTreeNodes(allFilesTree, "all");
+    const renderBudget = createRenderBudget(allFilesRenderLimit);
+
+    return (
+      <>
+        {renderChangeTreeNodes(allFilesTree, "all", 0, renderBudget)}
+        {allFilesRenderLimit < allFilesVisibleNodeCount
+          ? renderProgressiveLoadingMessage("files")
+          : null}
+      </>
+    );
   };
 
   const handleWorkingTreeRowClick = () => {
@@ -9459,6 +9376,12 @@ export function RepoInfo() {
     }
 
     setIsGeneratingAiCommitMessage(true);
+    aiCommitGenerationStatusMessageRef.current =
+      "Preparing AI commit generation";
+    aiCommitGenerationPreviewRef.current = "";
+    setAiCommitGenerationStatusMessage("Preparing AI commit generation");
+    setAiCommitGenerationPreview("");
+    let generationSucceeded = false;
 
     try {
       const generatedCommit = await generateAiCommitMessage(activeRepoId, "");
@@ -9470,7 +9393,19 @@ export function RepoInfo() {
         providerKind: generatedCommit.providerKind,
         schemaFallbackUsed: generatedCommit.schemaFallbackUsed,
       });
+      generationSucceeded = true;
     } finally {
+      const nextState = finalizeAiCommitGenerationState(
+        {
+          preview: aiCommitGenerationPreviewRef.current,
+          statusMessage: aiCommitGenerationStatusMessageRef.current,
+        },
+        generationSucceeded
+      );
+      aiCommitGenerationStatusMessageRef.current = nextState.statusMessage;
+      aiCommitGenerationPreviewRef.current = nextState.preview;
+      setAiCommitGenerationStatusMessage(nextState.statusMessage);
+      setAiCommitGenerationPreview(nextState.preview);
       setIsGeneratingAiCommitMessage(false);
     }
   };
@@ -9676,178 +9611,61 @@ export function RepoInfo() {
               </SidebarHeader>
 
               <SidebarContent className="px-2.5 py-2.5">
-                {filteredSidebarGroups.map((group) => (
-                  <SidebarGroup className="mt-2 first:mt-0" key={group.key}>
-                    <SidebarGroupLabel className="px-0 py-0">
-                      <button
-                        className="flex w-full items-center justify-between py-0.5"
-                        onClick={() =>
-                          setCollapsedGroupKeys((current) => ({
-                            ...current,
-                            [group.key]: !current[group.key],
-                          }))
-                        }
-                        type="button"
-                      >
-                        <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wider">
-                          {collapsedGroupKeys[group.key] ? (
-                            <CaretRightIcon className="size-3" />
-                          ) : (
-                            <CaretDownIcon className="size-3" />
-                          )}
-                          {renderSidebarGroupSectionIcon(group.key)}
-                          {group.name}
-                        </span>
-                        <span className="font-medium text-muted-foreground text-xs">
-                          {group.count}
-                        </span>
-                      </button>
-                    </SidebarGroupLabel>
+                {(() => {
+                  const sidebarBudget = createRenderBudget(sidebarRenderLimit);
 
-                    {!collapsedGroupKeys[group.key] && (
-                      <SidebarGroupContent>
-                        <SidebarMenu>
-                          {group.treeNodes
-                            ? renderSidebarBranchTreeNodes(
-                                group.key,
-                                group.treeNodes
-                              )
-                            : group.entries.map((entry) => {
-                                const entryMenuKey = `${group.key}-${entry.stashRef ?? entry.name}`;
-                                const entryActionsLabel =
-                                  resolveSidebarEntryActionsLabel(entry);
-                                const isEntryMenuOpen =
-                                  openEntryContextMenuKey === entryMenuKey ||
-                                  openEntryDropdownMenuKey === entryMenuKey;
-                                const isEntryContextMenuOpen =
-                                  openEntryContextMenuKey === entryMenuKey;
-                                const isEntryDropdownMenuOpen =
-                                  openEntryDropdownMenuKey === entryMenuKey;
+                  return filteredSidebarGroups.map((group) => (
+                    <SidebarGroup className="mt-2 first:mt-0" key={group.key}>
+                      <SidebarGroupLabel className="px-0 py-0">
+                        <button
+                          className="flex w-full items-center justify-between py-0.5"
+                          onClick={() =>
+                            setCollapsedGroupKeys((current) => ({
+                              ...current,
+                              [group.key]: !current[group.key],
+                            }))
+                          }
+                          type="button"
+                        >
+                          <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wider">
+                            {collapsedGroupKeys[group.key] ? (
+                              <CaretRightIcon className="size-3" />
+                            ) : (
+                              <CaretDownIcon className="size-3" />
+                            )}
+                            {renderSidebarGroupSectionIcon(group.key)}
+                            {group.name}
+                          </span>
+                          <span className="font-medium text-muted-foreground text-xs">
+                            {group.count}
+                          </span>
+                        </button>
+                      </SidebarGroupLabel>
 
-                                return (
-                                  <SidebarMenuItem key={entryMenuKey}>
-                                    <ContextMenu
-                                      onOpenChange={(open) => {
-                                        handleEntryContextMenuOpenChange(
-                                          entryMenuKey,
-                                          open
-                                        );
-                                      }}
-                                      open={isEntryContextMenuOpen}
-                                    >
-                                      <ContextMenuTrigger>
-                                        <SidebarMenuButton
-                                          aria-label={entry.name}
-                                          className={cn(
-                                            "group gap-1.5 rounded-none py-1 text-xs",
-                                            isSidebarEntrySelected(entry) ||
-                                              isEntryMenuOpen
-                                              ? "bg-accent text-accent-foreground"
-                                              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                                          )}
-                                          disabled={
-                                            entry.type !== "stash" &&
-                                            isSwitchingBranch
-                                          }
-                                          onClick={() => {
-                                            handleSidebarEntryClick(entry);
-                                          }}
-                                          onDoubleClick={() => {
-                                            handleSidebarEntryDoubleClick(
-                                              entry
-                                            );
-                                          }}
-                                        >
-                                          {renderSidebarEntryLeadIndicator(
-                                            group.key,
-                                            entry
-                                          )}
-                                          {renderEntryIcon(entry)}
-                                          <Tooltip>
-                                            <TooltipTrigger
-                                              render={
-                                                <span className="min-w-0 flex-1 truncate" />
-                                              }
-                                            >
-                                              {renderHighlightedEntryName(
-                                                entry.name
-                                              )}
-                                            </TooltipTrigger>
-                                            <TooltipContent
-                                              align="end"
-                                              side="right"
-                                              sideOffset={6}
-                                            >
-                                              {entry.name}
-                                            </TooltipContent>
-                                          </Tooltip>
-                                          {entry.type === "branch"
-                                            ? renderSidebarBranchCounts(entry)
-                                            : null}
-                                          <DropdownMenu
-                                            onOpenChange={(open) => {
-                                              handleEntryDropdownMenuOpenChange(
-                                                entryMenuKey,
-                                                open
-                                              );
-                                            }}
-                                            open={isEntryDropdownMenuOpen}
-                                          >
-                                            <DropdownMenuTrigger
-                                              render={
-                                                <button
-                                                  aria-label={`More options for ${entry.name}`}
-                                                  className={cn(
-                                                    "ml-0.5 inline-flex size-4 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-accent/80 focus-visible:opacity-100 group-hover:opacity-100",
-                                                    isEntryMenuOpen &&
-                                                      "opacity-100",
-                                                    entry.active &&
-                                                      "hover:bg-accent-foreground/10"
-                                                  )}
-                                                  onClick={(event) =>
-                                                    event.stopPropagation()
-                                                  }
-                                                  type="button"
-                                                />
-                                              }
-                                            >
-                                              <Tooltip>
-                                                <TooltipTrigger
-                                                  render={
-                                                    <span className="inline-flex items-center" />
-                                                  }
-                                                >
-                                                  <DotsThreeVerticalIcon className="size-3.5" />
-                                                </TooltipTrigger>
-                                                <TooltipContent
-                                                  align="start"
-                                                  side="right"
-                                                  sideOffset={6}
-                                                >
-                                                  {entryActionsLabel}
-                                                </TooltipContent>
-                                              </Tooltip>
-                                            </DropdownMenuTrigger>
-                                            {isEntryDropdownMenuOpen
-                                              ? renderEntryDropdownMenuContent(
-                                                  entry
-                                                )
-                                              : null}
-                                          </DropdownMenu>
-                                        </SidebarMenuButton>
-                                      </ContextMenuTrigger>
-                                      {isEntryContextMenuOpen
-                                        ? renderEntryContextMenuContent(entry)
-                                        : null}
-                                    </ContextMenu>
-                                  </SidebarMenuItem>
-                                );
-                              })}
-                        </SidebarMenu>
-                      </SidebarGroupContent>
-                    )}
-                  </SidebarGroup>
-                ))}
+                      {!collapsedGroupKeys[group.key] && (
+                        <SidebarGroupContent>
+                          <SidebarMenu>
+                            {group.treeNodes
+                              ? renderSidebarBranchTreeNodes(
+                                  group.key,
+                                  group.treeNodes,
+                                  0,
+                                  sidebarBudget
+                                )
+                              : renderSidebarFlatEntries(
+                                  group.key,
+                                  group.entries,
+                                  sidebarBudget
+                                )}
+                          </SidebarMenu>
+                        </SidebarGroupContent>
+                      )}
+                    </SidebarGroup>
+                  ));
+                })()}
+                {sidebarRenderLimit < sidebarVisibleNodeCount
+                  ? renderProgressiveLoadingMessage("items")
+                  : null}
               </SidebarContent>
             </Sidebar>
             <button
@@ -9917,7 +9735,7 @@ export function RepoInfo() {
                 </Tooltip>
 
                 <Separator
-                  className="mx-1 h-3.5 !self-center"
+                  className="!self-center mx-1 h-3.5"
                   orientation="vertical"
                 />
 
@@ -10053,7 +9871,7 @@ export function RepoInfo() {
                 </Tooltip>
 
                 <Separator
-                  className="mx-1 h-3.5 !self-center"
+                  className="!self-center mx-1 h-3.5"
                   orientation="vertical"
                 />
 
@@ -10171,9 +9989,9 @@ export function RepoInfo() {
                                   () => undefined
                                 );
                               } else if (launcherApplications[0]) {
-                                handleOpenPath(launcherApplications[0].id).catch(
-                                  () => undefined
-                                );
+                                handleOpenPath(
+                                  launcherApplications[0].id
+                                ).catch(() => undefined);
                               }
                             }}
                             size="sm"
@@ -10187,7 +10005,10 @@ export function RepoInfo() {
                               <DesktopIcon className="size-3.5" />
                             )}
                             <span
-                              className={cn("text-xs", !toolbarLabels && "hidden")}
+                              className={cn(
+                                "text-xs",
+                                !toolbarLabels && "hidden"
+                              )}
                             >
                               {selectedLauncher?.label ?? "Open"}
                             </span>
@@ -10451,6 +10272,7 @@ export function RepoInfo() {
                 {isBranchCreateInputOpen ? (
                   <div
                     className="grid items-center border-border/35 border-b bg-muted/16 px-2 py-1.5"
+                    ref={branchCreateRowRef}
                     style={{ gridTemplateColumns: timelineGridTemplateColumns }}
                   >
                     {timelineVisibleColumns.map((columnId) => (
@@ -10551,35 +10373,6 @@ export function RepoInfo() {
                   </div>
                 ) : null}
                 <div className="relative">
-                  {repoTimelinePreferences.visibleColumns.graph ? (
-                    <Suspense
-                      fallback={
-                        <div
-                          className="pointer-events-none absolute top-0 right-0 left-0 z-20 animate-pulse border-border/35 border-b bg-muted/20"
-                          style={{
-                            height: Math.max(
-                              TIMELINE_ROW_HEIGHT * timelineRows.length,
-                              TIMELINE_ROW_HEIGHT
-                            ),
-                          }}
-                        />
-                      }
-                    >
-                      <LazyGitGraphOverlay
-                        branchColumnWidth={resolvedTimelineBranchColumnWidth}
-                        commits={timelineCommits}
-                        graphColumnWidth={effectiveTimelineGraphColumnWidth}
-                        onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
-                        onNodeSelect={handleGraphNodeSelect}
-                        renderNodeContextMenu={
-                          renderGraphNodeContextMenuContent
-                        }
-                        rowHeight={TIMELINE_ROW_HEIGHT}
-                        rows={timelineRows}
-                        selectedRowId={selectedTimelineRowId}
-                      />
-                    </Suspense>
-                  ) : null}
                   {hasAnyWorkingTreeChanges ? (
                     <button
                       className={cn(
@@ -10595,6 +10388,7 @@ export function RepoInfo() {
                           handleWorkingTreeRowClick();
                         }
                       }}
+                      ref={workingTreeTimelineRowRef}
                       style={{
                         gridTemplateColumns: timelineGridTemplateColumns,
                       }}
@@ -10648,322 +10442,378 @@ export function RepoInfo() {
                       ))}
                     </button>
                   ) : null}
+                  <div
+                    style={{
+                      height: Math.max(
+                        timelineVirtualizer.getTotalSize(),
+                        TIMELINE_ROW_HEIGHT
+                      ),
+                      position: "relative",
+                    }}
+                  >
+                    <div
+                      style={{
+                        left: 0,
+                        position: "absolute",
+                        top: 0,
+                        transform: `translateY(${timelineVirtualRowsOffset}px)`,
+                        width: "100%",
+                      }}
+                    >
+                      {repoTimelinePreferences.visibleColumns.graph ? (
+                        <Suspense
+                          fallback={
+                            <div
+                              className="pointer-events-none absolute top-0 right-0 left-0 z-20 animate-pulse border-border/35 border-b bg-muted/20"
+                              style={{
+                                height: Math.max(
+                                  TIMELINE_ROW_HEIGHT *
+                                    visibleTimelineRows.length,
+                                  TIMELINE_ROW_HEIGHT
+                                ),
+                              }}
+                            />
+                          }
+                        >
+                          <LazyGitGraphOverlay
+                            branchColumnWidth={
+                              resolvedTimelineBranchColumnWidth
+                            }
+                            commits={visibleTimelineCommits}
+                            graph={visibleHistoryGraph}
+                            graphColumnWidth={effectiveTimelineGraphColumnWidth}
+                            onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
+                            onNodeSelect={handleGraphNodeSelect}
+                            renderNodeContextMenu={
+                              renderGraphNodeContextMenuContent
+                            }
+                            rowHeight={TIMELINE_ROW_HEIGHT}
+                            rows={visibleTimelineRows}
+                            selectedRowId={selectedTimelineRowId}
+                          />
+                        </Suspense>
+                      ) : null}
+                      {visibleTimelineRows.map((row) => {
+                        if (row.type === "commit" && row.commitHash) {
+                          const item = commitByHash.get(row.commitHash);
 
-                  {timelineRows
-                    .filter((row) => row.type !== "wip")
-                    .map((row) => {
-                      if (row.type === "commit" && row.commitHash) {
-                        const item = commitByHash.get(row.commitHash);
+                          if (!item) {
+                            return null;
+                          }
 
-                        if (!item) {
-                          return null;
-                        }
-
-                        const commitMessageSummary = (
-                          item.messageSummary ?? ""
-                        ).trim();
-                        const commitTitle =
-                          commitMessageSummary.length > 0
-                            ? commitMessageSummary
-                            : (item.message ?? "");
-                        const commitDescription = (
-                          item.messageDescription ?? ""
-                        ).trim();
-                        const laneColor = getCommitLaneColor(
-                          timelineCommits,
-                          item.hash
-                        );
-                        const isPullableCommit = item.syncState === "pullable";
-                        const commitRefs = item.refs
-                          .map(
-                            (ref) => normalizeCommitRefLabel(ref) ?? ref.trim()
-                          )
-                          .filter(
-                            (ref) =>
-                              ref.length > 0 && !isReferenceHiddenInGraph(ref)
+                          const commitMessageSummary = (
+                            item.messageSummary ?? ""
+                          ).trim();
+                          const commitTitle =
+                            commitMessageSummary.length > 0
+                              ? commitMessageSummary
+                              : (item.message ?? "");
+                          const commitDescription = (
+                            item.messageDescription ?? ""
+                          ).trim();
+                          const laneColor = getCommitLaneColor(
+                            visibleHistoryGraph,
+                            item.hash
                           );
-                        const visibleRefCount =
-                          repoTimelinePreferences.smartBranchVisibility ||
-                          timelineVisibleColumns.some(
-                            (columnId) =>
-                              columnId === "author" ||
-                              columnId === "dateTime" ||
-                              columnId === "sha"
-                          )
-                            ? 1
-                            : 2;
-                        const visibleCommitRefs = commitRefs.slice(
-                          0,
-                          visibleRefCount
-                        );
-                        const hiddenCommitRefs =
-                          commitRefs.slice(visibleRefCount);
-                        const hiddenCommitRefCount = Math.max(
-                          0,
-                          commitRefs.length - visibleCommitRefs.length
-                        );
+                          const isPullableCommit =
+                            item.syncState === "pullable";
+                          const commitRefs = item.refs
+                            .map(
+                              (ref) =>
+                                normalizeCommitRefLabel(ref) ?? ref.trim()
+                            )
+                            .filter(
+                              (ref) =>
+                                ref.length > 0 && !isReferenceHiddenInGraph(ref)
+                            );
+                          const visibleRefCount =
+                            repoTimelinePreferences.smartBranchVisibility ||
+                            timelineVisibleColumns.some(
+                              (columnId) =>
+                                columnId === "author" ||
+                                columnId === "dateTime" ||
+                                columnId === "sha"
+                            )
+                              ? 1
+                              : 2;
+                          const visibleCommitRefs = commitRefs.slice(
+                            0,
+                            visibleRefCount
+                          );
+                          const hiddenCommitRefs =
+                            commitRefs.slice(visibleRefCount);
+                          const hiddenCommitRefCount = Math.max(
+                            0,
+                            commitRefs.length - visibleCommitRefs.length
+                          );
 
-                        return (
-                          <ContextMenu
-                            key={item.hash}
-                            onOpenChange={(open) => {
-                              handleCommitMenuOpenChange(item.hash, open);
-                            }}
-                          >
-                            <ContextMenuTrigger>
-                              <button
-                                className={cn(
-                                  "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
-                                  selectedTimelineRowId === item.hash ||
-                                    openCommitMenuHash === item.hash
-                                    ? "bg-muted hover:bg-muted"
-                                    : "hover:bg-muted/35"
-                                )}
-                                onClick={() => {
-                                  handleCommitRowClick(item.hash);
-                                }}
-                                style={{
-                                  gridTemplateColumns:
-                                    timelineGridTemplateColumns,
-                                }}
-                                type="button"
-                              >
-                                {timelineVisibleColumns.map((columnId) => (
-                                  <Fragment key={columnId}>
-                                    {renderTimelineCell(columnId, {
-                                      branchCell:
-                                        columnId === "branch" ? (
-                                          <div className="min-w-0 truncate pr-2">
-                                            {visibleCommitRefs.length > 0 ? (
-                                              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                                                {isPullableCommit ? (
-                                                  <Tooltip>
-                                                    <TooltipTrigger
-                                                      render={
-                                                        <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300" />
-                                                      }
-                                                    >
-                                                      <ArrowLineDownIcon className="size-3" />
-                                                      Pull
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="bottom">
-                                                      Commit available from
-                                                      upstream
-                                                    </TooltipContent>
-                                                  </Tooltip>
-                                                ) : null}
-                                                {visibleCommitRefs.map(
-                                                  (ref, index) => (
-                                                    <Tooltip key={ref}>
+                          return (
+                            <ContextMenu
+                              key={item.hash}
+                              onOpenChange={(open) => {
+                                handleCommitMenuOpenChange(item.hash, open);
+                              }}
+                            >
+                              <ContextMenuTrigger>
+                                <button
+                                  className={cn(
+                                    "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
+                                    selectedTimelineRowId === item.hash ||
+                                      openCommitMenuHash === item.hash
+                                      ? "bg-muted hover:bg-muted"
+                                      : "hover:bg-muted/35"
+                                  )}
+                                  onClick={() => {
+                                    handleCommitRowClick(item.hash);
+                                  }}
+                                  ref={(element) => {
+                                    setTimelineRowElement(item.hash, element);
+                                  }}
+                                  style={{
+                                    gridTemplateColumns:
+                                      timelineGridTemplateColumns,
+                                  }}
+                                  type="button"
+                                >
+                                  {timelineVisibleColumns.map((columnId) => (
+                                    <Fragment key={columnId}>
+                                      {renderTimelineCell(columnId, {
+                                        branchCell:
+                                          columnId === "branch" ? (
+                                            <div className="min-w-0 truncate pr-2">
+                                              {visibleCommitRefs.length > 0 ? (
+                                                <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                                                  {isPullableCommit ? (
+                                                    <Tooltip>
+                                                      <TooltipTrigger
+                                                        render={
+                                                          <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300" />
+                                                        }
+                                                      >
+                                                        <ArrowLineDownIcon className="size-3" />
+                                                        Pull
+                                                      </TooltipTrigger>
+                                                      <TooltipContent side="bottom">
+                                                        Commit available from
+                                                        upstream
+                                                      </TooltipContent>
+                                                    </Tooltip>
+                                                  ) : null}
+                                                  {visibleCommitRefs.map(
+                                                    (ref, index) => (
+                                                      <Tooltip key={ref}>
+                                                        <TooltipTrigger
+                                                          render={
+                                                            <span
+                                                              className={cn(
+                                                                "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none",
+                                                                index === 0
+                                                                  ? "max-w-24"
+                                                                  : "max-w-16"
+                                                              )}
+                                                              style={{
+                                                                borderColor: `${laneColor}80`,
+                                                              }}
+                                                            />
+                                                          }
+                                                        >
+                                                          <span className="truncate">
+                                                            {ref}
+                                                          </span>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent side="bottom">
+                                                          {ref}
+                                                        </TooltipContent>
+                                                      </Tooltip>
+                                                    )
+                                                  )}
+                                                  {hiddenCommitRefCount > 0 ? (
+                                                    <Tooltip>
                                                       <TooltipTrigger
                                                         render={
                                                           <span
-                                                            className={cn(
-                                                              "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none",
-                                                              index === 0
-                                                                ? "max-w-24"
-                                                                : "max-w-16"
-                                                            )}
+                                                            className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-xs leading-none"
                                                             style={{
-                                                              borderColor: `${laneColor}80`,
+                                                              borderColor: `${laneColor}66`,
                                                             }}
                                                           />
                                                         }
                                                       >
-                                                        <span className="truncate">
-                                                          {ref}
-                                                        </span>
+                                                        +{hiddenCommitRefCount}
                                                       </TooltipTrigger>
                                                       <TooltipContent side="bottom">
-                                                        {ref}
+                                                        {hiddenCommitRefs.join(
+                                                          ", "
+                                                        )}
                                                       </TooltipContent>
                                                     </Tooltip>
-                                                  )
-                                                )}
-                                                {hiddenCommitRefCount > 0 ? (
-                                                  <Tooltip>
-                                                    <TooltipTrigger
-                                                      render={
-                                                        <span
-                                                          className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-xs leading-none"
-                                                          style={{
-                                                            borderColor: `${laneColor}66`,
-                                                          }}
-                                                        />
-                                                      }
-                                                    >
-                                                      +{hiddenCommitRefCount}
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="bottom">
-                                                      {hiddenCommitRefs.join(
-                                                        ", "
-                                                      )}
-                                                    </TooltipContent>
-                                                  </Tooltip>
-                                                ) : null}
-                                              </div>
-                                            ) : (
-                                              <span className="text-muted-foreground/70 text-xs">
-                                                <span className="sr-only">
-                                                  No refs
-                                                </span>
-                                              </span>
-                                            )}
-                                          </div>
-                                        ) : undefined,
-                                      commit: item,
-                                      commitMessageCell:
-                                        columnId === "commitMessage" ? (
-                                          <div className="relative min-w-0 self-stretch">
-                                            <div
-                                              className="absolute top-0 bottom-0 left-0 rounded-full"
-                                              style={{
-                                                background: isPullableCommit
-                                                  ? `repeating-linear-gradient(to bottom, ${laneColor} 0 2px, transparent 2px 6px)`
-                                                  : laneColor,
-                                                width:
-                                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
-                                              }}
-                                            />
-                                            <div
-                                              className="flex h-full min-w-0 items-center gap-1"
-                                              style={{
-                                                paddingLeft:
-                                                  TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
-                                                  TIMELINE_COMMIT_MESSAGE_BAR_GAP,
-                                              }}
-                                            >
-                                              <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
-                                                <span>{commitTitle}</span>
-                                                {commitDescription.length >
-                                                0 ? (
-                                                  <span className="text-muted-foreground/80">
-                                                    {" "}
-                                                    {commitDescription}
+                                                  ) : null}
+                                                </div>
+                                              ) : (
+                                                <span className="text-muted-foreground/70 text-xs">
+                                                  <span className="sr-only">
+                                                    No refs
                                                   </span>
-                                                ) : null}
-                                              </p>
+                                                </span>
+                                              )}
                                             </div>
-                                          </div>
-                                        ) : undefined,
-                                    })}
-                                  </Fragment>
-                                ))}
-                              </button>
-                            </ContextMenuTrigger>
-                            {openCommitMenuHash === item.hash
-                              ? renderCommitRowContextMenuContent(item)
-                              : null}
+                                          ) : undefined,
+                                        commit: item,
+                                        commitMessageCell:
+                                          columnId === "commitMessage" ? (
+                                            <div className="relative min-w-0 self-stretch">
+                                              <div
+                                                className="absolute top-0 bottom-0 left-0 rounded-full"
+                                                style={{
+                                                  background: isPullableCommit
+                                                    ? `repeating-linear-gradient(to bottom, ${laneColor} 0 2px, transparent 2px 6px)`
+                                                    : laneColor,
+                                                  width:
+                                                    TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                                                }}
+                                              />
+                                              <div
+                                                className="flex h-full min-w-0 items-center gap-1"
+                                                style={{
+                                                  paddingLeft:
+                                                    TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                                    TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                                                }}
+                                              >
+                                                <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
+                                                  <span>{commitTitle}</span>
+                                                  {commitDescription.length >
+                                                  0 ? (
+                                                    <span className="text-muted-foreground/80">
+                                                      {" "}
+                                                      {commitDescription}
+                                                    </span>
+                                                  ) : null}
+                                                </p>
+                                              </div>
+                                            </div>
+                                          ) : undefined,
+                                      })}
+                                    </Fragment>
+                                  ))}
+                                </button>
+                              </ContextMenuTrigger>
+                              {openCommitMenuHash === item.hash
+                                ? renderCommitRowContextMenuContent(item)
+                                : null}
+                            </ContextMenu>
+                          );
+                        }
+
+                        if (!(row.type === "stash" || row.type === "tag")) {
+                          return null;
+                        }
+
+                        const laneColor = getCommitLaneColor(
+                          visibleHistoryGraph,
+                          row.anchorCommitHash ?? ""
+                        );
+                        const timelineEntry =
+                          getSidebarEntryForTimelineRow(row);
+                        const rowCommit = resolveTimelineRowCommit(row);
+                        const rowLabel = row.label ?? "";
+                        const rowKindLabel =
+                          row.type === "stash"
+                            ? "Stash snapshot"
+                            : "Tag reference";
+
+                        const rowButton = (
+                          <button
+                            className={cn(
+                              "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
+                              selectedTimelineRowId === row.id
+                                ? "bg-muted"
+                                : "hover:bg-muted/35"
+                            )}
+                            key={row.id}
+                            onClick={() => {
+                              handleTimelineReferenceRowClick(row);
+                            }}
+                            ref={(element) => {
+                              setTimelineRowElement(row.id, element);
+                            }}
+                            style={{
+                              gridTemplateColumns: timelineGridTemplateColumns,
+                            }}
+                            type="button"
+                          >
+                            {timelineVisibleColumns.map((columnId) => (
+                              <Fragment key={columnId}>
+                                {renderTimelineCell(columnId, {
+                                  branchCell:
+                                    columnId === "branch" ? (
+                                      <div className="min-w-0 truncate pr-2">
+                                        <span
+                                          className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none"
+                                          style={{
+                                            borderColor: `${laneColor}80`,
+                                          }}
+                                        >
+                                          {row.type === "stash" ? (
+                                            <StackSimpleIcon className="size-2.5 shrink-0" />
+                                          ) : (
+                                            <TagIcon className="size-2.5 shrink-0" />
+                                          )}
+                                          <span className="truncate">
+                                            {rowLabel}
+                                          </span>
+                                        </span>
+                                      </div>
+                                    ) : undefined,
+                                  commit: rowCommit,
+                                  commitMessageCell:
+                                    columnId === "commitMessage" ? (
+                                      <div className="relative min-w-0 self-stretch">
+                                        <div
+                                          className="absolute top-0 bottom-0 left-0 rounded-full"
+                                          style={{
+                                            backgroundColor: laneColor,
+                                            width:
+                                              TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
+                                          }}
+                                        />
+                                        <div
+                                          className="flex h-full min-w-0 items-center gap-1"
+                                          style={{
+                                            paddingLeft:
+                                              TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
+                                              TIMELINE_COMMIT_MESSAGE_BAR_GAP,
+                                          }}
+                                        >
+                                          <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
+                                            <span>{rowLabel}</span>
+                                            <span className="text-muted-foreground/80">
+                                              {" "}
+                                              {rowKindLabel}
+                                            </span>
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ) : undefined,
+                                })}
+                              </Fragment>
+                            ))}
+                          </button>
+                        );
+
+                        if (!timelineEntry) {
+                          return rowButton;
+                        }
+
+                        return (
+                          <ContextMenu key={row.id}>
+                            <ContextMenuTrigger>{rowButton}</ContextMenuTrigger>
+                            {renderEntryContextMenuContent(timelineEntry)}
                           </ContextMenu>
                         );
-                      }
-
-                      if (!(row.type === "stash" || row.type === "tag")) {
-                        return null;
-                      }
-
-                      const laneColor = getCommitLaneColor(
-                        timelineCommits,
-                        row.anchorCommitHash ?? ""
-                      );
-                      const timelineEntry = getSidebarEntryForTimelineRow(row);
-                      const rowCommit = resolveTimelineRowCommit(row);
-                      const rowLabel = row.label ?? "";
-                      const rowKindLabel =
-                        row.type === "stash"
-                          ? "Stash snapshot"
-                          : "Tag reference";
-
-                      const rowButton = (
-                        <button
-                          className={cn(
-                            "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
-                            selectedTimelineRowId === row.id
-                              ? "bg-muted"
-                              : "hover:bg-muted/35"
-                          )}
-                          key={row.id}
-                          onClick={() => {
-                            handleTimelineReferenceRowClick(row);
-                          }}
-                          ref={(element) => {
-                            setTimelineRowElement(row.id, element);
-                          }}
-                          style={{
-                            gridTemplateColumns: timelineGridTemplateColumns,
-                          }}
-                          type="button"
-                        >
-                          {timelineVisibleColumns.map((columnId) => (
-                            <Fragment key={columnId}>
-                              {renderTimelineCell(columnId, {
-                                branchCell:
-                                  columnId === "branch" ? (
-                                    <div className="min-w-0 truncate pr-2">
-                                      <span
-                                        className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none"
-                                        style={{
-                                          borderColor: `${laneColor}80`,
-                                        }}
-                                      >
-                                        {row.type === "stash" ? (
-                                          <StackSimpleIcon className="size-2.5 shrink-0" />
-                                        ) : (
-                                          <TagIcon className="size-2.5 shrink-0" />
-                                        )}
-                                        <span className="truncate">
-                                          {rowLabel}
-                                        </span>
-                                      </span>
-                                    </div>
-                                  ) : undefined,
-                                commit: rowCommit,
-                                commitMessageCell:
-                                  columnId === "commitMessage" ? (
-                                    <div className="relative min-w-0 self-stretch">
-                                      <div
-                                        className="absolute top-0 bottom-0 left-0 rounded-full"
-                                        style={{
-                                          backgroundColor: laneColor,
-                                          width:
-                                            TIMELINE_COMMIT_MESSAGE_BAR_WIDTH,
-                                        }}
-                                      />
-                                      <div
-                                        className="flex h-full min-w-0 items-center gap-1"
-                                        style={{
-                                          paddingLeft:
-                                            TIMELINE_COMMIT_MESSAGE_BAR_WIDTH +
-                                            TIMELINE_COMMIT_MESSAGE_BAR_GAP,
-                                        }}
-                                      >
-                                        <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
-                                          <span>{rowLabel}</span>
-                                          <span className="text-muted-foreground/80">
-                                            {" "}
-                                            {rowKindLabel}
-                                          </span>
-                                        </p>
-                                      </div>
-                                    </div>
-                                  ) : undefined,
-                              })}
-                            </Fragment>
-                          ))}
-                        </button>
-                      );
-
-                      if (!timelineEntry) {
-                        return rowButton;
-                      }
-
-                      return (
-                        <ContextMenu key={row.id}>
-                          <ContextMenuTrigger>{rowButton}</ContextMenuTrigger>
-                          {renderEntryContextMenuContent(timelineEntry)}
-                        </ContextMenu>
-                      );
-                    })}
+                      })}
+                    </div>
+                  </div>
                 </div>
                 {commits.length === 0 && !isLoadingHistory ? (
                   <div className="px-2 py-3 text-muted-foreground text-xs">
@@ -11946,15 +11796,46 @@ export function RepoInfo() {
                                       }
 
                                       if (commitDetailsViewMode === "tree") {
-                                        return renderCommitTreeNodes(
-                                          selectedCommitTree,
-                                          selectedCommit.hash
+                                        const renderBudget = createRenderBudget(
+                                          selectedCommitRenderLimit
+                                        );
+
+                                        return (
+                                          <>
+                                            {renderCommitTreeNodes(
+                                              selectedCommitTree,
+                                              selectedCommit.hash,
+                                              0,
+                                              renderBudget
+                                            )}
+                                            {selectedCommitRenderLimit <
+                                            selectedCommitVisibleNodeCount
+                                              ? renderProgressiveLoadingMessage(
+                                                  "files"
+                                                )
+                                              : null}
+                                          </>
                                         );
                                       }
 
-                                      return renderCommitPathRows(
-                                        sortedCommitPathRows,
-                                        selectedCommit.hash
+                                      const renderBudget = createRenderBudget(
+                                        selectedCommitRenderLimit
+                                      );
+
+                                      return (
+                                        <>
+                                          {renderCommitPathRows(
+                                            sortedCommitPathRows,
+                                            selectedCommit.hash,
+                                            renderBudget
+                                          )}
+                                          {selectedCommitRenderLimit <
+                                          selectedCommitVisibleNodeCount
+                                            ? renderProgressiveLoadingMessage(
+                                                "files"
+                                              )
+                                            : null}
+                                        </>
                                       );
                                     })()}
                                   </div>
@@ -12370,15 +12251,44 @@ export function RepoInfo() {
                                 }
 
                                 if (commitDetailsViewMode === "tree") {
-                                  return renderCommitTreeNodes(
-                                    selectedReferenceTree,
-                                    selectedReferenceRevision
+                                  const renderBudget = createRenderBudget(
+                                    selectedReferenceRenderLimit
+                                  );
+
+                                  return (
+                                    <>
+                                      {renderCommitTreeNodes(
+                                        selectedReferenceTree,
+                                        selectedReferenceRevision,
+                                        0,
+                                        renderBudget
+                                      )}
+                                      {selectedReferenceRenderLimit <
+                                      selectedReferenceVisibleNodeCount
+                                        ? renderProgressiveLoadingMessage(
+                                            "files"
+                                          )
+                                        : null}
+                                    </>
                                   );
                                 }
 
-                                return renderCommitPathRows(
-                                  sortedSelectedReferencePathRows,
-                                  selectedReferenceRevision
+                                const renderBudget = createRenderBudget(
+                                  selectedReferenceRenderLimit
+                                );
+
+                                return (
+                                  <>
+                                    {renderCommitPathRows(
+                                      sortedSelectedReferencePathRows,
+                                      selectedReferenceRevision,
+                                      renderBudget
+                                    )}
+                                    {selectedReferenceRenderLimit <
+                                    selectedReferenceVisibleNodeCount
+                                      ? renderProgressiveLoadingMessage("files")
+                                      : null}
+                                  </>
                                 );
                               })()}
                             </div>
@@ -12769,6 +12679,18 @@ export function RepoInfo() {
                             <p className="text-[11px] text-muted-foreground leading-4">
                               AI used summary context instead of full patch
                               hunks because the staged diff was large.
+                            </p>
+                          ) : null}
+                          {isGeneratingAiCommitMessage &&
+                          aiCommitGenerationStatusMessage ? (
+                            <p className="text-[11px] text-muted-foreground leading-4">
+                              {aiCommitGenerationStatusMessage}
+                            </p>
+                          ) : null}
+                          {isGeneratingAiCommitMessage &&
+                          aiCommitGenerationPreview.length > 0 ? (
+                            <p className="line-clamp-3 break-words rounded border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-muted-foreground leading-4">
+                              {aiCommitGenerationPreview}
                             </p>
                           ) : null}
                         </div>

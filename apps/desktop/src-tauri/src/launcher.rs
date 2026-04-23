@@ -215,7 +215,8 @@ fn resolve_windows_editor_executable(id: LauncherApplicationId) -> Option<PathBu
             local_candidate.exists().then_some(local_candidate)
         }
         LauncherApplicationId::Cursor => {
-            let resolved = resolve_from_candidates(&["cursor.exe", "Cursor.exe", "cursor.cmd"], &[]);
+            let resolved =
+                resolve_from_candidates(&["cursor.exe", "Cursor.exe", "cursor.cmd"], &[]);
 
             if resolved.is_some() {
                 return resolved;
@@ -655,7 +656,10 @@ fn launch_windows_editor(
             executable.to_string_lossy().as_ref(),
         ]);
 
-        if matches!(application, LauncherApplicationId::VsCode | LauncherApplicationId::Cursor) {
+        if matches!(
+            application,
+            LauncherApplicationId::VsCode | LauncherApplicationId::Cursor
+        ) {
             command.arg("--new-window");
         }
 
@@ -1217,13 +1221,18 @@ fn open_path_with_linux_application(
 
             spawn_linux_terminal(&executable, repo_path)
         }
-        LauncherApplicationId::Antigravity | LauncherApplicationId::VsCode | LauncherApplicationId::Cursor => {
+        LauncherApplicationId::Antigravity
+        | LauncherApplicationId::VsCode
+        | LauncherApplicationId::Cursor => {
             let executable = resolve_linux_editor_executable(application).ok_or_else(|| {
                 LauncherError::message(format!("{} executable was not found", application.as_str()))
             })?;
             let mut command = std::process::Command::new(executable);
 
-            if matches!(application, LauncherApplicationId::VsCode | LauncherApplicationId::Cursor) {
+            if matches!(
+                application,
+                LauncherApplicationId::VsCode | LauncherApplicationId::Cursor
+            ) {
                 command
                     .current_dir(repo_path)
                     .args(["--new-window", repo_path]);

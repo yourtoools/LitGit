@@ -1,5 +1,6 @@
 use crate::git_support::{
-    git_command, git_error_message, validate_git_repo, validate_repo_relative_file_path,
+    ensure_git_output_success, run_git_output as git_support_run_git_output, validate_git_repo,
+    validate_repo_relative_file_path, GitSupportError,
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -70,11 +71,11 @@ impl WorkingTreeError {
 }
 
 fn ensure_repo(repo_path: &str) -> WorkingTreeResult<()> {
-    validate_git_repo(Path::new(repo_path)).map_err(WorkingTreeError::message)
+    validate_git_repo(Path::new(repo_path)).map_err(map_git_support_error)
 }
 
 fn ensure_repo_file(file_path: &str) -> WorkingTreeResult<()> {
-    validate_repo_relative_file_path(file_path).map_err(WorkingTreeError::message)
+    validate_repo_relative_file_path(file_path).map_err(map_git_support_error)
 }
 
 fn run_git_output(
@@ -82,35 +83,18 @@ fn run_git_output(
     args: &[&str],
     action: &'static str,
 ) -> WorkingTreeResult<Output> {
-    git_command()
-        .args(["-C", repo_path])
-        .args(args)
-        .output()
-        .map_err(|error| WorkingTreeError::io(action, error))
+    git_support_run_git_output(repo_path, args, action).map_err(map_git_support_error)
 }
 
 fn ensure_output_success(output: &Output, fallback: &str) -> WorkingTreeResult<()> {
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(WorkingTreeError::message(if stderr.is_empty() {
-        fallback.to_string()
-    } else {
-        stderr
-    }))
+    ensure_git_output_success(output, fallback).map_err(map_git_support_error)
 }
 
-fn ensure_output_success_with_git_error(output: &Output, fallback: &str) -> WorkingTreeResult<()> {
-    if output.status.success() {
-        return Ok(());
+fn map_git_support_error(error: GitSupportError) -> WorkingTreeError {
+    match error {
+        GitSupportError::Message(message) => WorkingTreeError::Message(message),
+        GitSupportError::Io { action, source } => WorkingTreeError::Io { action, source },
     }
-
-    Err(WorkingTreeError::message(git_error_message(
-        &output.stderr,
-        fallback,
-    )))
 }
 
 fn read_nul_terminated_path(bytes: &[u8], cursor: &mut usize) -> WorkingTreeResult<String> {
@@ -179,361 +163,430 @@ fn parse_ls_files_output(bytes: &[u8]) -> WorkingTreeResult<Vec<RepositoryFileEn
 
 /// Stages all tracked, modified, and untracked changes in the repository.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn stage_all_repository_changes(repo_path: String) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
-
-        let output = run_git_output(&repo_path, &["add", "-A"], "run git add")?;
-        ensure_output_success(&output, "Failed to stage all changes")
-    })()
-    .map_err(|error| error.to_string())
+pub(crate) async fn stage_all_repository_changes(repo_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        stage_all_repository_changes_inner(repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to stage all changes: {error}"))?
 }
 
 /// Unstages all currently staged paths and keeps worktree changes intact.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn unstage_all_repository_changes(repo_path: String) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
-
-        let output = run_git_output(&repo_path, &["reset", "HEAD", "--", "."], "run git reset")?;
-        ensure_output_success(&output, "Failed to unstage all changes")
-    })()
-    .map_err(|error| error.to_string())
+pub(crate) async fn unstage_all_repository_changes(repo_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        unstage_all_repository_changes_inner(repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to unstage all changes: {error}"))?
 }
 
 /// Stages a single repository path after validating it is repo-relative.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn stage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
-        ensure_repo_file(&file_path)?;
-
-        let output = run_git_output(&repo_path, &["add", "-A", "--", &file_path], "run git add")?;
-        ensure_output_success(&output, "Failed to stage file")
-    })()
-    .map_err(|error| error.to_string())
+pub(crate) async fn stage_repository_file(
+    repo_path: String,
+    file_path: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        stage_repository_file_inner(repo_path, file_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to stage file: {error}"))?
 }
 
 /// Unstages a single repository path after validating it is repo-relative.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn unstage_repository_file(repo_path: String, file_path: String) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
-        ensure_repo_file(&file_path)?;
-
-        let output = run_git_output(
-            &repo_path,
-            &["reset", "HEAD", "--", &file_path],
-            "run git reset",
-        )?;
-        ensure_output_success(&output, "Failed to unstage file")
-    })()
-    .map_err(|error| error.to_string())
+pub(crate) async fn unstage_repository_file(
+    repo_path: String,
+    file_path: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        unstage_repository_file_inner(repo_path, file_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to unstage file: {error}"))?
 }
 
 /// Appends an ignore pattern to `.gitignore` when the rule is not already present.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn add_repository_ignore_rule(repo_path: String, pattern: String) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
-
-        let trimmed_pattern = pattern.trim();
-        if trimmed_pattern.is_empty() {
-            return Err(WorkingTreeError::message("Ignore rule cannot be empty"));
-        }
-
-        let gitignore_path = Path::new(&repo_path).join(".gitignore");
-        let mut existing_contents = match fs::read_to_string(&gitignore_path) {
-            Ok(contents) => contents,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(WorkingTreeError::io("read .gitignore", error)),
-        };
-
-        if existing_contents
-            .lines()
-            .any(|line| line.trim() == trimmed_pattern)
-        {
-            return Ok(());
-        }
-
-        if !existing_contents.is_empty() && !existing_contents.ends_with('\n') {
-            existing_contents.push('\n');
-        }
-
-        existing_contents.push_str(trimmed_pattern);
-        existing_contents.push('\n');
-
-        fs::write(&gitignore_path, existing_contents)
-            .map_err(|error| WorkingTreeError::io("update .gitignore", error))?;
-
-        Ok(())
-    })()
-    .map_err(|error| error.to_string())
+pub(crate) async fn add_repository_ignore_rule(
+    repo_path: String,
+    pattern: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        add_repository_ignore_rule_inner(repo_path, pattern).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to update .gitignore: {error}"))?
 }
 
 /// Discards staged and worktree changes for a specific path.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn discard_repository_path_changes(
+pub(crate) async fn discard_repository_path_changes(
     repo_path: String,
     file_path: String,
 ) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
-        ensure_repo_file(&file_path)?;
-
-        let restore_output = run_git_output(
-            &repo_path,
-            &[
-                "restore",
-                "--source=HEAD",
-                "--staged",
-                "--worktree",
-                "--",
-                &file_path,
-            ],
-            "run git restore",
-        )?;
-
-        if restore_output.status.success() {
-            return Ok(());
-        }
-
-        let restore_stderr = String::from_utf8_lossy(&restore_output.stderr)
-            .trim()
-            .to_string();
-
-        let untracked_output = run_git_output(
-            &repo_path,
-            &[
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-                "--error-unmatch",
-                "--",
-                &file_path,
-            ],
-            "inspect repository path state",
-        )?;
-
-        if !untracked_output.status.success() {
-            return Err(WorkingTreeError::message(if restore_stderr.is_empty() {
-                "Failed to discard changes".to_string()
-            } else {
-                restore_stderr
-            }));
-        }
-
-        let clean_output = run_git_output(
-            &repo_path,
-            &["clean", "-fd", "--", &file_path],
-            "run git clean",
-        )?;
-
-        if clean_output.status.success() {
-            return Ok(());
-        }
-        if !restore_stderr.is_empty() {
-            return Err(WorkingTreeError::message(restore_stderr));
-        }
-
-        let clean_stderr = String::from_utf8_lossy(&clean_output.stderr)
-            .trim()
-            .to_string();
-        if !clean_stderr.is_empty() {
-            return Err(WorkingTreeError::message(clean_stderr));
-        }
-
-        Err(WorkingTreeError::message("Failed to discard changes"))
-    })()
-    .map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        discard_repository_path_changes_inner(repo_path, file_path)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to discard path changes: {error}"))?
 }
 
 /// Discards all tracked and untracked changes in the repository.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
-
-        let reset_output = run_git_output(
-            &repo_path,
-            &["reset", "--hard", "HEAD"],
-            "run git reset --hard",
-        )?;
-        ensure_output_success(&reset_output, "Failed to discard tracked changes")?;
-
-        let clean_output = run_git_output(&repo_path, &["clean", "-fd"], "run git clean")?;
-        ensure_output_success(&clean_output, "Failed to discard untracked changes")
-    })()
-    .map_err(|error| error.to_string())
+pub(crate) async fn discard_all_repository_changes(repo_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        discard_all_repository_changes_inner(repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to discard all repository changes: {error}"))?
 }
 
 /// Resets repository state to a target revision using soft, mixed, or hard mode.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn reset_repository_to_reference(
+pub(crate) async fn reset_repository_to_reference(
     repo_path: String,
     target: String,
     mode: Option<String>,
 ) -> Result<(), String> {
-    (|| -> WorkingTreeResult<()> {
-        ensure_repo(&repo_path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        reset_repository_to_reference_inner(repo_path, target, mode)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to reset repository: {error}"))?
+}
 
-        let target_trimmed = target.trim();
+fn stage_all_repository_changes_inner(repo_path: String) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
 
-        if target_trimmed.is_empty() {
-            return Err(WorkingTreeError::message("Reset target is required"));
-        }
+    let output = run_git_output(&repo_path, &["add", "-A"], "run git add")?;
+    ensure_output_success(&output, "Failed to stage all changes")
+}
 
-        let normalized_mode = mode
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("mixed");
+fn unstage_all_repository_changes_inner(repo_path: String) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
 
-        let mode_flag = match normalized_mode {
-            "hard" => "--hard",
-            "soft" => "--soft",
-            _ => "--mixed",
-        };
+    let output = run_git_output(&repo_path, &["reset", "HEAD", "--", "."], "run git reset")?;
+    ensure_output_success(&output, "Failed to unstage all changes")
+}
 
-        let output = run_git_output(
-            &repo_path,
-            &["reset", mode_flag, target_trimmed],
-            "run git reset",
-        )?;
-        ensure_output_success(&output, "Failed to reset repository")
-    })()
-    .map_err(|error| error.to_string())
+fn stage_repository_file_inner(repo_path: String, file_path: String) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
+    ensure_repo_file(&file_path)?;
+
+    let output = run_git_output(&repo_path, &["add", "-A", "--", &file_path], "run git add")?;
+    ensure_output_success(&output, "Failed to stage file")
+}
+
+fn unstage_repository_file_inner(repo_path: String, file_path: String) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
+    ensure_repo_file(&file_path)?;
+
+    let output = run_git_output(
+        &repo_path,
+        &["reset", "HEAD", "--", &file_path],
+        "run git reset",
+    )?;
+    ensure_output_success(&output, "Failed to unstage file")
+}
+
+fn add_repository_ignore_rule_inner(repo_path: String, pattern: String) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
+
+    let trimmed_pattern = pattern.trim();
+    if trimmed_pattern.is_empty() {
+        return Err(WorkingTreeError::message("Ignore rule cannot be empty"));
+    }
+
+    let gitignore_path = Path::new(&repo_path).join(".gitignore");
+    let mut existing_contents = match fs::read_to_string(&gitignore_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(WorkingTreeError::io("read .gitignore", error)),
+    };
+
+    if existing_contents
+        .lines()
+        .any(|line| line.trim() == trimmed_pattern)
+    {
+        return Ok(());
+    }
+
+    if !existing_contents.is_empty() && !existing_contents.ends_with('\n') {
+        existing_contents.push('\n');
+    }
+
+    existing_contents.push_str(trimmed_pattern);
+    existing_contents.push('\n');
+
+    fs::write(&gitignore_path, existing_contents)
+        .map_err(|error| WorkingTreeError::io("update .gitignore", error))?;
+
+    Ok(())
+}
+
+fn discard_repository_path_changes_inner(
+    repo_path: String,
+    file_path: String,
+) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
+    ensure_repo_file(&file_path)?;
+
+    let restore_output = run_git_output(
+        &repo_path,
+        &[
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            &file_path,
+        ],
+        "run git restore",
+    )?;
+
+    if restore_output.status.success() {
+        return Ok(());
+    }
+
+    let restore_stderr = String::from_utf8_lossy(&restore_output.stderr)
+        .trim()
+        .to_string();
+
+    let untracked_output = run_git_output(
+        &repo_path,
+        &[
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--error-unmatch",
+            "--",
+            &file_path,
+        ],
+        "inspect repository path state",
+    )?;
+
+    if !untracked_output.status.success() {
+        return Err(WorkingTreeError::message(if restore_stderr.is_empty() {
+            "Failed to discard changes".to_string()
+        } else {
+            restore_stderr
+        }));
+    }
+
+    let clean_output = run_git_output(
+        &repo_path,
+        &["clean", "-fd", "--", &file_path],
+        "run git clean",
+    )?;
+
+    if clean_output.status.success() {
+        return Ok(());
+    }
+    if !restore_stderr.is_empty() {
+        return Err(WorkingTreeError::message(restore_stderr));
+    }
+
+    let clean_stderr = String::from_utf8_lossy(&clean_output.stderr)
+        .trim()
+        .to_string();
+    if !clean_stderr.is_empty() {
+        return Err(WorkingTreeError::message(clean_stderr));
+    }
+
+    Err(WorkingTreeError::message("Failed to discard changes"))
+}
+
+fn discard_all_repository_changes_inner(repo_path: String) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
+
+    let reset_output = run_git_output(
+        &repo_path,
+        &["reset", "--hard", "HEAD"],
+        "run git reset --hard",
+    )?;
+    ensure_output_success(&reset_output, "Failed to discard tracked changes")?;
+
+    let clean_output = run_git_output(&repo_path, &["clean", "-fd"], "run git clean")?;
+    ensure_output_success(&clean_output, "Failed to discard untracked changes")
+}
+
+fn reset_repository_to_reference_inner(
+    repo_path: String,
+    target: String,
+    mode: Option<String>,
+) -> WorkingTreeResult<()> {
+    ensure_repo(&repo_path)?;
+
+    let target_trimmed = target.trim();
+
+    if target_trimmed.is_empty() {
+        return Err(WorkingTreeError::message("Reset target is required"));
+    }
+
+    let normalized_mode = mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("mixed");
+
+    let mode_flag = match normalized_mode {
+        "hard" => "--hard",
+        "soft" => "--soft",
+        _ => "--mixed",
+    };
+
+    let output = run_git_output(
+        &repo_path,
+        &["reset", mode_flag, target_trimmed],
+        "run git reset",
+    )?;
+    ensure_output_success(&output, "Failed to reset repository")
 }
 
 /// Returns high-level working tree counters derived from porcelain status output.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
-#[tauri::command]
-pub(crate) fn get_repository_working_tree_status(
-    repo_path: String,
-) -> Result<RepositoryWorkingTreeStatus, String> {
-    (|| -> WorkingTreeResult<RepositoryWorkingTreeStatus> {
-        ensure_repo(&repo_path)?;
+fn get_repository_working_tree_status_inner(
+    repo_path: &str,
+) -> WorkingTreeResult<RepositoryWorkingTreeStatus> {
+    ensure_repo(repo_path)?;
 
-        let output = run_git_output(
-            &repo_path,
-            &["status", "--porcelain", "-z", "--untracked-files=all"],
-            "run git status",
-        )?;
-        ensure_output_success(&output, "Failed to read repository status")?;
+    let output = run_git_output(
+        repo_path,
+        &["status", "--porcelain", "-z", "--untracked-files=all"],
+        "run git status",
+    )?;
+    ensure_output_success(&output, "Failed to read repository status")?;
 
-        let mut staged_count = 0;
-        let mut unstaged_count = 0;
-        let mut untracked_count = 0;
+    let mut staged_count = 0;
+    let mut unstaged_count = 0;
+    let mut untracked_count = 0;
 
-        for entry in parse_porcelain_status_entries(&output.stdout)? {
-            let x = entry.staged_status;
-            let y = entry.unstaged_status;
+    for entry in parse_porcelain_status_entries(&output.stdout)? {
+        let x = entry.staged_status;
+        let y = entry.unstaged_status;
 
-            if x == '?' && y == '?' {
-                untracked_count += 1;
-                continue;
-            }
-
-            if x != ' ' {
-                staged_count += 1;
-            }
-
-            if y != ' ' {
-                unstaged_count += 1;
-            }
+        if x == '?' && y == '?' {
+            untracked_count += 1;
+            continue;
         }
 
-        Ok(RepositoryWorkingTreeStatus {
-            has_changes: staged_count + unstaged_count + untracked_count > 0,
-            staged_count,
-            unstaged_count,
-            untracked_count,
-        })
-    })()
-    .map_err(|error| error.to_string())
+        if x != ' ' {
+            staged_count += 1;
+        }
+
+        if y != ' ' {
+            unstaged_count += 1;
+        }
+    }
+
+    Ok(RepositoryWorkingTreeStatus {
+        has_changes: staged_count + unstaged_count + untracked_count > 0,
+        staged_count,
+        unstaged_count,
+        untracked_count,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn get_repository_working_tree_status(
+    repo_path: String,
+) -> Result<RepositoryWorkingTreeStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_working_tree_status_inner(&repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to read repository status: {error}"))?
 }
 
 /// Returns detailed working tree rows for staged, unstaged, and untracked paths.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
+fn get_repository_working_tree_items_inner(
+    repo_path: &str,
+) -> WorkingTreeResult<Vec<RepositoryWorkingTreeItem>> {
+    ensure_repo(repo_path)?;
+
+    let output = run_git_output(
+        repo_path,
+        &["status", "--porcelain", "-z", "--untracked-files=all"],
+        "run git status",
+    )?;
+    ensure_output_success(&output, "Failed to read repository status items")?;
+
+    let items = parse_porcelain_status_entries(&output.stdout)?
+        .into_iter()
+        .map(|entry| RepositoryWorkingTreeItem {
+            path: entry.path,
+            staged_status: entry.staged_status.to_string(),
+            unstaged_status: entry.unstaged_status.to_string(),
+            is_untracked: entry.staged_status == '?' && entry.unstaged_status == '?',
+        })
+        .collect();
+
+    Ok(items)
+}
+
 #[tauri::command]
-pub(crate) fn get_repository_working_tree_items(
+pub(crate) async fn get_repository_working_tree_items(
     repo_path: String,
 ) -> Result<Vec<RepositoryWorkingTreeItem>, String> {
-    (|| -> WorkingTreeResult<Vec<RepositoryWorkingTreeItem>> {
-        ensure_repo(&repo_path)?;
-
-        let output = run_git_output(
-            &repo_path,
-            &["status", "--porcelain", "-z", "--untracked-files=all"],
-            "run git status",
-        )?;
-        ensure_output_success(&output, "Failed to read repository status items")?;
-
-        let items = parse_porcelain_status_entries(&output.stdout)?
-            .into_iter()
-            .map(|entry| RepositoryWorkingTreeItem {
-                path: entry.path,
-                staged_status: entry.staged_status.to_string(),
-                unstaged_status: entry.unstaged_status.to_string(),
-                is_untracked: entry.staged_status == '?' && entry.unstaged_status == '?',
-            })
-            .collect();
-
-        Ok(items)
-    })()
-    .map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_working_tree_items_inner(&repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to read repository status items: {error}"))?
 }
 
 /// Lists cached and untracked repository files without duplicates.
 // Tauri command arguments mirror the frontend invoke payload.
-#[expect(clippy::needless_pass_by_value)]
+fn get_repository_files_inner(repo_path: &str) -> WorkingTreeResult<Vec<RepositoryFileEntry>> {
+    ensure_repo(repo_path)?;
+
+    let output = run_git_output(
+        repo_path,
+        &[
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
+        "run git ls-files",
+    )?;
+    ensure_output_success(&output, "Failed to list repository files")?;
+
+    parse_ls_files_output(&output.stdout)
+}
+
 #[tauri::command]
-pub(crate) fn get_repository_files(repo_path: String) -> Result<Vec<RepositoryFileEntry>, String> {
-    (|| -> WorkingTreeResult<Vec<RepositoryFileEntry>> {
-        ensure_repo(&repo_path)?;
-
-        let output = run_git_output(
-            &repo_path,
-            &[
-                "ls-files",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-                "-z",
-            ],
-            "run git ls-files",
-        )?;
-        ensure_output_success_with_git_error(&output, "Failed to list repository files")?;
-
-        parse_ls_files_output(&output.stdout)
-    })()
-    .map_err(|error| error.to_string())
+pub(crate) async fn get_repository_files(
+    repo_path: String,
+) -> Result<Vec<RepositoryFileEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_repository_files_inner(&repo_path).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Failed to list repository files: {error}"))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        add_repository_ignore_rule, discard_repository_path_changes, parse_ls_files_output,
-        parse_porcelain_status_entries, stage_repository_file, unstage_repository_file,
-        WorkingTreeError,
+        add_repository_ignore_rule, discard_all_repository_changes,
+        discard_repository_path_changes, parse_ls_files_output, parse_porcelain_status_entries,
+        reset_repository_to_reference, stage_all_repository_changes, stage_repository_file,
+        unstage_all_repository_changes, unstage_repository_file, WorkingTreeError,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -607,12 +660,177 @@ mod tests {
         repo
     }
 
-    #[test]
-    fn get_repository_working_tree_status_returns_one_untracked_file_when_repo_has_new_file() {
+    fn git_status_short(repo_path: &Path) -> String {
+        let output = run_git_output(repo_path, &["status", "--short"]);
+        assert!(output.status.success(), "git status should succeed");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    }
+
+    fn git_rev_parse(repo_path: &Path, revision: &str) -> String {
+        let output = run_git_output(repo_path, &["rev-parse", revision]);
+        assert!(
+            output.status.success(),
+            "git rev-parse should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    #[tokio::test]
+    async fn stage_all_repository_changes_stages_new_file() {
+        let repo = create_temp_git_repo();
+        fs::write(repo.path().join("notes.txt"), "draft").expect("write");
+
+        stage_all_repository_changes(repo.path().display().to_string())
+            .await
+            .expect("stage all");
+
+        assert_eq!(git_status_short(repo.path()), "A  notes.txt\n");
+    }
+
+    #[tokio::test]
+    async fn unstage_all_repository_changes_keeps_worktree_changes() {
+        let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
+        fs::write(repo.path().join("tracked.txt"), "updated\n").expect("write");
+        fs::write(repo.path().join("draft.txt"), "draft\n").expect("write");
+        run_git(repo.path(), &["add", "-A"]);
+
+        unstage_all_repository_changes(repo.path().display().to_string())
+            .await
+            .expect("unstage all");
+
+        let status = git_status_short(repo.path());
+        assert!(
+            status.contains(" M tracked.txt"),
+            "unexpected status: {status}"
+        );
+        assert!(
+            status.contains("?? draft.txt"),
+            "unexpected status: {status}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_repository_file_stages_only_requested_path() {
+        let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
+        fs::write(repo.path().join("tracked.txt"), "updated\n").expect("write");
+        fs::write(repo.path().join("other.txt"), "other\n").expect("write");
+        run_git(repo.path(), &["add", "other.txt"]);
+        run_git(repo.path(), &["reset", "HEAD", "--", "other.txt"]);
+
+        stage_repository_file(repo.path().display().to_string(), "tracked.txt".to_string())
+            .await
+            .expect("stage file");
+
+        let status = git_status_short(repo.path());
+        assert!(
+            status.contains("M  tracked.txt"),
+            "unexpected status: {status}"
+        );
+        assert!(
+            status.contains("?? other.txt"),
+            "unexpected status: {status}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unstage_repository_file_restores_path_to_unstaged_state() {
+        let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
+        fs::write(repo.path().join("tracked.txt"), "updated\n").expect("write");
+        run_git(repo.path(), &["add", "tracked.txt"]);
+
+        unstage_repository_file(repo.path().display().to_string(), "tracked.txt".to_string())
+            .await
+            .expect("unstage file");
+
+        assert_eq!(git_status_short(repo.path()), " M tracked.txt\n");
+    }
+
+    #[tokio::test]
+    async fn add_repository_ignore_rule_appends_pattern_once() {
+        let repo = create_temp_git_repo();
+
+        add_repository_ignore_rule(repo.path().display().to_string(), "dist/".to_string())
+            .await
+            .expect("first ignore rule write");
+        add_repository_ignore_rule(repo.path().display().to_string(), "dist/".to_string())
+            .await
+            .expect("second ignore rule write");
+
+        assert_eq!(
+            fs::read_to_string(repo.path().join(".gitignore")).expect("read gitignore"),
+            "dist/\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn discard_repository_path_changes_removes_untracked_file() {
+        let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
+        let draft_path = repo.path().join("draft.txt");
+        fs::write(&draft_path, "draft\n").expect("write");
+
+        discard_repository_path_changes(repo.path().display().to_string(), "draft.txt".to_string())
+            .await
+            .expect("discard path");
+
+        assert!(!draft_path.exists(), "untracked file should be removed");
+        assert_eq!(git_status_short(repo.path()), "");
+    }
+
+    #[tokio::test]
+    async fn discard_all_repository_changes_removes_tracked_and_untracked_changes() {
+        let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
+        let tracked_path = repo.path().join("tracked.txt");
+        let draft_dir = repo.path().join("drafts");
+        let draft_path = draft_dir.join("note.txt");
+        fs::write(&tracked_path, "updated\n").expect("write tracked");
+        fs::create_dir_all(&draft_dir).expect("create draft dir");
+        fs::write(&draft_path, "draft\n").expect("write draft");
+
+        discard_all_repository_changes(repo.path().display().to_string())
+            .await
+            .expect("discard all");
+
+        assert_eq!(
+            fs::read_to_string(&tracked_path).expect("read tracked"),
+            "tracked\n"
+        );
+        assert!(!draft_path.exists(), "untracked file should be removed");
+        assert_eq!(git_status_short(repo.path()), "");
+    }
+
+    #[tokio::test]
+    async fn reset_repository_to_reference_hard_restores_head_and_worktree() {
+        let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
+        fs::write(repo.path().join("tracked.txt"), "updated\n").expect("write");
+        run_git(repo.path(), &["add", "tracked.txt"]);
+        run_git(repo.path(), &["commit", "-m", "Second commit"]);
+        let first_commit = git_rev_parse(repo.path(), "HEAD~1");
+
+        reset_repository_to_reference(
+            repo.path().display().to_string(),
+            first_commit.clone(),
+            Some("hard".to_string()),
+        )
+        .await
+        .expect("reset repository");
+
+        assert_eq!(git_rev_parse(repo.path(), "HEAD"), first_commit);
+        assert_eq!(
+            fs::read_to_string(repo.path().join("tracked.txt")).expect("read tracked"),
+            "tracked\n"
+        );
+        assert_eq!(git_status_short(repo.path()), "");
+    }
+
+    #[tokio::test]
+    async fn get_repository_working_tree_status_returns_one_untracked_file_when_repo_has_new_file()
+    {
         let repo = create_temp_git_repo();
         fs::write(repo.path().join("notes.txt"), "draft").expect("write");
 
         let status = super::get_repository_working_tree_status(repo.path().display().to_string())
+            .await
             .expect("status");
 
         assert!(status.has_changes);
@@ -621,12 +839,13 @@ mod tests {
         assert_eq!(status.unstaged_count, 0);
     }
 
-    #[test]
-    fn get_repository_working_tree_items_returns_modified_tracked_file() {
+    #[tokio::test]
+    async fn get_repository_working_tree_items_returns_modified_tracked_file() {
         let repo = create_temp_git_repo_with_commit("notes.txt", "original\n");
         fs::write(repo.path().join("notes.txt"), "updated\n").expect("write");
 
         let items = super::get_repository_working_tree_items(repo.path().display().to_string())
+            .await
             .expect("items");
 
         assert_eq!(items.len(), 1);
@@ -636,12 +855,14 @@ mod tests {
         assert!(!items[0].is_untracked);
     }
 
-    #[test]
-    fn get_repository_files_includes_tracked_and_untracked_entries_without_duplicates() {
+    #[tokio::test]
+    async fn get_repository_files_includes_tracked_and_untracked_entries_without_duplicates() {
         let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
         fs::write(repo.path().join("draft.txt"), "draft\n").expect("write");
 
-        let files = super::get_repository_files(repo.path().display().to_string()).expect("files");
+        let files = super::get_repository_files(repo.path().display().to_string())
+            .await
+            .expect("files");
         let mut paths = files
             .into_iter()
             .map(|entry| entry.path)
@@ -679,14 +900,15 @@ mod tests {
         assert_eq!(paths, vec!["line\nbreak.txt", "tracked.txt"]);
     }
 
-    #[test]
-    fn stage_repository_file_rejects_parent_directory_traversal() {
+    #[tokio::test]
+    async fn stage_repository_file_rejects_parent_directory_traversal() {
         let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
 
         let result = stage_repository_file(
             repo.path().display().to_string(),
             "../outside.txt".to_string(),
-        );
+        )
+        .await;
 
         assert_eq!(
             result,
@@ -694,15 +916,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn unstage_repository_file_rejects_absolute_paths() {
+    #[tokio::test]
+    async fn unstage_repository_file_rejects_absolute_paths() {
         let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
         let absolute_path = repo.path().join("tracked.txt");
 
         let result = unstage_repository_file(
             repo.path().display().to_string(),
             absolute_path.display().to_string(),
-        );
+        )
+        .await;
 
         assert_eq!(
             result,
@@ -710,14 +933,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn discard_repository_path_changes_rejects_parent_directory_traversal() {
+    #[tokio::test]
+    async fn discard_repository_path_changes_rejects_parent_directory_traversal() {
         let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
 
         let result = discard_repository_path_changes(
             repo.path().display().to_string(),
             "../outside.txt".to_string(),
-        );
+        )
+        .await;
 
         assert_eq!(
             result,
@@ -725,28 +949,30 @@ mod tests {
         );
     }
 
-    #[test]
-    fn add_repository_ignore_rule_returns_error_when_existing_gitignore_is_not_utf8() {
+    #[tokio::test]
+    async fn add_repository_ignore_rule_returns_error_when_existing_gitignore_is_not_utf8() {
         let repo = create_temp_git_repo();
         let gitignore_path = repo.path().join(".gitignore");
         fs::write(&gitignore_path, [0xFF, 0xFE, 0x00]).expect("gitignore should be written");
 
         let result =
-            add_repository_ignore_rule(repo.path().display().to_string(), "dist/".to_string());
+            add_repository_ignore_rule(repo.path().display().to_string(), "dist/".to_string())
+                .await;
 
         assert!(result
             .expect_err("expected invalid utf-8 gitignore to fail")
             .starts_with("Failed to read .gitignore:"),);
     }
 
-    #[test]
-    fn discard_repository_path_changes_returns_error_for_missing_path() {
+    #[tokio::test]
+    async fn discard_repository_path_changes_returns_error_for_missing_path() {
         let repo = create_temp_git_repo_with_commit("tracked.txt", "tracked\n");
 
         let result = discard_repository_path_changes(
             repo.path().display().to_string(),
             "missing.txt".to_string(),
-        );
+        )
+        .await;
 
         assert!(result.is_err(), "expected missing path discard to fail");
     }

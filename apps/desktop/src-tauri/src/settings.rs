@@ -67,7 +67,7 @@ pub(crate) struct SettingsState {
     github_identity_cache: Mutex<GitHubIdentityCacheStore>,
     system_font_families: Mutex<Option<Vec<SystemFontFamily>>>,
     active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
-    auto_fetch_scheduler: Mutex<Option<AutoFetchSchedulerHandle>>,
+    auto_fetch_scheduler: Arc<Mutex<Option<AutoFetchSchedulerHandle>>>,
     askpass_socket_path: Mutex<Option<std::path::PathBuf>>,
 }
 
@@ -79,7 +79,7 @@ impl Default for SettingsState {
             github_identity_cache: Mutex::default(),
             system_font_families: Mutex::default(),
             active_network_repo_paths: Arc::new(Mutex::new(HashSet::new())),
-            auto_fetch_scheduler: Mutex::default(),
+            auto_fetch_scheduler: Arc::new(Mutex::default()),
             askpass_socket_path: Mutex::default(),
         }
     }
@@ -123,6 +123,26 @@ impl SettingsState {
         self.askpass_socket_path.lock().ok().and_then(|p| p.clone())
     }
 
+    pub(crate) fn command_snapshot(&self) -> Result<SettingsCommandSnapshot, String> {
+        let http_credentials = self
+            .http_credentials
+            .lock()
+            .map_err(|_| "Failed to access settings state".to_string())?
+            .clone();
+
+        Ok(SettingsCommandSnapshot {
+            active_network_repo_paths: Arc::clone(&self.active_network_repo_paths),
+            askpass_socket_path: self.askpass_socket_path(),
+            http_credentials,
+        })
+    }
+
+    pub(crate) fn auto_fetch_scheduler_handle(
+        &self,
+    ) -> Arc<Mutex<Option<AutoFetchSchedulerHandle>>> {
+        Arc::clone(&self.auto_fetch_scheduler)
+    }
+
     pub(crate) fn mutate_github_identity_cache<T>(
         &self,
         mutate: impl FnOnce(&mut HashMap<String, GitHubIdentityCacheRecord>) -> T,
@@ -136,9 +156,27 @@ impl SettingsState {
     }
 }
 
-struct AutoFetchSchedulerHandle {
+pub(crate) struct AutoFetchSchedulerHandle {
     shutdown_tx: std::sync::mpsc::Sender<()>,
     worker: JoinHandle<()>,
+}
+
+fn take_auto_fetch_scheduler(
+    scheduler_handle: &Arc<Mutex<Option<AutoFetchSchedulerHandle>>>,
+) -> Result<Option<AutoFetchSchedulerHandle>, String> {
+    let mut scheduler = scheduler_handle
+        .lock()
+        .map_err(|_| "Failed to access scheduler state".to_string())?;
+
+    Ok(scheduler.take())
+}
+
+fn shutdown_auto_fetch_scheduler(handle: AutoFetchSchedulerHandle) {
+    let _ = handle.shutdown_tx.send(());
+
+    if handle.worker.join().is_err() {
+        log::warn!("Auto-fetch scheduler worker panicked during shutdown");
+    }
 }
 
 /// Runtime capabilities reported by the settings backend.
@@ -299,6 +337,13 @@ pub(crate) struct StoredHttpCredential {
     username: String,
 }
 
+#[derive(Clone)]
+pub(crate) struct SettingsCommandSnapshot {
+    pub(crate) active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
+    pub(crate) askpass_socket_path: Option<PathBuf>,
+    pub(crate) http_credentials: HashMap<String, StoredHttpCredential>,
+}
+
 pub(crate) struct NetworkOperationGuard<'a> {
     active_operations: &'a Arc<Mutex<HashSet<String>>>,
     repo_path: String,
@@ -314,9 +359,14 @@ impl Drop for NetworkOperationGuard<'_> {
 
 /// Generates an SSH keypair in the user's `~/.ssh` directory.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, String> {
+pub(crate) async fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, String> {
+    tauri::async_runtime::spawn_blocking(move || generate_ssh_keypair_inner(file_name))
+        .await
+        .map_err(|error| format!("Failed to generate SSH keypair: {error}"))?
+}
+
+fn generate_ssh_keypair_inner(file_name: String) -> Result<PickedFilePath, String> {
     let trimmed_name = file_name.trim();
 
     if trimmed_name.is_empty() {
@@ -357,7 +407,13 @@ pub(crate) fn generate_ssh_keypair(file_name: String) -> Result<PickedFilePath, 
 
 /// Lists available signing keys from GPG and SSH key stores.
 #[tauri::command]
-pub(crate) fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
+pub(crate) async fn list_signing_keys() -> Result<Vec<SigningKeyInfo>, String> {
+    tauri::async_runtime::spawn_blocking(list_signing_keys_inner)
+        .await
+        .map_err(|error| format!("Failed to list signing keys: {error}"))?
+}
+
+fn list_signing_keys_inner() -> Result<Vec<SigningKeyInfo>, String> {
     let mut keys = Vec::new();
 
     let mut command = background_command("gpg");
@@ -474,9 +530,15 @@ pub(crate) fn list_system_font_families(
 
 /// Returns effective, global, and local Git identity values.
 #[tauri::command]
-pub(crate) fn get_git_identity(
+pub(crate) async fn get_git_identity(
     repo_path: Option<String>,
 ) -> Result<GitIdentityStatusPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || get_git_identity_inner(repo_path))
+        .await
+        .map_err(|error| format!("Failed to read Git identity: {error}"))?
+}
+
+fn get_git_identity_inner(repo_path: Option<String>) -> Result<GitIdentityStatusPayload, String> {
     let repo_path = repo_path.and_then(|value| {
         let trimmed = value.trim();
 
@@ -496,9 +558,17 @@ pub(crate) fn get_git_identity(
 
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
 /// Saves Git identity values at global or local scope and returns updated status.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn set_git_identity(
+pub(crate) async fn set_git_identity(
+    git_identity: GitIdentityWriteRequest,
+    repo_path: Option<String>,
+) -> Result<GitIdentityStatusPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || set_git_identity_inner(git_identity, repo_path))
+        .await
+        .map_err(|error| format!("Failed to save Git identity: {error}"))?
+}
+
+fn set_git_identity_inner(
     git_identity: GitIdentityWriteRequest,
     repo_path: Option<String>,
 ) -> Result<GitIdentityStatusPayload, String> {
@@ -641,7 +711,9 @@ fn load_git_credential_fallback(service: &str, account: &str) -> Result<Option<S
             urlencoding::encode(service),
             urlencoding::encode(account)
         );
-        stdin.write_all(input.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
 
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
@@ -678,7 +750,9 @@ fn save_git_credential_fallback(service: &str, account: &str, secret: &str) -> R
             urlencoding::encode(account),
             secret
         );
-        stdin.write_all(input.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
 
     let status = child.wait().map_err(|e| e.to_string())?;
@@ -704,7 +778,9 @@ fn clear_git_credential_fallback(service: &str, account: &str) -> Result<(), Str
             urlencoding::encode(service),
             urlencoding::encode(account)
         );
-        stdin.write_all(input.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
 
     let status = child.wait().map_err(|e| e.to_string())?;
@@ -727,7 +803,7 @@ fn annotate_keyring_error(error: SettingsError) -> SettingsError {
         )
     } else if error_string.contains("Secret Service: no result found") {
         SettingsError::Message(
-            "Login keychain not found or locked. Please unlock your keychain.".to_string()
+            "Login keychain not found or locked. Please unlock your keychain.".to_string(),
         )
     } else {
         error
@@ -787,6 +863,17 @@ fn get_proxy_secret_from_session(
         .map(|entry| entry.secret.value.clone()))
 }
 
+fn get_proxy_secret_from_snapshot(
+    snapshot: &SettingsCommandSnapshot,
+    username: &str,
+) -> Option<String> {
+    snapshot
+        .http_credentials
+        .values()
+        .find(|entry| entry.protocol == "proxy" && entry.username == username)
+        .map(|entry| entry.secret.value.clone())
+}
+
 fn resolve_proxy_secret(
     state: Option<&State<'_, SettingsState>>,
     username: &str,
@@ -805,6 +892,22 @@ fn resolve_proxy_secret(
     };
 
     get_proxy_secret_from_session(state.inner(), username)
+}
+
+fn resolve_proxy_secret_from_snapshot(
+    snapshot: Option<&SettingsCommandSnapshot>,
+    username: &str,
+    supplied_secret: Option<&str>,
+) -> Result<Option<String>, SettingsError> {
+    if let Some(secret) = supplied_secret.filter(|value| !value.trim().is_empty()) {
+        return Ok(Some(secret.trim().to_string()));
+    }
+
+    if let Some(secret) = load_keyring_entry(PROXY_SECRET_SERVICE, username)? {
+        return Ok(Some(secret));
+    }
+
+    Ok(snapshot.and_then(|value| get_proxy_secret_from_snapshot(value, username)))
 }
 
 fn configure_git_ssh_command(preferences: &RepoCommandPreferences) -> Option<String> {
@@ -909,6 +1012,42 @@ pub(crate) fn apply_auth_session_environment(
     Ok(())
 }
 
+pub(crate) fn apply_auth_session_environment_from_snapshot(
+    command: &mut Command,
+    settings_snapshot: Option<&SettingsCommandSnapshot>,
+    auth_session: Option<&crate::askpass_state::GitAuthSessionHandle>,
+) -> Result<(), String> {
+    command
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .env_remove("SSH_ASKPASS_REQUIRE");
+
+    let Some(session) = auth_session else {
+        return Ok(());
+    };
+
+    let socket_path = settings_snapshot
+        .and_then(|snapshot| snapshot.askpass_socket_path.clone())
+        .ok_or_else(|| {
+            "Askpass IPC server is not ready yet. Try the Git operation again.".to_string()
+        })?;
+
+    let askpass_path = resolve_askpass_binary_path();
+    command.env("GIT_ASKPASS", &askpass_path);
+    command.env("SSH_ASKPASS", &askpass_path);
+    command.env("SSH_ASKPASS_REQUIRE", "force");
+    command.env("GIT_TERMINAL_PROMPT", "0");
+    command.env("LITGIT_ASKPASS_SESSION", &session.session_id);
+    command.env("LITGIT_ASKPASS_SECRET", &session.secret);
+    command.env("LITGIT_ASKPASS_OPERATION", &session.operation);
+    command.env(
+        "LITGIT_ASKPASS_SOCKET",
+        socket_path.to_string_lossy().to_string(),
+    );
+
+    Ok(())
+}
+
 /// Applies Git preferences to a command with optional authentication session.
 ///
 /// This function configures a Git command with user preferences and sets up
@@ -934,6 +1073,17 @@ pub(crate) fn apply_git_preferences_with_auth_session(
     apply_auth_session_environment(command, settings_state.map(State::inner), auth_session)?;
 
     apply_existing_git_preferences(command, preferences, settings_state)
+}
+
+pub(crate) fn apply_git_preferences_with_auth_session_from_snapshot(
+    command: &mut Command,
+    preferences: &RepoCommandPreferences,
+    settings_snapshot: Option<&SettingsCommandSnapshot>,
+    auth_session: Option<&crate::askpass_state::GitAuthSessionHandle>,
+) -> Result<(), String> {
+    apply_auth_session_environment_from_snapshot(command, settings_snapshot, auth_session)?;
+
+    apply_existing_git_preferences_from_snapshot(command, preferences, settings_snapshot)
 }
 
 fn apply_existing_git_preferences(
@@ -1006,6 +1156,78 @@ fn apply_existing_git_preferences(
     Ok(())
 }
 
+fn apply_existing_git_preferences_from_snapshot(
+    command: &mut Command,
+    preferences: &RepoCommandPreferences,
+    settings_snapshot: Option<&SettingsCommandSnapshot>,
+) -> Result<(), String> {
+    if preferences.use_local_ssh_agent == Some(false) {
+        command.env("SSH_AUTH_SOCK", "");
+    }
+
+    if preferences.ssl_verification == Some(false) {
+        command.env("GIT_SSL_NO_VERIFY", "true");
+    }
+
+    command.env("GIT_TERMINAL_PROMPT", "0");
+
+    if preferences.use_git_credential_manager == Some(true) {
+        command.env("GCM_INTERACTIVE", "never");
+    }
+
+    if let Some(ssh_command) = configure_git_ssh_command(preferences) {
+        command.env("GIT_SSH_COMMAND", ssh_command);
+        command.env("SSH_AUTH_SOCK", "");
+    }
+
+    if preferences.enable_proxy == Some(true) {
+        if let Some(host) = preferences
+            .proxy_host
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let scheme = preferences
+                .proxy_type
+                .clone()
+                .unwrap_or_else(|| "http".to_string());
+            let port = preferences.proxy_port.unwrap_or(DEFAULT_PROXY_PORT);
+
+            if preferences.proxy_auth_enabled == Some(true) {
+                if let Some(username) = preferences
+                    .proxy_username
+                    .as_ref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    if let Some(secret) = resolve_proxy_secret_from_snapshot(
+                        settings_snapshot,
+                        username.trim(),
+                        preferences.proxy_auth_password.as_deref(),
+                    )
+                    .map_err(|error| error.to_string())?
+                    {
+                        command.env("LITGIT_PROXY_USERNAME", username.trim());
+                        command.env("LITGIT_PROXY_PASSWORD", secret);
+                    }
+                }
+            }
+
+            command.env("LITGIT_PROXY_HOST", host.trim());
+            command.env("LITGIT_PROXY_PORT", port.to_string());
+            command.env("LITGIT_PROXY_TYPE", scheme);
+        }
+    }
+
+    if let Some(gpg_program_path) = preferences
+        .gpg_program_path
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        command.args(["-c", &format!("gpg.program={}", gpg_program_path.trim())]);
+    }
+
+    Ok(())
+}
+
 /// Applies Git preferences to a command without an authentication session.
 pub(crate) fn apply_git_preferences(
     command: &mut Command,
@@ -1013,6 +1235,19 @@ pub(crate) fn apply_git_preferences(
     settings_state: Option<&State<'_, SettingsState>>,
 ) -> Result<(), String> {
     apply_git_preferences_with_auth_session(command, preferences, settings_state, None)
+}
+
+pub(crate) fn apply_git_preferences_from_snapshot(
+    command: &mut Command,
+    preferences: &RepoCommandPreferences,
+    settings_snapshot: Option<&SettingsCommandSnapshot>,
+) -> Result<(), String> {
+    apply_git_preferences_with_auth_session_from_snapshot(
+        command,
+        preferences,
+        settings_snapshot,
+        None,
+    )
 }
 
 fn build_git_identity_status(
@@ -1484,13 +1719,11 @@ pub(crate) fn clear_proxy_auth_secret(
     Ok(())
 }
 
-/// Begins a tracked network operation for a repository to prevent concurrent operations.
-pub(crate) fn begin_network_operation<'a>(
-    state: &'a State<'_, SettingsState>,
+pub(crate) fn begin_network_operation_with_active_paths<'a>(
+    active_network_repo_paths: &'a Arc<Mutex<HashSet<String>>>,
     repo_path: &str,
 ) -> Result<NetworkOperationGuard<'a>, String> {
-    let mut active_operations = state
-        .active_network_repo_paths
+    let mut active_operations = active_network_repo_paths
         .lock()
         .map_err(|_| "Failed to access scheduler state".to_string())?;
 
@@ -1501,7 +1734,7 @@ pub(crate) fn begin_network_operation<'a>(
     active_operations.insert(repo_path.to_string());
 
     Ok(NetworkOperationGuard {
-        active_operations: &state.active_network_repo_paths,
+        active_operations: active_network_repo_paths,
         repo_path: repo_path.to_string(),
     })
 }
@@ -1616,31 +1849,45 @@ pub(crate) async fn test_proxy_connection(
 
 /// Starts or replaces the background auto-fetch scheduler for one repository.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn start_auto_fetch_scheduler(
+pub(crate) async fn start_auto_fetch_scheduler(
     state: State<'_, SettingsState>,
+    interval_minutes: u64,
+    repo_path: String,
+    preferences: Option<RepoCommandPreferences>,
+) -> Result<(), String> {
+    let scheduler_handle = state.inner().auto_fetch_scheduler_handle();
+    let active_network_repo_paths = Arc::clone(&state.active_network_repo_paths);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        start_auto_fetch_scheduler_inner(
+            scheduler_handle,
+            active_network_repo_paths,
+            interval_minutes,
+            repo_path,
+            preferences,
+        )
+    })
+    .await
+    .map_err(|error| format!("Failed to start auto-fetch scheduler: {error}"))?
+}
+
+fn start_auto_fetch_scheduler_inner(
+    scheduler_handle: Arc<Mutex<Option<AutoFetchSchedulerHandle>>>,
+    active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
     interval_minutes: u64,
     repo_path: String,
     preferences: Option<RepoCommandPreferences>,
 ) -> Result<(), String> {
     validate_git_repo(Path::new(&repo_path))?;
 
-    let mut scheduler = state
-        .auto_fetch_scheduler
-        .lock()
-        .map_err(|_| "Failed to access scheduler state".to_string())?;
-
-    if let Some(existing) = scheduler.take() {
-        let _ = existing.shutdown_tx.send(());
-        let _ = existing.worker.join();
+    if let Some(existing) = take_auto_fetch_scheduler(&scheduler_handle)? {
+        shutdown_auto_fetch_scheduler(existing);
     }
 
     if interval_minutes == 0 {
         return Ok(());
     }
-
-    let active_network_repo_paths = Arc::clone(&state.active_network_repo_paths);
 
     let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
     let repo_path_for_worker = repo_path.clone();
@@ -1654,20 +1901,11 @@ pub(crate) fn start_auto_fetch_scheduler(
                     break;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    let network_operation = match active_network_repo_paths.lock() {
-                        Ok(mut active_operations) => {
-                            if active_operations.contains(&repo_path_for_worker) {
-                                None
-                            } else {
-                                active_operations.insert(repo_path_for_worker.clone());
-                                Some(NetworkOperationGuard {
-                                    active_operations: &active_network_repo_paths,
-                                    repo_path: repo_path_for_worker.clone(),
-                                })
-                            }
-                        }
-                        Err(_) => None,
-                    };
+                    let network_operation = begin_network_operation_with_active_paths(
+                        &active_network_repo_paths,
+                        &repo_path_for_worker,
+                    )
+                    .ok();
 
                     if network_operation.is_none() {
                         continue;
@@ -1684,6 +1922,10 @@ pub(crate) fn start_auto_fetch_scheduler(
         }
     });
 
+    let mut scheduler = scheduler_handle
+        .lock()
+        .map_err(|_| "Failed to access scheduler state".to_string())?;
+
     *scheduler = Some(AutoFetchSchedulerHandle {
         shutdown_tx,
         worker,
@@ -1694,17 +1936,22 @@ pub(crate) fn start_auto_fetch_scheduler(
 
 /// Stops the running auto-fetch scheduler if one exists.
 // Tauri commands accept owned payloads because invoke arguments are deserialized by value.
-#[expect(clippy::needless_pass_by_value)]
 #[tauri::command]
-pub(crate) fn stop_auto_fetch_scheduler(state: State<'_, SettingsState>) -> Result<(), String> {
-    let mut scheduler = state
-        .auto_fetch_scheduler
-        .lock()
-        .map_err(|_| "Failed to access scheduler state".to_string())?;
+pub(crate) async fn stop_auto_fetch_scheduler(
+    state: State<'_, SettingsState>,
+) -> Result<(), String> {
+    let scheduler_handle = state.inner().auto_fetch_scheduler_handle();
 
-    if let Some(existing) = scheduler.take() {
-        let _ = existing.shutdown_tx.send(());
-        let _ = existing.worker.join();
+    tauri::async_runtime::spawn_blocking(move || stop_auto_fetch_scheduler_inner(scheduler_handle))
+        .await
+        .map_err(|error| format!("Failed to stop auto-fetch scheduler: {error}"))?
+}
+
+fn stop_auto_fetch_scheduler_inner(
+    scheduler_handle: Arc<Mutex<Option<AutoFetchSchedulerHandle>>>,
+) -> Result<(), String> {
+    if let Some(existing) = take_auto_fetch_scheduler(&scheduler_handle)? {
+        shutdown_auto_fetch_scheduler(existing);
     }
 
     Ok(())
@@ -1728,12 +1975,19 @@ fn run_network_git_command(
 mod tests {
     use super::{
         annotate_keyring_error, apply_auth_session_environment, apply_existing_git_preferences,
-        apply_git_preferences, get_ai_secret_from_session, get_settings_backend_capabilities,
-        normalize_git_identity_scope, validate_git_identity_email,
-        validate_git_identity_name, RepoCommandPreferences, SettingsError, SettingsState,
-        StoredSecretValue,
+        apply_git_preferences, get_ai_secret_from_session, get_git_identity,
+        get_settings_backend_capabilities, normalize_git_identity_scope, set_git_identity,
+        start_auto_fetch_scheduler, stop_auto_fetch_scheduler, validate_git_identity_email,
+        validate_git_identity_name, GitIdentityWriteRequest, RepoCommandPreferences, SettingsError,
+        SettingsState, StoredSecretValue,
     };
+    use crate::git_support::git_command;
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
     use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tauri::Manager;
 
     #[test]
     fn validate_git_identity_email_returns_error_when_input_is_blank() {
@@ -1976,12 +2230,15 @@ mod tests {
         let state = SettingsState::default();
         let provider = "test-provider";
         let secret_value = "session-secret";
-        
+
         {
             let mut secrets = state.ai_secrets.lock().unwrap();
-            secrets.insert(provider.to_string(), StoredSecretValue::session(secret_value));
+            secrets.insert(
+                provider.to_string(),
+                StoredSecretValue::session(secret_value),
+            );
         }
-        
+
         let resolved = get_ai_secret_from_session(&state, provider).expect("should resolve");
         assert_eq!(resolved, Some(secret_value.to_string()));
     }
@@ -1989,12 +2246,13 @@ mod tests {
     #[test]
     fn annotate_keyring_error_provides_helpful_linux_messages() {
         // This test only runs its logic on Linux, or we can check the fn directly
-        let error = SettingsError::Message("error: org.freedesktop.secrets was not found".to_string());
+        let error =
+            SettingsError::Message("error: org.freedesktop.secrets was not found".to_string());
         let annotated = annotate_keyring_error(error);
-        
+
         #[cfg(target_os = "linux")]
         assert!(annotated.to_string().contains("Keychain not found"));
-        
+
         #[cfg(not(target_os = "linux"))]
         assert!(annotated.to_string().contains("org.freedesktop.secrets"));
     }
@@ -2003,11 +2261,13 @@ mod tests {
     fn apply_auth_session_environment_clears_existing_askpass() {
         let mut command = std::process::Command::new("git");
         command.env("GIT_ASKPASS", "old-askpass");
-        
+
         // Verify that existing GIT_ASKPASS is removed even when no session is provided
         apply_auth_session_environment(&mut command, None, None).expect("should work");
-        
-        let envs = command.get_envs().collect::<std::collections::HashMap<_, _>>();
+
+        let envs = command
+            .get_envs()
+            .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(envs.get(std::ffi::OsStr::new("GIT_ASKPASS")), Some(&None));
     }
 
@@ -2031,5 +2291,138 @@ mod tests {
             error,
             "Askpass IPC server is not ready yet. Try the Git operation again."
         );
+    }
+
+    #[tokio::test]
+    async fn set_git_identity_writes_local_scope_and_returns_updated_status() {
+        let repo = TempRepository::create();
+
+        let status = set_git_identity(
+            GitIdentityWriteRequest {
+                email: "dev@example.com".to_string(),
+                name: "Lit Git User".to_string(),
+                scope: "local".to_string(),
+            },
+            Some(repo.path.to_string_lossy().to_string()),
+        )
+        .await
+        .expect("git identity should be saved");
+
+        assert_eq!(status.effective_scope.as_deref(), Some("local"));
+        assert_eq!(status.effective.name.as_deref(), Some("Lit Git User"));
+        assert_eq!(status.effective.email.as_deref(), Some("dev@example.com"));
+        assert_eq!(
+            status
+                .local
+                .as_ref()
+                .and_then(|value| value.name.as_deref()),
+            Some("Lit Git User")
+        );
+        assert_eq!(
+            status
+                .local
+                .as_ref()
+                .and_then(|value| value.email.as_deref()),
+            Some("dev@example.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn get_git_identity_reads_existing_local_identity() {
+        let repo = TempRepository::create();
+        repo.git(&["config", "--local", "user.name", "Existing User"]);
+        repo.git(&["config", "--local", "user.email", "existing@example.com"]);
+
+        let status = get_git_identity(Some(repo.path.to_string_lossy().to_string()))
+            .await
+            .expect("git identity should resolve");
+
+        assert_eq!(status.effective_scope.as_deref(), Some("local"));
+        assert_eq!(status.effective.name.as_deref(), Some("Existing User"));
+        assert_eq!(
+            status.effective.email.as_deref(),
+            Some("existing@example.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn start_auto_fetch_scheduler_registers_worker_until_stopped() {
+        let repo = TempRepository::create();
+        let app = tauri::test::mock_builder()
+            .manage(SettingsState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("settings test app should build");
+
+        start_auto_fetch_scheduler(
+            app.state::<SettingsState>(),
+            1,
+            repo.path.to_string_lossy().to_string(),
+            None,
+        )
+        .await
+        .expect("scheduler should start");
+
+        assert!(app
+            .state::<SettingsState>()
+            .auto_fetch_scheduler
+            .lock()
+            .expect("scheduler lock should be available")
+            .is_some());
+
+        stop_auto_fetch_scheduler(app.state::<SettingsState>())
+            .await
+            .expect("scheduler should stop cleanly");
+
+        assert!(app
+            .state::<SettingsState>()
+            .auto_fetch_scheduler
+            .lock()
+            .expect("scheduler lock should be available")
+            .is_none());
+    }
+
+    struct TempRepository {
+        path: PathBuf,
+    }
+
+    impl TempRepository {
+        fn create() -> Self {
+            let unique_suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock should be after unix epoch")
+                .as_nanos();
+            let path = env::temp_dir().join(format!("litgit-settings-test-{unique_suffix}"));
+
+            fs::create_dir_all(&path).expect("temp repo directory should be created");
+            Self::git_in(&path, &["init", "-b", "main"]);
+            Self::git_in(&path, &["config", "user.name", "LitGit Tests"]);
+            Self::git_in(&path, &["config", "user.email", "tests@example.com"]);
+
+            Self { path }
+        }
+
+        fn git(&self, args: &[&str]) {
+            Self::git_in(&self.path, args);
+        }
+
+        fn git_in(path: &std::path::Path, args: &[&str]) {
+            let output = git_command()
+                .args(["-C", path.to_string_lossy().as_ref()])
+                .args(args)
+                .output()
+                .expect("git command should run");
+
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    impl Drop for TempRepository {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }
