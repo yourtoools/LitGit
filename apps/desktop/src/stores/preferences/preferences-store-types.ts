@@ -264,7 +264,7 @@ export const clampTerminalLineHeight = (value: number): number => {
 
 export const clampAiMaxInputTokens = (value: number): number => {
   if (!Number.isFinite(value)) {
-    return 1024;
+    return 1200;
   }
 
   return Math.min(4096, Math.max(256, Math.round(value)));
@@ -281,10 +281,10 @@ export const clampAiMaxOutputTokens = (value: number): number => {
 export const getDefaultAiMaxInputTokens = (provider: AiProvider): number => {
   switch (provider) {
     case "ollama": {
-      return 1024;
+      return 1200;
     }
     default: {
-      return 1024;
+      return 1200;
     }
   }
 };

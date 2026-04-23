@@ -48,6 +48,7 @@ import {
 } from "@/lib/tauri-repo-client";
 import { generateRepositoryCommitMessage } from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import { getAiCommitGenerationSuccessToast } from "@/stores/repo/ai-commit-generation-toast";
 import {
   resolveErrorMessage,
   resolveErrorSummary,
@@ -1645,6 +1646,10 @@ export const createRepoActionsSlice = (
           provider_kind: result.providerKind,
           schema_fallback_used: result.schemaFallbackUsed,
         },
+      });
+      const successToast = getAiCommitGenerationSuccessToast();
+      toast.success(successToast.title, {
+        description: successToast.description,
       });
       return result;
     } catch (error) {

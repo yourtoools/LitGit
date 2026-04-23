@@ -118,6 +118,7 @@ import {
   TrayArrowUpIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { getAiGenerationDisplayState } from "@/components/views/repo-info-ai-generation";
 import { useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { isTauri } from "@tauri-apps/api/core";
@@ -1184,6 +1185,12 @@ export function RepoInfo() {
   >(null);
   const [pendingDropCommitLabel, setPendingDropCommitLabel] = useState("");
   const [isDroppingCommit, setIsDroppingCommit] = useState(false);
+  const lastAiCommitGenerationDisplayState = lastAiCommitGeneration
+    ? getAiGenerationDisplayState(lastAiCommitGeneration.promptMode)
+    : null;
+  const lastAiRewordGenerationDisplayState = lastAiRewordGeneration
+    ? getAiGenerationDisplayState(lastAiRewordGeneration.promptMode)
+    : null;
   let resetTargetDescription =
     "Hard reset discards staged and working tree changes after moving HEAD. Use this carefully.";
 
@@ -11404,9 +11411,11 @@ export function RepoInfo() {
                                     >
                                       Title
                                     </Label>
-                                    {lastAiRewordGeneration ? (
+                                    {lastAiRewordGenerationDisplayState ? (
                                       <span className="inline-flex items-center rounded border border-border/70 px-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.08em]">
-                                        AI {lastAiRewordGeneration.promptMode}
+                                        {
+                                          lastAiRewordGenerationDisplayState.badgeLabel
+                                        }
                                       </span>
                                     ) : null}
                                   </div>
@@ -11443,10 +11452,9 @@ export function RepoInfo() {
                                   value={rewordCommitSummary}
                                 />
                               </div>
-                              {lastAiRewordGeneration?.promptMode === "fast" ? (
+                              {lastAiRewordGenerationDisplayState?.contextNote ? (
                                 <p className="text-[11px] text-muted-foreground leading-4">
-                                  AI used summary context instead of full patch
-                                  hunks because the staged diff was large.
+                                  {lastAiRewordGenerationDisplayState.contextNote}
                                 </p>
                               ) : null}
                               <div className="space-y-1.5">
@@ -12636,9 +12644,9 @@ export function RepoInfo() {
                               >
                                 Title
                               </Label>
-                              {lastAiCommitGeneration ? (
+                              {lastAiCommitGenerationDisplayState ? (
                                 <span className="inline-flex items-center rounded border border-border/70 px-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.08em]">
-                                  AI {lastAiCommitGeneration.promptMode}
+                                  {lastAiCommitGenerationDisplayState.badgeLabel}
                                 </span>
                               ) : null}
                             </div>
@@ -12675,10 +12683,9 @@ export function RepoInfo() {
                             ref={commitSummaryInputRef}
                             value={draftCommitSummary}
                           />
-                          {lastAiCommitGeneration?.promptMode === "fast" ? (
+                          {lastAiCommitGenerationDisplayState?.contextNote ? (
                             <p className="text-[11px] text-muted-foreground leading-4">
-                              AI used summary context instead of full patch
-                              hunks because the staged diff was large.
+                              {lastAiCommitGenerationDisplayState.contextNote}
                             </p>
                           ) : null}
                           {isGeneratingAiCommitMessage &&

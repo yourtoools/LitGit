@@ -1703,7 +1703,6 @@ fn build_commit_message_request_payload(
                 ],
                 "stream": true,
                 "max_tokens": output_token_limit,
-                "temperature": 0.2,
                 "output_config": {
                     "effort": "low",
                     "format": {
@@ -1734,7 +1733,6 @@ fn build_commit_message_request_payload(
                 ],
                 "generationConfig": {
                     "maxOutputTokens": output_token_limit,
-                    "temperature": 0.2,
                     "responseMimeType": "application/json",
                     "responseJsonSchema": schema,
                     "thinkingConfig": {
@@ -1759,7 +1757,6 @@ fn build_commit_message_request_payload(
                 ],
                 "stream": use_streaming,
                 "max_tokens": output_token_limit,
-                "temperature": 0.2,
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {
@@ -1814,7 +1811,6 @@ fn request_generated_commit_message(
                     }
                 ],
                 "max_tokens": request.output_token_limit,
-                "temperature": 0.2,
                 "stream": supports_ai_streaming(request.provider, request.request_kind)
             });
 
@@ -2313,6 +2309,43 @@ mod tests {
         );
 
         assert_eq!(request_body.get("stream"), Some(&serde_json::json!(false)));
+    }
+
+    #[test]
+    fn build_commit_message_request_payload_omits_temperature_for_all_providers() {
+        let (_, anthropic_request_body) = build_commit_message_request_payload(
+            "anthropic",
+            get_ai_request_kind("anthropic", "https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1",
+            "claude-sonnet-4-5",
+            "Summarize staged changes",
+            96,
+        );
+        let (_, gemini_request_body) = build_commit_message_request_payload(
+            "google",
+            get_ai_request_kind("google", "https://generativelanguage.googleapis.com/v1beta"),
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-2.5-flash",
+            "Summarize staged changes",
+            96,
+        );
+        let (_, openai_request_body) = build_commit_message_request_payload(
+            "openai",
+            get_ai_request_kind("openai", "https://api.openai.com/v1"),
+            "https://api.openai.com/v1",
+            "gpt-5-mini",
+            "Summarize staged changes",
+            96,
+        );
+
+        assert_eq!(anthropic_request_body.get("temperature"), None);
+        assert_eq!(
+            gemini_request_body
+                .get("generationConfig")
+                .and_then(|config| config.get("temperature")),
+            None
+        );
+        assert_eq!(openai_request_body.get("temperature"), None);
     }
 
     #[test]
