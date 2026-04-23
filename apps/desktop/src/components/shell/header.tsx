@@ -13,6 +13,7 @@ import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
+import { TabSearchTrigger } from "@/components/shell/tab-search-trigger";
 import { WindowTitlebar } from "@/components/shell/window-titlebar";
 import { TabBar } from "@/components/tabs/tab-bar";
 import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
@@ -26,6 +27,7 @@ import {
   isOpenRepositoryChordStartShortcut,
   isPrimaryShortcut,
 } from "@/lib/keyboard-shortcuts";
+import { shouldUseWindowTitlebar } from "@/lib/runtime-window-chrome";
 import { getRepoGitIdentity } from "@/lib/tauri-repo-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { useRootActiveRepoContext } from "@/stores/repo/repo-root-selectors";
@@ -41,6 +43,7 @@ import { useTabStore } from "@/stores/tabs/use-tab-store";
 export default function Header() {
   useTabRepoSync();
   const navigate = useNavigate();
+  const usesWindowTitlebar = shouldUseWindowTitlebar();
 
   const openRepository = useRepoStore((state) => state.openRepository);
   const initializeRepository = useRepoStore(
@@ -279,13 +282,14 @@ export default function Header() {
 
   return (
     <header className="bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
-      <WindowTitlebar />
+      {usesWindowTitlebar ? <WindowTitlebar /> : null}
       <PageShell className="flex h-10 w-full min-w-0 items-center gap-2 border-border/80 border-b">
         <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-hidden md:flex">
           <TabBar />
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {!usesWindowTitlebar ? <TabSearchTrigger variant="icon" /> : null}
           {/* Settings */}
           <Tooltip>
             <TooltipTrigger

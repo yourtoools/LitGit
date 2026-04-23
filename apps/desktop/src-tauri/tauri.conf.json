@@ -10,21 +10,7 @@
     "beforeBuildCommand": "cd .. && bun run build:desktop-web"
   },
   "app": {
-    "windows": [
-      {
-        "title": "LitGit Desktop",
-        "width": 1100,
-        "height": 720,
-        "minWidth": 1100,
-        "minHeight": 720,
-        "center": true,
-        "decorations": false,
-        "shadow": true,
-        "resizable": true,
-        "fullscreen": false,
-        "maximized": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

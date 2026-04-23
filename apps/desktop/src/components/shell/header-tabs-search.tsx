@@ -17,7 +17,6 @@ import {
 } from "@litgit/ui/components/dialog";
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
-import { PopoverContent } from "@litgit/ui/components/popover";
 import { useWindowEvent } from "@mantine/hooks";
 import { FileIcon, GitBranchIcon, XIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
@@ -1131,150 +1130,120 @@ export function HeaderTabsSearch() {
 
   return (
     <>
-      <PopoverContent
-        align="center"
-        className="w-[36rem] max-w-[calc(100vw-16rem)] p-0"
-        sideOffset={4}
-      >
-        <Combobox
-          filter={null}
-          inputValue={query}
-          itemToStringLabel={(item: PaletteItem) =>
-            isCommandItem(item) ? item.label : item.title
+      <Dialog
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            closeSearch();
           }
-          onInputValueChange={(nextInputValue) => {
-            if (ignoredSelectedInputValueRef.current === nextInputValue) {
-              ignoredSelectedInputValueRef.current = null;
-              return;
-            }
-
-            ignoredSelectedInputValueRef.current = null;
-
-            if (nextInputValue.startsWith(">")) {
-              setSearchMode("commands");
-              setQuery(nextInputValue);
-              return;
-            }
-
-            setSearchMode("tabs");
-            setQuery(nextInputValue);
-          }}
-          onValueChange={(value) => {
-            handleSelect(value).catch(() => undefined);
-          }}
-          open
+        }}
+        open={isOpen}
+      >
+        <DialogContent
+          className="top-[10%] translate-y-0 gap-2 p-0 pb-2 sm:max-w-xl"
+          showCloseButton={false}
         >
-          <div className="border-b px-3 py-1.5">
-            <ComboboxInput
-              autoFocus
-              className="flex h-7 w-full bg-transparent text-xs outline-hidden placeholder:text-muted-foreground"
-              onKeyDown={(event) => {
-                if (event.key !== "Escape") {
-                  return;
-                }
-
-                event.preventDefault();
-                event.stopPropagation();
-                closeSearch();
-              }}
-              placeholder={
-                isCommandMode
-                  ? "> Search commands by name, action, or shortcut"
-                  : "Search tabs by title or shortcut, or start with > for commands"
+          <Combobox
+            filter={null}
+            inputValue={query}
+            itemToStringLabel={(item: PaletteItem) =>
+              isCommandItem(item) ? item.label : item.title
+            }
+            onInputValueChange={(nextInputValue) => {
+              if (ignoredSelectedInputValueRef.current === nextInputValue) {
+                ignoredSelectedInputValueRef.current = null;
+                return;
               }
-              showClear
-              showTrigger={false}
-            />
-          </div>
-          <ComboboxList
-            className={`overflow-x-hidden overscroll-contain p-1 ${SCROLLBAR_CLASSES}`}
-            style={{ maxHeight: "min(40vh, 320px)" }}
+
+              ignoredSelectedInputValueRef.current = null;
+
+              if (nextInputValue.startsWith(">")) {
+                setSearchMode("commands");
+                setQuery(nextInputValue);
+                return;
+              }
+
+              setSearchMode("tabs");
+              setQuery(nextInputValue);
+            }}
+            onValueChange={(value) => {
+              handleSelect(value).catch(() => undefined);
+            }}
           >
-            {!hasResults && (
-              <div className="py-4 text-center text-muted-foreground text-xs">
-                {isCommandMode
-                  ? "No matching commands found."
-                  : "No matching tabs found."}
-              </div>
-            )}
+            <div className="border-b px-3 py-1.5">
+              <ComboboxInput
+                autoFocus
+                className="flex h-7 w-full bg-transparent text-xs outline-hidden placeholder:text-muted-foreground"
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") {
+                    return;
+                  }
 
-            {isCommandMode ? (
-              commandGroups.map(([group, items], index) => (
-                <div key={group}>
-                  {index > 0 && <div className="-mx-1 my-0.5 h-px bg-border" />}
-                  <ComboboxGroup>
-                    <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
-                      {group}
-                    </ComboboxLabel>
-                    {items.map((item) => (
-                      <ComboboxItem
-                        className="relative flex w-full cursor-default select-none items-start gap-2 px-2 py-1.5 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
-                        disabled={item.disabled}
-                        key={item.id}
-                        value={item}
-                      >
-                        {renderHeaderTabsCommandIcon(item.id, resolvedTheme)}
-                        <div className="min-w-0 flex-1">
-                          {" "}
-                          <div className="truncate font-medium">
-                            {item.label}
-                          </div>
-                          <div className="line-clamp-2 text-[11px] text-muted-foreground group-data-highlighted:text-accent-foreground/80">
-                            {item.description}
-                          </div>
-                        </div>
-                        {item.shortcuts ? (
-                          <ShortcutKeys keys={item.shortcuts} />
-                        ) : null}
-                      </ComboboxItem>
-                    ))}
-                  </ComboboxGroup>
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeSearch();
+                }}
+                placeholder={
+                  isCommandMode
+                    ? "> Search commands by name, action, or shortcut"
+                    : "Search tabs by title or shortcut, or start with > for commands"
+                }
+                showClear
+                showTrigger={false}
+              />
+            </div>
+            <ComboboxList
+              className={`max-h-[min(40vh,320px)] overflow-x-hidden overflow-y-auto p-1 ${SCROLLBAR_CLASSES}`}
+            >
+              {!hasResults && (
+                <div className="py-4 text-center text-muted-foreground text-xs">
+                  {isCommandMode
+                    ? "No matching commands found."
+                    : "No matching tabs found."}
                 </div>
-              ))
-            ) : (
-              <>
-                {filteredOpen.length > 0 && (
-                  <ComboboxGroup>
-                    <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
-                      Open Tabs
-                    </ComboboxLabel>
-                    {filteredOpen.map((item) => (
-                      <ComboboxItem
-                        className="group/tab-item relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
-                        key={item.id}
-                        value={item}
-                      >
-                        {item.repoId ? (
-                          <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="flex-1 truncate">{item.title}</span>
-                        <button
-                          aria-label={`Close ${item.title}`}
-                          className="focus-visible:desktop-focus-strong ml-auto flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-data-highlighted/tab-item:opacity-100"
-                          onClick={(event) => handleCloseTab(event, item)}
-                          type="button"
-                        >
-                          <XIcon className="size-3 text-muted-foreground" />
-                        </button>
-                      </ComboboxItem>
-                    ))}
-                  </ComboboxGroup>
-                )}
+              )}
 
-                {filteredClosed.length > 0 && (
-                  <>
-                    {filteredOpen.length > 0 && (
-                      <div className="-mx-1 my-0.5 h-px bg-border" />
-                    )}
+              {isCommandMode ? (
+                commandGroups.map(([group, items], index) => (
+                  <div key={group}>
+                    {index > 0 && <div className="-mx-1 my-0.5 h-px bg-border" />}
                     <ComboboxGroup>
                       <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
-                        Closed Recently
+                        {group}
                       </ComboboxLabel>
-                      {filteredClosed.map((item) => (
+                      {items.map((item) => (
                         <ComboboxItem
-                          className="relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                          className="relative flex w-full cursor-default select-none items-start gap-2 px-2 py-1.5 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                          disabled={item.disabled}
+                          key={item.id}
+                          value={item}
+                        >
+                          {renderHeaderTabsCommandIcon(item.id, resolvedTheme)}
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">
+                              {item.label}
+                            </div>
+                            <div className="line-clamp-2 text-[11px] text-muted-foreground group-data-highlighted:text-accent-foreground/80">
+                              {item.description}
+                            </div>
+                          </div>
+                          {item.shortcuts ? (
+                            <ShortcutKeys keys={item.shortcuts} />
+                          ) : null}
+                        </ComboboxItem>
+                      ))}
+                    </ComboboxGroup>
+                  </div>
+                ))
+              ) : (
+                <>
+                  {filteredOpen.length > 0 && (
+                    <ComboboxGroup>
+                      <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
+                        Open Tabs
+                      </ComboboxLabel>
+                      {filteredOpen.map((item) => (
+                        <ComboboxItem
+                          className="group/tab-item relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
                           key={item.id}
                           value={item}
                         >
@@ -1284,18 +1253,52 @@ export function HeaderTabsSearch() {
                             <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                           )}
                           <span className="flex-1 truncate">{item.title}</span>
-                          {/* Placeholder to match height of Open Tabs close button */}
-                          <div className="ml-auto size-5 shrink-0" />
+                          <button
+                            aria-label={`Close ${item.title}`}
+                            className="focus-visible:desktop-focus-strong ml-auto flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-data-highlighted/tab-item:opacity-100"
+                            onClick={(event) => handleCloseTab(event, item)}
+                            type="button"
+                          >
+                            <XIcon className="size-3 text-muted-foreground" />
+                          </button>
                         </ComboboxItem>
                       ))}
                     </ComboboxGroup>
-                  </>
-                )}
-              </>
-            )}
-          </ComboboxList>
-        </Combobox>
-      </PopoverContent>
+                  )}
+
+                  {filteredClosed.length > 0 && (
+                    <>
+                      {filteredOpen.length > 0 && (
+                        <div className="-mx-1 my-0.5 h-px bg-border" />
+                      )}
+                      <ComboboxGroup>
+                        <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
+                          Closed Recently
+                        </ComboboxLabel>
+                        {filteredClosed.map((item) => (
+                          <ComboboxItem
+                            className="relative flex w-full cursor-default select-none items-center px-2 py-1 text-xs outline-hidden data-disabled:pointer-events-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:opacity-50"
+                            key={item.id}
+                            value={item}
+                          >
+                            {item.repoId ? (
+                              <GitBranchIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="flex-1 truncate">{item.title}</span>
+                            <div className="ml-auto size-5 shrink-0" />
+                          </ComboboxItem>
+                        ))}
+                      </ComboboxGroup>
+                    </>
+                  )}
+                </>
+              )}
+            </ComboboxList>
+          </Combobox>
+        </DialogContent>
+      </Dialog>
 
       <RepositoryCloneDialog
         onOpenChange={setIsCloneDialogOpen}

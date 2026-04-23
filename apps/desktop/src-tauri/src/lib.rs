@@ -73,6 +73,8 @@ use terminal::{
     close_terminal_session, create_terminal_session, resize_terminal_session,
     write_terminal_session, TerminalState,
 };
+mod windowing;
+use windowing::{create_main_window, window_state_flags};
 mod working_tree;
 use working_tree::{
     add_repository_ignore_rule, discard_all_repository_changes, discard_repository_path_changes,
@@ -289,16 +291,31 @@ macro_rules! desktop_invoke_handler {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 // Tauri command registration stays centralized here so the desktop entrypoint is easy to audit.
 pub fn run() {
-    let result = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(window_state_flags())
+                .build(),
+        )
         .manage(TerminalState::default())
         .manage(SettingsState::default())
         .manage(GitAuthBrokerState::default())
         .manage(OAuthFlowManager::default())
         .manage(PendingOAuthCallbackManager::default())
-        .manage(PendingOAuthHandoffManager::default())
+        .manage(PendingOAuthHandoffManager::default());
+
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_decorum::init());
+
+    let result = builder
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -380,6 +397,8 @@ pub fn run() {
                     }
                 }
             });
+
+            create_main_window(app.handle())?;
 
             Ok(())
         })

@@ -1,16 +1,11 @@
-import { Popover, PopoverTrigger } from "@litgit/ui/components/popover";
 import { CopyIcon, MinusIcon, SquareIcon, XIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
-import { HeaderTabsSearch } from "@/components/shell/header-tabs-search";
-import {
-  getCommandPaletteShortcutLabel,
-  getSearchTabsShortcutLabel,
-} from "@/lib/keyboard-shortcuts";
-import { isWindowsPlatform } from "@/lib/runtime-platform";
-import { useTabSearchStore } from "@/stores/ui/use-tab-search-store";
+import { TabSearchTrigger } from "@/components/shell/tab-search-trigger";
+import { getRuntimeWindowChromeMode } from "@/lib/runtime-window-chrome";
 
 const TITLEBAR_HEIGHT_CLASS = "h-7";
+const WINDOWS_OVERLAY_CONTROLS_RESERVED_WIDTH = 144;
 const CONTROL_BUTTON_BASE_CLASS =
   "tauri-no-drag inline-flex shrink-0 flex-none items-center justify-center border-0 bg-transparent text-muted-foreground transition-colors focus-visible:desktop-focus focus-visible:text-foreground";
 const CONTROL_BUTTON_SIZE_CLASS = `${TITLEBAR_HEIGHT_CLASS} w-8`;
@@ -23,13 +18,17 @@ interface WindowTitlebarProps {
 }
 
 export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
-  const isWindows = isWindowsPlatform();
+  const windowChromeMode = getRuntimeWindowChromeMode();
+  const useCustomWindowControls = windowChromeMode === "custom";
+  const useOverlayNativeControls =
+    windowChromeMode === "overlay-native-controls";
+  const useDraggableTitlebar = windowChromeMode !== "native";
+  const showTitle = useCustomWindowControls || useOverlayNativeControls || hideSearch;
   const tauriRuntime = isTauri();
   const [isMaximized, setIsMaximized] = useState(false);
-  const isOpen = useTabSearchStore((state) => state.isOpen);
-  const openSearch = useTabSearchStore((state) => state.open);
-  const closeSearch = useTabSearchStore((state) => state.close);
-  const toggleSearch = useTabSearchStore((state) => state.toggle);
+  const dragRegionProps = useDraggableTitlebar
+    ? { "data-tauri-drag-region": true as const }
+    : {};
 
   const syncMaximizedState = useCallback(async () => {
     if (!tauriRuntime) {
@@ -120,93 +119,71 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
 
   return (
     <div
-      className="relative flex h-7 shrink-0 select-none items-center justify-between border-border/70 border-b bg-muted/25 pl-3"
-      data-tauri-drag-region
+      className="grid h-7 shrink-0 select-none grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(0,1fr)] items-center gap-3 border-border/70 border-b bg-muted/25 px-3"
+      {...dragRegionProps}
     >
-      {/* Left: Title */}
       <div
         className="pointer-events-none flex min-w-0 items-center text-[11px] text-muted-foreground uppercase tracking-[0.08em]"
-        data-tauri-drag-region
+        {...dragRegionProps}
       >
-        <span className="truncate font-semibold" data-tauri-drag-region>
-          LitGit Desktop
-        </span>
+        {showTitle ? (
+          <span className="truncate font-semibold" {...dragRegionProps}>
+            LitGit Desktop
+          </span>
+        ) : null}
       </div>
 
-      {/* Center: Search bar (flexes to fill space) */}
-      {!hideSearch && (
-        <Popover
-          onOpenChange={(nextOpen: boolean) => {
-            if (nextOpen) {
-              openSearch("tabs");
-            } else {
-              closeSearch();
-            }
-          }}
-          open={isOpen}
-        >
-          <PopoverTrigger
-            render={
+      <div className="flex min-w-0 justify-center">
+        {!hideSearch ? (
+          <TabSearchTrigger variant="pill" />
+        ) : null}
+      </div>
+
+      <div className="flex min-w-0 justify-end">
+        {tauriRuntime && useCustomWindowControls ? (
+          <div
+            className="tauri-no-drag flex items-center"
+            data-tauri-drag-region="false"
+          >
+            <div className="flex shrink-0 items-stretch">
               <button
-                aria-label={`Search opened tabs (${getSearchTabsShortcutLabel()}) or open commands (${getCommandPaletteShortcutLabel()})`}
-                className="tauri-no-drag focus-visible:desktop-focus flex h-5 items-center justify-center gap-2 rounded-md border border-border/50 bg-background/50 px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-                data-tauri-drag-region="false"
-                onClick={() => toggleSearch("tabs")}
+                aria-label="Minimize window"
+                className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
+                onClick={handleMinimizeWindow}
                 type="button"
               >
-                <span className="line-clamp-1">
-                  Search tabs or shortcuts, or start with &gt; for commands
-                </span>
-                <span className="hidden text-muted-foreground/60 sm:inline">
-                  {getSearchTabsShortcutLabel()}
-                </span>
+                <MinusIcon className="size-3" weight="bold" />
               </button>
-            }
-          />
-          <HeaderTabsSearch />
-        </Popover>
-      )}
-
-      {tauriRuntime ? (
-        <div
-          className="tauri-no-drag flex items-center"
-          data-tauri-drag-region="false"
-        >
-          <div className="flex shrink-0 items-stretch">
-            <button
-              aria-label="Minimize window"
-              className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
-              onClick={handleMinimizeWindow}
-              type="button"
-            >
-              <MinusIcon className="size-3" weight="bold" />
-            </button>
-            <button
-              aria-label={isMaximized ? "Restore window" : "Maximize window"}
-              className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
-              onClick={handleToggleMaximizeWindow}
-              title={
-                isWindows ? "Windows: use Win + Z for Snap Layouts." : undefined
-              }
-              type="button"
-            >
-              {isMaximized ? (
-                <CopyIcon className="size-3" weight="bold" />
-              ) : (
-                <SquareIcon className="size-3" weight="bold" />
-              )}
-            </button>
-            <button
-              aria-label="Close window"
-              className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_CLOSE_HOVER_CLASS}`}
-              onClick={handleCloseWindow}
-              type="button"
-            >
-              <XIcon className="size-3" weight="bold" />
-            </button>
+              <button
+                aria-label={isMaximized ? "Restore window" : "Maximize window"}
+                className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
+                onClick={handleToggleMaximizeWindow}
+                type="button"
+              >
+                {isMaximized ? (
+                  <CopyIcon className="size-3" weight="bold" />
+                ) : (
+                  <SquareIcon className="size-3" weight="bold" />
+                )}
+              </button>
+              <button
+                aria-label="Close window"
+                className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_CLOSE_HOVER_CLASS}`}
+                onClick={handleCloseWindow}
+                type="button"
+              >
+                <XIcon className="size-3" weight="bold" />
+              </button>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : useOverlayNativeControls ? (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none shrink-0"
+            style={{ width: `${WINDOWS_OVERLAY_CONTROLS_RESERVED_WIDTH}px` }}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
