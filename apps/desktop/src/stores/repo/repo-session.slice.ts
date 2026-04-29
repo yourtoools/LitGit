@@ -169,7 +169,10 @@ export const createRepoSessionSlice = (
     const nextOpenedRepos = openedRepos.filter((repo) => repo.id !== id);
 
     const nextRepoCommits = clearRepoDataById(repoCommits, id);
-    const nextRepoHistoryGraphsById = clearRepoDataById(repoHistoryGraphsById, id);
+    const nextRepoHistoryGraphsById = clearRepoDataById(
+      repoHistoryGraphsById,
+      id
+    );
     const nextRepoBranches = clearRepoDataById(repoBranches, id);
     const nextRepoFilesById = clearRepoDataById(repoFilesById, id);
     const nextRepoRemoteNames = clearRepoDataById(repoRemoteNames, id);

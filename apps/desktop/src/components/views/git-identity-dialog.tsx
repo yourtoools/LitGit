@@ -175,6 +175,7 @@ export function GitIdentityDialog({
                 errors.name ? "git-identity-name-error" : undefined
               }
               aria-invalid={Boolean(errors.name)}
+              className="h-7 text-xs"
               id="git-identity-name"
               onChange={(event) => {
                 setFormState((current) => ({
@@ -184,7 +185,6 @@ export function GitIdentityDialog({
                 setErrors((current) => ({ ...current, name: undefined }));
                 setFormError(null);
               }}
-              className="h-7 text-xs"
               placeholder="Jane Developer"
               value={formState.name}
             />
@@ -207,6 +207,7 @@ export function GitIdentityDialog({
                 errors.email ? "git-identity-email-error" : undefined
               }
               aria-invalid={Boolean(errors.email)}
+              className="h-7 text-xs"
               id="git-identity-email"
               onChange={(event) => {
                 setFormState((current) => ({
@@ -216,7 +217,6 @@ export function GitIdentityDialog({
                 setErrors((current) => ({ ...current, email: undefined }));
                 setFormError(null);
               }}
-              className="h-7 text-xs"
               placeholder="jane@example.com"
               type="email"
               value={formState.email}

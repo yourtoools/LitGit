@@ -5,11 +5,8 @@ import {
   TooltipTrigger,
 } from "@litgit/ui/components/tooltip";
 import { cn } from "@litgit/ui/lib/utils";
-import {
-  GearIcon,
-} from "@phosphor-icons/react";
+import { GearIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
@@ -72,7 +69,7 @@ export default function Header() {
   const { activeRepo } = useRootActiveRepoContext();
   const repoPath = activeRepo?.path ?? null;
 
-  const handleCopyRepoPath = useCallback(async () => {
+  const _handleCopyRepoPath = useCallback(async () => {
     if (!repoPath) {
       return;
     }
@@ -219,13 +216,11 @@ export default function Header() {
       return;
     }
 
-    const hasOpenRepositoryChord = () => {
-      return openRepositoryChordTimeoutRef.current !== null;
-    };
+    const hasOpenRepositoryChord = () =>
+      openRepositoryChordTimeoutRef.current !== null;
 
-    const shouldIgnoreShortcut = (event: KeyboardEvent) => {
-      return event.repeat || isEditableTarget(event.target);
-    };
+    const shouldIgnoreShortcut = (event: KeyboardEvent) =>
+      event.repeat || isEditableTarget(event.target);
 
     const handleOpenRepositoryChord = (event: KeyboardEvent) => {
       if (!hasOpenRepositoryChord()) {
@@ -289,7 +284,7 @@ export default function Header() {
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {!usesWindowTitlebar ? <TabSearchTrigger variant="icon" /> : null}
+          {usesWindowTitlebar ? null : <TabSearchTrigger variant="icon" />}
           {/* Settings */}
           <Tooltip>
             <TooltipTrigger

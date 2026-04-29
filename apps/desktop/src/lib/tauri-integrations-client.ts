@@ -19,8 +19,7 @@ export interface ProviderSshStatus {
 
 export type Provider = "github" | "gitlab" | "bitbucket";
 
-export const PROVIDER_STATUS_CHANGED_EVENT =
-  "litgit:provider-status-changed";
+export const PROVIDER_STATUS_CHANGED_EVENT = "litgit:provider-status-changed";
 
 function emitProviderStatusChanged(): void {
   if (typeof window === "undefined") {

@@ -1,9 +1,9 @@
-import type { RepoFileBrowserSortOrder } from "@/stores/preferences/preferences-store-types";
-import type { RepositoryWorkingTreeItem } from "@/stores/repo/repo-store-types";
 import {
   buildChangeTree,
   type ChangeTreeNode,
 } from "@/components/views/repo-info-tree-utils";
+import type { RepoFileBrowserSortOrder } from "@/stores/preferences/preferences-store-types";
+import type { RepositoryWorkingTreeItem } from "@/stores/repo/repo-store-types";
 
 export interface BuildRepoInfoWorkingTreeModelInput {
   sortOrder: RepoFileBrowserSortOrder;

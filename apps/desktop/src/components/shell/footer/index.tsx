@@ -9,9 +9,9 @@ import {
 import { useWindowEvent } from "@mantine/hooks";
 import {
   ArrowDownIcon,
-  ArrowUpIcon,
   ArrowsClockwiseIcon,
   ArrowsDownUpIcon,
+  ArrowUpIcon,
   CloudArrowUpIcon,
   GitBranchIcon,
   PlayIcon,
@@ -40,13 +40,13 @@ import {
   type Provider,
   type ProviderStatus,
 } from "@/lib/tauri-integrations-client";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import {
   useRepoActions,
   useRepoActiveContext,
   useRepoBranches,
 } from "@/stores/repo/repo-selectors";
 import { useBranchSearchStore } from "@/stores/ui/use-branch-search-store";
-import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 
 const ZOOM_OPTIONS = [130, 120, 110, 100, 90, 80];
 const MIN_ZOOM = ZOOM_OPTIONS.at(-1) ?? 80;
@@ -70,9 +70,10 @@ export default function Footer() {
   const [zoom, setZoom] = useState(100);
   const [isFetching, setIsFetching] = useState(false);
   const [appVersion, setAppVersion] = useState("dev");
-  const [providerStatuses, setProviderStatuses] = useState<
-    Record<Provider, ProviderStatus> | null
-  >(null);
+  const [providerStatuses, setProviderStatuses] = useState<Record<
+    Provider,
+    ProviderStatus
+  > | null>(null);
   const [hasLoadedProviderStatuses, setHasLoadedProviderStatuses] =
     useState(false);
   const [providerStatusLoadFailed, setProviderStatusLoadFailed] =
@@ -474,7 +475,7 @@ export default function Footer() {
           ) : null}
 
           {import.meta.env.DEV ? (
-            <div className="flex items-center ml-1">
+            <div className="ml-1 flex items-center">
               <Tooltip>
                 <TooltipTrigger
                   aria-label="Preview onboarding page"
@@ -490,7 +491,9 @@ export default function Footer() {
                     Onboarding
                   </span>
                 </TooltipTrigger>
-                <TooltipContent side="top">Preview onboarding page</TooltipContent>
+                <TooltipContent side="top">
+                  Preview onboarding page
+                </TooltipContent>
               </Tooltip>
             </div>
           ) : null}

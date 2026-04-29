@@ -29,9 +29,8 @@ export const fromGroupDropId = (id: string): string | null => {
 export const getDragId = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
 
-export const clamp = (value: number, min: number, max: number): number => {
-  return Math.max(min, Math.min(max, value));
-};
+export const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
 
 export const isTabUngrouped = (tab: Tab | undefined): boolean =>
   Boolean(tab && !tab.groupId);

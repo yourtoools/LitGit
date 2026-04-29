@@ -1,10 +1,3 @@
-import type { RepositoryBranch } from "@/stores/repo/repo-store-types";
-import {
-  useRepoActions,
-  useRepoActiveContext,
-  useRepoBranches,
-} from "@/stores/repo/repo-selectors";
-import { useBranchSearchStore } from "@/stores/ui/use-branch-search-store";
 import { Button } from "@litgit/ui/components/button";
 import {
   Combobox,
@@ -14,19 +7,11 @@ import {
   ComboboxLabel,
   ComboboxList,
 } from "@litgit/ui/components/combobox";
-import {
-  Dialog,
-  DialogContent,
-} from "@litgit/ui/components/dialog";
+import { Dialog, DialogContent } from "@litgit/ui/components/dialog";
 import { Input } from "@litgit/ui/components/input";
 import { cn } from "@litgit/ui/lib/utils";
+import { GitBranchIcon, PlusIcon, TagIcon, XIcon } from "@phosphor-icons/react";
 import { matchSorter } from "match-sorter";
-import {
-  GitBranchIcon,
-  PlusIcon,
-  TagIcon,
-  XIcon,
-} from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -34,6 +19,13 @@ import {
   normalizeComboboxQuery,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+import {
+  useRepoActions,
+  useRepoActiveContext,
+  useRepoBranches,
+} from "@/stores/repo/repo-selectors";
+import type { RepositoryBranch } from "@/stores/repo/repo-store-types";
+import { useBranchSearchStore } from "@/stores/ui/use-branch-search-store";
 
 const SCROLLBAR_CLASSES =
   "[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2";
@@ -59,15 +51,9 @@ type BranchPaletteMode = "browse" | "enter-name" | "pick-source";
 
 const isBranchPaletteAction = (
   item: BranchPaletteItem | null
-): item is BranchPaletteAction => {
-  return Boolean(item && "id" in item);
-};
+): item is BranchPaletteAction => Boolean(item && "id" in item);
 
-function BranchPaletteClearButton({
-  onClear,
-}: {
-  onClear: () => void;
-}) {
+function BranchPaletteClearButton({ onClear }: { onClear: () => void }) {
   return (
     <Button
       aria-label="Clear search"
@@ -105,7 +91,9 @@ function BranchSearchInput({
         showClear={false}
         showTrigger={false}
       >
-        {query.length > 0 ? <BranchPaletteClearButton onClear={onClear} /> : null}
+        {query.length > 0 ? (
+          <BranchPaletteClearButton onClear={onClear} />
+        ) : null}
       </ComboboxInput>
     </div>
   );
@@ -166,13 +154,16 @@ export function BranchSelectorPalette() {
   const closePalette = useBranchSearchStore((state) => state.close);
 
   const { activeRepoId } = useRepoActiveContext();
-  const { switchBranch, createBranch, createBranchAtReference } = useRepoActions();
+  const { switchBranch, createBranch, createBranchAtReference } =
+    useRepoActions();
   const branches = useRepoBranches(activeRepoId);
 
   const [mode, setMode] = useState<BranchPaletteMode>("browse");
   const [query, setQuery] = useState("");
   const [newBranchName, setNewBranchName] = useState("");
-  const [createBranchError, setCreateBranchError] = useState<string | null>(null);
+  const [createBranchError, setCreateBranchError] = useState<string | null>(
+    null
+  );
   const [sourceRef, setSourceRef] = useState<string | null>(null);
   const ignoredInputValueRef = useRef<null | string>(null);
   const normalizedDebouncedQuery = useDebouncedValue(
@@ -211,9 +202,10 @@ export function BranchSelectorPalette() {
     };
   }, [branches, normalizedDebouncedQuery]);
 
-  const visibleActions = useMemo(() => {
-    return [CREATE_BRANCH_ACTION, CREATE_BRANCH_FROM_ACTION];
-  }, []);
+  const visibleActions = useMemo(
+    () => [CREATE_BRANCH_ACTION, CREATE_BRANCH_FROM_ACTION],
+    []
+  );
 
   const currentBranchName =
     branchGroups.localBranches.find((branch) => branch.isCurrent)?.name ??
@@ -231,9 +223,8 @@ export function BranchSelectorPalette() {
     setSourceRef(null);
   }, [isOpen]);
 
-  const itemToStringLabel = (item: BranchPaletteItem) => {
-    return isBranchPaletteAction(item) ? item.label : item.name;
-  };
+  const itemToStringLabel = (item: BranchPaletteItem) =>
+    isBranchPaletteAction(item) ? item.label : item.name;
 
   const handleInputValueChange = (nextInputValue: string) => {
     if (ignoredInputValueRef.current === nextInputValue) {
@@ -300,7 +291,11 @@ export function BranchSelectorPalette() {
 
     try {
       if (sourceRef) {
-        await createBranchAtReference(activeRepoId, trimmedBranchName, sourceRef);
+        await createBranchAtReference(
+          activeRepoId,
+          trimmedBranchName,
+          sourceRef
+        );
       } else {
         await createBranch(activeRepoId, trimmedBranchName);
       }
@@ -397,7 +392,7 @@ export function BranchSelectorPalette() {
               query={query}
             />
             <ComboboxList
-              className={`max-h-[min(40vh,320px)] overflow-x-hidden overflow-y-auto p-1 ${SCROLLBAR_CLASSES}`}
+              className={`max-h-[min(40vh,320px)] overflow-y-auto overflow-x-hidden p-1 ${SCROLLBAR_CLASSES}`}
             >
               {mode === "browse" ? (
                 <>
@@ -453,11 +448,11 @@ export function BranchSelectorPalette() {
                 </>
               ) : (
                 <>
-                  {!hasSourceResults ? (
+                  {hasSourceResults ? null : (
                     <div className="py-4 text-center text-muted-foreground text-xs">
                       No matching branches found.
                     </div>
-                  ) : null}
+                  )}
 
                   <BranchListSection
                     branches={branchGroups.sourceLocalBranches}

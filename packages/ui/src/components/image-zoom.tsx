@@ -118,9 +118,8 @@ function ImageZoom({
   }, [fitScale]);
 
   const isCloseToScale = useCallback(
-    (scale: number, expectedScale: number): boolean => {
-      return Math.abs(scale - expectedScale) <= FIT_SCALE_TOLERANCE;
-    },
+    (scale: number, expectedScale: number): boolean =>
+      Math.abs(scale - expectedScale) <= FIT_SCALE_TOLERANCE,
     []
   );
 

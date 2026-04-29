@@ -1,12 +1,12 @@
+import {
+  buildRepositoryFileTree,
+  type ChangeTreeNode,
+} from "@/components/views/repo-info-tree-utils";
 import type { RepoFileBrowserSortOrder } from "@/stores/preferences/preferences-store-types";
 import type {
   RepositoryFileEntry,
   RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
-import {
-  buildRepositoryFileTree,
-  type ChangeTreeNode,
-} from "@/components/views/repo-info-tree-utils";
 
 export interface BuildRepoInfoAllFilesModelInput {
   allRepositoryFiles: RepositoryFileEntry[];

@@ -296,12 +296,11 @@ export const useTabBarDnd = ({
 
   const getTopLevelDroppables = (
     droppableContainers: CollisionArgs["droppableContainers"]
-  ) => {
-    return droppableContainers.filter((container) => {
+  ) =>
+    droppableContainers.filter((container) => {
       const containerId = getDragId(container.id);
       return containerId ? topLevelSortableItems.includes(containerId) : false;
     });
-  };
 
   const detectUngroupedTabCollision = (args: CollisionArgs) => {
     const groupDropContainers = args.droppableContainers.filter((container) => {

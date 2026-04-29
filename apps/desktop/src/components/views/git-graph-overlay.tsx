@@ -4,11 +4,11 @@ import {
 } from "@litgit/ui/components/context-menu";
 import { ReactFlow } from "@xyflow/react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import type { GitTimelineRow } from "@/components/views/git-graph-layout";
 import {
   type ComputeGitGraphOverlayLayoutInput,
   computeGitGraphOverlayLayout,
 } from "@/components/views/git-graph-overlay-layout";
-import { type GitTimelineRow } from "@/components/views/git-graph-layout";
 import { GitNode } from "@/components/views/git-node";
 import { createWorkerClient } from "@/lib/workers/create-worker-client";
 import { runWorkerTask } from "@/lib/workers/run-worker-task";
@@ -75,7 +75,15 @@ export function GitGraphOverlay({
       rows,
       selectedRowId,
     }),
-    [branchColumnWidth, commits, graph, graphColumnWidth, rowHeight, rows, selectedRowId]
+    [
+      branchColumnWidth,
+      commits,
+      graph,
+      graphColumnWidth,
+      rowHeight,
+      rows,
+      selectedRowId,
+    ]
   );
   const workerClientRef = useRef<ReturnType<
     typeof createWorkerClient<
@@ -98,9 +106,12 @@ export function GitGraphOverlay({
         ReturnType<typeof computeGitGraphOverlayLayout>
       >(
         () =>
-          new Worker(new URL("./git-graph-overlay.worker.ts", import.meta.url), {
-            type: "module",
-          }),
+          new Worker(
+            new URL("./git-graph-overlay.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
         { label: "git-graph-overlay" }
       );
       workerClientRef.current = client;
@@ -119,12 +130,14 @@ export function GitGraphOverlay({
     const workerClient = workerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(workerClient, layoutInput, computeGitGraphOverlayLayout)
-      .then((result) => {
+    runWorkerTask(workerClient, layoutInput, computeGitGraphOverlayLayout).then(
+      (result) => {
         if (!cancelled) {
           setComputedLayout(result);
         }
-      }, () => undefined);
+      },
+      () => undefined
+    );
 
     return () => {
       cancelled = true;

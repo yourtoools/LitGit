@@ -35,21 +35,25 @@ export const useTabBarDerived = ({
   tabs,
   groups,
 }: UseTabBarDerivedParams): TabBarDerivedState => {
-  const sortedTabs = useMemo(() => {
-    return [...tabs].sort((a, b) => a.order - b.order);
-  }, [tabs]);
+  const sortedTabs = useMemo(
+    () => [...tabs].sort((a, b) => a.order - b.order),
+    [tabs]
+  );
 
-  const renderItems = useMemo(() => {
-    return getRenderItems(sortedTabs, groups);
-  }, [sortedTabs, groups]);
+  const renderItems = useMemo(
+    () => getRenderItems(sortedTabs, groups),
+    [sortedTabs, groups]
+  );
 
-  const tabByIdMap = useMemo(() => {
-    return new Map(sortedTabs.map((tab) => [tab.id, tab]));
-  }, [sortedTabs]);
+  const tabByIdMap = useMemo(
+    () => new Map(sortedTabs.map((tab) => [tab.id, tab])),
+    [sortedTabs]
+  );
 
-  const groupByIdMap = useMemo(() => {
-    return new Map(groups.map((group) => [group.id, group]));
-  }, [groups]);
+  const groupByIdMap = useMemo(
+    () => new Map(groups.map((group) => [group.id, group])),
+    [groups]
+  );
 
   const { tabsByGroupId, groupStatsById } = useMemo(() => {
     const nextTabsByGroupId = new Map<string, Tab[]>();
@@ -88,48 +92,41 @@ export const useTabBarDerived = ({
     };
   }, [sortedTabs]);
 
-  const topLevelSortableItems = useMemo(() => {
-    return renderItems.map((item) =>
-      item.type === "group" ? toGroupSortableId(item.group.id) : item.tab.id
-    );
-  }, [renderItems]);
+  const topLevelSortableItems = useMemo(
+    () =>
+      renderItems.map((item) =>
+        item.type === "group" ? toGroupSortableId(item.group.id) : item.tab.id
+      ),
+    [renderItems]
+  );
 
-  const groupDropItems = useMemo(() => {
-    return groups.map((group) => toGroupDropId(group.id));
-  }, [groups]);
+  const groupDropItems = useMemo(
+    () => groups.map((group) => toGroupDropId(group.id)),
+    [groups]
+  );
 
   const getTabById = useCallback(
-    (tabId: string): Tab | undefined => {
-      return tabByIdMap.get(tabId);
-    },
+    (tabId: string): Tab | undefined => tabByIdMap.get(tabId),
     [tabByIdMap]
   );
 
   const getGroupById = useCallback(
-    (groupId: string): TabGroup | undefined => {
-      return groupByIdMap.get(groupId);
-    },
+    (groupId: string): TabGroup | undefined => groupByIdMap.get(groupId),
     [groupByIdMap]
   );
 
   const getGroupStartIndex = useCallback(
-    (groupId: string): number => {
-      return groupStatsById.get(groupId)?.startOrder ?? -1;
-    },
+    (groupId: string): number => groupStatsById.get(groupId)?.startOrder ?? -1,
     [groupStatsById]
   );
 
   const getGroupEndIndex = useCallback(
-    (groupId: string): number => {
-      return groupStatsById.get(groupId)?.endOrder ?? -1;
-    },
+    (groupId: string): number => groupStatsById.get(groupId)?.endOrder ?? -1,
     [groupStatsById]
   );
 
   const getGroupTabCount = useCallback(
-    (groupId: string): number => {
-      return groupStatsById.get(groupId)?.count ?? 0;
-    },
+    (groupId: string): number => groupStatsById.get(groupId)?.count ?? 0,
     [groupStatsById]
   );
 

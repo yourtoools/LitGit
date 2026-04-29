@@ -1,12 +1,12 @@
+import {
+  buildCommitFileTree,
+  type CommitFileTreeNode,
+} from "@/components/views/repo-info-tree-utils";
 import type { RepoFileBrowserSortOrder } from "@/stores/preferences/preferences-store-types";
 import type {
   RepositoryCommitFile,
   RepositoryFileEntry,
 } from "@/stores/repo/repo-store-types";
-import {
-  buildCommitFileTree,
-  type CommitFileTreeNode,
-} from "@/components/views/repo-info-tree-utils";
 
 export interface RepoInfoCommitFilesSummary {
   addedCount: number;
@@ -81,12 +81,16 @@ export function buildRepoInfoCommitFilesModel(
     showAllCommitFiles,
     sortOrder,
   } = input;
-  const selectedFileByPath = new Map(selectedFiles.map((file) => [file.path, file]));
-  const viewFiles = !showAllCommitFiles
-    ? selectedFiles
-    : allRepositoryFiles.map(
-        (file) => selectedFileByPath.get(file.path) ?? createPlaceholderCommitFile(file.path)
-      );
+  const selectedFileByPath = new Map(
+    selectedFiles.map((file) => [file.path, file])
+  );
+  const viewFiles = showAllCommitFiles
+    ? allRepositoryFiles.map(
+        (file) =>
+          selectedFileByPath.get(file.path) ??
+          createPlaceholderCommitFile(file.path)
+      )
+    : selectedFiles;
   const filteredFiles =
     !showAllCommitFiles || normalizedCommitFileFilter.length === 0
       ? viewFiles

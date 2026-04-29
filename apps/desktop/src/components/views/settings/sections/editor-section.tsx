@@ -167,9 +167,10 @@ function EditorSection({ query }: { query: string }) {
     });
   }, [hasLoadedEditorFonts, isLoadingEditorFonts, loadEditorFonts]);
 
-  const getAvailableEditorWidth = useCallback(() => {
-    return previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
-  }, []);
+  const getAvailableEditorWidth = useCallback(
+    () => previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth(),
+    []
+  );
 
   const schedulePreviewSidebarWidthUpdate = useCallback((nextWidth: number) => {
     pendingPreviewSidebarWidthRef.current = nextWidth;

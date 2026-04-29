@@ -44,24 +44,20 @@ interface ShortcutEntry {
   label: string;
 }
 
-const ShortcutKeys = ({ keys }: { keys: string[] }) => {
-  return (
-    <span className="flex items-center gap-1 font-medium text-foreground/90 text-xs">
-      {keys.map((key) => (
-        <kbd
-          className="min-w-6 border border-border/70 bg-background/90 px-1.5 py-0.5 text-center font-mono text-xs uppercase tracking-[0.16em] shadow-[inset_0_1px_0_rgb(255_255_255/0.3)]"
-          key={key}
-        >
-          {key}
-        </kbd>
-      ))}
-    </span>
-  );
-};
+const ShortcutKeys = ({ keys }: { keys: string[] }) => (
+  <span className="flex items-center gap-1 font-medium text-foreground/90 text-xs">
+    {keys.map((key) => (
+      <kbd
+        className="min-w-6 border border-border/70 bg-background/90 px-1.5 py-0.5 text-center font-mono text-xs uppercase tracking-[0.16em] shadow-[inset_0_1px_0_rgb(255_255_255/0.3)]"
+        key={key}
+      >
+        {key}
+      </kbd>
+    ))}
+  </span>
+);
 
-const shortcutLabelToKeys = (label: string) => {
-  return label.split(" + ");
-};
+const shortcutLabelToKeys = (label: string) => label.split(" + ");
 
 export function KeyboardShortcutsDialog() {
   const [isOpen, setIsOpen] = useState(false);
@@ -76,8 +72,8 @@ export function KeyboardShortcutsDialog() {
     }
   }, [isOpen]);
 
-  const shortcuts = useMemo<ShortcutEntry[]>(() => {
-    return [
+  const shortcuts = useMemo<ShortcutEntry[]>(
+    () => [
       {
         description:
           "Open the repository picker from anywhere in the workspace.",
@@ -211,8 +207,9 @@ export function KeyboardShortcutsDialog() {
         keys: ["Esc"],
         label: "Close Dialog",
       },
-    ];
-  }, []);
+    ],
+    []
+  );
 
   const visibleShortcuts = useMemo(() => {
     const normalizedQuery = shortcutQuery.trim().toLowerCase();
@@ -236,11 +233,11 @@ export function KeyboardShortcutsDialog() {
     });
   }, [shortcutQuery, shortcuts]);
 
-  const shortcutGroups = useMemo(() => {
-    return Array.from(
-      new Set(visibleShortcuts.map((shortcut) => shortcut.group))
-    );
-  }, [visibleShortcuts]);
+  const shortcutGroups = useMemo(
+    () =>
+      Array.from(new Set(visibleShortcuts.map((shortcut) => shortcut.group))),
+    [visibleShortcuts]
+  );
 
   useWindowEvent("keydown", (event) => {
     if (event.repeat) {
@@ -290,7 +287,9 @@ export function KeyboardShortcutsDialog() {
           <DialogHeader className="border-border/60 border-b px-4 py-3">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <DialogTitle className="text-sm">Keyboard Shortcuts</DialogTitle>
+                <DialogTitle className="text-sm">
+                  Keyboard Shortcuts
+                </DialogTitle>
                 <DialogDescription className="mt-1.5 leading-relaxed">
                   Search commands, actions, or keys. The list keeps a visible
                   scrollbar when it grows longer.

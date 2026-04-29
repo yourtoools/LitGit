@@ -117,26 +117,29 @@ export function formatZoomLabel(scale: number, fitScale: number): string {
 export function useImageZoom(options: ImageZoomOptions): ImageZoomState {
   const { imageWidth, imageHeight, containerWidth, containerHeight } = options;
 
-  const fitScale = useMemo(() => {
-    return computeFitScale({
-      imageWidth,
-      imageHeight,
-      containerWidth,
-      containerHeight,
-    });
-  }, [imageWidth, imageHeight, containerWidth, containerHeight]);
+  const fitScale = useMemo(
+    () =>
+      computeFitScale({
+        imageWidth,
+        imageHeight,
+        containerWidth,
+        containerHeight,
+      }),
+    [imageWidth, imageHeight, containerWidth, containerHeight]
+  );
   const steps = useMemo(() => buildZoomSteps(fitScale), [fitScale]);
-  const fitIndex = useMemo(() => {
-    return steps.findIndex((step) => isCloseToFit(step, fitScale));
-  }, [fitScale, steps]);
+  const fitIndex = useMemo(
+    () => steps.findIndex((step) => isCloseToFit(step, fitScale)),
+    [fitScale, steps]
+  );
 
   const [isModifierHeld, setIsModifierHeld] = useState(false);
 
   useEffect(() => {
     const syncModifierState = (nextValue: boolean): void => {
-      setIsModifierHeld((currentValue) => {
-        return currentValue === nextValue ? currentValue : nextValue;
-      });
+      setIsModifierHeld((currentValue) =>
+        currentValue === nextValue ? currentValue : nextValue
+      );
     };
 
     const handleKeyboardModifierChange = (event: KeyboardEvent): void => {
@@ -179,16 +182,14 @@ export function useImageZoom(options: ImageZoomOptions): ImageZoomState {
   }, []);
 
   const getNextZoomIn = useCallback(
-    (currentScale: number): number | null => {
-      return getStepAfterCurrent(steps, currentScale);
-    },
+    (currentScale: number): number | null =>
+      getStepAfterCurrent(steps, currentScale),
     [steps]
   );
 
   const getNextZoomOut = useCallback(
-    (currentScale: number): number | null => {
-      return getStepBeforeCurrent(steps, currentScale);
-    },
+    (currentScale: number): number | null =>
+      getStepBeforeCurrent(steps, currentScale),
     [steps]
   );
 

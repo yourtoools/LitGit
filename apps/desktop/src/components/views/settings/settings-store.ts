@@ -186,9 +186,8 @@ const EOL_OPTIONS = {
   system: "System default",
 } as const;
 
-const clampWidth = (value: number, min: number, max: number) => {
-  return Math.min(max, Math.max(min, value));
-};
+const clampWidth = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
 
 const getSettingsLayoutWidth = () => {
   if (typeof window === "undefined") {

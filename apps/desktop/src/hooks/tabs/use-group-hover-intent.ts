@@ -50,13 +50,14 @@ export const useGroupHoverIntent = (): UseGroupHoverIntentReturn => {
     }, HOVER_INTENT_DELAY_MS);
   };
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
       }
-    };
-  }, []);
+    },
+    []
+  );
 
   return {
     hoveredGroupId,

@@ -49,30 +49,28 @@ export function TabStripContent({
 
   const firstTabId = getFirstTabId();
 
-  const renderTabNode = (tab: Tab, groupColor?: string) => {
-    return (
-      <TabContextMenu
-        key={tab.id}
-        onCloseTab={onRequestCloseTab}
-        onUngroupTab={onRequestUngroupTab}
-        tabId={tab.id}
-      >
-        <SortableTabItem
-          disabled={isGroupDragActive}
-          groupColor={groupColor}
-          isActive={tab.id === activeTabId}
-          isFirst={tab.id === firstTabId}
-          isGhost={!isGroupDragActive && activeDragId === tab.id}
-          isHoveredForGroup={hoveredTabId === tab.id}
-          isLoading={tab.id === activeLoadingTabId}
-          isSingleTab={isSingleTab}
-          onActivate={onActivateTab}
-          onClose={onRequestCloseTab}
-          tab={tab}
-        />
-      </TabContextMenu>
-    );
-  };
+  const renderTabNode = (tab: Tab, groupColor?: string) => (
+    <TabContextMenu
+      key={tab.id}
+      onCloseTab={onRequestCloseTab}
+      onUngroupTab={onRequestUngroupTab}
+      tabId={tab.id}
+    >
+      <SortableTabItem
+        disabled={isGroupDragActive}
+        groupColor={groupColor}
+        isActive={tab.id === activeTabId}
+        isFirst={tab.id === firstTabId}
+        isGhost={!isGroupDragActive && activeDragId === tab.id}
+        isHoveredForGroup={hoveredTabId === tab.id}
+        isLoading={tab.id === activeLoadingTabId}
+        isSingleTab={isSingleTab}
+        onActivate={onActivateTab}
+        onClose={onRequestCloseTab}
+        tab={tab}
+      />
+    </TabContextMenu>
+  );
 
   return (
     <>

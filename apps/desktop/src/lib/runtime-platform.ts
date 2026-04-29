@@ -72,6 +72,4 @@ export const isMacPlatform = () => {
   return platform === "macos" || platform === "ios";
 };
 
-export const isWindowsPlatform = () => {
-  return getRuntimePlatform() === "windows";
-};
+export const isWindowsPlatform = () => getRuntimePlatform() === "windows";

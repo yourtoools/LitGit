@@ -118,7 +118,6 @@ import {
   TrayArrowUpIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { getAiGenerationDisplayState } from "@/components/views/repo-info-ai-generation";
 import { useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { isTauri } from "@tauri-apps/api/core";
@@ -180,6 +179,7 @@ import {
   finalizeAiCommitGenerationState,
   getNextAiCommitGenerationState,
 } from "@/components/views/repo-info-ai-commit-generation-state";
+import { getAiGenerationDisplayState } from "@/components/views/repo-info-ai-generation";
 import {
   type BuildRepoInfoAllFilesModelInput,
   buildRepoInfoAllFilesModel,
@@ -4653,26 +4653,24 @@ export function RepoInfo() {
       [stateKey]: !current[stateKey],
     }));
   };
-  const renderSidebarBranchCounts = (entry: SidebarEntry) => {
-    return (
-      <>
-        {typeof entry.pendingSyncCount === "number" &&
-        entry.pendingSyncCount > 0 ? (
-          <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
-            <ArrowLineDownIcon className="size-3" />
-            {entry.pendingSyncCount}
-          </span>
-        ) : null}
-        {typeof entry.pendingPushCount === "number" &&
-        entry.pendingPushCount > 0 ? (
-          <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
-            <ArrowLineUpIcon className="size-3" />
-            {entry.pendingPushCount}
-          </span>
-        ) : null}
-      </>
-    );
-  };
+  const renderSidebarBranchCounts = (entry: SidebarEntry) => (
+    <>
+      {typeof entry.pendingSyncCount === "number" &&
+      entry.pendingSyncCount > 0 ? (
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
+          <ArrowLineDownIcon className="size-3" />
+          {entry.pendingSyncCount}
+        </span>
+      ) : null}
+      {typeof entry.pendingPushCount === "number" &&
+      entry.pendingPushCount > 0 ? (
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs opacity-90">
+          <ArrowLineUpIcon className="size-3" />
+          {entry.pendingPushCount}
+        </span>
+      ) : null}
+    </>
+  );
   const renderProgressiveLoadingMessage = (label: string) => (
     <p className="px-2 py-1 text-muted-foreground text-xs">
       Loading more {label}...
@@ -5985,9 +5983,8 @@ export function RepoInfo() {
   );
 
   const getSidebarEntryForTimelineRow = useCallback(
-    (row: GitTimelineRow): SidebarEntry | null => {
-      return referenceModel.sidebarEntryByTimelineRowId[row.id] ?? null;
-    },
+    (row: GitTimelineRow): SidebarEntry | null =>
+      referenceModel.sidebarEntryByTimelineRowId[row.id] ?? null,
     [referenceModel.sidebarEntryByTimelineRowId]
   );
 
@@ -7108,9 +7105,8 @@ export function RepoInfo() {
   const collectExpandableTreeKeys = (
     nodes: ChangeTreeNode[],
     section: ChangeTreeSection
-  ): Record<string, boolean> => {
-    return collectExpandableTreeKeysModel(nodes, section, getTreeNodeStateKey);
-  };
+  ): Record<string, boolean> =>
+    collectExpandableTreeKeysModel(nodes, section, getTreeNodeStateKey);
 
   const getStatusCodes = (
     item: RepositoryWorkingTreeItem,
@@ -7175,13 +7171,10 @@ export function RepoInfo() {
   const collectTreeStatusCounts = (
     node: ChangeTreeNode,
     section: "staged" | "unstaged"
-  ) => {
-    return collectTreeStatusCountsModel(node, section);
-  };
+  ) => collectTreeStatusCountsModel(node, section);
 
-  const collectCommitTreeChangeSummary = (node: CommitFileTreeNode) => {
-    return collectCommitTreeChangeSummaryModel(node);
-  };
+  const collectCommitTreeChangeSummary = (node: CommitFileTreeNode) =>
+    collectCommitTreeChangeSummaryModel(node);
 
   const handleUnstageAll = async () => {
     if (!activeRepoId || isUnstagingAll || !hasStagedChanges) {
@@ -8456,13 +8449,12 @@ export function RepoInfo() {
   const collectExpandableCommitTreeKeys = (
     nodes: CommitFileTreeNode[],
     commitHash: string
-  ): Record<string, boolean> => {
-    return collectExpandableCommitTreeKeysModel(
+  ): Record<string, boolean> =>
+    collectExpandableCommitTreeKeysModel(
       nodes,
       commitHash,
       getCommitTreeNodeStateKey
     );
-  };
   const collapseCommitTree = (commitHash: string) => {
     setExpandedCommitTreeNodePaths((current) => {
       const nextEntries = Object.entries(current).filter(
@@ -11454,7 +11446,9 @@ export function RepoInfo() {
                               </div>
                               {lastAiRewordGenerationDisplayState?.contextNote ? (
                                 <p className="text-[11px] text-muted-foreground leading-4">
-                                  {lastAiRewordGenerationDisplayState.contextNote}
+                                  {
+                                    lastAiRewordGenerationDisplayState.contextNote
+                                  }
                                 </p>
                               ) : null}
                               <div className="space-y-1.5">
@@ -12646,7 +12640,9 @@ export function RepoInfo() {
                               </Label>
                               {lastAiCommitGenerationDisplayState ? (
                                 <span className="inline-flex items-center rounded border border-border/70 px-1.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.08em]">
-                                  {lastAiCommitGenerationDisplayState.badgeLabel}
+                                  {
+                                    lastAiCommitGenerationDisplayState.badgeLabel
+                                  }
                                 </span>
                               ) : null}
                             </div>

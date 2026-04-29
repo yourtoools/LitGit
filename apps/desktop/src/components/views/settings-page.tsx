@@ -156,11 +156,13 @@ export function SettingsPage() {
     previousActiveSectionRef.current = activeSection;
   }, [activeSection]);
 
-  useEffect(() => {
-    return runWhenBrowserIsIdle(() => {
-      readSystemFontFamilies().catch(() => undefined);
-    });
-  }, []);
+  useEffect(
+    () =>
+      runWhenBrowserIsIdle(() => {
+        readSystemFontFamilies().catch(() => undefined);
+      }),
+    []
+  );
 
   const handleExitPreferences = useCallback(() => {
     const nextPath =
@@ -173,9 +175,10 @@ export function SettingsPage() {
     navigate({ to: nextPath as never }).catch(() => undefined);
   }, [currentPathname, lastNonSettingsRoute, navigate]);
 
-  const getAvailableSettingsWidth = useCallback(() => {
-    return sidebarContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
-  }, []);
+  const getAvailableSettingsWidth = useCallback(
+    () => sidebarContainerRef.current?.clientWidth ?? getSettingsLayoutWidth(),
+    []
+  );
 
   const scheduleSidebarWidthUpdate = useCallback((nextWidth: number) => {
     pendingSidebarWidthRef.current = nextWidth;

@@ -173,7 +173,10 @@ export const getLocaleOptions = (): readonly LocaleOption[] => {
     return localeOptionsCache;
   }
 
-  const options = [SYSTEM_LOCALE_OPTION, ...LOCALE_CANDIDATES.map(buildLocaleOption)];
+  const options = [
+    SYSTEM_LOCALE_OPTION,
+    ...LOCALE_CANDIDATES.map(buildLocaleOption),
+  ];
   localeOptionsCache = options;
   localeOptionByCodeCache = new Map(
     options.map((option) => [option.code, option])

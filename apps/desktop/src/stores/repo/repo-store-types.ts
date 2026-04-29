@@ -496,9 +496,9 @@ export interface RepoStoreState {
     LatestRepositoryCommitMessage | null
   >;
   repoCommits: Record<string, RepositoryCommit[]>;
-  repoHistoryGraphsById: Record<string, RepositoryCommitGraphPayload>;
   repoFilesById: Record<string, RepositoryFileEntry[]>;
   repoGitIdentities: Record<string, GitIdentityStatus | undefined>;
+  repoHistoryGraphsById: Record<string, RepositoryCommitGraphPayload>;
   repoHistoryRewriteHintById: Record<string, boolean>;
   repoLastLoadedAtById: Record<string, number>;
   repoRedoDepthById: Record<string, number>;

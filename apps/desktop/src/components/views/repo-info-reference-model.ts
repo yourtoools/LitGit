@@ -6,6 +6,8 @@ import type {
   RepositoryStash,
 } from "@/stores/repo/repo-store-types";
 
+const STASH_LABEL_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
+
 function normalizeCommitRefLabel(rawReference: string): string | null {
   const trimmedReference = rawReference.trim();
 
@@ -37,7 +39,7 @@ function normalizeCommitRefLabel(rawReference: string): string | null {
 
 function formatStashLabel(stash: RepositoryStash): string {
   const rawMessage = stash.message.trim();
-  const match = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i.exec(rawMessage);
+  const match = STASH_LABEL_PATTERN.exec(rawMessage);
 
   if (!match) {
     return rawMessage.length > 0 ? rawMessage : stash.ref;
@@ -58,7 +60,9 @@ function createSidebarEntryFromRefName(
   branches: RepositoryBranch[],
   currentBranch: string
 ): SidebarEntry {
-  const matchingBranch = branches.find((branch) => branch.name === referenceName);
+  const matchingBranch = branches.find(
+    (branch) => branch.name === referenceName
+  );
 
   if (matchingBranch) {
     return {
@@ -177,7 +181,9 @@ export function buildRepoInfoReferenceModel(
       }
     }
 
-    commitRefEntriesByCommitHash[commit.hash] = Array.from(uniqueEntries.values());
+    commitRefEntriesByCommitHash[commit.hash] = Array.from(
+      uniqueEntries.values()
+    );
   }
 
   return {

@@ -1,4 +1,4 @@
-export const PROVIDER_STATUS_FOCUS_STALE_MS = 5_000;
+export const PROVIDER_STATUS_FOCUS_STALE_MS = 5000;
 
 export type ProviderStatusRefreshReason =
   | "mount"
@@ -43,6 +43,9 @@ export function shouldRefreshProviderStatuses(input: {
       }
 
       return now - lastRefreshAt >= PROVIDER_STATUS_FOCUS_STALE_MS;
+    }
+    default: {
+      return false;
     }
   }
 }

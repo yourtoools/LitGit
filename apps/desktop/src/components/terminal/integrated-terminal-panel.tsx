@@ -54,9 +54,8 @@ const clampPanelHeight = (height: number): number =>
     Math.max(terminalPanelHeightLimits.min, Math.round(height))
   );
 
-const formatLogTimestamp = (timestampMs: number): string => {
-  return format(timestampMs, "yyyy-MM-dd HH:mm:ss.SSS");
-};
+const formatLogTimestamp = (timestampMs: number): string =>
+  format(timestampMs, "yyyy-MM-dd HH:mm:ss.SSS");
 
 const formatSystemLogLine = (entry: OperationLogEntry) => {
   const detail = getSystemLogDetail(entry);
@@ -93,9 +92,8 @@ const getSystemLogDetail = (entry: OperationLogEntry): string | null => {
   return `${trimmedMessage}\n${metadataDetail}`;
 };
 
-const formatActivityLogLine = (entry: OperationLogEntry) => {
-  return `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] ${entry.message}`;
-};
+const formatActivityLogLine = (entry: OperationLogEntry) =>
+  `${formatLogTimestamp(entry.timestampMs)} [${entry.level}] ${entry.message}`;
 
 const getLogLevelClassName = (level: OperationLogEntry["level"]): string => {
   if (level === "error") {

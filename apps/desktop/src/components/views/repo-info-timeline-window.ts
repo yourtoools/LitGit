@@ -1,17 +1,17 @@
 export interface RepoInfoTimelineWindowInput {
   clientHeight: number;
   prefixHeight: number;
-  rowHeight: number;
   rowCount: number;
+  rowHeight: number;
   scrollTop: number;
   selectedRowIndex: number;
 }
 
 export interface RepoInfoTimelineWindowResult {
+  bottomSpacerHeight: number;
   endIndex: number;
   startIndex: number;
   topSpacerHeight: number;
-  bottomSpacerHeight: number;
 }
 
 const DEFAULT_OVERSCAN_ROWS = 12;

@@ -173,9 +173,10 @@ function TerminalSection({ query }: { query: string }) {
     });
   }, [hasLoadedTerminalFonts, isLoadingTerminalFonts, loadTerminalFonts]);
 
-  const getAvailableTerminalWidth = useCallback(() => {
-    return previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth();
-  }, []);
+  const getAvailableTerminalWidth = useCallback(
+    () => previewContainerRef.current?.clientWidth ?? getSettingsLayoutWidth(),
+    []
+  );
 
   const schedulePreviewSidebarWidthUpdate = useCallback((nextWidth: number) => {
     pendingPreviewSidebarWidthRef.current = nextWidth;

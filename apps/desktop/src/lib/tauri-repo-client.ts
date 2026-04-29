@@ -29,11 +29,11 @@ import type {
   RepoDataFetchResult,
   RepositoryBranch,
   RepositoryCommit,
-  RepositoryCommitGraphPayload,
   RepositoryCommitFile,
   RepositoryCommitFileDiff,
   RepositoryCommitFileHunks,
   RepositoryCommitFilePreflight,
+  RepositoryCommitGraphPayload,
   RepositoryCommitSyncState,
   RepositoryDiffPreviewMode,
   RepositoryFileBlamePayload,
@@ -489,7 +489,9 @@ function parseRepositoryCommitGraphPayload(
   };
 }
 
-function parseRepositoryHistoryPayload(value: unknown): RepositoryHistoryPayload {
+function parseRepositoryHistoryPayload(
+  value: unknown
+): RepositoryHistoryPayload {
   if (!isRecord(value)) {
     throw new Error("Invalid repository history payload");
   }

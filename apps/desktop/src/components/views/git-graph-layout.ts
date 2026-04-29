@@ -52,10 +52,7 @@ const REF_ROW_LANE_OFFSET = 2;
 
 function resolveGraphWidth(maxLane: number): number {
   const graphWidth =
-    LANE_OFFSET_X +
-    (maxLane + REF_ROW_LANE_OFFSET) * LANE_SPACING_X +
-    28 +
-    18;
+    LANE_OFFSET_X + (maxLane + REF_ROW_LANE_OFFSET) * LANE_SPACING_X + 28 + 18;
 
   return Math.max(MIN_TIMELINE_GRAPH_COLUMN_WIDTH, graphWidth);
 }
@@ -109,16 +106,18 @@ export function projectVisibleGitGraph(
     };
   }
 
-  const usedVisibleLanes = [...new Set(
-    commits.map((commit) => resolveCommitLane(graph, commit.hash))
-  )].sort((left, right) => left - right);
+  const usedVisibleLanes = [
+    ...new Set(commits.map((commit) => resolveCommitLane(graph, commit.hash))),
+  ].sort((left, right) => left - right);
   const projectedLaneByOriginalLane = new Map(
     usedVisibleLanes.map((lane, index) => [lane, index])
   );
   const commitLanes = Object.fromEntries(
     commits.map((commit) => {
       const lane =
-        projectedLaneByOriginalLane.get(resolveCommitLane(graph, commit.hash)) ?? 0;
+        projectedLaneByOriginalLane.get(
+          resolveCommitLane(graph, commit.hash)
+        ) ?? 0;
 
       return [
         commit.hash,

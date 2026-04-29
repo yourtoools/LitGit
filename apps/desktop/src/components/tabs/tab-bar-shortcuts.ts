@@ -182,14 +182,15 @@ export const useTabBarShortcuts = ({
   }, [handleCycleTabs]);
 };
 
-export const createTabListKeyDownHandler = ({
-  isSingleTab,
-  queueKeyboardFocusTabId,
-  requestCloseTab,
-  setActiveTabFromUrl,
-  sortedTabs,
-}: CreateTabListKeyDownHandlerOptions) => {
-  return (event: ReactKeyboardEvent<HTMLDivElement>) => {
+export const createTabListKeyDownHandler =
+  ({
+    isSingleTab,
+    queueKeyboardFocusTabId,
+    requestCloseTab,
+    setActiveTabFromUrl,
+    sortedTabs,
+  }: CreateTabListKeyDownHandlerOptions) =>
+  (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) {
       return;
     }
@@ -239,4 +240,3 @@ export const createTabListKeyDownHandler = ({
       requestCloseTab(focusedTabId);
     }
   };
-};

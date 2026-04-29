@@ -791,11 +791,11 @@ export function RepositoryStartLocalDialog({
       });
 
     if (!successState) {
-      setDefaultBranch((currentValue) => {
-        return currentValue.trim().length === 0
+      setDefaultBranch((currentValue) =>
+        currentValue.trim().length === 0
           ? preferredDefaultBranchName
-          : currentValue;
-      });
+          : currentValue
+      );
 
       queueMicrotask(() => {
         nameInputRef.current?.focus();

@@ -1,9 +1,9 @@
 import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { BranchSelectorPalette } from "@/components/shell/branch-selector-palette";
 import Footer from "@/components/shell/footer";
 import Header from "@/components/shell/header";
 import { WindowTitlebar } from "@/components/shell/window-titlebar";
-import { BranchSelectorPalette } from "@/components/shell/branch-selector-palette";
 import { shouldUseWindowTitlebar } from "@/lib/runtime-window-chrome";
 
 interface RootShellProps {
@@ -26,7 +26,7 @@ export function RootShell({ children }: RootShellProps) {
         }
       >
         {usesWindowTitlebar ? <WindowTitlebar hideSearch /> : null}
-        <main className="min-h-0 h-full overflow-y-auto">{children}</main>
+        <main className="h-full min-h-0 overflow-y-auto">{children}</main>
       </div>
     );
   }

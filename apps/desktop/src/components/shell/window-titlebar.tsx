@@ -1,6 +1,6 @@
 import { CopyIcon, MinusIcon, SquareIcon, XIcon } from "@phosphor-icons/react";
 import { isTauri } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { TabSearchTrigger } from "@/components/shell/tab-search-trigger";
 import { getRuntimeWindowChromeMode } from "@/lib/runtime-window-chrome";
 
@@ -23,7 +23,8 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
   const useOverlayNativeControls =
     windowChromeMode === "overlay-native-controls";
   const useDraggableTitlebar = windowChromeMode !== "native";
-  const showTitle = useCustomWindowControls || useOverlayNativeControls || hideSearch;
+  const showTitle =
+    useCustomWindowControls || useOverlayNativeControls || hideSearch;
   const tauriRuntime = isTauri();
   const [isMaximized, setIsMaximized] = useState(false);
   const dragRegionProps = useDraggableTitlebar
@@ -117,6 +118,56 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
     closeWindow().catch(() => undefined);
   }, [tauriRuntime]);
 
+  let windowControlsContent: ReactNode = null;
+
+  if (tauriRuntime && useCustomWindowControls) {
+    windowControlsContent = (
+      <div
+        className="tauri-no-drag flex items-center"
+        data-tauri-drag-region="false"
+      >
+        <div className="flex shrink-0 items-stretch">
+          <button
+            aria-label="Minimize window"
+            className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
+            onClick={handleMinimizeWindow}
+            type="button"
+          >
+            <MinusIcon className="size-3" weight="bold" />
+          </button>
+          <button
+            aria-label={isMaximized ? "Restore window" : "Maximize window"}
+            className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
+            onClick={handleToggleMaximizeWindow}
+            type="button"
+          >
+            {isMaximized ? (
+              <CopyIcon className="size-3" weight="bold" />
+            ) : (
+              <SquareIcon className="size-3" weight="bold" />
+            )}
+          </button>
+          <button
+            aria-label="Close window"
+            className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_CLOSE_HOVER_CLASS}`}
+            onClick={handleCloseWindow}
+            type="button"
+          >
+            <XIcon className="size-3" weight="bold" />
+          </button>
+        </div>
+      </div>
+    );
+  } else if (useOverlayNativeControls) {
+    windowControlsContent = (
+      <div
+        aria-hidden="true"
+        className="pointer-events-none shrink-0"
+        style={{ width: `${WINDOWS_OVERLAY_CONTROLS_RESERVED_WIDTH}px` }}
+      />
+    );
+  }
+
   return (
     <div
       className="grid h-7 shrink-0 select-none grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(0,1fr)] items-center gap-3 border-border/70 border-b bg-muted/25 px-3"
@@ -134,56 +185,10 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
       </div>
 
       <div className="flex min-w-0 justify-center">
-        {!hideSearch ? (
-          <TabSearchTrigger variant="pill" />
-        ) : null}
+        {hideSearch ? null : <TabSearchTrigger variant="pill" />}
       </div>
 
-      <div className="flex min-w-0 justify-end">
-        {tauriRuntime && useCustomWindowControls ? (
-          <div
-            className="tauri-no-drag flex items-center"
-            data-tauri-drag-region="false"
-          >
-            <div className="flex shrink-0 items-stretch">
-              <button
-                aria-label="Minimize window"
-                className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
-                onClick={handleMinimizeWindow}
-                type="button"
-              >
-                <MinusIcon className="size-3" weight="bold" />
-              </button>
-              <button
-                aria-label={isMaximized ? "Restore window" : "Maximize window"}
-                className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_HOVER_CLASS}`}
-                onClick={handleToggleMaximizeWindow}
-                type="button"
-              >
-                {isMaximized ? (
-                  <CopyIcon className="size-3" weight="bold" />
-                ) : (
-                  <SquareIcon className="size-3" weight="bold" />
-                )}
-              </button>
-              <button
-                aria-label="Close window"
-                className={`${CONTROL_BUTTON_BASE_CLASS} ${CONTROL_BUTTON_SIZE_CLASS} ${CONTROL_BUTTON_CLOSE_HOVER_CLASS}`}
-                onClick={handleCloseWindow}
-                type="button"
-              >
-                <XIcon className="size-3" weight="bold" />
-              </button>
-            </div>
-          </div>
-        ) : useOverlayNativeControls ? (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none shrink-0"
-            style={{ width: `${WINDOWS_OVERLAY_CONTROLS_RESERVED_WIDTH}px` }}
-          />
-        ) : null}
-      </div>
+      <div className="flex min-w-0 justify-end">{windowControlsContent}</div>
     </div>
   );
 }

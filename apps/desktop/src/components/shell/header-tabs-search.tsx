@@ -86,28 +86,23 @@ const SCROLLBAR_CLASSES =
 
 const isCommandItem = (
   item: PaletteItem
-): item is HeaderTabsCommandPaletteItem => {
-  return item.type === "command";
-};
+): item is HeaderTabsCommandPaletteItem => item.type === "command";
 
-const shortcutLabelToKeys = (label: string) => {
-  return label.split("+").map((item) => item.trim());
-};
+const shortcutLabelToKeys = (label: string) =>
+  label.split("+").map((item) => item.trim());
 
-const ShortcutKeys = ({ keys }: { keys: string[] }) => {
-  return (
-    <div className="ml-3 flex shrink-0 items-center gap-1 self-center">
-      {keys.map((key) => (
-        <kbd
-          className="rounded border border-border/70 bg-background/90 px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-[0.12em]"
-          key={key}
-        >
-          {key}
-        </kbd>
-      ))}
-    </div>
-  );
-};
+const ShortcutKeys = ({ keys }: { keys: string[] }) => (
+  <div className="ml-3 flex shrink-0 items-center gap-1 self-center">
+    {keys.map((key) => (
+      <kbd
+        className="rounded border border-border/70 bg-background/90 px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-[0.12em]"
+        key={key}
+      >
+        {key}
+      </kbd>
+    ))}
+  </div>
+);
 
 export function HeaderTabsSearch() {
   const { resolvedTheme } = useTheme();
@@ -267,8 +262,8 @@ export function HeaderTabsSearch() {
       ? tabs[(activeTabIndex - 1 + tabs.length) % tabs.length]
       : null;
 
-  const settingsCommands = useMemo<HeaderTabsCommandPaletteItem[]>(() => {
-    return [
+  const settingsCommands = useMemo<HeaderTabsCommandPaletteItem[]>(
+    () => [
       {
         description: "Open workspace settings.",
         disabled: false,
@@ -350,8 +345,9 @@ export function HeaderTabsSearch() {
         label: "Settings: AI",
         type: "command",
       },
-    ];
-  }, []);
+    ],
+    []
+  );
 
   const launcherCommands =
     launcherApplications.map<HeaderTabsCommandPaletteItem>((application) => ({
@@ -373,8 +369,8 @@ export function HeaderTabsSearch() {
       type: "command",
     }));
 
-  const commands = useMemo<HeaderTabsCommandPaletteItem[]>(() => {
-    return [
+  const commands = useMemo<HeaderTabsCommandPaletteItem[]>(
+    () => [
       {
         description: "Create a fresh empty tab.",
         disabled: false,
@@ -624,26 +620,27 @@ export function HeaderTabsSearch() {
       },
       ...launcherCommands,
       ...settingsCommands,
-    ];
-  }, [
-    activeRepo,
-    activeRepoId,
-    activeTabId,
-    closedTabHistory.length,
-    isTerminalPanelOpen,
-    launcherCommands,
-    canCreateStash,
-    canPopCurrentStash,
-    latestStashRef,
-    nextTab,
-    previousTab,
-    redoDepth,
-    redoLabel,
-    settingsCommands,
-    stashDescription,
-    undoDepth,
-    undoLabel,
-  ]);
+    ],
+    [
+      activeRepo,
+      activeRepoId,
+      activeTabId,
+      closedTabHistory.length,
+      isTerminalPanelOpen,
+      launcherCommands,
+      canCreateStash,
+      canPopCurrentStash,
+      latestStashRef,
+      nextTab,
+      previousTab,
+      redoDepth,
+      redoLabel,
+      settingsCommands,
+      stashDescription,
+      undoDepth,
+      undoLabel,
+    ]
+  );
 
   const parsedItems = useMemo(() => {
     const openItems: HeaderTabsSearchTabItem[] = tabs.map((tab) => ({
@@ -1192,7 +1189,7 @@ export function HeaderTabsSearch() {
               />
             </div>
             <ComboboxList
-              className={`max-h-[min(40vh,320px)] overflow-x-hidden overflow-y-auto p-1 ${SCROLLBAR_CLASSES}`}
+              className={`max-h-[min(40vh,320px)] overflow-y-auto overflow-x-hidden p-1 ${SCROLLBAR_CLASSES}`}
             >
               {!hasResults && (
                 <div className="py-4 text-center text-muted-foreground text-xs">
@@ -1205,7 +1202,9 @@ export function HeaderTabsSearch() {
               {isCommandMode ? (
                 commandGroups.map(([group, items], index) => (
                   <div key={group}>
-                    {index > 0 && <div className="-mx-1 my-0.5 h-px bg-border" />}
+                    {index > 0 && (
+                      <div className="-mx-1 my-0.5 h-px bg-border" />
+                    )}
                     <ComboboxGroup>
                       <ComboboxLabel className="px-2 py-1 font-semibold text-[11px] text-muted-foreground">
                         {group}
@@ -1286,7 +1285,9 @@ export function HeaderTabsSearch() {
                             ) : (
                               <FileIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                             )}
-                            <span className="flex-1 truncate">{item.title}</span>
+                            <span className="flex-1 truncate">
+                              {item.title}
+                            </span>
                             <div className="ml-auto size-5 shrink-0" />
                           </ComboboxItem>
                         ))}

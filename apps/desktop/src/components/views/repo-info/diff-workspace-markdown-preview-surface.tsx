@@ -1,11 +1,11 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { createWorkerClient } from "@/lib/workers/create-worker-client";
-import { runWorkerTask } from "@/lib/workers/run-worker-task";
 import {
   type MarkdownBlock,
   parseMarkdownBlocks,
 } from "@/components/views/repo-info/diff-workspace-markdown-preview-parser";
+import { createWorkerClient } from "@/lib/workers/create-worker-client";
+import { runWorkerTask } from "@/lib/workers/run-worker-task";
 
 interface DiffWorkspaceMarkdownPreviewSurfaceProps {
   markdown: string;
@@ -256,7 +256,10 @@ export function DiffWorkspaceMarkdownPreviewSurface({
       >(
         () =>
           new Worker(
-            new URL("./diff-workspace-markdown-preview.worker.ts", import.meta.url),
+            new URL(
+              "./diff-workspace-markdown-preview.worker.ts",
+              import.meta.url
+            ),
             { type: "module" }
           )
       );
@@ -276,13 +279,9 @@ export function DiffWorkspaceMarkdownPreviewSurface({
     const workerClient = workerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      { markdown: normalized },
-      (payload) => ({
-        blocks: parseMarkdownBlocks(payload.markdown),
-      })
-    )
+    runWorkerTask(workerClient, { markdown: normalized }, (payload) => ({
+      blocks: parseMarkdownBlocks(payload.markdown),
+    }))
       .then((result) => {
         if (!cancelled) {
           setBlocks(result.blocks);

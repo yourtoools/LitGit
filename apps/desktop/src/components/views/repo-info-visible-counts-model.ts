@@ -83,25 +83,31 @@ export function buildRepoInfoVisibleCountsModel(
         )
       : input.stagedItemsLength;
 
-  const selectedCommitVisibleNodeCount = input.selectedCommitHash
-    ? input.commitDetailsViewMode === "tree"
-      ? countVisibleCommitTreeNodes(
-          input.selectedCommitTree,
-          input.expandedCommitTreeNodePaths,
-          input.selectedCommitHash
-        )
-      : input.sortedCommitPathRowsLength
-    : 0;
+  let selectedCommitVisibleNodeCount = 0;
 
-  const selectedReferenceVisibleNodeCount = input.selectedReferenceRevision
-    ? input.commitDetailsViewMode === "tree"
-      ? countVisibleCommitTreeNodes(
-          input.selectedReferenceTree,
-          input.expandedCommitTreeNodePaths,
-          input.selectedReferenceRevision
-        )
-      : input.sortedSelectedReferencePathRowsLength
-    : 0;
+  if (input.selectedCommitHash) {
+    selectedCommitVisibleNodeCount =
+      input.commitDetailsViewMode === "tree"
+        ? countVisibleCommitTreeNodes(
+            input.selectedCommitTree,
+            input.expandedCommitTreeNodePaths,
+            input.selectedCommitHash
+          )
+        : input.sortedCommitPathRowsLength;
+  }
+
+  let selectedReferenceVisibleNodeCount = 0;
+
+  if (input.selectedReferenceRevision) {
+    selectedReferenceVisibleNodeCount =
+      input.commitDetailsViewMode === "tree"
+        ? countVisibleCommitTreeNodes(
+            input.selectedReferenceTree,
+            input.expandedCommitTreeNodePaths,
+            input.selectedReferenceRevision
+          )
+        : input.sortedSelectedReferencePathRowsLength;
+  }
 
   return {
     allFilesVisibleNodeCount,

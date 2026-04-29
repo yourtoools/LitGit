@@ -29,7 +29,7 @@ export interface SearchHeaderTabsPaletteInput {
 }
 
 export interface SearchHeaderTabsPaletteOutput {
-  commandGroups: Array<[string, HeaderTabsCommandPaletteItem[]]>;
+  commandGroups: [string, HeaderTabsCommandPaletteItem[]][];
   filteredClosed: HeaderTabsSearchTabItem[];
   filteredCommands: HeaderTabsCommandPaletteItem[];
   filteredOpen: HeaderTabsSearchTabItem[];
@@ -37,7 +37,7 @@ export interface SearchHeaderTabsPaletteOutput {
 
 function groupCommands(
   commands: HeaderTabsCommandPaletteItem[]
-): Array<[string, HeaderTabsCommandPaletteItem[]]> {
+): [string, HeaderTabsCommandPaletteItem[]][] {
   const groupedCommands = new Map<string, HeaderTabsCommandPaletteItem[]>();
 
   for (const command of commands) {

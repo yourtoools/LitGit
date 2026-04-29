@@ -92,9 +92,7 @@ function GitSection({ query }: { query: string }) {
         } | null;
         repoPath: string | null;
       } | null
-    ) => {
-      return JSON.stringify(left) === JSON.stringify(right);
-    },
+    ) => JSON.stringify(left) === JSON.stringify(right),
     []
   );
 

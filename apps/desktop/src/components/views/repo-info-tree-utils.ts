@@ -19,11 +19,11 @@ export interface CommitFileTreeNode {
   name: string;
 }
 
-export type CollapsedCommitTreeSummary = {
+export interface CollapsedCommitTreeSummary {
   addedCount: number;
   modifiedCount: number;
   removedCount: number;
-};
+}
 
 const changeTreeStatusCountCache = new WeakMap<
   ChangeTreeNode,

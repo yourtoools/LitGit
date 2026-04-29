@@ -115,8 +115,8 @@ function buildBranchTree(entries: SidebarEntry[]): BranchTreeNode[] {
         return left.name.localeCompare(right.name);
       });
 
-  const compressBranchTree = (nodes: BranchTreeNode[]): BranchTreeNode[] => {
-    return nodes.map((node) => {
+  const compressBranchTree = (nodes: BranchTreeNode[]): BranchTreeNode[] =>
+    nodes.map((node) => {
       if (node.entry) {
         return node;
       }
@@ -145,7 +145,6 @@ function buildBranchTree(entries: SidebarEntry[]): BranchTreeNode[] {
         name: `${node.name}/${onlyChild.name}`,
       };
     });
-  };
 
   return compressBranchTree(toSortedArray(root));
 }

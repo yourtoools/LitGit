@@ -244,12 +244,8 @@ export const createRepoActionsSlice = (
       },
     }));
   },
-  canUndoRepoAction: (id) => {
-    return (get().repoUndoDepthById[id] ?? 0) > 0;
-  },
-  canRedoRepoAction: (id) => {
-    return (get().repoRedoDepthById[id] ?? 0) > 0;
-  },
+  canUndoRepoAction: (id) => (get().repoUndoDepthById[id] ?? 0) > 0,
+  canRedoRepoAction: (id) => (get().repoRedoDepthById[id] ?? 0) > 0,
   checkoutCommit: async (id, target) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 
@@ -305,12 +301,8 @@ export const createRepoActionsSlice = (
       throw error;
     }
   },
-  getUndoRepoActionLabel: (id) => {
-    return get().repoUndoLabelById[id] ?? null;
-  },
-  getRedoRepoActionLabel: (id) => {
-    return get().repoRedoLabelById[id] ?? null;
-  },
+  getUndoRepoActionLabel: (id) => get().repoUndoLabelById[id] ?? null,
+  getRedoRepoActionLabel: (id) => get().repoRedoLabelById[id] ?? null,
   createBranch: async (id, branchName) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 

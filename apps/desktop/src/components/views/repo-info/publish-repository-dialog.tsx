@@ -373,7 +373,10 @@ export function PublishRepositoryDialog({
             </fieldset>
 
             <div className="space-y-2">
-              <Label className="text-xs" htmlFor="publish-repository-destination">
+              <Label
+                className="text-xs"
+                htmlFor="publish-repository-destination"
+              >
                 Destination
               </Label>
               <Select
