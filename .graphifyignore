@@ -8,8 +8,12 @@ GEMINI.md
 .cursor/
 .gemini/
 .superpowers/
+.agents/rules/
 .agents/skills/
 .agents/workflows/
+.github/copilot-instructions.md
+.github/hooks/
+skills-lock.json
 
 # Keep only the OpenCode Graphify integration
 .opencode/*

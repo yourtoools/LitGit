@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-04-30T10:02:06+07:00",
+  "title": "Design System: LitGit",
+  "extensions": {
+    "colorMeta": {
+      "light-background": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "oklch(0.985 0.002 95)",
+        "usage": "Primary light canvas. Keep it softly tinted; never replace it with pure white.",
+        "tonalRamp": [
+          "oklch(0.99 0.001 95)",
+          "oklch(0.985 0.002 95)",
+          "oklch(0.95 0.008 95)",
+          "oklch(0.88 0.005 95)"
+        ]
+      },
+      "light-foreground": {
+        "role": "neutral",
+        "displayName": "Ink Olive",
+        "canonical": "oklch(0.31 0.028 95)",
+        "usage": "Primary text in light mode, with a warm technical tint.",
+        "tonalRamp": [
+          "oklch(0.55 0.015 95)",
+          "oklch(0.4 0.02 95)",
+          "oklch(0.31 0.028 95)",
+          "oklch(0.25 0.025 95)"
+        ]
+      },
+      "dark-background": {
+        "role": "neutral",
+        "displayName": "Deep Blue Graphite",
+        "canonical": "oklch(0.21 0.012 250)",
+        "usage": "Primary dark desktop canvas and default app-shell ground.",
+        "tonalRamp": [
+          "oklch(0.21 0.012 250)",
+          "oklch(0.23 0.014 250)",
+          "oklch(0.24 0.016 250)",
+          "oklch(0.28 0.018 250)",
+          "oklch(0.32 0.02 250)"
+        ]
+      },
+      "dark-foreground": {
+        "role": "neutral",
+        "displayName": "Pale Repository Text",
+        "canonical": "oklch(0.85 0.02 95)",
+        "usage": "Primary text in dark mode, warm enough to avoid sterile blue-gray.",
+        "tonalRamp": [
+          "oklch(0.65 0.018 95)",
+          "oklch(0.8 0.018 250)",
+          "oklch(0.85 0.02 95)",
+          "oklch(0.9 0.015 95)"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Repository Blue",
+        "canonical": "oklch(0.65 0.13 250)",
+        "usage": "Primary action, selected state, active navigation, rings, and chart emphasis. Use sparingly.",
+        "tonalRamp": [
+          "oklch(0.55 0.145 250)",
+          "oklch(0.65 0.13 250)",
+          "oklch(0.65 0.13 250 / 0.1)",
+          "oklch(0.65 0.13 250 / 0.025)"
+        ]
+      },
+      "focus-border": {
+        "role": "focus",
+        "displayName": "Focus Cyan-Blue",
+        "canonical": "oklch(0.76 0.05 225)",
+        "usage": "Keyboard focus borders, resize-handle focus bars, and strong desktop focus fills.",
+        "tonalRamp": [
+          "oklch(0.68 0.045 225)",
+          "oklch(0.76 0.05 225)",
+          "oklch(0.3 0.02 225)",
+          "oklch(0.36 0.03 225)"
+        ]
+      },
+      "destructive": {
+        "role": "risk",
+        "displayName": "Risk Red",
+        "canonical": "oklch(0.6 0.16 25)",
+        "usage": "Destructive actions, invalid states, auth errors, and repository operation failures.",
+        "tonalRamp": [
+          "oklch(0.55 0.18 25)",
+          "oklch(0.6 0.16 25)",
+          "oklch(0.6 0.16 25 / 0.18)",
+          "oklch(0.6 0.16 25 / 0.24)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Rare onboarding and empty-state moments where there is no competing repository data.",
+        "recommended": {
+          "fontFamily": "Geist Variable, Geist, sans-serif",
+          "fontSize": "20px to 24px",
+          "fontWeight": 600,
+          "lineHeight": 1.2
+        }
+      },
+      "headline": {
+        "displayName": "Mono Headline",
+        "purpose": "Settings titles and major pane titles that benefit from code-adjacent precision."
+      },
+      "title": {
+        "displayName": "Operational Title",
+        "purpose": "Dialogs, section headings, active repository labels, and toolbar groups."
+      },
+      "body": {
+        "displayName": "Dense Body",
+        "purpose": "Descriptions, helper copy, list metadata, and settings explanations.",
+        "maxLineLength": "65ch to 75ch"
+      },
+      "label": {
+        "displayName": "Compact Label",
+        "purpose": "Compact controls, uppercase group labels, shortcuts, badges, and table-like metadata."
+      }
+    },
+    "elevation": {
+      "philosophy": "Flat by default. Depth comes from borders, tonal backgrounds, inset focus fills, subtle shadows, and pane structure.",
+      "tokens": {
+        "subtle-surface": {
+          "boxShadow": "0px 1px 2px 0px oklch(0.2 0.01 250 / 0.03)",
+          "usage": "Tiny separation for popovers, menus, and overlays in light mode."
+        },
+        "dark-overlay": {
+          "boxShadow": "0px 2px 4px 0px oklch(0.1 0.02 250 / 0.18)",
+          "usage": "Dropdowns and dialogs in dark mode."
+        },
+        "deep-modal": {
+          "boxShadow": "0px 24px 32px 0px oklch(0.1 0.02 250 / 0.4)",
+          "usage": "Rare interruption-level overlays."
+        }
+      }
+    },
+    "motion": {
+      "philosophy": "Motion should acknowledge state changes without making repository work feel theatrical.",
+      "duration": {
+        "fast": "120ms",
+        "standard": "150ms",
+        "slow": "220ms"
+      },
+      "easing": {
+        "desktop-out": "cubic-bezier(0.16, 1, 0.3, 1)"
+      },
+      "rules": [
+        "Animate opacity, transform, and color only.",
+        "Do not animate layout properties in dense panes.",
+        "Honor prefers-reduced-motion with near-zero duration."
+      ]
+    },
+    "breakpoints": {
+      "sm": "640px",
+      "md": "768px",
+      "lg": "1024px",
+      "xl": "1280px",
+      "2xl": "1536px"
+    },
+    "componentMeta": {
+      "app-shell": {
+        "displayName": "App Shell",
+        "structure": "Header, scrollable main region, footer, and command palette branch selector.",
+        "rules": [
+          "Keep chrome stable across repository routes.",
+          "Reserve onboarding for its own simplified shell.",
+          "Do not introduce marketing hero composition into app routes."
+        ]
+      },
+      "button": {
+        "displayName": "Compact Desktop Button",
+        "shape": "Square corners, usually 28px high in operational surfaces.",
+        "states": {
+          "hover": "Muted tonal fill or foreground shift.",
+          "focus": "Use desktop-focus or desktop-focus-strong inset treatment.",
+          "disabled": "Lower opacity without layout shift."
+        },
+        "rules": [
+          "Prefer icons for tool actions.",
+          "Use primary only for the action that advances the current flow.",
+          "Keep labels available where user settings enable toolbar labels."
+        ]
+      },
+      "input": {
+        "displayName": "Compact Input",
+        "shape": "Square corners with a clear 1px boundary.",
+        "states": {
+          "focus": "Inset focus fill and focus border.",
+          "error": "Risk Red plus explicit text.",
+          "disabled": "Muted fill and preserved dimensions."
+        }
+      },
+      "pane": {
+        "displayName": "Repository Pane",
+        "structure": "Bordered, resizable, split, or scrollable regions for repository state.",
+        "rules": [
+          "Prefer panes and splitters over standalone cards.",
+          "Use stable dimensions for tab bars, toolbars, trees, and diff regions.",
+          "Avoid nested card structures."
+        ]
+      },
+      "resize-handle": {
+        "displayName": "Desktop Resize Handle",
+        "shape": "Thin vertical or horizontal control with focus bar pseudo-element.",
+        "focus": "3px focus bar using Focus Cyan-Blue.",
+        "rules": [
+          "Keep resize handles keyboard-focusable.",
+          "Do not rely on hover alone to communicate availability."
+        ]
+      },
+      "diff-workspace": {
+        "displayName": "Diff Workspace",
+        "structure": "High-density decision surface for files, previews, blame, markdown, image comparison, terminal, and commit work.",
+        "rules": [
+          "Keep file navigation and preview context close together.",
+          "Avoid layout shift when switching modes.",
+          "Reserve space for toolbars and state indicators."
+        ]
+      }
+    },
+    "focusUtilities": {
+      "desktop-focus": {
+        "source": "apps/desktop/src/styles/index.css",
+        "description": "Inset 1px focus edge plus large inset tonal fill. Replaces generic ring treatment for desktop controls."
+      },
+      "desktop-focus-strong": {
+        "source": "apps/desktop/src/styles/index.css",
+        "description": "Stronger 2px inset focus edge for small icon buttons or high-risk focus targets."
+      },
+      "desktop-focus-destructive": {
+        "source": "apps/desktop/src/styles/index.css",
+        "description": "Risk Red focus treatment for destructive controls."
+      },
+      "desktop-resize-handle-vertical-focus": {
+        "source": "apps/desktop/src/styles/index.css",
+        "description": "Keyboard-visible vertical resize affordance with a centered 3px focus bar."
+      },
+      "desktop-resize-handle-horizontal-focus": {
+        "source": "apps/desktop/src/styles/index.css",
+        "description": "Keyboard-visible horizontal resize affordance with a centered 3px focus bar."
+      }
+    },
+    "narrative": {
+      "northStar": "The Native Workbench",
+      "register": "product",
+      "personality": ["precise", "native", "quietly capable"],
+      "scene": "A developer is reviewing repository state in a desktop app during focused work, with branch, diff, terminal, auth, and provider context close at hand.",
+      "designPrinciples": [
+        "Keep repository state visible.",
+        "Prefer native confidence.",
+        "Make risky actions explicit.",
+        "Optimize for focused density.",
+        "Let craft show through precision."
+      ],
+      "antiReferences": [
+        "generic SaaS dashboards",
+        "marketing-page polish inside product views",
+        "oversized empty-state theatrics",
+        "neon developer aesthetics",
+        "glassmorphism",
+        "heavy gradients",
+        "rounded card grids",
+        "modal-first flows for ordinary tasks",
+        "cute language for destructive or remote-affecting Git actions"
+      ]
+    },
+    "rules": {
+      "dos": [
+        "Use existing OKLCH tokens from packages/ui/src/styles/globals.css and apps/desktop/src/styles/index.css.",
+        "Keep product screens compact, pane-based, and keyboard-friendly.",
+        "Use borders, low-opacity fills, and focus utilities for structure before adding shadows.",
+        "Keep risky Git and provider actions explicit, with clear labels and recovery paths.",
+        "Honor system theme, reduced motion, and platform-native behavior."
+      ],
+      "donts": [
+        "Do not use glassmorphism, gradient text, neon-on-black styling, or big SaaS hero metrics inside product views.",
+        "Do not use colored border-left or border-right stripes as accents on cards, alerts, or list items.",
+        "Do not create repeated identical card grids for settings, actions, or repository state.",
+        "Do not make modals the default interaction for ordinary filtering, navigation, or progressive disclosure.",
+        "Do not use pure black or pure white; keep neutrals tinted through the existing OKLCH system."
+      ]
+    }
+  }
+}
