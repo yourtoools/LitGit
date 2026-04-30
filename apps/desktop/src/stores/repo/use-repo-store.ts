@@ -65,18 +65,3 @@ export const useRepoStore = create<RepoStoreState>()(
     }
   )
 );
-
-export type {
-  OpenedRepository,
-  OpenRepositoryResult,
-  PickedRepository,
-  PickedRepositorySelection,
-  RepoStoreState,
-  RepositoryBranch,
-  RepositoryCommit,
-  RepositoryFileDiff,
-  RepositoryStash,
-  RepositoryTemplateOption,
-  RepositoryWorkingTreeItem,
-  RepositoryWorkingTreeStatus,
-} from "@/stores/repo/repo-store-types";

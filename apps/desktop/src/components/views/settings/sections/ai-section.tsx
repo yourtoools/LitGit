@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@litgit/ui/components/select";
 import { Textarea } from "@litgit/ui/components/textarea";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import {
   DefaultSelectValue,
   SectionActionRow,
@@ -31,6 +31,7 @@ import {
   AI_ENDPOINT_PLACEHOLDERS,
   AI_PROVIDER_OPTIONS,
 } from "@/components/views/settings/settings-store";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clearAiProviderSecret,
   getAiProviderSecretStatus,
@@ -80,19 +81,23 @@ function AiSection({ query }: { query: string }) {
   const setAiAvailableModels = usePreferencesStore(
     (state) => state.setAiAvailableModels
   );
-  const [aiSecretInput, setAiSecretInput] = useState("");
-  const [isLoadingAiModels, setIsLoadingAiModels] = useState(false);
-  const [aiModelsMessage, setAiModelsMessage] = useState<string | null>(null);
-  const [aiSecretStatus, setAiSecretStatus] = useState<null | {
+  const [aiSecretInput, updateAiSecretInput] = useReducerState("");
+  const [isLoadingAiModels, updateIsLoadingAiModels] = useReducerState(false);
+  const [aiModelsMessage, updateAiModelsMessage] = useReducerState<
+    string | null
+  >(null);
+  const [aiSecretStatus, updateAiSecretStatus] = useReducerState<null | {
     hasStoredValue: boolean;
     storageMode: "secure" | "session";
   }>(null);
-  const [aiSecretMessage, setAiSecretMessage] = useState<string | null>(null);
-  const [capabilitiesMessage, setCapabilitiesMessage] = useState<string | null>(
-    null
-  );
-  const [isClearingAiSecret, setIsClearingAiSecret] = useState(false);
-  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [aiSecretMessage, updateAiSecretMessage] = useReducerState<
+    string | null
+  >(null);
+  const [capabilitiesMessage, updateCapabilitiesMessage] = useReducerState<
+    string | null
+  >(null);
+  const [isClearingAiSecret, updateIsClearingAiSecret] = useReducerState(false);
+  const [isResetDialogOpen, updateIsResetDialogOpen] = useReducerState(false);
   const hasStoredAiSecret = aiSecretStatus?.hasStoredValue ?? false;
 
   const hasConfiguredAiSettings =
@@ -122,19 +127,19 @@ function AiSection({ query }: { query: string }) {
         setAiMaxOutputTokens(DEFAULT_PREFERENCES.ai.maxOutputTokens);
         setAiModel(DEFAULT_PREFERENCES.ai.model);
         setAiAvailableModels([]);
-        setAiModelsMessage(null);
-        setAiSecretInput("");
-        setAiSecretStatus({
+        updateAiModelsMessage(null);
+        updateAiSecretInput("");
+        updateAiSecretStatus({
           hasStoredValue: false,
           storageMode: "session",
         });
-        setAiSecretMessage("AI settings reset to defaults.");
+        updateAiSecretMessage("AI settings reset to defaults.");
       });
   };
 
   const refreshAiModels = useCallback(() => {
-    setIsLoadingAiModels(true);
-    setAiModelsMessage(null);
+    updateIsLoadingAiModels(true);
+    updateAiModelsMessage(null);
 
     listAiModels({
       customEndpoint,
@@ -145,7 +150,7 @@ function AiSection({ query }: { query: string }) {
 
         if (models.length === 0) {
           setAiModel("");
-          setAiModelsMessage("No models were returned by the AI endpoint.");
+          updateAiModelsMessage("No models were returned by the AI endpoint.");
           return;
         }
 
@@ -153,44 +158,58 @@ function AiSection({ query }: { query: string }) {
         const nextModel = hasSelectedModel ? model : (models[0]?.id ?? "");
 
         setAiModel(nextModel);
-        setAiModelsMessage(`Loaded ${models.length} model(s).`);
+        updateAiModelsMessage(`Loaded ${models.length} model(s).`);
       })
       .catch((error: unknown) => {
         setAiAvailableModels([]);
         setAiModel("");
-        setAiModelsMessage(
+        updateAiModelsMessage(
           error instanceof Error ? error.message : "Failed to load AI models"
         );
       })
       .finally(() => {
-        setIsLoadingAiModels(false);
+        updateIsLoadingAiModels(false);
       });
-  }, [customEndpoint, model, provider, setAiModel, setAiAvailableModels]);
+  }, [
+    customEndpoint,
+    model,
+    provider,
+    setAiModel,
+    setAiAvailableModels,
+    updateIsLoadingAiModels,
+    updateAiModelsMessage,
+  ]);
 
   useEffect(() => {
-    setAiSecretMessage(null);
-    setAiModelsMessage(null);
+    updateAiSecretMessage(null);
+    updateAiModelsMessage(null);
 
     getAiProviderSecretStatus(provider)
-      .then(setAiSecretStatus)
+      .then(updateAiSecretStatus)
       .catch(() => {
-        setAiSecretStatus(null);
+        updateAiSecretStatus(null);
       });
 
     getSettingsBackendCapabilities()
       .then((capabilities) => {
         if (capabilities.secureStorageAvailable) {
-          setCapabilitiesMessage(null);
+          updateCapabilitiesMessage(null);
         } else {
-          setCapabilitiesMessage(
+          updateCapabilitiesMessage(
             "Secure storage unavailable; using session mode."
           );
         }
       })
       .catch(() => {
-        setCapabilitiesMessage("Desktop backend capabilities unavailable.");
+        updateCapabilitiesMessage("Desktop backend capabilities unavailable.");
       });
-  }, [provider]);
+  }, [
+    provider,
+    updateAiSecretStatus,
+    updateAiModelsMessage,
+    updateCapabilitiesMessage,
+    updateAiSecretMessage,
+  ]);
 
   return (
     <div className="grid gap-1.5">
@@ -290,8 +309,8 @@ function AiSection({ query }: { query: string }) {
             className="h-7 text-xs"
             disabled={hasStoredAiSecret || isClearingAiSecret}
             onChange={(event) => {
-              setAiSecretInput(event.target.value);
-              setAiSecretMessage(null);
+              updateAiSecretInput(event.target.value);
+              updateAiSecretMessage(null);
             }}
             placeholder="sk-..."
             type="password"
@@ -307,14 +326,14 @@ function AiSection({ query }: { query: string }) {
               onClick={() => {
                 saveAiProviderSecret(provider, aiSecretInput)
                   .then((status) => {
-                    setAiSecretStatus(status);
-                    setAiSecretInput("");
-                    setAiSecretMessage(
+                    updateAiSecretStatus(status);
+                    updateAiSecretInput("");
+                    updateAiSecretMessage(
                       `API key saved (${status.storageMode}).`
                     );
                   })
                   .catch((error: unknown) => {
-                    setAiSecretMessage(
+                    updateAiSecretMessage(
                       error instanceof Error
                         ? error.message
                         : "Failed to save API key"
@@ -338,29 +357,29 @@ function AiSection({ query }: { query: string }) {
               <Button
                 disabled={isClearingAiSecret}
                 onClick={() => {
-                  setIsClearingAiSecret(true);
-                  setAiSecretMessage(null);
+                  updateIsClearingAiSecret(true);
+                  updateAiSecretMessage(null);
 
                   clearAiProviderSecret(provider)
                     .then(() => {
-                      setAiSecretStatus({
+                      updateAiSecretStatus({
                         hasStoredValue: false,
                         storageMode: "session",
                       });
-                      setAiSecretInput("");
-                      setAiSecretMessage(
+                      updateAiSecretInput("");
+                      updateAiSecretMessage(
                         "API key cleared. You can now enter a new one."
                       );
                     })
                     .catch((error: unknown) => {
-                      setAiSecretMessage(
+                      updateAiSecretMessage(
                         error instanceof Error
                           ? error.message
                           : "Failed to clear API key"
                       );
                     })
                     .finally(() => {
-                      setIsClearingAiSecret(false);
+                      updateIsClearingAiSecret(false);
                     });
                 }}
                 size="sm"
@@ -468,7 +487,7 @@ function AiSection({ query }: { query: string }) {
         query={query}
       >
         <AlertDialog
-          onOpenChange={setIsResetDialogOpen}
+          onOpenChange={updateIsResetDialogOpen}
           open={isResetDialogOpen}
         >
           <AlertDialogTrigger
@@ -492,7 +511,7 @@ function AiSection({ query }: { query: string }) {
               <AlertDialogAction
                 onClick={() => {
                   resetAiSettings();
-                  setIsResetDialogOpen(false);
+                  updateIsResetDialogOpen(false);
                 }}
                 size="sm"
                 variant="destructive"

@@ -36,7 +36,7 @@ const LANE_COLORS = [
 
 const GRID_HORIZONTAL_PADDING = 12;
 export const TIMELINE_BRANCH_COLUMN_WIDTH = 180;
-export const MIN_TIMELINE_GRAPH_COLUMN_WIDTH = 60;
+const MIN_TIMELINE_GRAPH_COLUMN_WIDTH = 60;
 const LANE_OFFSET_X = 8;
 const LANE_SPACING_X = 16;
 const GIT_NODE_SIZE_BY_TYPE: Record<GitTimelineRowType, number> = {

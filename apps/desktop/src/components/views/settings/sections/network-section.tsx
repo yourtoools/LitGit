@@ -10,13 +10,14 @@ import {
   SelectTrigger,
 } from "@litgit/ui/components/select";
 import { Switch } from "@litgit/ui/components/switch";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   DefaultSelectValue,
   SettingsField,
   SettingsHelpText,
 } from "@/components/views/settings/settings-shared-ui";
 import { PROXY_TYPE_OPTIONS } from "@/components/views/settings/settings-store";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clearProxyAuthSecret,
   clearStoredHttpCredentialEntry,
@@ -46,7 +47,7 @@ function NetworkSection({ query }: { query: string }) {
     (state) => state.network.proxyUsername
   );
   const setNetworkProxy = usePreferencesStore((state) => state.setNetworkProxy);
-  const setNetworkProxyAuthSecretStatus = usePreferencesStore(
+  const updateNetworkProxyAuthSecretStatus = usePreferencesStore(
     (state) => state.setNetworkProxyAuthSecretStatus
   );
   const sslVerification = usePreferencesStore(
@@ -55,7 +56,7 @@ function NetworkSection({ query }: { query: string }) {
   const useGitCredentialManager = usePreferencesStore(
     (state) => state.network.useGitCredentialManager
   );
-  const [credentialEntries, setCredentialEntries] = useState<
+  const [credentialEntries, updateCredentialEntries] = useReducerState<
     Array<{
       host: string;
       id: string;
@@ -64,12 +65,17 @@ function NetworkSection({ query }: { query: string }) {
       username: string;
     }>
   >([]);
-  const [proxyTestMessage, setProxyTestMessage] = useState<string | null>(null);
-  const [proxyPasswordInput, setProxyPasswordInput] = useState("");
-  const [proxyAuthMessage, setProxyAuthMessage] = useState<string | null>(null);
-  const [isClearingProxyPassword, setIsClearingProxyPassword] = useState(false);
+  const [proxyTestMessage, updateProxyTestMessage] = useReducerState<
+    string | null
+  >(null);
+  const [proxyPasswordInput, updateProxyPasswordInput] = useReducerState("");
+  const [proxyAuthMessage, updateProxyAuthMessage] = useReducerState<
+    string | null
+  >(null);
+  const [isClearingProxyPassword, updateIsClearingProxyPassword] =
+    useReducerState(false);
   const hasStoredProxyPassword = proxyAuthSecretStored;
-  const [proxyTargetDraft, setProxyTargetDraft] = useState(() => ({
+  const [proxyTargetDraft, updateProxyTargetDraft] = useReducerState(() => ({
     host: proxyHost,
     port: String(proxyPort),
     type: proxyType,
@@ -93,7 +99,7 @@ function NetworkSection({ query }: { query: string }) {
 
   const handleSaveProxyTarget = () => {
     if (!canSaveProxyTarget) {
-      setProxyTestMessage(
+      updateProxyTestMessage(
         "Enter a proxy host and a valid positive port before saving."
       );
       return;
@@ -104,7 +110,7 @@ function NetworkSection({ query }: { query: string }) {
       proxyPort: parsedProxyDraftPort,
       proxyType: proxyTargetDraft.type,
     });
-    setProxyTestMessage("Proxy target saved.");
+    updateProxyTestMessage("Proxy target saved.");
   };
 
   const resetProxySettings = () => {
@@ -122,18 +128,18 @@ function NetworkSection({ query }: { query: string }) {
         useGitCredentialManager:
           DEFAULT_PREFERENCES.network.useGitCredentialManager,
       });
-      setNetworkProxyAuthSecretStatus({
+      updateNetworkProxyAuthSecretStatus({
         hasStoredValue: false,
         storageMode: null,
       });
-      setProxyTargetDraft({
+      updateProxyTargetDraft({
         host: DEFAULT_PREFERENCES.network.proxyHost,
         port: String(DEFAULT_PREFERENCES.network.proxyPort),
         type: DEFAULT_PREFERENCES.network.proxyType,
       });
-      setProxyAuthMessage("Proxy settings reset to defaults.");
-      setProxyPasswordInput("");
-      setProxyTestMessage(null);
+      updateProxyAuthMessage("Proxy settings reset to defaults.");
+      updateProxyPasswordInput("");
+      updateProxyTestMessage(null);
     };
 
     if (currentUsername.length === 0) {
@@ -150,15 +156,15 @@ function NetworkSection({ query }: { query: string }) {
 
   useEffect(() => {
     listStoredHttpCredentialEntries()
-      .then(setCredentialEntries)
+      .then(updateCredentialEntries)
       .catch(() => {
-        setCredentialEntries([]);
+        updateCredentialEntries([]);
       });
-  }, []);
+  }, [updateCredentialEntries]);
 
   useEffect(() => {
     if (!(proxyAuthEnabled && proxyUsername.trim().length > 0)) {
-      setNetworkProxyAuthSecretStatus({
+      updateNetworkProxyAuthSecretStatus({
         hasStoredValue: false,
         storageMode: null,
       });
@@ -167,26 +173,26 @@ function NetworkSection({ query }: { query: string }) {
 
     getProxyAuthSecretStatus(proxyUsername)
       .then((status) => {
-        setNetworkProxyAuthSecretStatus({
+        updateNetworkProxyAuthSecretStatus({
           hasStoredValue: status.hasStoredValue,
           storageMode: status.storageMode,
         });
       })
       .catch(() => {
-        setNetworkProxyAuthSecretStatus({
+        updateNetworkProxyAuthSecretStatus({
           hasStoredValue: false,
           storageMode: null,
         });
       });
-  }, [proxyAuthEnabled, proxyUsername, setNetworkProxyAuthSecretStatus]);
+  }, [proxyAuthEnabled, proxyUsername, updateNetworkProxyAuthSecretStatus]);
 
   useEffect(() => {
-    setProxyTargetDraft({
+    updateProxyTargetDraft({
       host: proxyHost,
       port: String(proxyPort),
       type: proxyType,
     });
-  }, [proxyHost, proxyPort, proxyType]);
+  }, [proxyHost, proxyPort, proxyType, updateProxyTargetDraft]);
 
   return (
     <div className="grid gap-2">
@@ -195,9 +201,13 @@ function NetworkSection({ query }: { query: string }) {
         label="Use Git Credential Manager"
         query={query}
       >
-        <label className="inline-flex items-center gap-1.5">
+        <label
+          className="inline-flex items-center gap-1.5"
+          htmlFor="network-use-git-credential-manager"
+        >
           <Switch
             checked={useGitCredentialManager}
+            id="network-use-git-credential-manager"
             onCheckedChange={(checked) => {
               setNetworkProxy({ useGitCredentialManager: Boolean(checked) });
             }}
@@ -210,9 +220,13 @@ function NetworkSection({ query }: { query: string }) {
         label="Use proxy"
         query={query}
       >
-        <label className="inline-flex items-center gap-1.5">
+        <label
+          className="inline-flex items-center gap-1.5"
+          htmlFor="network-use-proxy"
+        >
           <Switch
             checked={enableProxy}
+            id="network-use-proxy"
             onCheckedChange={(checked) => {
               setNetworkProxy({ enableProxy: Boolean(checked) });
             }}
@@ -227,9 +241,13 @@ function NetworkSection({ query }: { query: string }) {
         label="Verify SSL certificates"
         query={query}
       >
-        <label className="inline-flex items-center gap-1.5">
+        <label
+          className="inline-flex items-center gap-1.5"
+          htmlFor="network-verify-ssl-certificates"
+        >
           <Checkbox
             checked={sslVerification}
+            id="network-verify-ssl-certificates"
             onCheckedChange={(checked) => {
               setNetworkProxy({ sslVerification: Boolean(checked) });
             }}
@@ -250,11 +268,11 @@ function NetworkSection({ query }: { query: string }) {
                 className="h-7 text-xs"
                 id="proxy-target-host"
                 onChange={(event) => {
-                  setProxyTargetDraft((current) => ({
+                  updateProxyTargetDraft((current) => ({
                     ...current,
                     host: event.target.value,
                   }));
-                  setProxyTestMessage(null);
+                  updateProxyTestMessage(null);
                 }}
                 placeholder="proxy.local"
                 value={proxyTargetDraft.host}
@@ -267,11 +285,11 @@ function NetworkSection({ query }: { query: string }) {
                 id="proxy-target-port"
                 min={1}
                 onChange={(event) => {
-                  setProxyTargetDraft((current) => ({
+                  updateProxyTargetDraft((current) => ({
                     ...current,
                     port: event.target.value,
                   }));
-                  setProxyTestMessage(null);
+                  updateProxyTestMessage(null);
                 }}
                 placeholder="80"
                 type="number"
@@ -284,11 +302,11 @@ function NetworkSection({ query }: { query: string }) {
                 items={PROXY_TYPE_OPTIONS}
                 onValueChange={(value) => {
                   if (typeof value === "string") {
-                    setProxyTargetDraft((current) => ({
+                    updateProxyTargetDraft((current) => ({
                       ...current,
                       type: value as "http" | "https" | "socks5",
                     }));
-                    setProxyTestMessage(null);
+                    updateProxyTestMessage(null);
                   }
                 }}
                 value={proxyTargetDraft.type}
@@ -323,7 +341,7 @@ function NetworkSection({ query }: { query: string }) {
               disabled={!canTestProxyTarget}
               onClick={() => {
                 if (!canTestProxyTarget) {
-                  setProxyTestMessage(
+                  updateProxyTestMessage(
                     "Enter a proxy host and a valid positive port before testing."
                   );
                   return;
@@ -343,10 +361,10 @@ function NetworkSection({ query }: { query: string }) {
                       : undefined,
                 })
                   .then((result) => {
-                    setProxyTestMessage(result.message);
+                    updateProxyTestMessage(result.message);
                   })
                   .catch((error: unknown) => {
-                    setProxyTestMessage(
+                    updateProxyTestMessage(
                       error instanceof Error
                         ? error.message
                         : "Proxy test failed"
@@ -399,16 +417,16 @@ function NetworkSection({ query }: { query: string }) {
               onCheckedChange={(checked) => {
                 const nextValue = Boolean(checked);
                 setNetworkProxy({ proxyAuthEnabled: nextValue });
-                setProxyAuthMessage(null);
+                updateProxyAuthMessage(null);
 
                 if (!nextValue && proxyUsername.trim().length > 0) {
                   clearProxyAuthSecret(proxyUsername)
                     .then(() => {
-                      setNetworkProxyAuthSecretStatus({
+                      updateNetworkProxyAuthSecretStatus({
                         hasStoredValue: false,
                         storageMode: null,
                       });
-                      setProxyPasswordInput("");
+                      updateProxyPasswordInput("");
                     })
                     .catch(() => undefined);
                 }
@@ -432,29 +450,29 @@ function NetworkSection({ query }: { query: string }) {
                   <Button
                     disabled={isClearingProxyPassword}
                     onClick={() => {
-                      setIsClearingProxyPassword(true);
-                      setProxyAuthMessage(null);
+                      updateIsClearingProxyPassword(true);
+                      updateProxyAuthMessage(null);
 
                       clearProxyAuthSecret(proxyUsername)
                         .then(() => {
-                          setNetworkProxyAuthSecretStatus({
+                          updateNetworkProxyAuthSecretStatus({
                             hasStoredValue: false,
                             storageMode: null,
                           });
-                          setProxyPasswordInput("");
-                          setProxyAuthMessage(
+                          updateProxyPasswordInput("");
+                          updateProxyAuthMessage(
                             "Password cleared. You can now enter a new one."
                           );
                         })
                         .catch((error: unknown) => {
-                          setProxyAuthMessage(
+                          updateProxyAuthMessage(
                             error instanceof Error
                               ? error.message
                               : "Failed to clear proxy password"
                           );
                         })
                         .finally(() => {
-                          setIsClearingProxyPassword(false);
+                          updateIsClearingProxyPassword(false);
                         });
                     }}
                     size="sm"
@@ -471,7 +489,7 @@ function NetworkSection({ query }: { query: string }) {
                   disabled={hasStoredProxyPassword || isClearingProxyPassword}
                   onChange={(event) => {
                     setNetworkProxy({ proxyUsername: event.target.value });
-                    setProxyAuthMessage(null);
+                    updateProxyAuthMessage(null);
                   }}
                   placeholder="proxy-user"
                   value={proxyUsername}
@@ -480,8 +498,8 @@ function NetworkSection({ query }: { query: string }) {
                   className="h-7 text-xs"
                   disabled={hasStoredProxyPassword || isClearingProxyPassword}
                   onChange={(event) => {
-                    setProxyPasswordInput(event.target.value);
-                    setProxyAuthMessage(null);
+                    updateProxyPasswordInput(event.target.value);
+                    updateProxyAuthMessage(null);
                   }}
                   placeholder="Enter proxy password"
                   type="password"
@@ -503,17 +521,17 @@ function NetworkSection({ query }: { query: string }) {
                   onClick={() => {
                     saveProxyAuthSecret(proxyUsername, proxyPasswordInput)
                       .then((status) => {
-                        setNetworkProxyAuthSecretStatus({
+                        updateNetworkProxyAuthSecretStatus({
                           hasStoredValue: status.hasStoredValue,
                           storageMode: status.storageMode,
                         });
-                        setProxyPasswordInput("");
-                        setProxyAuthMessage(
+                        updateProxyPasswordInput("");
+                        updateProxyAuthMessage(
                           `Proxy password saved (${status.storageMode}).`
                         );
                       })
                       .catch((error: unknown) => {
-                        setProxyAuthMessage(
+                        updateProxyAuthMessage(
                           error instanceof Error
                             ? error.message
                             : "Failed to save proxy password"
@@ -564,7 +582,7 @@ function NetworkSection({ query }: { query: string }) {
                     clearStoredHttpCredentialEntry(entry.id)
                       .then(() =>
                         listStoredHttpCredentialEntries().then(
-                          setCredentialEntries
+                          updateCredentialEntries
                         )
                       )
                       .catch(() => undefined);

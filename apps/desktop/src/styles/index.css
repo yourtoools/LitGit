@@ -304,6 +304,21 @@
   height: 100%;
 }
 
+.litgit-code-editor-diff .cm-mergeView {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.litgit-code-editor-diff .cm-mergeViewEditors {
+  display: flex;
+  min-height: 100%;
+}
+
+.litgit-code-editor-diff .cm-mergeViewEditor {
+  min-width: 0;
+}
+
 /* Staggered entry animation utilities */
 @utility animate-in {
   animation: animateIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;

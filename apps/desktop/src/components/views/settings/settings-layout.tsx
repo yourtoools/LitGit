@@ -23,13 +23,13 @@ interface SettingsLayoutProps {
   activeDefinition: SettingsSectionDefinition;
   contentPanelRef: React.RefObject<HTMLDivElement | null>;
   filteredSections: SettingsSectionDefinition[];
-  handleExitPreferences: () => void;
-  leftSidebarWidth: number;
-  query: string;
-  renderSection: (
+  getSectionContent: (
     sectionId: SettingsSectionId,
     query: string
   ) => React.ReactNode;
+  handleExitPreferences: () => void;
+  leftSidebarWidth: number;
+  query: string;
   resetSettingsSearch: () => void;
   setSearchQuery: (value: string) => void;
   setSection: (section: SettingsSectionId) => void;
@@ -48,7 +48,7 @@ export function SettingsLayout({
   handleExitPreferences,
   leftSidebarWidth,
   query,
-  renderSection,
+  getSectionContent,
   resetSettingsSearch,
   setSearchQuery,
   setSection,
@@ -174,7 +174,7 @@ export function SettingsLayout({
           </header>
           <div className="border border-primary/15 bg-primary/2.5 p-3 sm:p-4">
             <div className="grid gap-3">
-              {renderSection(activeDefinition.id, query)}
+              {getSectionContent(activeDefinition.id, query)}
             </div>
           </div>
         </div>

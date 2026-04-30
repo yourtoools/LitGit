@@ -316,7 +316,7 @@ const GIT_COMMAND_LOOKUP = new Map(
   GIT_COMMANDS.map((command) => [command.value, command])
 );
 
-export interface RepoContext {
+interface RepoContext {
   aheadCount: number;
   behindCount: number;
   branches: string[];

@@ -1,5 +1,5 @@
 import { type Extension, StateEffect, StateField } from "@codemirror/state";
-import { type EditorView, GutterMarker, gutter } from "@codemirror/view";
+import { GutterMarker, gutter } from "@codemirror/view";
 import type { BlameDecoration } from "@/components/code-editor/code-editor-types";
 
 class BlameMarker extends GutterMarker {
@@ -89,13 +89,4 @@ export function blameGutterExtension(
     }),
     blameGutter,
   ];
-}
-
-export function updateBlameDecorations(
-  view: EditorView,
-  decorations: BlameDecoration[]
-): void {
-  view.dispatch({
-    effects: setBlameDecorations.of(decorations),
-  });
 }

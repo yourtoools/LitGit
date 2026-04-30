@@ -1,7 +1,7 @@
 import { Button } from "@litgit/ui/components/button";
 import { CheckCircleIcon, XIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { PageContainer } from "@/components/layout/page-container";
 import { AiStep } from "@/components/onboarding/ai-step";
 import {
@@ -9,6 +9,7 @@ import {
   IdentityStep,
 } from "@/components/onboarding/identity-step";
 import { IntegrationsStep } from "@/components/onboarding/integrations-step";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   getAiProviderSecretStatus,
   getGitIdentityStatus,
@@ -120,13 +121,14 @@ export function OnboardingPage() {
     (state) => state.setHasCompletedOnboarding
   );
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState<OnboardingStep>("identity");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [aiApiKey, setAiApiKey] = useState("");
+  const [currentStep, updateCurrentStep] =
+    useReducerState<OnboardingStep>("identity");
+  const [name, updateName] = useReducerState("");
+  const [email, updateEmail] = useReducerState("");
+  const [aiApiKey, updateAiApiKey] = useReducerState("");
 
   // Secret status tracking (for disabled inputs and clear buttons)
-  const [aiSecretStatus, setAiSecretStatus] = useState<null | {
+  const [aiSecretStatus, updateAiSecretStatus] = useReducerState<null | {
     hasStoredValue: boolean;
     storageMode: "secure" | "session";
   }>(null);
@@ -144,19 +146,22 @@ export function OnboardingPage() {
     if (existingAiProvider) {
       getAiProviderSecretStatus(existingAiProvider)
         .then((status) => {
-          setAiSecretStatus(status);
+          updateAiSecretStatus(status);
         })
         .catch(() => {
           // Silently ignore errors
         });
     }
-  }, [existingAiProvider]);
+  }, [existingAiProvider, updateAiSecretStatus]);
 
-  const [errors, setErrors] = useState<{ email?: string; name?: string }>({});
-  const [formError, setFormError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [savedIdentity, setSavedIdentity] = useState<{
+  const [errors, updateErrors] = useReducerState<{
+    email?: string;
+    name?: string;
+  }>({});
+  const [formError, updateFormError] = useReducerState<string | null>(null);
+  const [isLoading, updateIsLoading] = useReducerState(true);
+  const [isSaving, updateIsSaving] = useReducerState(false);
+  const [savedIdentity, updateSavedIdentity] = useReducerState<{
     email: string;
     name: string;
   } | null>(null);
@@ -171,25 +176,25 @@ export function OnboardingPage() {
         }
 
         const preferred = status.global ?? status.effective;
-        setName(preferred?.name ?? "");
-        setEmail(preferred?.email ?? "");
-        setIsLoading(false);
+        updateName(preferred?.name ?? "");
+        updateEmail(preferred?.email ?? "");
+        updateIsLoading(false);
       })
       .catch((error: unknown) => {
         if (!mounted) {
           return;
         }
 
-        setFormError(
+        updateFormError(
           error instanceof Error ? error.message : "Failed to load Git identity"
         );
-        setIsLoading(false);
+        updateIsLoading(false);
       });
 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [updateFormError, updateName, updateIsLoading, updateEmail]);
 
   // Check AI secret status when provider changes (in dev mode)
   const currentAiProvider = usePreferencesStore((state) => state.ai.provider);
@@ -201,12 +206,12 @@ export function OnboardingPage() {
 
     getAiProviderSecretStatus(currentAiProvider)
       .then((status) => {
-        setAiSecretStatus(status);
+        updateAiSecretStatus(status);
       })
       .catch(() => {
         // Silently ignore errors
       });
-  }, [currentAiProvider]);
+  }, [currentAiProvider, updateAiSecretStatus]);
 
   const handleClose = useCallback(() => {
     setHasCompletedOnboarding(true);
@@ -228,14 +233,14 @@ export function OnboardingPage() {
       nextErrors.email = "Enter a valid email address.";
     }
 
-    setErrors(nextErrors);
-    setFormError(null);
+    updateErrors(nextErrors);
+    updateFormError(null);
 
     if (Object.keys(nextErrors).length > 0) {
       return;
     }
 
-    setIsSaving(true);
+    updateIsSaving(true);
 
     try {
       await saveGitIdentity({
@@ -246,40 +251,40 @@ export function OnboardingPage() {
         },
       });
 
-      setSavedIdentity({ email: trimmedEmail, name: trimmedName });
-      setCurrentStep("github");
+      updateSavedIdentity({ email: trimmedEmail, name: trimmedName });
+      updateCurrentStep("github");
     } catch (error: unknown) {
-      setFormError(
+      updateFormError(
         error instanceof Error ? error.message : "Failed to save Git identity"
       );
     } finally {
-      setIsSaving(false);
+      updateIsSaving(false);
     }
   };
 
   const handleGitHubComplete = useCallback(() => {
-    setCurrentStep("ai");
-  }, []);
+    updateCurrentStep("ai");
+  }, [updateCurrentStep]);
 
   const handleGitHubSkip = useCallback(() => {
-    setCurrentStep("ai");
-  }, []);
+    updateCurrentStep("ai");
+  }, [updateCurrentStep]);
 
   const handleBackToIdentity = useCallback(() => {
-    setCurrentStep("identity");
-  }, []);
+    updateCurrentStep("identity");
+  }, [updateCurrentStep]);
 
   const handleAiComplete = useCallback(() => {
-    setCurrentStep("complete");
-  }, []);
+    updateCurrentStep("complete");
+  }, [updateCurrentStep]);
 
   const handleAiSkip = useCallback(() => {
-    setCurrentStep("complete");
-  }, []);
+    updateCurrentStep("complete");
+  }, [updateCurrentStep]);
 
   const handleBackToGitHub = useCallback(() => {
-    setCurrentStep("github");
-  }, []);
+    updateCurrentStep("github");
+  }, [updateCurrentStep]);
 
   return (
     <div className="fade-in zoom-in-95 relative flex min-h-full w-full animate-in flex-col overflow-hidden bg-background text-foreground duration-500">
@@ -335,8 +340,8 @@ export function OnboardingPage() {
                   isLoading={isLoading}
                   isSaving={isSaving}
                   name={name}
-                  onEmailChange={setEmail}
-                  onNameChange={setName}
+                  onEmailChange={updateEmail}
+                  onNameChange={updateName}
                   onSubmit={handleIdentitySubmit}
                 />
               )}
@@ -352,11 +357,11 @@ export function OnboardingPage() {
               {currentStep === "ai" && (
                 <AiStep
                   apiKey={aiApiKey}
-                  onApiKeyChange={setAiApiKey}
+                  onApiKeyChange={updateAiApiKey}
                   onBack={handleBackToGitHub}
                   onComplete={handleAiComplete}
                   onSecretCleared={() =>
-                    setAiSecretStatus({
+                    updateAiSecretStatus({
                       hasStoredValue: false,
                       storageMode: "session",
                     })

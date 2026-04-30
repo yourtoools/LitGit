@@ -25,7 +25,7 @@ function isSafeHref(value: string): boolean {
   return !blockedPrefixes.some((prefix) => normalized.startsWith(prefix));
 }
 
-function renderInlineMarkdown(value: string): ReactNode[] {
+function getInlineMarkdownNodes(value: string): ReactNode[] {
   const inlineMarkdownPattern =
     /(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
   const nodes: ReactNode[] = [];
@@ -53,13 +53,13 @@ function renderInlineMarkdown(value: string): ReactNode[] {
     } else if (token.startsWith("**") && token.endsWith("**")) {
       nodes.push(
         <strong key={`inline-strong-${tokenStart}-${token}`}>
-          {renderInlineMarkdown(token.slice(2, -2))}
+          {getInlineMarkdownNodes(token.slice(2, -2))}
         </strong>
       );
     } else if (token.startsWith("*") && token.endsWith("*")) {
       nodes.push(
         <em key={`inline-em-${tokenStart}-${token}`}>
-          {renderInlineMarkdown(token.slice(1, -1))}
+          {getInlineMarkdownNodes(token.slice(1, -1))}
         </em>
       );
     } else {
@@ -105,12 +105,38 @@ function renderInlineMarkdown(value: string): ReactNode[] {
   return nodes;
 }
 
-function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
+function getMarkdownBlockKey(block: MarkdownBlock): string {
+  if (block.kind === "code") {
+    return `code-block-${block.language}-${block.content}`;
+  }
+
+  if (block.kind === "heading") {
+    return `heading-${block.level}-${block.text}`;
+  }
+
+  if (block.kind === "blockquote") {
+    return `blockquote-${block.content}`;
+  }
+
+  if (block.kind === "paragraph") {
+    return `paragraph-${block.text}`;
+  }
+
+  return `${block.kind}-${block.items.join("\n")}`;
+}
+
+function getMarkdownListItemKey(item: string): string {
+  return item;
+}
+
+function renderMarkdownBlock(block: MarkdownBlock): ReactNode {
+  const blockKey = getMarkdownBlockKey(block);
+
   if (block.kind === "code") {
     return (
       <pre
         className="my-6 overflow-auto border border-border/70 bg-muted/30 px-4 py-3"
-        key={`code-block-${index}`}
+        key={blockKey}
       >
         {block.language.length > 0 ? (
           <div className="mb-2 text-[0.68rem] text-muted-foreground uppercase tracking-wide">
@@ -123,7 +149,7 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
   }
 
   if (block.kind === "heading") {
-    const headingContent = renderInlineMarkdown(block.text);
+    const headingContent = getInlineMarkdownNodes(block.text);
     const headingClassNameByLevel: Record<number, string> = {
       1: "scroll-m-20 text-4xl font-extrabold tracking-tight text-balance",
       2: "mt-10 scroll-m-20 border-b pb-2 text-3xl font-semibold tracking-tight transition-colors first:mt-0",
@@ -138,7 +164,7 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
     if (block.level === 1) {
       return (
-        <h1 className={headingClassName} key={`heading-${index}`}>
+        <h1 className={headingClassName} key={blockKey}>
           {headingContent}
         </h1>
       );
@@ -146,7 +172,7 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
     if (block.level === 2) {
       return (
-        <h2 className={headingClassName} key={`heading-${index}`}>
+        <h2 className={headingClassName} key={blockKey}>
           {headingContent}
         </h2>
       );
@@ -154,7 +180,7 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
     if (block.level === 3) {
       return (
-        <h3 className={headingClassName} key={`heading-${index}`}>
+        <h3 className={headingClassName} key={blockKey}>
           {headingContent}
         </h3>
       );
@@ -162,7 +188,7 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
     if (block.level === 4) {
       return (
-        <h4 className={headingClassName} key={`heading-${index}`}>
+        <h4 className={headingClassName} key={blockKey}>
           {headingContent}
         </h4>
       );
@@ -170,14 +196,14 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
     if (block.level === 5) {
       return (
-        <h5 className={headingClassName} key={`heading-${index}`}>
+        <h5 className={headingClassName} key={blockKey}>
           {headingContent}
         </h5>
       );
     }
 
     return (
-      <h6 className={headingClassName} key={`heading-${index}`}>
+      <h6 className={headingClassName} key={blockKey}>
         {headingContent}
       </h6>
     );
@@ -185,13 +211,10 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
   if (block.kind === "unordered-list") {
     return (
-      <ul
-        className="my-6 ml-6 list-disc [&>li]:mt-2"
-        key={`unordered-list-${index}`}
-      >
+      <ul className="my-6 ml-6 list-disc [&>li]:mt-2" key={blockKey}>
         {block.items.map((item) => (
-          <li key={`unordered-list-item-${index}-${item}`}>
-            {renderInlineMarkdown(item)}
+          <li key={getMarkdownListItemKey(item)}>
+            {getInlineMarkdownNodes(item)}
           </li>
         ))}
       </ul>
@@ -200,13 +223,10 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
   if (block.kind === "ordered-list") {
     return (
-      <ol
-        className="my-6 ml-6 list-decimal [&>li]:mt-2"
-        key={`ordered-list-${index}`}
-      >
+      <ol className="my-6 ml-6 list-decimal [&>li]:mt-2" key={blockKey}>
         {block.items.map((item) => (
-          <li key={`ordered-list-item-${index}-${item}`}>
-            {renderInlineMarkdown(item)}
+          <li key={getMarkdownListItemKey(item)}>
+            {getInlineMarkdownNodes(item)}
           </li>
         ))}
       </ol>
@@ -215,21 +235,15 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
 
   if (block.kind === "blockquote") {
     return (
-      <blockquote
-        className="mt-6 border-l-2 pl-6 italic"
-        key={`blockquote-${index}`}
-      >
-        {renderInlineMarkdown(block.content)}
+      <blockquote className="mt-6 border-l-2 pl-6 italic" key={blockKey}>
+        {getInlineMarkdownNodes(block.content)}
       </blockquote>
     );
   }
 
   return (
-    <p
-      className="leading-7 [&:not(:first-child)]:mt-6"
-      key={`paragraph-${index}`}
-    >
-      {renderInlineMarkdown(block.text)}
+    <p className="leading-7 [&:not(:first-child)]:mt-6" key={blockKey}>
+      {getInlineMarkdownNodes(block.text)}
     </p>
   );
 }

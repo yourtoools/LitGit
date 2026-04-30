@@ -20,7 +20,7 @@ type WorkerProfilingGlobal = typeof globalThis & {
   __LITGIT_WORKER_METRICS__?: Record<string, WorkerTimingStats>;
 };
 
-export interface CreateWorkerClientOptions {
+interface CreateWorkerClientOptions {
   label?: string;
 }
 

@@ -14,11 +14,12 @@ import {
   SparkleIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import {
   AI_ENDPOINT_PLACEHOLDERS,
   AI_PROVIDER_OPTIONS,
 } from "@/components/views/settings/settings-store";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clearAiProviderSecret,
   getAiProviderSecretStatus,
@@ -49,13 +50,16 @@ export function AiStep({
   secretStatus: initialSecretStatus,
   onSecretCleared,
 }: AiStepProps) {
-  const [isSaving, setIsSaving] = useState(false);
-  const [isClearing, setIsClearing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [modelsMessage, setModelsMessage] = useState<string | null>(null);
-  const [secretStatus, setSecretStatus] = useState(initialSecretStatus);
+  const [isSaving, updateIsSaving] = useReducerState(false);
+  const [isClearing, updateIsClearing] = useReducerState(false);
+  const [error, updateError] = useReducerState<string | null>(null);
+  const [message, updateMessage] = useReducerState<string | null>(null);
+  const [isLoadingModels, updateIsLoadingModels] = useReducerState(false);
+  const [modelsMessage, updateModelsMessage] = useReducerState<string | null>(
+    null
+  );
+  const [secretStatus, updateSecretStatus] =
+    useReducerState(initialSecretStatus);
 
   // Preferences store state
   const provider = usePreferencesStore((state) => state.ai.provider);
@@ -75,23 +79,26 @@ export function AiStep({
     (state) => state.setAiAvailableModels
   );
 
-  // Check secret status on mount
-  useEffect(() => {
-    if (provider) {
-      getAiProviderSecretStatus(provider)
-        .then(
-          (status: {
-            hasStoredValue: boolean;
-            storageMode: "secure" | "session";
-          }) => {
-            setSecretStatus(status);
-          }
-        )
-        .catch(() => {
-          // Silently ignore errors
-        });
+  const checkSecretStatus = useCallback(() => {
+    if (!provider) {
+      return;
     }
-  }, [provider]);
+
+    getAiProviderSecretStatus(provider)
+      .then(
+        (status: {
+          hasStoredValue: boolean;
+          storageMode: "secure" | "session";
+        }) => {
+          updateSecretStatus(status);
+        }
+      )
+      .catch(() => {
+        // Silently ignore errors
+      });
+  }, [provider, updateSecretStatus]);
+
+  useEffect(checkSecretStatus, [checkSecretStatus]);
 
   const hasStoredSecret = secretStatus?.hasStoredValue ?? false;
   const showCustomUrl = provider === "custom" || provider === "ollama";
@@ -100,40 +107,44 @@ export function AiStep({
   const handleSave = async () => {
     const trimmedKey = apiKey.trim();
 
-    setIsSaving(true);
-    setError(null);
-    setMessage(null);
+    updateIsSaving(true);
+    updateError(null);
+    updateMessage(null);
 
     try {
       await saveAiProviderSecret(provider, trimmedKey);
       onComplete();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save API key");
-      setIsSaving(false);
+      updateError(
+        err instanceof Error ? err.message : "Failed to save API key"
+      );
+      updateIsSaving(false);
     }
   };
 
   const handleClear = async () => {
-    setIsClearing(true);
-    setError(null);
-    setMessage(null);
+    updateIsClearing(true);
+    updateError(null);
+    updateMessage(null);
 
     try {
       await clearAiProviderSecret(provider);
       onApiKeyChange("");
       onSecretCleared();
-      setSecretStatus({ hasStoredValue: false, storageMode: "session" });
-      setMessage("API key cleared. You can now enter a new one.");
+      updateSecretStatus({ hasStoredValue: false, storageMode: "session" });
+      updateMessage("API key cleared. You can now enter a new one.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to clear API key");
+      updateError(
+        err instanceof Error ? err.message : "Failed to clear API key"
+      );
     } finally {
-      setIsClearing(false);
+      updateIsClearing(false);
     }
   };
 
   const handleRefreshModels = async () => {
-    setIsLoadingModels(true);
-    setModelsMessage(null);
+    updateIsLoadingModels(true);
+    updateModelsMessage(null);
 
     try {
       const models = await listAiModels({
@@ -144,21 +155,21 @@ export function AiStep({
 
       if (models.length === 0) {
         setAiModel("");
-        setModelsMessage("No models were returned by the AI endpoint.");
+        updateModelsMessage("No models were returned by the AI endpoint.");
       } else {
         const hasSelected = models.some((m) => m.id === model);
         const nextModel = hasSelected ? model : (models[0]?.id ?? "");
         setAiModel(nextModel);
-        setModelsMessage(`Loaded ${models.length} model(s).`);
+        updateModelsMessage(`Loaded ${models.length} model(s).`);
       }
     } catch (err) {
       setAiAvailableModels([]);
       setAiModel("");
-      setModelsMessage(
+      updateModelsMessage(
         err instanceof Error ? err.message : "Failed to load AI models"
       );
     } finally {
-      setIsLoadingModels(false);
+      updateIsLoadingModels(false);
     }
   };
 
@@ -294,8 +305,8 @@ export function AiStep({
             id="ai-api-key"
             onChange={(event) => {
               onApiKeyChange(event.target.value);
-              setError(null);
-              setMessage(null);
+              updateError(null);
+              updateMessage(null);
             }}
             placeholder="sk-..."
             type="password"
@@ -306,9 +317,9 @@ export function AiStep({
         {/* Model Selection */}
         <div className="grid gap-2">
           <div className="flex h-7 items-center justify-between">
-            <Label className="font-medium text-xs leading-none">
+            <span className="font-medium text-xs leading-none">
               Model Selection
-            </Label>
+            </span>
             <span className="text-muted-foreground text-xs">
               {model.trim().length > 0
                 ? `Selected: ${model}`

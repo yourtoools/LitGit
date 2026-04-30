@@ -4,7 +4,7 @@ export type RenderItem =
   | { type: "tab"; tab: Tab }
   | { type: "group"; group: TabGroup; tabs: Tab[] };
 
-export type PendingUngroupAction = "ungroup" | "close";
+type PendingUngroupAction = "ungroup" | "close";
 
 export interface PendingUngroupTab {
   action: PendingUngroupAction;

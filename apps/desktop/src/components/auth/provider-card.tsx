@@ -11,7 +11,7 @@ import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
 import { Switch } from "@litgit/ui/components/switch";
 import { KeyIcon, SpinnerIcon, TrashIcon } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import type {
   Provider,
   ProviderSshStatus,
@@ -37,42 +37,43 @@ export function ProviderCard({
   onSetCustomKey,
   onUseSystemAgentChange,
 }: ProviderCardProps) {
-  const [showRemoveKeyDialog, setShowRemoveKeyDialog] = useState(false);
-  const [keyTitle, setKeyTitle] = useState(`litgit_${provider}`);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [privateKeyPath, setPrivateKeyPath] = useState("");
-  const [publicKeyPath, setPublicKeyPath] = useState("");
-  const [keyError, setKeyError] = useState<string | null>(null);
+  const [showRemoveKeyDialog, updateShowRemoveKeyDialog] =
+    useReducerState(false);
+  const [keyTitle, updateKeyTitle] = useReducerState(`litgit_${provider}`);
+  const [isGenerating, updateIsGenerating] = useReducerState(false);
+  const [privateKeyPath, updatePrivateKeyPath] = useReducerState("");
+  const [publicKeyPath, updatePublicKeyPath] = useReducerState("");
+  const [keyError, updateKeyError] = useReducerState<string | null>(null);
 
   const handleGenerate = async () => {
-    setIsGenerating(true);
+    updateIsGenerating(true);
     try {
       await onGenerateKey(keyTitle);
     } finally {
-      setIsGenerating(false);
+      updateIsGenerating(false);
     }
   };
 
   const handleSetCustomKey = () => {
-    setKeyError(null);
+    updateKeyError(null);
     if (!privateKeyPath.trim()) {
-      setKeyError("Please select a private key file");
+      updateKeyError("Please select a private key file");
       return;
     }
     if (!publicKeyPath.trim()) {
-      setKeyError("Please select a public key file");
+      updateKeyError("Please select a public key file");
       return;
     }
     onSetCustomKey(privateKeyPath, publicKeyPath);
   };
 
   const handlePrivateKeySelected = (path: string) => {
-    setPrivateKeyPath(path);
-    setKeyError(null);
+    updatePrivateKeyPath(path);
+    updateKeyError(null);
     // Auto-suggest public key path if not set
     if (!publicKeyPath.trim()) {
       const suggestedPublicPath = `${path}.pub`;
-      setPublicKeyPath(suggestedPublicPath);
+      updatePublicKeyPath(suggestedPublicPath);
     }
   };
 
@@ -171,7 +172,7 @@ export function ProviderCard({
             </p>
             <Button
               className="mt-2 h-7 text-xs"
-              onClick={() => setShowRemoveKeyDialog(true)}
+              onClick={() => updateShowRemoveKeyDialog(true)}
               size="sm"
               variant="destructive"
             >
@@ -195,7 +196,7 @@ export function ProviderCard({
                 <Input
                   className="h-7 text-xs"
                   id={`key-title-${provider}`}
-                  onChange={(e) => setKeyTitle(e.target.value)}
+                  onChange={(e) => updateKeyTitle(e.target.value)}
                   placeholder={`litgit_${provider}`}
                   value={keyTitle}
                 />
@@ -242,7 +243,7 @@ export function ProviderCard({
                   <Input
                     className="h-7 text-xs"
                     id={`private-key-${provider}`}
-                    onChange={(e) => setPrivateKeyPath(e.target.value)}
+                    onChange={(e) => updatePrivateKeyPath(e.target.value)}
                     placeholder="Select private key file"
                     value={privateKeyPath}
                   />
@@ -257,7 +258,7 @@ export function ProviderCard({
                               }
                             })
                             .catch((error: unknown) => {
-                              setKeyError(
+                              updateKeyError(
                                 error instanceof Error
                                   ? error.message
                                   : "Failed to pick file"
@@ -283,7 +284,7 @@ export function ProviderCard({
                   <Input
                     className="h-7 text-xs"
                     id={`public-key-${provider}`}
-                    onChange={(e) => setPublicKeyPath(e.target.value)}
+                    onChange={(e) => updatePublicKeyPath(e.target.value)}
                     placeholder="Select public key file"
                     value={publicKeyPath}
                   />
@@ -294,12 +295,12 @@ export function ProviderCard({
                           pickSettingsFile()
                             .then((path) => {
                               if (path) {
-                                setPublicKeyPath(path);
-                                setKeyError(null);
+                                updatePublicKeyPath(path);
+                                updateKeyError(null);
                               }
                             })
                             .catch((error: unknown) => {
-                              setKeyError(
+                              updateKeyError(
                                 error instanceof Error
                                   ? error.message
                                   : "Failed to pick file"
@@ -338,7 +339,10 @@ export function ProviderCard({
         )}
       </div>
 
-      <Dialog onOpenChange={setShowRemoveKeyDialog} open={showRemoveKeyDialog}>
+      <Dialog
+        onOpenChange={updateShowRemoveKeyDialog}
+        open={showRemoveKeyDialog}
+      >
         <DialogContent className="gap-3 p-3 text-xs sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm">Remove SSH Key?</DialogTitle>
@@ -351,7 +355,7 @@ export function ProviderCard({
           <DialogFooter className="-mx-3 -mb-3 gap-2 p-3">
             <Button
               className="text-xs"
-              onClick={() => setShowRemoveKeyDialog(false)}
+              onClick={() => updateShowRemoveKeyDialog(false)}
               size="sm"
               variant="outline"
             >
@@ -361,7 +365,7 @@ export function ProviderCard({
               className="text-xs"
               onClick={() => {
                 onRemoveKey();
-                setShowRemoveKeyDialog(false);
+                updateShowRemoveKeyDialog(false);
               }}
               size="sm"
               variant="destructive"

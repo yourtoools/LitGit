@@ -3,7 +3,7 @@ import type {
   WorkerResponseEnvelope,
 } from "@/lib/workers/create-worker-client";
 
-export interface WorkerHandlerContext<TInput, TOutput> {
+interface WorkerHandlerContext<TInput, TOutput> {
   onmessage:
     | ((event: MessageEvent<WorkerRequestEnvelope<TInput>>) => void)
     | null;

@@ -1,6 +1,7 @@
+import { useReducerState } from "@litgit/ui/hooks/use-reducer-state";
 import { cn } from "@litgit/ui/lib/utils";
 import type * as React from "react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 interface PreloadImage {
   onerror: (() => void) | null;
@@ -31,11 +32,11 @@ function AvatarImage({
   width = 32,
   ...props
 }: React.ComponentProps<"img">) {
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoaded, updateIsLoaded] = useReducerState(false);
 
   useEffect(() => {
     if (!src) {
-      setIsLoaded(false);
+      updateIsLoaded(false);
       return;
     }
 
@@ -43,7 +44,7 @@ function AvatarImage({
       .Image;
 
     if (!imageConstructor) {
-      setIsLoaded(false);
+      updateIsLoaded(false);
       return;
     }
 
@@ -55,7 +56,7 @@ function AvatarImage({
         return;
       }
 
-      setIsLoaded(true);
+      updateIsLoaded(true);
     };
 
     image.onerror = () => {
@@ -63,7 +64,7 @@ function AvatarImage({
         return;
       }
 
-      setIsLoaded(false);
+      updateIsLoaded(false);
     };
 
     image.src = src;
@@ -71,7 +72,7 @@ function AvatarImage({
     return () => {
       cancelled = true;
     };
-  }, [src]);
+  }, [src, updateIsLoaded]);
 
   if (!(src && isLoaded)) {
     return null;

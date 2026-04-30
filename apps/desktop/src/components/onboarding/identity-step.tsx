@@ -33,13 +33,7 @@ export function IdentityStep({
   const isDisabled = isLoading || isSaving;
 
   return (
-    <form
-      className="mx-auto w-full space-y-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-    >
+    <div className="mx-auto w-full space-y-4">
       <div className="grid gap-3 border border-border/60 bg-card p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
@@ -149,12 +143,17 @@ export function IdentityStep({
         ) : null}
 
         <div className="flex items-center justify-end pt-1">
-          <Button className="min-w-32" disabled={isDisabled} type="submit">
+          <Button
+            className="min-w-32"
+            disabled={isDisabled}
+            onClick={onSubmit}
+            type="button"
+          >
             {isSaving ? "Saving..." : "Save & Continue"}
           </Button>
         </div>
       </div>
-    </form>
+    </div>
   );
 }
 

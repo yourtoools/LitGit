@@ -50,7 +50,7 @@ function ExplorerIcon({ className }: { className?: string }) {
   );
 }
 
-export function renderHeaderTabsCommandIcon(
+export function getHeaderTabsCommandIcon(
   commandId: string,
   resolvedTheme?: string
 ) {

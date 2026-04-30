@@ -281,9 +281,13 @@ function UiSection({ query }: { query: string }) {
         query={query}
       >
         <div className="grid gap-1.5">
-          <label className="inline-flex items-center gap-1.5 text-xs">
+          <label
+            className="inline-flex items-center gap-1.5 text-xs"
+            htmlFor="toolbar-labels-toggle"
+          >
             <Checkbox
               checked={toolbarLabels}
+              id="toolbar-labels-toggle"
               onCheckedChange={(checked) => setToolbarLabels(Boolean(checked))}
             />
             <span className="text-xs">Display action labels in the header</span>

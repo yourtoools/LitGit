@@ -1285,24 +1285,6 @@ export async function getRepoGitIdentity(
   return parseGitIdentityStatus(result);
 }
 
-export async function setRepoGitIdentity(params: {
-  gitIdentity: GitIdentityWriteInput;
-  repoPath?: string | null;
-}): Promise<GitIdentityStatus> {
-  const invoke = getTauriInvoke();
-
-  if (!invoke) {
-    throw new Error("Git identity works in Tauri desktop app only");
-  }
-
-  const result = await invoke("set_git_identity", {
-    gitIdentity: params.gitIdentity,
-    repoPath: params.repoPath ?? null,
-  });
-
-  return parseGitIdentityStatus(result);
-}
-
 export async function createLocalRepo(input: CreateLocalRepositoryInput) {
   const invoke = getTauriInvoke();
 
@@ -1496,7 +1478,7 @@ export async function discardAllRepoChanges(path: string) {
   });
 }
 
-export type RepoResetMode = "hard" | "mixed" | "soft";
+type RepoResetMode = "hard" | "mixed" | "soft";
 
 export async function resetRepoToReference(
   path: string,

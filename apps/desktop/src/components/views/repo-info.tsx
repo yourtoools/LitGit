@@ -1,6 +1,3 @@
-import type { MergeView } from "@codemirror/merge";
-import { goToNextChunk, goToPreviousChunk } from "@codemirror/merge";
-import type { EditorView } from "@codemirror/view";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -134,7 +131,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   useTransition,
 } from "react";
 import { toast } from "sonner";
@@ -230,7 +226,7 @@ import {
   buildRepoInfoWorkingTreeModel,
 } from "@/components/views/repo-info-working-tree-model";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-
+import { useReducerState } from "@/hooks/use-reducer-state";
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import { getRepositoryRemoteAvatars } from "@/lib/tauri-repo-client";
 import {
@@ -287,7 +283,7 @@ import type {
 } from "@/stores/repo/repo-store-types";
 import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
-function renderSidebarGroupSectionIcon(groupKey: string): ReactNode {
+function getSidebarGroupSectionIcon(groupKey: string): ReactNode {
   if (groupKey === "local") {
     return <LaptopIcon className="size-3" />;
   }
@@ -735,31 +731,46 @@ const TIMELINE_COMPACT_LAYOUT_PREFERENCES: RepoTimelinePreferences = {
   visibleColumns: DEFAULT_REPO_TIMELINE_PREFERENCES.visibleColumns,
 };
 
-type DiffEditorInstance = EditorView | MergeView;
+interface CodeMirrorEditorViewLike {
+  dispatch: (...transactions: never[]) => void;
+  focus: () => void;
+  state: unknown;
+}
+
+type DiffEditorInstance =
+  | CodeMirrorEditorViewLike
+  | {
+      a: CodeMirrorEditorViewLike;
+      b: CodeMirrorEditorViewLike;
+    };
 
 function isEditorViewInstance(
   value: DiffEditorInstance | null
-): value is EditorView {
+): value is CodeMirrorEditorViewLike {
   return value !== null && "dispatch" in value && "state" in value;
 }
 
 function isMergeViewInstance(
   value: DiffEditorInstance | null
-): value is MergeView {
+): value is { a: CodeMirrorEditorViewLike; b: CodeMirrorEditorViewLike } {
   return value !== null && "a" in value && "b" in value;
 }
 
-function navigateDiffEditor(
+async function navigateDiffEditor(
   editor: DiffEditorInstance | null,
   direction: "next" | "previous"
-): void {
+): Promise<void> {
+  const { goToNextChunk, goToPreviousChunk } = await import(
+    "@codemirror/merge"
+  );
   const command = direction === "next" ? goToNextChunk : goToPreviousChunk;
 
   if (isMergeViewInstance(editor)) {
-    command({
+    const target = {
       dispatch: editor.a.dispatch,
       state: editor.a.state,
-    });
+    } as Parameters<typeof command>[0];
+    command(target);
     editor.a.focus();
     return;
   }
@@ -768,10 +779,11 @@ function navigateDiffEditor(
     return;
   }
 
-  command({
+  const target = {
     dispatch: editor.dispatch,
     state: editor.state,
-  });
+  } as Parameters<typeof command>[0];
+  command(target);
   editor.focus();
 }
 
@@ -1043,7 +1055,7 @@ export function RepoInfo() {
   const { isLoadingBranches, isLoadingHistory, isLoadingStatus, isLoadingWip } =
     useRepoLoadingState();
   useRepoRefreshStatus(activeRepoId);
-  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<
+  const [collapsedGroupKeys, updateCollapsedGroupKeys] = useReducerState<
     Record<string, boolean>
   >({
     local: true,
@@ -1051,140 +1063,164 @@ export function RepoInfo() {
     stashes: true,
     tags: true,
   });
-  const [remoteAvatarUrlByName, setRemoteAvatarUrlByName] = useState<
+  const [remoteAvatarUrlByName, updateRemoteAvatarUrlByName] = useReducerState<
     Record<string, string | null>
   >({});
-  const [collapsedBranchFolderKeys, setCollapsedBranchFolderKeys] = useState<
-    Record<string, boolean>
-  >({});
-  const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
-  const [selectedTimelineRowId, setSelectedTimelineRowId] = useState<
+  const [collapsedBranchFolderKeys, updateCollapsedBranchFolderKeys] =
+    useReducerState<Record<string, boolean>>({});
+  const [selectedCommitId, updateSelectedCommitId] = useReducerState<
+    string | null
+  >(null);
+  const [selectedTimelineRowId, updateSelectedTimelineRowId] = useReducerState<
     string | null
   >(null);
   const isLeftSidebarOpen = true;
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+  const [isRightSidebarOpen, updateIsRightSidebarOpen] = useReducerState(true);
+  const [leftSidebarWidth, updateLeftSidebarWidth] = useReducerState(
     LEFT_SIDEBAR_DEFAULT_WIDTH
   );
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(
+  const [rightSidebarWidth, updateRightSidebarWidth] = useReducerState(
     RIGHT_SIDEBAR_DEFAULT_WIDTH
   );
-  const [isTimelineGraphAutoCompact, setIsTimelineGraphAutoCompact] =
-    useState(false);
-  const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
-  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
-  const [isBranchCreateInputOpen, setIsBranchCreateInputOpen] = useState(false);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [isStagingAll, setIsStagingAll] = useState(false);
-  const [isUnstagingAll, setIsUnstagingAll] = useState(false);
-  const [isUpdatingFilePath, setIsUpdatingFilePath] = useState<string | null>(
-    null
-  );
-  const [isCommitting, setIsCommitting] = useState(false);
-  const [isGeneratingAiCommitMessage, setIsGeneratingAiCommitMessage] =
-    useState(false);
-  const [aiCommitGenerationStatusMessage, setAiCommitGenerationStatusMessage] =
-    useState<string | null>(null);
-  const [aiCommitGenerationPreview, setAiCommitGenerationPreview] =
-    useState("");
+  const [isTimelineGraphAutoCompact, updateIsTimelineGraphAutoCompact] =
+    useReducerState(false);
+  const [isSwitchingBranch, updateIsSwitchingBranch] = useReducerState(false);
+  const [isCreatingBranch, updateIsCreatingBranch] = useReducerState(false);
+  const [isBranchCreateInputOpen, updateIsBranchCreateInputOpen] =
+    useReducerState(false);
+  const [newBranchName, updateNewBranchName] = useReducerState("");
+  const [isStagingAll, updateIsStagingAll] = useReducerState(false);
+  const [isUnstagingAll, updateIsUnstagingAll] = useReducerState(false);
+  const [isUpdatingFilePath, updateIsUpdatingFilePath] = useReducerState<
+    string | null
+  >(null);
+  const [isCommitting, updateIsCommitting] = useReducerState(false);
+  const [isGeneratingAiCommitMessage, updateIsGeneratingAiCommitMessage] =
+    useReducerState(false);
+  const [
+    aiCommitGenerationStatusMessage,
+    updateAiCommitGenerationStatusMessage,
+  ] = useReducerState<string | null>(null);
+  const [aiCommitGenerationPreview, updateAiCommitGenerationPreview] =
+    useReducerState("");
   const aiCommitGenerationStatusMessageRef = useRef<string | null>(null);
   const aiCommitGenerationPreviewRef = useRef("");
-  const [lastAiCommitGeneration, setLastAiCommitGeneration] = useState<null | {
-    promptMode: string;
-    providerKind: string;
-    schemaFallbackUsed: boolean;
-  }>(null);
-  const [isDiscardingAllChanges, setIsDiscardingAllChanges] = useState(false);
-  const [isDiscardAllConfirmOpen, setIsDiscardAllConfirmOpen] = useState(false);
-  const [isDeleteBranchConfirmOpen, setIsDeleteBranchConfirmOpen] =
-    useState(false);
-  const [pendingDeleteBranchName, setPendingDeleteBranchName] = useState<
+  const [lastAiCommitGeneration, updateLastAiCommitGeneration] =
+    useReducerState<null | {
+      promptMode: string;
+      providerKind: string;
+      schemaFallbackUsed: boolean;
+    }>(null);
+  const [isDiscardingAllChanges, updateIsDiscardingAllChanges] =
+    useReducerState(false);
+  const [isDiscardAllConfirmOpen, updateIsDiscardAllConfirmOpen] =
+    useReducerState(false);
+  const [isDeleteBranchConfirmOpen, updateIsDeleteBranchConfirmOpen] =
+    useReducerState(false);
+  const [pendingDeleteBranchName, updatePendingDeleteBranchName] =
+    useReducerState<string | null>(null);
+  const [pendingDeleteBranchRemoteName, updatePendingDeleteBranchRemoteName] =
+    useReducerState<string | null>(null);
+  const [isDeleteRemoteBranch, updateIsDeleteRemoteBranch] =
+    useReducerState(false);
+  const [isDeletingBranch, updateIsDeletingBranch] = useReducerState(false);
+  const [isRenameBranchDialogOpen, updateIsRenameBranchDialogOpen] =
+    useReducerState(false);
+  const [renameBranchSourceName, updateRenameBranchSourceName] =
+    useReducerState<string | null>(null);
+  const [renameBranchTargetName, updateRenameBranchTargetName] =
+    useReducerState("");
+  const [isRenamingBranch, updateIsRenamingBranch] = useReducerState(false);
+  const [isSetUpstreamDialogOpen, updateIsSetUpstreamDialogOpen] =
+    useReducerState(false);
+  const [setUpstreamLocalBranchName, updateSetUpstreamLocalBranchName] =
+    useReducerState<string | null>(null);
+  const [setUpstreamRemoteName, updateSetUpstreamRemoteName] =
+    useReducerState("");
+  const [setUpstreamRemoteBranchName, updateSetUpstreamRemoteBranchName] =
+    useReducerState("");
+  const [setUpstreamFormError, updateSetUpstreamFormError] = useReducerState<
     string | null
   >(null);
-  const [pendingDeleteBranchRemoteName, setPendingDeleteBranchRemoteName] =
-    useState<string | null>(null);
-  const [isDeleteRemoteBranch, setIsDeleteRemoteBranch] = useState(false);
-  const [isDeletingBranch, setIsDeletingBranch] = useState(false);
-  const [isRenameBranchDialogOpen, setIsRenameBranchDialogOpen] =
-    useState(false);
-  const [renameBranchSourceName, setRenameBranchSourceName] = useState<
+  const [isSettingUpstream, updateIsSettingUpstream] = useReducerState(false);
+  const [isCreateRefBranchDialogOpen, updateIsCreateRefBranchDialogOpen] =
+    useReducerState(false);
+  const [createRefBranchName, updateCreateRefBranchName] = useReducerState("");
+  const [createRefBranchTarget, updateCreateRefBranchTarget] = useReducerState<
     string | null
   >(null);
-  const [renameBranchTargetName, setRenameBranchTargetName] = useState("");
-  const [isRenamingBranch, setIsRenamingBranch] = useState(false);
-  const [isSetUpstreamDialogOpen, setIsSetUpstreamDialogOpen] = useState(false);
-  const [setUpstreamLocalBranchName, setSetUpstreamLocalBranchName] = useState<
+  const [createRefBranchLabel, updateCreateRefBranchLabel] =
+    useReducerState("");
+  const [isCreatingRefBranch, updateIsCreatingRefBranch] =
+    useReducerState(false);
+  const [isCreateTagDialogOpen, updateIsCreateTagDialogOpen] =
+    useReducerState(false);
+  const [createTagNameValue, updateCreateTagNameValue] = useReducerState("");
+  const [createTagTarget, updateCreateTagTarget] = useReducerState<
     string | null
   >(null);
-  const [setUpstreamRemoteName, setSetUpstreamRemoteName] = useState("");
-  const [setUpstreamRemoteBranchName, setSetUpstreamRemoteBranchName] =
-    useState("");
-  const [setUpstreamFormError, setSetUpstreamFormError] = useState<
-    string | null
-  >(null);
-  const [isSettingUpstream, setIsSettingUpstream] = useState(false);
-  const [isCreateRefBranchDialogOpen, setIsCreateRefBranchDialogOpen] =
-    useState(false);
-  const [createRefBranchName, setCreateRefBranchName] = useState("");
-  const [createRefBranchTarget, setCreateRefBranchTarget] = useState<
-    string | null
-  >(null);
-  const [createRefBranchLabel, setCreateRefBranchLabel] = useState("");
-  const [isCreatingRefBranch, setIsCreatingRefBranch] = useState(false);
-  const [isCreateTagDialogOpen, setIsCreateTagDialogOpen] = useState(false);
-  const [createTagNameValue, setCreateTagNameValue] = useState("");
-  const [createTagTarget, setCreateTagTarget] = useState<string | null>(null);
-  const [createTagTargetLabel, setCreateTagTargetLabel] = useState("");
-  const [createTagAnnotated, setCreateTagAnnotated] = useState(false);
-  const [isCreatingTagAtReference, setIsCreatingTagAtReference] =
-    useState(false);
-  const [resetTarget, setResetTarget] = useState<string | null>(null);
-  const [resetTargetLabel, setResetTargetLabel] = useState("");
-  const [resetTargetMode, setResetTargetMode] = useState<
+  const [createTagTargetLabel, updateCreateTagTargetLabel] =
+    useReducerState("");
+  const [createTagAnnotated, updateCreateTagAnnotated] = useReducerState(false);
+  const [isCreatingTagAtReference, updateIsCreatingTagAtReference] =
+    useReducerState(false);
+  const [resetTarget, updateResetTarget] = useReducerState<string | null>(null);
+  const [resetTargetLabel, updateResetTargetLabel] = useReducerState("");
+  const [resetTargetMode, updateResetTargetMode] = useReducerState<
     "hard" | "mixed" | "soft"
   >("mixed");
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
-  const [isResettingToReference, setIsResettingToReference] = useState(false);
-  const [isForcePushConfirmOpen, setIsForcePushConfirmOpen] = useState(false);
-  const [isPublishRepoConfirmOpen, setIsPublishRepoConfirmOpen] =
-    useState(false);
-  const [publishRepoFormError, setPublishRepoFormError] = useState<
+  const [isResetConfirmOpen, updateIsResetConfirmOpen] = useReducerState(false);
+  const [isResettingToReference, updateIsResettingToReference] =
+    useReducerState(false);
+  const [isForcePushConfirmOpen, updateIsForcePushConfirmOpen] =
+    useReducerState(false);
+  const [isPublishRepoConfirmOpen, updateIsPublishRepoConfirmOpen] =
+    useReducerState(false);
+  const [publishRepoFormError, updatePublishRepoFormError] = useReducerState<
     string | null
   >(null);
-  const [isSubmittingPublishRepo, setIsSubmittingPublishRepo] = useState(false);
-  const [forcePushConfirmMode, setForcePushConfirmMode] = useState<
+  const [isSubmittingPublishRepo, updateIsSubmittingPublishRepo] =
+    useReducerState(false);
+  const [forcePushConfirmMode, updateForcePushConfirmMode] = useReducerState<
     "commit" | "push"
   >("push");
-  const [isPulling, setIsPulling] = useState(false);
-  const [isRunningMergeAction, setIsRunningMergeAction] = useState(false);
-  const [isPushing, setIsPushing] = useState(false);
-  const [isUndoRedoBusy, setIsUndoRedoBusy] = useState(false);
-  const [isApplyingStash, setIsApplyingStash] = useState(false);
-  const [isCreatingStash, setIsCreatingStash] = useState(false);
-  const [isPoppingStash, setIsPoppingStash] = useState(false);
-  const [isDroppingStash, setIsDroppingStash] = useState(false);
-  const [isCheckingOutCommit, setIsCheckingOutCommit] = useState(false);
-  const [isCherryPickingCommit, setIsCherryPickingCommit] = useState(false);
-  const [isRevertingCommit, setIsRevertingCommit] = useState(false);
-  const [isEditingSelectedCommitMessage, setIsEditingSelectedCommitMessage] =
-    useState(false);
-  const [rewordCommitSummary, setRewordCommitSummary] = useState("");
-  const [rewordCommitDescription, setRewordCommitDescription] = useState("");
-  const [isGeneratingAiRewordMessage, setIsGeneratingAiRewordMessage] =
-    useState(false);
-  const [lastAiRewordGeneration, setLastAiRewordGeneration] = useState<null | {
-    promptMode: string;
-    providerKind: string;
-    schemaFallbackUsed: boolean;
-  }>(null);
-  const [isRewordingCommitMessage, setIsRewordingCommitMessage] =
-    useState(false);
-  const [isDropCommitConfirmOpen, setIsDropCommitConfirmOpen] = useState(false);
-  const [pendingDropCommitHash, setPendingDropCommitHash] = useState<
+  const [isPulling, updateIsPulling] = useReducerState(false);
+  const [isRunningMergeAction, updateIsRunningMergeAction] =
+    useReducerState(false);
+  const [isPushing, updateIsPushing] = useReducerState(false);
+  const [isUndoRedoBusy, updateIsUndoRedoBusy] = useReducerState(false);
+  const [isApplyingStash, updateIsApplyingStash] = useReducerState(false);
+  const [isCreatingStash, updateIsCreatingStash] = useReducerState(false);
+  const [isPoppingStash, updateIsPoppingStash] = useReducerState(false);
+  const [isDroppingStash, updateIsDroppingStash] = useReducerState(false);
+  const [isCheckingOutCommit, updateIsCheckingOutCommit] =
+    useReducerState(false);
+  const [isCherryPickingCommit, updateIsCherryPickingCommit] =
+    useReducerState(false);
+  const [isRevertingCommit, updateIsRevertingCommit] = useReducerState(false);
+  const [isEditingSelectedCommitMessage, updateIsEditingSelectedCommitMessage] =
+    useReducerState(false);
+  const [rewordCommitSummary, updateRewordCommitSummary] = useReducerState("");
+  const [rewordCommitDescription, updateRewordCommitDescription] =
+    useReducerState("");
+  const [isGeneratingAiRewordMessage, updateIsGeneratingAiRewordMessage] =
+    useReducerState(false);
+  const [lastAiRewordGeneration, updateLastAiRewordGeneration] =
+    useReducerState<null | {
+      promptMode: string;
+      providerKind: string;
+      schemaFallbackUsed: boolean;
+    }>(null);
+  const [isRewordingCommitMessage, updateIsRewordingCommitMessage] =
+    useReducerState(false);
+  const [isDropCommitConfirmOpen, updateIsDropCommitConfirmOpen] =
+    useReducerState(false);
+  const [pendingDropCommitHash, updatePendingDropCommitHash] = useReducerState<
     string | null
   >(null);
-  const [pendingDropCommitLabel, setPendingDropCommitLabel] = useState("");
-  const [isDroppingCommit, setIsDroppingCommit] = useState(false);
+  const [pendingDropCommitLabel, updatePendingDropCommitLabel] =
+    useReducerState("");
+  const [isDroppingCommit, updateIsDroppingCommit] = useReducerState(false);
   const lastAiCommitGenerationDisplayState = lastAiCommitGeneration
     ? getAiGenerationDisplayState(lastAiCommitGeneration.promptMode)
     : null;
@@ -1201,116 +1237,129 @@ export function RepoInfo() {
     resetTargetDescription =
       "Move HEAD to the selected commit, keep working tree changes, and unstage them.";
   }
-  const [draftCommitSummary, setDraftCommitSummary] = useState("");
-  const [draftCommitDescription, setDraftCommitDescription] = useState("");
-  const [amendPreviousCommit, setAmendPreviousCommit] = useState(false);
-  const [pushAfterCommit, setPushAfterCommit] = useState(false);
-  const [skipCommitHooks, setSkipCommitHooks] = useState(false);
-  const [isCommitOptionsCollapsed, setIsCommitOptionsCollapsed] =
-    useState(true);
-  const [commitDetailsViewMode, setCommitDetailsViewMode] =
-    useState<ChangesViewMode>("tree");
-  const [showAllCommitFiles, setShowAllCommitFiles] = useState(false);
-  const [commitDetailsPanelHeight, setCommitDetailsPanelHeight] = useState(
-    COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT
-  );
-  const [workingTreeFilesPanelHeight, setWorkingTreeFilesPanelHeight] =
-    useState<number | null>(null);
-  const [unstagedSectionHeight, setUnstagedSectionHeight] = useState(
+  const [draftCommitSummary, updateDraftCommitSummary] = useReducerState("");
+  const [draftCommitDescription, updateDraftCommitDescription] =
+    useReducerState("");
+  const [amendPreviousCommit, updateAmendPreviousCommit] =
+    useReducerState(false);
+  const [pushAfterCommit, updatePushAfterCommit] = useReducerState(false);
+  const [skipCommitHooks, updateSkipCommitHooks] = useReducerState(false);
+  const [isCommitOptionsCollapsed, updateIsCommitOptionsCollapsed] =
+    useReducerState(true);
+  const [commitDetailsViewMode, updateCommitDetailsViewMode] =
+    useReducerState<ChangesViewMode>("tree");
+  const [showAllCommitFiles, updateShowAllCommitFiles] = useReducerState(false);
+  const [commitDetailsPanelHeight, updateCommitDetailsPanelHeight] =
+    useReducerState(COMMIT_DETAILS_PANEL_DEFAULT_HEIGHT);
+  const [workingTreeFilesPanelHeight, updateWorkingTreeFilesPanelHeight] =
+    useReducerState<number | null>(null);
+  const [unstagedSectionHeight, updateUnstagedSectionHeight] = useReducerState(
     CHANGES_SECTIONS_DEFAULT_HEIGHT
   );
-  const [commitFileFilterInputValue, setCommitFileFilterInputValue] =
-    useState("");
+  const [commitFileFilterInputValue, updateCommitFileFilterInputValue] =
+    useReducerState("");
   const debouncedCommitFileFilterInputValue = useDebouncedValue(
     commitFileFilterInputValue,
     FILE_FILTER_DEBOUNCE_MS
   );
-  const [commitFileSortOrder, setCommitFileSortOrder] =
-    useState<RepoFileBrowserSortOrder>("asc");
-  const [expandedCommitTreeNodePaths, setExpandedCommitTreeNodePaths] =
-    useState<Record<string, boolean>>({});
-  const [isLoadingDiffPath, setIsLoadingDiffPath] = useState<string | null>(
-    null
-  );
-  const [diffPreviewPanelState, setDiffPreviewPanelState] =
-    useState<DiffPreviewPanelState>({ kind: "idle" });
-  const [workspaceMode, setWorkspaceMode] = useState<DiffWorkspaceMode>(
-    DEFAULT_DIFF_WORKSPACE_MODE
-  );
-  const [workspacePresentation, setWorkspacePresentation] =
-    useState<DiffWorkspacePresentationMode>(
+  const [commitFileSortOrder, updateCommitFileSortOrder] =
+    useReducerState<RepoFileBrowserSortOrder>("asc");
+  const [expandedCommitTreeNodePaths, updateExpandedCommitTreeNodePaths] =
+    useReducerState<Record<string, boolean>>({});
+  const [isLoadingDiffPath, updateIsLoadingDiffPath] = useReducerState<
+    string | null
+  >(null);
+  const [diffPreviewPanelState, updateDiffPreviewPanelState] =
+    useReducerState<DiffPreviewPanelState>({ kind: "idle" });
+  const [workspaceMode, updateWorkspaceMode] =
+    useReducerState<DiffWorkspaceMode>(DEFAULT_DIFF_WORKSPACE_MODE);
+  const [workspacePresentation, updateWorkspacePresentation] =
+    useReducerState<DiffWorkspacePresentationMode>(
       DEFAULT_DIFF_WORKSPACE_PRESENTATION
     );
-  const [workspaceFilePresentation, setWorkspaceFilePresentation] =
-    useState<DiffWorkspaceFilePresentationMode>(
+  const [workspaceFilePresentation, updateWorkspaceFilePresentation] =
+    useReducerState<DiffWorkspaceFilePresentationMode>(
       DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION
     );
-  const [ignoreTrimWhitespace, setIgnoreTrimWhitespace] = useState(false);
-  const [workspaceEncoding, setWorkspaceEncoding] = useState(
+  const [ignoreTrimWhitespace, updateIgnoreTrimWhitespace] =
+    useReducerState(false);
+  const [workspaceEncoding, updateWorkspaceEncoding] = useReducerState(
     DEFAULT_DIFF_WORKSPACE_ENCODING
   );
-  const [openedDiffContext, setOpenedDiffContext] =
-    useState<DiffPreviewOpenContext | null>(null);
-  const [hasRequestedDiffSurface, setHasRequestedDiffSurface] = useState(false);
-  const [isDiffEditorReady, setIsDiffEditorReady] = useState(false);
-  const [hasRequestedFileSurface, setHasRequestedFileSurface] = useState(false);
-  const [openedDiff, setOpenedDiff] = useState<RepositoryFileDiff | null>(null);
-  const [openedDiffPath, setOpenedDiffPath] = useState<string | null>(null);
-  const [openedDiffStatusCode, setOpenedDiffStatusCode] = useState<
-    string | null
-  >(null);
-  const [activeHunks, setActiveHunks] = useState<RepositoryFileHunk[]>([]);
-  const [_activeHunkIndex, setActiveHunkIndex] = useState(0);
-  const [isLoadingDiffHunks, setIsLoadingHunks] = useState(false);
-  const [diffHunksError, setHunkLoadError] = useState<string | null>(null);
-  const [historyEntries, setHistoryEntries] = useState<
-    RepositoryFileHistoryEntry[]
-  >([]);
-  const [selectedHistoryCommitHash, setSelectedHistoryCommitHash] = useState<
-    string | null
-  >(null);
-  const [isLoadingFileHistory, setIsLoadingFileHistory] = useState(false);
-  const [fileHistoryError, setFileHistoryError] = useState<string | null>(null);
-  const [blameLines, setBlameLines] = useState<RepositoryFileBlameLine[]>([]);
-  const [isLoadingBlame, setIsLoadingBlame] = useState(false);
-  const [blameError, setBlameError] = useState<string | null>(null);
-  const [editBuffer, setEditBuffer] = useState("");
-  const [editInitialBuffer, setEditInitialBuffer] = useState("");
-  const [isLoadingEditBuffer, setIsLoadingEditBuffer] = useState(false);
-  const [isSavingEditBuffer, setIsSavingEditBuffer] = useState(false);
-  const [editLoadError, setEditLoadError] = useState<string | null>(null);
-  const [pendingWorkspaceMode, setPendingWorkspaceMode] =
-    useState<DiffWorkspaceMode | null>(null);
-  const [pendingOpenDiffContext, setPendingOpenDiffContext] =
-    useState<DiffPreviewOpenContext | null>(null);
-  const [pendingCloseDiffPanel, setPendingCloseDiffPanel] = useState(false);
-  const [isUnsavedEditConfirmOpen, setIsUnsavedEditConfirmOpen] =
-    useState(false);
-  const [commitFilesByHash, setCommitFilesByHash] = useState<
-    Record<string, RepositoryCommitFile[]>
-  >({});
-  const [isLoadingCommitFilesHash, setIsLoadingCommitFilesHash] = useState<
-    string | null
-  >(null);
-  const [openedCommitDiff, setOpenedCommitDiff] =
-    useState<RepositoryCommitFileDiff | null>(null);
-  const [openedCommitDiffStatusCode, setOpenedCommitDiffStatusCode] = useState<
-    string | null
-  >(null);
-  const [isLoadingCommitDiffPath, setIsLoadingCommitDiffPath] = useState<
-    string | null
-  >(null);
-  const [pullActionMode, setPullActionMode] =
-    useState<PullActionMode>("pull-ff-possible");
-  const [openEntryContextMenuKey, setOpenEntryContextMenuKey] = useState<
-    string | null
-  >(null);
-  const [openEntryDropdownMenuKey, setOpenEntryDropdownMenuKey] = useState<
-    string | null
-  >(null);
-  const [openCommitMenuHash, setOpenCommitMenuHash] = useState<string | null>(
+  const [openedDiffContext, updateOpenedDiffContext] =
+    useReducerState<DiffPreviewOpenContext | null>(null);
+  const [hasRequestedDiffSurface, updateHasRequestedDiffSurface] =
+    useReducerState(false);
+  const [isDiffEditorReady, updateIsDiffEditorReady] = useReducerState(false);
+  const [hasRequestedFileSurface, updateHasRequestedFileSurface] =
+    useReducerState(false);
+  const [openedDiff, updateOpenedDiff] =
+    useReducerState<RepositoryFileDiff | null>(null);
+  const [openedDiffPath, updateOpenedDiffPath] = useReducerState<string | null>(
     null
   );
+  const [openedDiffStatusCode, updateOpenedDiffStatusCode] = useReducerState<
+    string | null
+  >(null);
+  const [activeHunks, updateActiveHunks] = useReducerState<
+    RepositoryFileHunk[]
+  >([]);
+  const [_activeHunkIndex, updateActiveHunkIndex] = useReducerState(0);
+  const [isLoadingDiffHunks, updateIsLoadingHunks] = useReducerState(false);
+  const [diffHunksError, updateHunkLoadError] = useReducerState<string | null>(
+    null
+  );
+  const [historyEntries, updateHistoryEntries] = useReducerState<
+    RepositoryFileHistoryEntry[]
+  >([]);
+  const [selectedHistoryCommitHash, updateSelectedHistoryCommitHash] =
+    useReducerState<string | null>(null);
+  const [isLoadingFileHistory, updateIsLoadingFileHistory] =
+    useReducerState(false);
+  const [fileHistoryError, updateFileHistoryError] = useReducerState<
+    string | null
+  >(null);
+  const [blameLines, updateBlameLines] = useReducerState<
+    RepositoryFileBlameLine[]
+  >([]);
+  const [isLoadingBlame, updateIsLoadingBlame] = useReducerState(false);
+  const [blameError, updateBlameError] = useReducerState<string | null>(null);
+  const [editBuffer, updateEditBuffer] = useReducerState("");
+  const [editInitialBuffer, updateEditInitialBuffer] = useReducerState("");
+  const [isLoadingEditBuffer, updateIsLoadingEditBuffer] =
+    useReducerState(false);
+  const [isSavingEditBuffer, updateIsSavingEditBuffer] = useReducerState(false);
+  const [editLoadError, updateEditLoadError] = useReducerState<string | null>(
+    null
+  );
+  const [pendingWorkspaceMode, updatePendingWorkspaceMode] =
+    useReducerState<DiffWorkspaceMode | null>(null);
+  const [pendingOpenDiffContext, updatePendingOpenDiffContext] =
+    useReducerState<DiffPreviewOpenContext | null>(null);
+  const [pendingCloseDiffPanel, updatePendingCloseDiffPanel] =
+    useReducerState(false);
+  const [isUnsavedEditConfirmOpen, updateIsUnsavedEditConfirmOpen] =
+    useReducerState(false);
+  const [commitFilesByHash, updateCommitFilesByHash] = useReducerState<
+    Record<string, RepositoryCommitFile[]>
+  >({});
+  const [isLoadingCommitFilesHash, updateIsLoadingCommitFilesHash] =
+    useReducerState<string | null>(null);
+  const [openedCommitDiff, updateOpenedCommitDiff] =
+    useReducerState<RepositoryCommitFileDiff | null>(null);
+  const [openedCommitDiffStatusCode, updateOpenedCommitDiffStatusCode] =
+    useReducerState<string | null>(null);
+  const [isLoadingCommitDiffPath, updateIsLoadingCommitDiffPath] =
+    useReducerState<string | null>(null);
+  const [pullActionMode, updatePullActionMode] =
+    useReducerState<PullActionMode>("pull-ff-possible");
+  const [openEntryContextMenuKey, updateOpenEntryContextMenuKey] =
+    useReducerState<string | null>(null);
+  const [openEntryDropdownMenuKey, updateOpenEntryDropdownMenuKey] =
+    useReducerState<string | null>(null);
+  const [openCommitMenuHash, updateOpenCommitMenuHash] = useReducerState<
+    string | null
+  >(null);
   const pullActionLabelByMode: Record<PullActionMode, string> = {
     "fetch-all": "Fetch All",
     "pull-ff-only": "Pull (fast-forward only)",
@@ -1323,8 +1372,9 @@ export function RepoInfo() {
     rebase: "Rebase",
   };
   const selectedPullActionLabel = pullActionLabelByMode[pullActionMode];
-  const [sidebarFilterInputValue, setSidebarFilterInputValue] = useState("");
-  const [sidebarFilterQuery, setSidebarFilterQuery] = useState("");
+  const [sidebarFilterInputValue, updateSidebarFilterInputValue] =
+    useReducerState("");
+  const [sidebarFilterQuery, updateSidebarFilterQuery] = useReducerState("");
   const sidebarFilterInputRef = useRef<HTMLInputElement | null>(null);
   const branchCreateInputRef = useRef<HTMLInputElement | null>(null);
   const commitSummaryInputRef = useRef<HTMLInputElement | null>(null);
@@ -1371,10 +1421,10 @@ export function RepoInfo() {
 
   const isTerminalPanelOpen = useTerminalPanelStore((state) => state.isOpen);
   const toggleTerminalPanel = useTerminalPanelStore((state) => state.toggle);
-  const [selectedLauncherId, setSelectedLauncherId] =
-    useState<ExternalLauncherApplication>("file-manager");
+  const [selectedLauncherId, updateSelectedLauncherId] =
+    useReducerState<ExternalLauncherApplication>("file-manager");
 
-  const [launcherApplications, setLauncherApplications] = useState<
+  const [launcherApplications, updateLauncherApplications] = useReducerState<
     ExternalLauncherApp[]
   >([]);
 
@@ -1394,19 +1444,19 @@ export function RepoInfo() {
     getLauncherApplications()
       .then((applications) => {
         if (!cancelled) {
-          setLauncherApplications(applications);
+          updateLauncherApplications(applications);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setLauncherApplications([]);
+          updateLauncherApplications([]);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [tauriRuntime]);
+  }, [tauriRuntime, updateLauncherApplications]);
 
   const dateFormatPreference = usePreferencesStore(
     (state) => state.ui.dateFormat
@@ -1431,8 +1481,8 @@ export function RepoInfo() {
   const toolbarLabels = usePreferencesStore((state) => state.ui.toolbarLabels);
   const editorPreferences = usePreferencesStore((state) => state.editor);
   const openedDiffEditorRef = useRef<DiffEditorInstance | null>(null);
-  const openedFileEditorRef = useRef<EditorView | null>(null);
-  const openedEditEditorRef = useRef<EditorView | null>(null);
+  const openedFileEditorRef = useRef<CodeMirrorEditorViewLike | null>(null);
+  const openedEditEditorRef = useRef<CodeMirrorEditorViewLike | null>(null);
   const previousWorkspaceEncodingRef = useRef(workspaceEncoding);
   const resolvedWorkspaceEncoding =
     resolveDiffWorkspaceEncodingValue(workspaceEncoding);
@@ -1500,8 +1550,8 @@ export function RepoInfo() {
 
       aiCommitGenerationStatusMessageRef.current = nextState.statusMessage;
       aiCommitGenerationPreviewRef.current = nextState.preview;
-      setAiCommitGenerationStatusMessage(nextState.statusMessage);
-      setAiCommitGenerationPreview(nextState.preview);
+      updateAiCommitGenerationStatusMessage(nextState.statusMessage);
+      updateAiCommitGenerationPreview(nextState.preview);
     });
     const unlistenChunkPromise = listen<{
       content: string;
@@ -1514,7 +1564,7 @@ export function RepoInfo() {
       }
 
       aiCommitGenerationPreviewRef.current = payload.content;
-      setAiCommitGenerationPreview(payload.content);
+      updateAiCommitGenerationPreview(payload.content);
     });
 
     return () => {
@@ -1522,7 +1572,12 @@ export function RepoInfo() {
       unlistenProgressPromise.then((unlisten) => unlisten());
       unlistenChunkPromise.then((unlisten) => unlisten());
     };
-  }, [activeRepoPath, tauriRuntime]);
+  }, [
+    activeRepoPath,
+    tauriRuntime,
+    updateAiCommitGenerationPreview,
+    updateAiCommitGenerationStatusMessage,
+  ]);
 
   const handleOpenPath = useCallback(
     async (application: ExternalLauncherApplication) => {
@@ -1561,7 +1616,7 @@ export function RepoInfo() {
 
   useEffect(() => {
     if (!activeRepoPath) {
-      setRemoteAvatarUrlByName({});
+      updateRemoteAvatarUrlByName({});
       return;
     }
 
@@ -1570,19 +1625,19 @@ export function RepoInfo() {
     getRepositoryRemoteAvatars(activeRepoPath)
       .then((avatarsByRemote) => {
         if (!cancelled) {
-          setRemoteAvatarUrlByName(avatarsByRemote);
+          updateRemoteAvatarUrlByName(avatarsByRemote);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRemoteAvatarUrlByName({});
+          updateRemoteAvatarUrlByName({});
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [activeRepoPath]);
+  }, [activeRepoPath, updateRemoteAvatarUrlByName]);
   useEffect(() => {
     import("@/components/views/git-graph-overlay").catch((error) => {
       toast.error(
@@ -1639,14 +1694,14 @@ export function RepoInfo() {
     persistRepoFileBrowserState({ viewMode });
   };
   const setShowAllCommitFilesState = (shouldShowAll: boolean) => {
-    setShowAllCommitFiles(shouldShowAll);
+    updateShowAllCommitFiles(shouldShowAll);
 
     if (shouldShowAll) {
-      setCommitDetailsViewMode("tree");
+      updateCommitDetailsViewMode("tree");
       return;
     }
 
-    setCommitFileFilterInputValue("");
+    updateCommitFileFilterInputValue("");
   };
   const setIsUnstagedSectionCollapsed = (
     value: boolean | ((current: boolean) => boolean)
@@ -1785,7 +1840,7 @@ export function RepoInfo() {
       ReturnType<typeof buildRepoInfoWorkingTreeModel>
     >
   > | null>(null);
-  const [workingTreeModel, setWorkingTreeModel] = useState<
+  const [workingTreeModel, updateWorkingTreeModel] = useReducerState<
     ReturnType<typeof buildRepoInfoWorkingTreeModel>
   >(EMPTY_WORKING_TREE_MODEL);
   const { stagedTree, unstagedTree } = workingTreeModel;
@@ -1816,7 +1871,7 @@ export function RepoInfo() {
       ReturnType<typeof buildRepoInfoAllFilesModel>
     >
   > | null>(null);
-  const [allFilesModel, setAllFilesModel] = useState<
+  const [allFilesModel, updateAllFilesModel] = useReducerState<
     ReturnType<typeof buildRepoInfoAllFilesModel>
   >(EMPTY_ALL_FILES_MODEL);
   const { allFilesTree, filteredRepositoryFiles } = allFilesModel;
@@ -1894,7 +1949,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setWorkingTreeModel(result);
+          updateWorkingTreeModel(result);
         }
       },
       () => undefined
@@ -1903,7 +1958,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [workingTreeModelInput]);
+  }, [workingTreeModelInput, updateWorkingTreeModel]);
 
   useEffect(() => {
     const workerClient = allFilesWorkerClientRef.current;
@@ -1916,7 +1971,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setAllFilesModel(result);
+          updateAllFilesModel(result);
         }
       },
       () => undefined
@@ -1925,7 +1980,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [allFilesModelInput]);
+  }, [allFilesModelInput, updateAllFilesModel]);
 
   const visibleGraphModelInput = useMemo<BuildRepoInfoVisibleGraphModelInput>(
     () => ({
@@ -1941,7 +1996,7 @@ export function RepoInfo() {
       ReturnType<typeof buildRepoInfoVisibleGraphModel>
     >
   > | null>(null);
-  const [visibleGraphModel, setVisibleGraphModel] = useState<
+  const [visibleGraphModel, updateVisibleGraphModel] = useReducerState<
     ReturnType<typeof buildRepoInfoVisibleGraphModel>
   >(EMPTY_VISIBLE_GRAPH_MODEL);
 
@@ -1987,7 +2042,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setVisibleGraphModel(result);
+          updateVisibleGraphModel(result);
         }
       },
       () => undefined
@@ -1996,7 +2051,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [visibleGraphModelInput]);
+  }, [visibleGraphModelInput, updateVisibleGraphModel]);
 
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
@@ -2059,18 +2114,24 @@ export function RepoInfo() {
   }, [pendingDropCommitHash, timelineCommits]);
   useEffect(() => {
     if (!selectedCommit) {
-      setIsEditingSelectedCommitMessage(false);
-      setRewordCommitSummary("");
-      setRewordCommitDescription("");
-      setLastAiRewordGeneration(null);
+      updateIsEditingSelectedCommitMessage(false);
+      updateRewordCommitSummary("");
+      updateRewordCommitDescription("");
+      updateLastAiRewordGeneration(null);
       return;
     }
 
-    setIsEditingSelectedCommitMessage(false);
-    setRewordCommitSummary(selectedCommit.messageSummary);
-    setRewordCommitDescription(selectedCommit.messageDescription);
-    setLastAiRewordGeneration(null);
-  }, [selectedCommit]);
+    updateIsEditingSelectedCommitMessage(false);
+    updateRewordCommitSummary(selectedCommit.messageSummary);
+    updateRewordCommitDescription(selectedCommit.messageDescription);
+    updateLastAiRewordGeneration(null);
+  }, [
+    selectedCommit,
+    updateRewordCommitSummary,
+    updateIsEditingSelectedCommitMessage,
+    updateRewordCommitDescription,
+    updateLastAiRewordGeneration,
+  ]);
   const selectedCommitFiles = useMemo<RepositoryCommitFile[]>(
     () =>
       selectedCommit
@@ -2103,9 +2164,10 @@ export function RepoInfo() {
       ReturnType<typeof buildRepoInfoCommitFilesModel>
     >
   > | null>(null);
-  const [selectedCommitFilesModel, setSelectedCommitFilesModel] = useState<
-    ReturnType<typeof buildRepoInfoCommitFilesModel>
-  >(EMPTY_COMMIT_FILES_MODEL);
+  const [selectedCommitFilesModel, updateSelectedCommitFilesModel] =
+    useReducerState<ReturnType<typeof buildRepoInfoCommitFilesModel>>(
+      EMPTY_COMMIT_FILES_MODEL
+    );
   const {
     filteredFiles: filteredCommitFiles,
     sortedPathRows: sortedCommitPathRows,
@@ -2135,7 +2197,9 @@ export function RepoInfo() {
   const timelineWorkerClientRef = useRef<ReturnType<
     typeof createWorkerClient<BuildRepoInfoTimelineRowsInput, GitTimelineRow[]>
   > | null>(null);
-  const [timelineRows, setTimelineRows] = useState<GitTimelineRow[]>([]);
+  const [timelineRows, updateTimelineRows] = useReducerState<GitTimelineRow[]>(
+    []
+  );
 
   useEffect(() => {
     if (typeof Worker === "undefined") {
@@ -2179,7 +2243,7 @@ export function RepoInfo() {
     ).then(
       (rows) => {
         if (!cancelled) {
-          setTimelineRows(rows);
+          updateTimelineRows(rows);
         }
       },
       () => undefined
@@ -2188,7 +2252,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [timelineRowsInput]);
+  }, [timelineRowsInput, updateTimelineRows]);
   const timelineRowById = useMemo(
     () => new Map(timelineRows.map((row) => [row.id, row])),
     [timelineRows]
@@ -2318,8 +2382,8 @@ export function RepoInfo() {
       commitFileSortOrder,
     ]
   );
-  const [selectedReferenceFilesModel, setSelectedReferenceFilesModel] =
-    useState<ReturnType<typeof buildRepoInfoCommitFilesModel>>(
+  const [selectedReferenceFilesModel, updateSelectedReferenceFilesModel] =
+    useReducerState<ReturnType<typeof buildRepoInfoCommitFilesModel>>(
       EMPTY_COMMIT_FILES_MODEL
     );
   const {
@@ -2371,7 +2435,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setSelectedCommitFilesModel(result);
+          updateSelectedCommitFilesModel(result);
         }
       },
       () => undefined
@@ -2380,7 +2444,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [commitFilesModelInput]);
+  }, [commitFilesModelInput, updateSelectedCommitFilesModel]);
 
   useEffect(() => {
     const workerClient = commitFilesWorkerClientRef.current;
@@ -2393,7 +2457,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setSelectedReferenceFilesModel(result);
+          updateSelectedReferenceFilesModel(result);
         }
       },
       () => undefined
@@ -2402,7 +2466,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [referenceFilesModelInput]);
+  }, [referenceFilesModelInput, updateSelectedReferenceFilesModel]);
   const referenceModelInput = useMemo<BuildRepoInfoReferenceModelInput>(
     () => ({
       branches,
@@ -2419,7 +2483,7 @@ export function RepoInfo() {
       ReturnType<typeof buildRepoInfoReferenceModel>
     >
   > | null>(null);
-  const [referenceModel, setReferenceModel] = useState<
+  const [referenceModel, updateReferenceModel] = useReducerState<
     ReturnType<typeof buildRepoInfoReferenceModel>
   >(EMPTY_REFERENCE_MODEL);
 
@@ -2465,7 +2529,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setReferenceModel(result);
+          updateReferenceModel(result);
         }
       },
       () => undefined
@@ -2474,7 +2538,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [referenceModelInput]);
+  }, [referenceModelInput, updateReferenceModel]);
 
   const commitByHash = useMemo(
     () => new Map(timelineCommits.map((commit) => [commit.hash, commit])),
@@ -2608,7 +2672,7 @@ export function RepoInfo() {
       ReturnType<typeof buildRepoInfoSidebarGroups>
     >
   > | null>(null);
-  const [sidebarResults, setSidebarResults] = useState<
+  const [sidebarResults, updateSidebarResults] = useReducerState<
     ReturnType<typeof buildRepoInfoSidebarGroups>
   >(EMPTY_SIDEBAR_RESULTS);
 
@@ -2654,7 +2718,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setSidebarResults(result);
+          updateSidebarResults(result);
         }
       },
       () => undefined
@@ -2663,7 +2727,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [sidebarGroupsInput]);
+  }, [sidebarGroupsInput, updateSidebarResults]);
 
   const { filteredSidebarEntryCount, filteredSidebarGroups } = sidebarResults;
   const visibleCountsModelInput = useMemo<BuildRepoInfoVisibleCountsModelInput>(
@@ -2713,7 +2777,7 @@ export function RepoInfo() {
       ReturnType<typeof buildRepoInfoVisibleCountsModel>
     >
   > | null>(null);
-  const [visibleCountsModel, setVisibleCountsModel] = useState<
+  const [visibleCountsModel, updateVisibleCountsModel] = useReducerState<
     ReturnType<typeof buildRepoInfoVisibleCountsModel>
   >(EMPTY_VISIBLE_COUNTS_MODEL);
 
@@ -2759,7 +2823,7 @@ export function RepoInfo() {
     ).then(
       (result) => {
         if (!cancelled) {
-          setVisibleCountsModel(result);
+          updateVisibleCountsModel(result);
         }
       },
       () => undefined
@@ -2768,7 +2832,7 @@ export function RepoInfo() {
     return () => {
       cancelled = true;
     };
-  }, [visibleCountsModelInput]);
+  }, [visibleCountsModelInput, updateVisibleCountsModel]);
 
   const {
     allFilesVisibleNodeCount,
@@ -2884,7 +2948,7 @@ export function RepoInfo() {
     },
     [commitByHash]
   );
-  const renderTimelineCell = useCallback(
+  const getTimelineCell = useCallback(
     (
       columnId: RepoTimelineColumnId,
       input: {
@@ -3281,8 +3345,8 @@ export function RepoInfo() {
       return;
     }
 
-    setIsBranchCreateInputOpen(true);
-    setNewBranchName("");
+    updateIsBranchCreateInputOpen(true);
+    updateNewBranchName("");
   };
 
   const closeBranchCreateInput = () => {
@@ -3290,8 +3354,8 @@ export function RepoInfo() {
       return;
     }
 
-    setIsBranchCreateInputOpen(false);
-    setNewBranchName("");
+    updateIsBranchCreateInputOpen(false);
+    updateNewBranchName("");
   };
 
   const handleCreateBranchFromToolbar = async () => {
@@ -3306,12 +3370,12 @@ export function RepoInfo() {
       return;
     }
 
-    setIsCreatingBranch(true);
+    updateIsCreatingBranch(true);
 
     try {
       await createBranch(activeRepoId, trimmedBranchName);
-      setIsBranchCreateInputOpen(false);
-      setNewBranchName("");
+      updateIsBranchCreateInputOpen(false);
+      updateNewBranchName("");
       toast.success("Branch created", {
         description: `refs/heads/${trimmedBranchName}`,
       });
@@ -3320,7 +3384,7 @@ export function RepoInfo() {
         description: getCreateBranchFailureReason(error),
       });
     } finally {
-      setIsCreatingBranch(false);
+      updateIsCreatingBranch(false);
     }
   };
 
@@ -3361,17 +3425,17 @@ export function RepoInfo() {
       const remoteName = entry.name.slice(0, firstSlashIndex);
       const remoteBranchName = entry.name.slice(firstSlashIndex + 1);
 
-      setPendingDeleteBranchRemoteName(remoteName);
-      setPendingDeleteBranchName(remoteBranchName);
-      setIsDeleteRemoteBranch(true);
-      setIsDeleteBranchConfirmOpen(true);
+      updatePendingDeleteBranchRemoteName(remoteName);
+      updatePendingDeleteBranchName(remoteBranchName);
+      updateIsDeleteRemoteBranch(true);
+      updateIsDeleteBranchConfirmOpen(true);
       return;
     }
 
-    setPendingDeleteBranchRemoteName(null);
-    setIsDeleteRemoteBranch(false);
-    setPendingDeleteBranchName(entry.name);
-    setIsDeleteBranchConfirmOpen(true);
+    updatePendingDeleteBranchRemoteName(null);
+    updateIsDeleteRemoteBranch(false);
+    updatePendingDeleteBranchName(entry.name);
+    updateIsDeleteBranchConfirmOpen(true);
   };
 
   const handleDeleteBranch = async () => {
@@ -3379,7 +3443,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsDeletingBranch(true);
+    updateIsDeletingBranch(true);
 
     try {
       if (isDeleteRemoteBranch) {
@@ -3402,10 +3466,10 @@ export function RepoInfo() {
         });
       }
 
-      setIsDeleteBranchConfirmOpen(false);
-      setPendingDeleteBranchName(null);
-      setPendingDeleteBranchRemoteName(null);
-      setIsDeleteRemoteBranch(false);
+      updateIsDeleteBranchConfirmOpen(false);
+      updatePendingDeleteBranchName(null);
+      updatePendingDeleteBranchRemoteName(null);
+      updateIsDeleteRemoteBranch(false);
     } catch (error) {
       if (isDeleteRemoteBranch) {
         toast.error("Failed to delete remote branch", {
@@ -3417,7 +3481,7 @@ export function RepoInfo() {
         });
       }
     } finally {
-      setIsDeletingBranch(false);
+      updateIsDeletingBranch(false);
     }
   };
 
@@ -3445,9 +3509,9 @@ export function RepoInfo() {
       return;
     }
 
-    setRenameBranchSourceName(entry.name);
-    setRenameBranchTargetName(entry.name);
-    setIsRenameBranchDialogOpen(true);
+    updateRenameBranchSourceName(entry.name);
+    updateRenameBranchTargetName(entry.name);
+    updateIsRenameBranchDialogOpen(true);
   };
 
   const handleRenameBranch = async () => {
@@ -3467,11 +3531,11 @@ export function RepoInfo() {
     }
 
     if (trimmedNewBranchName === renameBranchSourceName) {
-      setIsRenameBranchDialogOpen(false);
+      updateIsRenameBranchDialogOpen(false);
       return;
     }
 
-    setIsRenamingBranch(true);
+    updateIsRenamingBranch(true);
 
     try {
       await renameBranch(
@@ -3482,15 +3546,15 @@ export function RepoInfo() {
       toast.success("Branch renamed", {
         description: `${renameBranchSourceName} -> ${trimmedNewBranchName}`,
       });
-      setIsRenameBranchDialogOpen(false);
-      setRenameBranchSourceName(null);
-      setRenameBranchTargetName("");
+      updateIsRenameBranchDialogOpen(false);
+      updateRenameBranchSourceName(null);
+      updateRenameBranchTargetName("");
     } catch (error) {
       toast.error("Failed to rename branch", {
         description: getRenameBranchFailureReason(error),
       });
     } finally {
-      setIsRenamingBranch(false);
+      updateIsRenamingBranch(false);
     }
   };
 
@@ -3524,11 +3588,11 @@ export function RepoInfo() {
       ? "origin"
       : (activeRepoRemoteNames[0] ?? "origin");
 
-    setSetUpstreamLocalBranchName(entry.name);
-    setSetUpstreamRemoteName(defaultRemoteName);
-    setSetUpstreamRemoteBranchName(entry.name);
-    setSetUpstreamFormError(null);
-    setIsSetUpstreamDialogOpen(true);
+    updateSetUpstreamLocalBranchName(entry.name);
+    updateSetUpstreamRemoteName(defaultRemoteName);
+    updateSetUpstreamRemoteBranchName(entry.name);
+    updateSetUpstreamFormError(null);
+    updateIsSetUpstreamDialogOpen(true);
   };
 
   const handleSetUpstream = async () => {
@@ -3543,12 +3607,12 @@ export function RepoInfo() {
       trimmedRemoteName.length === 0 ||
       trimmedRemoteBranchName.length === 0
     ) {
-      setSetUpstreamFormError("Remote and branch are required.");
+      updateSetUpstreamFormError("Remote and branch are required.");
       return;
     }
 
-    setIsSettingUpstream(true);
-    setSetUpstreamFormError(null);
+    updateIsSettingUpstream(true);
+    updateSetUpstreamFormError(null);
 
     try {
       await setBranchUpstream(
@@ -3560,15 +3624,15 @@ export function RepoInfo() {
       toast.success("Upstream set", {
         description: `${setUpstreamLocalBranchName} -> ${trimmedRemoteName}/${trimmedRemoteBranchName}`,
       });
-      setIsSetUpstreamDialogOpen(false);
-      setSetUpstreamLocalBranchName(null);
-      setSetUpstreamRemoteName("");
-      setSetUpstreamRemoteBranchName("");
-      setSetUpstreamFormError(null);
+      updateIsSetUpstreamDialogOpen(false);
+      updateSetUpstreamLocalBranchName(null);
+      updateSetUpstreamRemoteName("");
+      updateSetUpstreamRemoteBranchName("");
+      updateSetUpstreamFormError(null);
     } catch (error) {
-      setSetUpstreamFormError(getSetUpstreamFailureReason(error));
+      updateSetUpstreamFormError(getSetUpstreamFailureReason(error));
     } finally {
-      setIsSettingUpstream(false);
+      updateIsSettingUpstream(false);
     }
   };
 
@@ -3588,7 +3652,7 @@ export function RepoInfo() {
       hasAnyWorkingTreeChanges
     ) {
       if (selectedCommitId !== WORKING_TREE_ROW_ID) {
-        setSelectedCommitId(WORKING_TREE_ROW_ID);
+        updateSelectedCommitId(WORKING_TREE_ROW_ID);
       }
       return;
     }
@@ -3599,11 +3663,11 @@ export function RepoInfo() {
         : null;
 
       if (selectedTimelineRowId !== fallbackRowId) {
-        setSelectedTimelineRowId(fallbackRowId);
+        updateSelectedTimelineRowId(fallbackRowId);
       }
 
       if (selectedCommitId !== fallbackRowId) {
-        setSelectedCommitId(fallbackRowId);
+        updateSelectedCommitId(fallbackRowId);
       }
       return;
     }
@@ -3623,7 +3687,7 @@ export function RepoInfo() {
         timelineCommits.some((commit) => commit.hash === resolvedCommitHash)
       ) {
         if (selectedCommitId !== resolvedCommitHash) {
-          setSelectedCommitId(resolvedCommitHash);
+          updateSelectedCommitId(resolvedCommitHash);
         }
 
         return;
@@ -3635,7 +3699,7 @@ export function RepoInfo() {
       timelineCommits.some((commit) => commit.hash === selectedCommitId)
     ) {
       if (selectedTimelineRowId !== selectedCommitId) {
-        setSelectedTimelineRowId(selectedCommitId);
+        updateSelectedTimelineRowId(selectedCommitId);
       }
       return;
     }
@@ -3644,11 +3708,11 @@ export function RepoInfo() {
       localHeadCommit?.hash ?? timelineCommits[0]?.hash ?? null;
 
     if (selectedTimelineRowId !== fallbackCommitHash) {
-      setSelectedTimelineRowId(fallbackCommitHash);
+      updateSelectedTimelineRowId(fallbackCommitHash);
     }
 
     if (selectedCommitId !== fallbackCommitHash) {
-      setSelectedCommitId(fallbackCommitHash);
+      updateSelectedCommitId(fallbackCommitHash);
     }
   }, [
     timelineCommits,
@@ -3657,22 +3721,30 @@ export function RepoInfo() {
     selectedCommitId,
     selectedTimelineRowId,
     timelineRowById,
+    updateSelectedCommitId,
+    updateSelectedTimelineRowId,
   ]);
 
   useEffect(() => {
     if (activeRepoId === null) {
-      setDraftCommitSummary("");
-      setDraftCommitDescription("");
-      setAmendPreviousCommit(false);
-      setLastAiCommitGeneration(null);
+      updateDraftCommitSummary("");
+      updateDraftCommitDescription("");
+      updateAmendPreviousCommit(false);
+      updateLastAiCommitGeneration(null);
       return;
     }
 
-    setDraftCommitSummary("");
-    setDraftCommitDescription("");
-    setAmendPreviousCommit(false);
-    setLastAiCommitGeneration(null);
-  }, [activeRepoId]);
+    updateDraftCommitSummary("");
+    updateDraftCommitDescription("");
+    updateAmendPreviousCommit(false);
+    updateLastAiCommitGeneration(null);
+  }, [
+    activeRepoId,
+    updateLastAiCommitGeneration,
+    updateDraftCommitSummary,
+    updateDraftCommitDescription,
+    updateAmendPreviousCommit,
+  ]);
 
   useEffect(() => {
     if (activeRepoId === null) {
@@ -3683,39 +3755,58 @@ export function RepoInfo() {
       return;
     }
 
-    setDraftCommitSummary(commitDraftPrefill.summary);
-    setDraftCommitDescription(commitDraftPrefill.description);
-    setAmendPreviousCommit(false);
-    setLastAiCommitGeneration(null);
+    updateDraftCommitSummary(commitDraftPrefill.summary);
+    updateDraftCommitDescription(commitDraftPrefill.description);
+    updateAmendPreviousCommit(false);
+    updateLastAiCommitGeneration(null);
     clearRepoCommitDraftPrefill(activeRepoId);
-  }, [activeRepoId, clearRepoCommitDraftPrefill, commitDraftPrefill]);
+  }, [
+    activeRepoId,
+    clearRepoCommitDraftPrefill,
+    commitDraftPrefill,
+    updateAmendPreviousCommit,
+    updateDraftCommitSummary,
+    updateDraftCommitDescription,
+    updateLastAiCommitGeneration,
+  ]);
 
   useEffect(() => {
     if (activeRepoId === null) {
-      setIsLoadingDiffPath(null);
-      setDiffPreviewPanelState({ kind: "idle" });
-      setOpenedDiffContext(null);
-      setHasRequestedDiffSurface(false);
-      setOpenedDiff(null);
-      setOpenedDiffPath(null);
-      setOpenedDiffStatusCode(null);
-      setOpenedCommitDiff(null);
-      setOpenedCommitDiffStatusCode(null);
+      updateIsLoadingDiffPath(null);
+      updateDiffPreviewPanelState({ kind: "idle" });
+      updateOpenedDiffContext(null);
+      updateHasRequestedDiffSurface(false);
+      updateOpenedDiff(null);
+      updateOpenedDiffPath(null);
+      updateOpenedDiffStatusCode(null);
+      updateOpenedCommitDiff(null);
+      updateOpenedCommitDiffStatusCode(null);
       commitDiffCacheRef.current.clear();
       return;
     }
 
-    setIsLoadingDiffPath(null);
-    setDiffPreviewPanelState({ kind: "idle" });
-    setOpenedDiffContext(null);
-    setHasRequestedDiffSurface(false);
-    setOpenedDiff(null);
-    setOpenedDiffPath(null);
-    setOpenedDiffStatusCode(null);
-    setOpenedCommitDiff(null);
-    setOpenedCommitDiffStatusCode(null);
+    updateIsLoadingDiffPath(null);
+    updateDiffPreviewPanelState({ kind: "idle" });
+    updateOpenedDiffContext(null);
+    updateHasRequestedDiffSurface(false);
+    updateOpenedDiff(null);
+    updateOpenedDiffPath(null);
+    updateOpenedDiffStatusCode(null);
+    updateOpenedCommitDiff(null);
+    updateOpenedCommitDiffStatusCode(null);
     commitDiffCacheRef.current.clear();
-  }, [activeRepoId]);
+  }, [
+    activeRepoId,
+    updateOpenedCommitDiff,
+    updateDiffPreviewPanelState,
+    updateOpenedDiffPath,
+    updateOpenedDiff,
+    updateOpenedDiffContext,
+    updateOpenedDiffStatusCode,
+    updateOpenedCommitDiffStatusCode,
+    updateIsLoadingDiffPath,
+    updateHasRequestedDiffSurface,
+  ]);
 
   useEffect(() => {
     const shouldLoadRepositoryFiles = showAllFiles || showAllCommitFiles;
@@ -3747,16 +3838,20 @@ export function RepoInfo() {
       return;
     }
 
-    setShowAllCommitFiles(false);
-    setCommitFileFilterInputValue("");
-    setCommitFileSortOrder("asc");
-    setExpandedCommitTreeNodePaths({});
+    updateShowAllCommitFiles(false);
+    updateCommitFileFilterInputValue("");
+    updateCommitFileSortOrder("asc");
+    updateExpandedCommitTreeNodePaths({});
   }, [
     isSelectedCommitRow,
     isSelectedReferenceRow,
     isWorkingTreeSelection,
     selectedCommit,
     selectedReferenceRevision,
+    updateExpandedCommitTreeNodePaths,
+    updateCommitFileSortOrder,
+    updateCommitFileFilterInputValue,
+    updateShowAllCommitFiles,
   ]);
 
   useEffect(() => {
@@ -3766,9 +3861,9 @@ export function RepoInfo() {
       !selectedCommit ||
       !isSelectedCommitRow
     ) {
-      setOpenedCommitDiff(null);
-      setOpenedCommitDiffStatusCode(null);
-      setIsLoadingCommitFilesHash(null);
+      updateOpenedCommitDiff(null);
+      updateOpenedCommitDiffStatusCode(null);
+      updateIsLoadingCommitFilesHash(null);
       return;
     }
 
@@ -3777,7 +3872,7 @@ export function RepoInfo() {
     }
 
     let cancelled = false;
-    setIsLoadingCommitFilesHash(selectedCommit.hash);
+    updateIsLoadingCommitFilesHash(selectedCommit.hash);
 
     getCommitFiles(activeRepoId, selectedCommit.hash)
       .then((files) => {
@@ -3785,7 +3880,7 @@ export function RepoInfo() {
           return;
         }
 
-        setCommitFilesByHash((current) => ({
+        updateCommitFilesByHash((current) => ({
           ...current,
           [selectedCommit.hash]: files,
         }));
@@ -3795,7 +3890,7 @@ export function RepoInfo() {
           return;
         }
 
-        setIsLoadingCommitFilesHash((current) =>
+        updateIsLoadingCommitFilesHash((current) =>
           current === selectedCommit.hash ? null : current
         );
       });
@@ -3810,6 +3905,10 @@ export function RepoInfo() {
     isSelectedCommitRow,
     isWorkingTreeSelection,
     selectedCommit,
+    updateOpenedCommitDiffStatusCode,
+    updateIsLoadingCommitFilesHash,
+    updateOpenedCommitDiff,
+    updateCommitFilesByHash,
   ]);
   useEffect(() => {
     if (
@@ -3826,7 +3925,7 @@ export function RepoInfo() {
     }
 
     let cancelled = false;
-    setIsLoadingCommitFilesHash(selectedReferenceRevision);
+    updateIsLoadingCommitFilesHash(selectedReferenceRevision);
 
     getCommitFiles(activeRepoId, selectedReferenceRevision)
       .then((files) => {
@@ -3834,7 +3933,7 @@ export function RepoInfo() {
           return;
         }
 
-        setCommitFilesByHash((current) => ({
+        updateCommitFilesByHash((current) => ({
           ...current,
           [selectedReferenceRevision]: files,
         }));
@@ -3844,7 +3943,7 @@ export function RepoInfo() {
           return;
         }
 
-        setIsLoadingCommitFilesHash((current) =>
+        updateIsLoadingCommitFilesHash((current) =>
           current === selectedReferenceRevision ? null : current
         );
       });
@@ -3859,6 +3958,8 @@ export function RepoInfo() {
     isSelectedReferenceRow,
     isWorkingTreeSelection,
     selectedReferenceRevision,
+    updateIsLoadingCommitFilesHash,
+    updateCommitFilesByHash,
   ]);
 
   useEffect(() => {
@@ -3939,7 +4040,7 @@ export function RepoInfo() {
       const shouldAutoCompact =
         viewportWidth <= TIMELINE_AUTO_COMPACT_BREAKPOINT;
 
-      setIsTimelineGraphAutoCompact((current) =>
+      updateIsTimelineGraphAutoCompact((current) =>
         current === shouldAutoCompact ? current : shouldAutoCompact
       );
       const hasRightSidebar =
@@ -3958,7 +4059,7 @@ export function RepoInfo() {
       );
 
       if (nextLeftWidth !== leftSidebarWidthRef.current) {
-        setLeftSidebarWidth(nextLeftWidth);
+        updateLeftSidebarWidth(nextLeftWidth);
       }
 
       const rightMaxWidth = getRightSidebarMaxWidth(
@@ -3972,7 +4073,7 @@ export function RepoInfo() {
       );
 
       if (nextRightWidth !== rightSidebarWidthRef.current) {
-        setRightSidebarWidth(nextRightWidth);
+        updateRightSidebarWidth(nextRightWidth);
       }
     };
 
@@ -3982,7 +4083,13 @@ export function RepoInfo() {
     return () => {
       globalThis.removeEventListener("resize", clampSidebarWidths);
     };
-  }, [isRightSidebarOpen, workspaceMode]);
+  }, [
+    isRightSidebarOpen,
+    workspaceMode,
+    updateIsTimelineGraphAutoCompact,
+    updateLeftSidebarWidth,
+    updateRightSidebarWidth,
+  ]);
 
   useEffect(() => {
     const handlePointerMove = (event: MouseEvent) => {
@@ -4001,7 +4108,7 @@ export function RepoInfo() {
           rightSidebarWidthRef.current,
           isRightSidebarOpenRef.current
         );
-        setLeftSidebarWidth(
+        updateLeftSidebarWidth(
           clampWidth(
             resizeState.startWidth + delta,
             LEFT_SIDEBAR_MIN_WIDTH,
@@ -4015,7 +4122,7 @@ export function RepoInfo() {
         viewportWidth,
         leftSidebarWidthRef.current
       );
-      setRightSidebarWidth(
+      updateRightSidebarWidth(
         clampWidth(
           resizeState.startWidth - delta,
           RIGHT_SIDEBAR_MIN_WIDTH,
@@ -4043,7 +4150,7 @@ export function RepoInfo() {
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
     };
-  }, []);
+  }, [updateLeftSidebarWidth, updateRightSidebarWidth]);
 
   useEffect(() => {
     const handlePointerMove = (event: MouseEvent) => {
@@ -4053,7 +4160,7 @@ export function RepoInfo() {
         return;
       }
 
-      setCommitDetailsPanelHeight(
+      updateCommitDetailsPanelHeight(
         clampWidth(
           resizeState.startHeight + (event.clientY - resizeState.startY),
           COMMIT_DETAILS_PANEL_MIN_HEIGHT,
@@ -4080,7 +4187,7 @@ export function RepoInfo() {
       globalThis.removeEventListener("mouseup", resetCommitDetailsResizeState);
       resetCommitDetailsResizeState();
     };
-  }, []);
+  }, [updateCommitDetailsPanelHeight]);
 
   useEffect(() => {
     const handlePointerMove = (event: MouseEvent) => {
@@ -4090,7 +4197,7 @@ export function RepoInfo() {
         return;
       }
 
-      setUnstagedSectionHeight(
+      updateUnstagedSectionHeight(
         clampWidth(
           resizeState.startHeight + (event.clientY - resizeState.startY),
           resizeState.minHeight,
@@ -4120,7 +4227,7 @@ export function RepoInfo() {
       );
       resetChangesSectionsResizeState();
     };
-  }, []);
+  }, [updateUnstagedSectionHeight]);
 
   useEffect(() => {
     if (!isChangesSectionsResizable) {
@@ -4135,7 +4242,7 @@ export function RepoInfo() {
         return;
       }
 
-      setUnstagedSectionHeight((current) =>
+      updateUnstagedSectionHeight((current) =>
         clampWidth(
           current,
           CHANGES_SECTIONS_MIN_HEIGHT,
@@ -4150,7 +4257,7 @@ export function RepoInfo() {
     return () => {
       globalThis.removeEventListener("resize", clampUnstagedSectionHeight);
     };
-  }, [isChangesSectionsResizable]);
+  }, [isChangesSectionsResizable, updateUnstagedSectionHeight]);
 
   useEffect(() => {
     const handlePointerMove = (event: MouseEvent) => {
@@ -4160,7 +4267,7 @@ export function RepoInfo() {
         return;
       }
 
-      setWorkingTreeFilesPanelHeight(
+      updateWorkingTreeFilesPanelHeight(
         clampWidth(
           resizeState.startHeight + (event.clientY - resizeState.startY),
           resizeState.minHeight,
@@ -4193,7 +4300,7 @@ export function RepoInfo() {
       );
       resetWorkingTreeFilesPanelResizeState();
     };
-  }, []);
+  }, [updateWorkingTreeFilesPanelHeight]);
 
   useEffect(() => {
     if (!isWorkingTreeSelection) {
@@ -4218,11 +4325,11 @@ export function RepoInfo() {
         WORKING_TREE_FILES_PANEL_RESIZE_HANDLE_HEIGHT;
 
       if (maxHeight <= WORKING_TREE_FILES_PANEL_MIN_HEIGHT) {
-        setWorkingTreeFilesPanelHeight(WORKING_TREE_FILES_PANEL_MIN_HEIGHT);
+        updateWorkingTreeFilesPanelHeight(WORKING_TREE_FILES_PANEL_MIN_HEIGHT);
         return;
       }
 
-      setWorkingTreeFilesPanelHeight((value) =>
+      updateWorkingTreeFilesPanelHeight((value) =>
         value === null
           ? value
           : clampWidth(value, WORKING_TREE_FILES_PANEL_MIN_HEIGHT, maxHeight)
@@ -4238,7 +4345,7 @@ export function RepoInfo() {
         clampWorkingTreeFilesPanelHeight
       );
     };
-  }, [isWorkingTreeSelection]);
+  }, [isWorkingTreeSelection, updateWorkingTreeFilesPanelHeight]);
 
   const scheduleSidebarFilterUpdate = (nextValue: string) => {
     if (sidebarFilterDebounceRef.current !== null) {
@@ -4247,7 +4354,7 @@ export function RepoInfo() {
 
     sidebarFilterDebounceRef.current = globalThis.setTimeout(() => {
       startSidebarFilterTransition(() => {
-        setSidebarFilterQuery(nextValue);
+        updateSidebarFilterQuery(nextValue);
       });
       sidebarFilterDebounceRef.current = null;
     }, SIDEBAR_FILTER_DEBOUNCE_MS);
@@ -4259,8 +4366,8 @@ export function RepoInfo() {
       sidebarFilterDebounceRef.current = null;
     }
 
-    setSidebarFilterInputValue("");
-    setSidebarFilterQuery("");
+    updateSidebarFilterInputValue("");
+    updateSidebarFilterQuery("");
   };
 
   const startSidebarResize =
@@ -4407,10 +4514,10 @@ export function RepoInfo() {
   const handleEntryContextMenuOpenChange = useCallback(
     (entryMenuKey: string, open: boolean) => {
       if (open) {
-        setOpenEntryDropdownMenuKey(null);
+        updateOpenEntryDropdownMenuKey(null);
       }
 
-      setOpenEntryContextMenuKey((current) => {
+      updateOpenEntryContextMenuKey((current) => {
         if (open) {
           return entryMenuKey;
         }
@@ -4422,16 +4529,16 @@ export function RepoInfo() {
         return current;
       });
     },
-    []
+    [updateOpenEntryDropdownMenuKey, updateOpenEntryContextMenuKey]
   );
 
   const handleEntryDropdownMenuOpenChange = useCallback(
     (entryMenuKey: string, open: boolean) => {
       if (open) {
-        setOpenEntryContextMenuKey(null);
+        updateOpenEntryContextMenuKey(null);
       }
 
-      setOpenEntryDropdownMenuKey((current) => {
+      updateOpenEntryDropdownMenuKey((current) => {
         if (open) {
           return entryMenuKey;
         }
@@ -4443,12 +4550,12 @@ export function RepoInfo() {
         return current;
       });
     },
-    []
+    [updateOpenEntryContextMenuKey, updateOpenEntryDropdownMenuKey]
   );
 
   const handleCommitMenuOpenChange = useCallback(
     (commitHash: string, open: boolean) => {
-      setOpenCommitMenuHash((current) => {
+      updateOpenCommitMenuHash((current) => {
         if (open) {
           return commitHash;
         }
@@ -4460,10 +4567,10 @@ export function RepoInfo() {
         return current;
       });
     },
-    []
+    [updateOpenCommitMenuHash]
   );
 
-  const renderEntryIcon = (entry: SidebarEntry) => {
+  const getEntryIcon = (entry: SidebarEntry) => {
     if (entry.type === "stash") {
       return <StackSimpleIcon className="size-3 shrink-0" />;
     }
@@ -4527,7 +4634,7 @@ export function RepoInfo() {
     });
   };
 
-  const renderSidebarEntryLeadIndicator = (
+  const getSidebarEntryLeadIndicator = (
     groupKey: string,
     entry: SidebarEntry
   ) => {
@@ -4592,7 +4699,7 @@ export function RepoInfo() {
     );
   };
 
-  const renderHighlightedEntryName = (name: string) => {
+  const getHighlightedEntryName = (name: string) => {
     if (normalizedSidebarFilter.length === 0) {
       return name;
     }
@@ -4648,12 +4755,12 @@ export function RepoInfo() {
   const toggleBranchFolder = (groupKey: string, folderPath: string) => {
     const stateKey = `${groupKey}:${folderPath}`;
 
-    setCollapsedBranchFolderKeys((current) => ({
+    updateCollapsedBranchFolderKeys((current) => ({
       ...current,
       [stateKey]: !current[stateKey],
     }));
   };
-  const renderSidebarBranchCounts = (entry: SidebarEntry) => (
+  const getSidebarBranchCounts = (entry: SidebarEntry) => (
     <>
       {typeof entry.pendingSyncCount === "number" &&
       entry.pendingSyncCount > 0 ? (
@@ -4676,7 +4783,7 @@ export function RepoInfo() {
       Loading more {label}...
     </p>
   );
-  const renderSidebarBranchTreeNodes = (
+  const getSidebarBranchTreeNodes = (
     groupKey: string,
     nodes: BranchTreeNode[],
     depth = 0,
@@ -4733,19 +4840,19 @@ export function RepoInfo() {
                     paddingLeft: `${depth * SIDEBAR_TREE_DEPTH_PADDING_REM + SIDEBAR_TREE_BASE_PADDING_REM + remoteGroupItemInsetRem}rem`,
                   }}
                 >
-                  {renderSidebarEntryLeadIndicator(groupKey, entry)}
-                  {renderEntryIcon(entry)}
+                  {getSidebarEntryLeadIndicator(groupKey, entry)}
+                  {getEntryIcon(entry)}
                   <Tooltip>
                     <TooltipTrigger
                       render={<span className="min-w-0 flex-1 truncate" />}
                     >
-                      {renderHighlightedEntryName(node.name)}
+                      {getHighlightedEntryName(node.name)}
                     </TooltipTrigger>
                     <TooltipContent align="start" side="right" sideOffset={6}>
                       {entry.name}
                     </TooltipContent>
                   </Tooltip>
-                  {renderSidebarBranchCounts(entry)}
+                  {getSidebarBranchCounts(entry)}
                   <DropdownMenu
                     onOpenChange={(open) => {
                       handleEntryDropdownMenuOpenChange(entryMenuKey, open);
@@ -4788,7 +4895,7 @@ export function RepoInfo() {
                 </SidebarMenuButton>
               </ContextMenuTrigger>
               {isEntryContextMenuOpen
-                ? renderEntryContextMenuContent(entry)
+                ? getEntryContextMenuContent(entry)
                 : null}
             </ContextMenu>
           </SidebarMenuItem>
@@ -4838,12 +4945,12 @@ export function RepoInfo() {
               </Avatar>
             ) : null}
             <span className="min-w-0 flex-1 truncate" title={node.fullPath}>
-              {renderHighlightedEntryName(node.name)}
+              {getHighlightedEntryName(node.name)}
             </span>
           </button>
           {hasChildren && !isCollapsed ? (
             <div>
-              {renderSidebarBranchTreeNodes(
+              {getSidebarBranchTreeNodes(
                 groupKey,
                 node.children,
                 depth + 1,
@@ -4907,19 +5014,19 @@ export function RepoInfo() {
                   handleSidebarEntryDoubleClick(entry);
                 }}
               >
-                {renderSidebarEntryLeadIndicator(groupKey, entry)}
-                {renderEntryIcon(entry)}
+                {getSidebarEntryLeadIndicator(groupKey, entry)}
+                {getEntryIcon(entry)}
                 <Tooltip>
                   <TooltipTrigger
                     render={<span className="min-w-0 flex-1 truncate" />}
                   >
-                    {renderHighlightedEntryName(entry.name)}
+                    {getHighlightedEntryName(entry.name)}
                   </TooltipTrigger>
                   <TooltipContent align="start" side="right" sideOffset={6}>
                     {entry.name}
                   </TooltipContent>
                 </Tooltip>
-                {renderSidebarBranchCounts(entry)}
+                {getSidebarBranchCounts(entry)}
                 <DropdownMenu
                   onOpenChange={(open) => {
                     handleEntryDropdownMenuOpenChange(entryMenuKey, open);
@@ -4957,9 +5064,7 @@ export function RepoInfo() {
                 </DropdownMenu>
               </SidebarMenuButton>
             </ContextMenuTrigger>
-            {isEntryContextMenuOpen
-              ? renderEntryContextMenuContent(entry)
-              : null}
+            {isEntryContextMenuOpen ? getEntryContextMenuContent(entry) : null}
           </ContextMenu>
         </SidebarMenuItem>
       );
@@ -4978,7 +5083,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsSwitchingBranch(true);
+    updateIsSwitchingBranch(true);
 
     try {
       await switchBranch(activeRepoId, entry.name);
@@ -4990,7 +5095,7 @@ export function RepoInfo() {
         description: getCheckoutFailureReason(error),
       });
     } finally {
-      setIsSwitchingBranch(false);
+      updateIsSwitchingBranch(false);
     }
   };
 
@@ -5003,13 +5108,13 @@ export function RepoInfo() {
       return;
     }
 
-    setIsCheckingOutCommit(true);
+    updateIsCheckingOutCommit(true);
 
     try {
       await checkoutCommit(activeRepoId, target);
       if (rowId) {
-        setSelectedTimelineRowId(rowId);
-        setSelectedCommitId(target);
+        updateSelectedTimelineRowId(rowId);
+        updateSelectedCommitId(target);
       }
       toast.success("Checkout Successful", {
         description: targetLabel,
@@ -5019,7 +5124,7 @@ export function RepoInfo() {
         description: getCommitActionFailureReason(error, "checkout"),
       });
     } finally {
-      setIsCheckingOutCommit(false);
+      updateIsCheckingOutCommit(false);
     }
   };
 
@@ -5031,10 +5136,10 @@ export function RepoInfo() {
       return;
     }
 
-    setCreateRefBranchTarget(target);
-    setCreateRefBranchLabel(targetLabel);
-    setCreateRefBranchName("");
-    setIsCreateRefBranchDialogOpen(true);
+    updateCreateRefBranchTarget(target);
+    updateCreateRefBranchLabel(targetLabel);
+    updateCreateRefBranchName("");
+    updateIsCreateRefBranchDialogOpen(true);
   };
 
   const handleCreateBranchAtReference = async () => {
@@ -5049,7 +5154,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsCreatingRefBranch(true);
+    updateIsCreatingRefBranch(true);
 
     try {
       await createBranchAtReference(
@@ -5060,16 +5165,16 @@ export function RepoInfo() {
       toast.success("Branch created", {
         description: `${trimmedBranchName} at ${createRefBranchLabel}`,
       });
-      setIsCreateRefBranchDialogOpen(false);
-      setCreateRefBranchTarget(null);
-      setCreateRefBranchLabel("");
-      setCreateRefBranchName("");
+      updateIsCreateRefBranchDialogOpen(false);
+      updateCreateRefBranchTarget(null);
+      updateCreateRefBranchLabel("");
+      updateCreateRefBranchName("");
     } catch (error) {
       toast.error("Failed to create branch", {
         description: getCommitActionFailureReason(error, "create-branch"),
       });
     } finally {
-      setIsCreatingRefBranch(false);
+      updateIsCreatingRefBranch(false);
     }
   };
 
@@ -5082,11 +5187,11 @@ export function RepoInfo() {
       return;
     }
 
-    setCreateTagTarget(target);
-    setCreateTagTargetLabel(targetLabel);
-    setCreateTagAnnotated(annotated);
-    setCreateTagNameValue("");
-    setIsCreateTagDialogOpen(true);
+    updateCreateTagTarget(target);
+    updateCreateTagTargetLabel(targetLabel);
+    updateCreateTagAnnotated(annotated);
+    updateCreateTagNameValue("");
+    updateIsCreateTagDialogOpen(true);
   };
 
   const handleCreateTagAtReference = async () => {
@@ -5101,7 +5206,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsCreatingTagAtReference(true);
+    updateIsCreatingTagAtReference(true);
 
     try {
       await createTag(
@@ -5117,17 +5222,17 @@ export function RepoInfo() {
           description: `${trimmedTagName} at ${createTagTargetLabel}`,
         }
       );
-      setIsCreateTagDialogOpen(false);
-      setCreateTagTarget(null);
-      setCreateTagTargetLabel("");
-      setCreateTagNameValue("");
-      setCreateTagAnnotated(false);
+      updateIsCreateTagDialogOpen(false);
+      updateCreateTagTarget(null);
+      updateCreateTagTargetLabel("");
+      updateCreateTagNameValue("");
+      updateCreateTagAnnotated(false);
     } catch (error) {
       toast.error("Failed to create tag", {
         description: getCommitActionFailureReason(error, "create-tag"),
       });
     } finally {
-      setIsCreatingTagAtReference(false);
+      updateIsCreatingTagAtReference(false);
     }
   };
 
@@ -5140,19 +5245,19 @@ export function RepoInfo() {
       return;
     }
 
-    setResetTarget(target);
-    setResetTargetLabel(targetLabel);
-    setResetTargetMode(mode);
-    setIsResetConfirmOpen(true);
+    updateResetTarget(target);
+    updateResetTargetLabel(targetLabel);
+    updateResetTargetMode(mode);
+    updateIsResetConfirmOpen(true);
   };
   const openDropCommitConfirm = (target: string, targetLabel: string) => {
     if (isDroppingCommit) {
       return;
     }
 
-    setPendingDropCommitHash(target);
-    setPendingDropCommitLabel(targetLabel);
-    setIsDropCommitConfirmOpen(true);
+    updatePendingDropCommitHash(target);
+    updatePendingDropCommitLabel(targetLabel);
+    updateIsDropCommitConfirmOpen(true);
   };
 
   const handleResetToCommit = async () => {
@@ -5160,23 +5265,23 @@ export function RepoInfo() {
       return;
     }
 
-    setIsResettingToReference(true);
+    updateIsResettingToReference(true);
 
     try {
       await resetToReference(activeRepoId, resetTarget, resetTargetMode);
       toast.success("Reset completed", {
         description: `${resetTargetMode} -> ${resetTargetLabel}`,
       });
-      setIsResetConfirmOpen(false);
-      setResetTarget(null);
-      setResetTargetLabel("");
-      setResetTargetMode("mixed");
+      updateIsResetConfirmOpen(false);
+      updateResetTarget(null);
+      updateResetTargetLabel("");
+      updateResetTargetMode("mixed");
     } catch (error) {
       toast.error("Failed to reset", {
         description: getCommitActionFailureReason(error, "reset"),
       });
     } finally {
-      setIsResettingToReference(false);
+      updateIsResettingToReference(false);
     }
   };
   const handleDropCommit = async () => {
@@ -5184,15 +5289,15 @@ export function RepoInfo() {
       return;
     }
 
-    setIsDroppingCommit(true);
+    updateIsDroppingCommit(true);
 
     try {
       const result = await dropCommit(activeRepoId, pendingDropCommitHash);
-      setIsDropCommitConfirmOpen(false);
-      setPendingDropCommitHash(null);
-      setPendingDropCommitLabel("");
-      setSelectedCommitId(result.selectedCommitHash);
-      setSelectedTimelineRowId(result.selectedCommitHash);
+      updateIsDropCommitConfirmOpen(false);
+      updatePendingDropCommitHash(null);
+      updatePendingDropCommitLabel("");
+      updateSelectedCommitId(result.selectedCommitHash);
+      updateSelectedTimelineRowId(result.selectedCommitHash);
       toast.success("Commit dropped", {
         description:
           pendingDropCommitRebaseImpactCount > 0
@@ -5204,7 +5309,7 @@ export function RepoInfo() {
         description: getCommitActionFailureReason(error, "drop"),
       });
     } finally {
-      setIsDroppingCommit(false);
+      updateIsDroppingCommit(false);
     }
   };
 
@@ -5216,7 +5321,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsCherryPickingCommit(true);
+    updateIsCherryPickingCommit(true);
 
     try {
       await cherryPickCommit(activeRepoId, target);
@@ -5228,7 +5333,7 @@ export function RepoInfo() {
         description: getCommitActionFailureReason(error, "cherry-pick"),
       });
     } finally {
-      setIsCherryPickingCommit(false);
+      updateIsCherryPickingCommit(false);
     }
   };
 
@@ -5240,7 +5345,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsRevertingCommit(true);
+    updateIsRevertingCommit(true);
 
     try {
       await revertCommit(activeRepoId, target);
@@ -5252,7 +5357,7 @@ export function RepoInfo() {
         description: getCommitActionFailureReason(error, "revert"),
       });
     } finally {
-      setIsRevertingCommit(false);
+      updateIsRevertingCommit(false);
     }
   };
   const handleSubmitCommitReword = async () => {
@@ -5264,7 +5369,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsRewordingCommitMessage(true);
+    updateIsRewordingCommitMessage(true);
 
     try {
       const result = await rewordCommitMessage(
@@ -5273,9 +5378,9 @@ export function RepoInfo() {
         rewordCommitSummary,
         rewordCommitDescription
       );
-      setSelectedCommitId(result.updatedCommitHash);
-      setSelectedTimelineRowId(result.updatedCommitHash);
-      setIsEditingSelectedCommitMessage(false);
+      updateSelectedCommitId(result.updatedCommitHash);
+      updateSelectedTimelineRowId(result.updatedCommitHash);
+      updateIsEditingSelectedCommitMessage(false);
       toast.success("Commit message updated", {
         description:
           selectedCommitRebaseImpactCount > 0
@@ -5287,7 +5392,7 @@ export function RepoInfo() {
         description: getCommitActionFailureReason(error, "reword"),
       });
     } finally {
-      setIsRewordingCommitMessage(false);
+      updateIsRewordingCommitMessage(false);
     }
   };
 
@@ -5301,7 +5406,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsApplyingStash(true);
+    updateIsApplyingStash(true);
     const stashDraft = parseStashDraft(entry.stashMessage ?? "");
 
     const focusCommitSummaryInput = () => {
@@ -5321,14 +5426,14 @@ export function RepoInfo() {
 
     try {
       await applyStash(activeRepoId, entry.stashRef);
-      setDraftCommitSummary(stashDraft.summary);
-      setDraftCommitDescription(stashDraft.description);
-      setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
-      setSelectedCommitId(WORKING_TREE_ROW_ID);
-      setIsRightSidebarOpen(true);
+      updateDraftCommitSummary(stashDraft.summary);
+      updateDraftCommitDescription(stashDraft.description);
+      updateSelectedTimelineRowId(WORKING_TREE_ROW_ID);
+      updateSelectedCommitId(WORKING_TREE_ROW_ID);
+      updateIsRightSidebarOpen(true);
       focusCommitSummaryInput();
     } finally {
-      setIsApplyingStash(false);
+      updateIsApplyingStash(false);
     }
   };
 
@@ -5342,7 +5447,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsPoppingStash(true);
+    updateIsPoppingStash(true);
     const stashDraft = parseStashDraft(entry.stashMessage ?? "");
 
     const focusCommitSummaryInput = () => {
@@ -5362,14 +5467,14 @@ export function RepoInfo() {
 
     try {
       await popStash(activeRepoId, entry.stashRef);
-      setDraftCommitSummary(stashDraft.summary);
-      setDraftCommitDescription(stashDraft.description);
-      setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
-      setSelectedCommitId(WORKING_TREE_ROW_ID);
-      setIsRightSidebarOpen(true);
+      updateDraftCommitSummary(stashDraft.summary);
+      updateDraftCommitDescription(stashDraft.description);
+      updateSelectedTimelineRowId(WORKING_TREE_ROW_ID);
+      updateSelectedCommitId(WORKING_TREE_ROW_ID);
+      updateIsRightSidebarOpen(true);
       focusCommitSummaryInput();
     } finally {
-      setIsPoppingStash(false);
+      updateIsPoppingStash(false);
     }
   };
 
@@ -5378,7 +5483,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsCreatingStash(true);
+    updateIsCreatingStash(true);
 
     try {
       await createStash(
@@ -5386,15 +5491,15 @@ export function RepoInfo() {
         draftCommitSummary.trim(),
         draftCommitDescription.trim()
       );
-      setDraftCommitSummary("");
-      setDraftCommitDescription("");
-      setAmendPreviousCommit(false);
-      setPushAfterCommit(false);
-      setSkipCommitHooks(false);
-      setLastAiCommitGeneration(null);
+      updateDraftCommitSummary("");
+      updateDraftCommitDescription("");
+      updateAmendPreviousCommit(false);
+      updatePushAfterCommit(false);
+      updateSkipCommitHooks(false);
+      updateLastAiCommitGeneration(null);
       preAmendDraftRef.current = null;
     } finally {
-      setIsCreatingStash(false);
+      updateIsCreatingStash(false);
     }
   };
 
@@ -5403,7 +5508,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsPoppingStash(true);
+    updateIsPoppingStash(true);
     const currentStash =
       stashes.find((stash) => stash.ref === "stash@{0}") ?? stashes[0] ?? null;
     const stashDraft = parseStashDraft(currentStash?.message ?? "");
@@ -5425,14 +5530,14 @@ export function RepoInfo() {
 
     try {
       await popStash(activeRepoId, "stash@{0}");
-      setDraftCommitSummary(stashDraft.summary);
-      setDraftCommitDescription(stashDraft.description);
-      setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
-      setSelectedCommitId(WORKING_TREE_ROW_ID);
-      setIsRightSidebarOpen(true);
+      updateDraftCommitSummary(stashDraft.summary);
+      updateDraftCommitDescription(stashDraft.description);
+      updateSelectedTimelineRowId(WORKING_TREE_ROW_ID);
+      updateSelectedCommitId(WORKING_TREE_ROW_ID);
+      updateIsRightSidebarOpen(true);
       focusCommitSummaryInput();
     } finally {
-      setIsPoppingStash(false);
+      updateIsPoppingStash(false);
     }
   };
 
@@ -5446,12 +5551,12 @@ export function RepoInfo() {
       return;
     }
 
-    setIsDroppingStash(true);
+    updateIsDroppingStash(true);
 
     try {
       await dropStash(activeRepoId, entry.stashRef);
     } finally {
-      setIsDroppingStash(false);
+      updateIsDroppingStash(false);
     }
   };
 
@@ -5459,8 +5564,8 @@ export function RepoInfo() {
     if (!activeRepoId || isPulling) {
       return;
     }
-    setIsPulling(true);
-    setPullActionMode(mode);
+    updateIsPulling(true);
+    updatePullActionMode(mode);
     try {
       const result = await pullBranch(activeRepoId, mode);
       if (result.headChanged) {
@@ -5473,7 +5578,7 @@ export function RepoInfo() {
         });
       }
     } finally {
-      setIsPulling(false);
+      updateIsPulling(false);
     }
   };
   const handleUndoAction = async () => {
@@ -5481,7 +5586,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsUndoRedoBusy(true);
+    updateIsUndoRedoBusy(true);
 
     try {
       await undoRepoAction(activeRepoId);
@@ -5490,7 +5595,7 @@ export function RepoInfo() {
         description: getErrorMessage(error),
       });
     } finally {
-      setIsUndoRedoBusy(false);
+      updateIsUndoRedoBusy(false);
     }
   };
   const handleRedoAction = async () => {
@@ -5498,7 +5603,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsUndoRedoBusy(true);
+    updateIsUndoRedoBusy(true);
 
     try {
       await redoRepoAction(activeRepoId);
@@ -5507,7 +5612,7 @@ export function RepoInfo() {
         description: getErrorMessage(error),
       });
     } finally {
-      setIsUndoRedoBusy(false);
+      updateIsUndoRedoBusy(false);
     }
   };
   useEffect(() => {
@@ -5567,12 +5672,12 @@ export function RepoInfo() {
       return;
     }
 
-    setIsPulling(true);
-    setPullActionMode(mode);
+    updateIsPulling(true);
+    updatePullActionMode(mode);
 
     try {
       if (!entry.active) {
-        setIsSwitchingBranch(true);
+        updateIsSwitchingBranch(true);
 
         try {
           await switchBranch(activeRepoId, entry.name);
@@ -5582,7 +5687,7 @@ export function RepoInfo() {
           });
           return;
         } finally {
-          setIsSwitchingBranch(false);
+          updateIsSwitchingBranch(false);
         }
       }
 
@@ -5597,7 +5702,7 @@ export function RepoInfo() {
         });
       }
     } finally {
-      setIsPulling(false);
+      updateIsPulling(false);
     }
   };
 
@@ -5617,7 +5722,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsRunningMergeAction(true);
+    updateIsRunningMergeAction(true);
 
     try {
       const result = await mergeReference(activeRepoId, targetRef, mode);
@@ -5635,7 +5740,7 @@ export function RepoInfo() {
         description: getMergeFailureReason(error, mode),
       });
     } finally {
-      setIsRunningMergeAction(false);
+      updateIsRunningMergeAction(false);
     }
   };
 
@@ -5657,20 +5762,20 @@ export function RepoInfo() {
 
     if (!hasRemoteConfigured) {
       openPublishRepoConfirm(async (publishOptions) => {
-        setIsPushing(true);
+        updateIsPushing(true);
 
         try {
           await pushBranch(activeRepoId, false, publishOptions);
         } catch (error) {
           if (isMissingRemoteRepositoryError(error)) {
-            setPublishRepoFormError(null);
-            setIsPublishRepoConfirmOpen(true);
+            updatePublishRepoFormError(null);
+            updateIsPublishRepoConfirmOpen(true);
             return;
           }
 
           throw error;
         } finally {
-          setIsPushing(false);
+          updateIsPushing(false);
         }
       });
       return;
@@ -5685,18 +5790,18 @@ export function RepoInfo() {
 
     if (hasDivergedBranch || shouldForcePushAfterUndoRewrite) {
       openForcePushConfirm("push", async () => {
-        setIsPushing(true);
+        updateIsPushing(true);
 
         try {
           await pushBranch(activeRepoId, true);
         } finally {
-          setIsPushing(false);
+          updateIsPushing(false);
         }
       });
       return;
     }
 
-    setIsPushing(true);
+    updateIsPushing(true);
 
     try {
       if ((currentLocalBranch?.behindCount ?? 0) > 0) {
@@ -5706,12 +5811,12 @@ export function RepoInfo() {
     } catch (error) {
       if (isMissingRemoteRepositoryError(error)) {
         openPublishRepoConfirm(async (publishOptions) => {
-          setIsPushing(true);
+          updateIsPushing(true);
 
           try {
             await pushBranch(activeRepoId, false, publishOptions);
           } finally {
-            setIsPushing(false);
+            updateIsPushing(false);
           }
         });
         return;
@@ -5719,7 +5824,7 @@ export function RepoInfo() {
 
       throw error;
     } finally {
-      setIsPushing(false);
+      updateIsPushing(false);
     }
   };
   const handlePushActionForEntry = async (entry: SidebarEntry) => {
@@ -5734,11 +5839,11 @@ export function RepoInfo() {
 
     if (!hasRemoteConfigured) {
       openPublishRepoConfirm(async (publishOptions) => {
-        setIsPushing(true);
+        updateIsPushing(true);
 
         try {
           if (!entry.active) {
-            setIsSwitchingBranch(true);
+            updateIsSwitchingBranch(true);
 
             try {
               await switchBranch(activeRepoId, entry.name);
@@ -5748,21 +5853,21 @@ export function RepoInfo() {
               });
               return;
             } finally {
-              setIsSwitchingBranch(false);
+              updateIsSwitchingBranch(false);
             }
           }
 
           await pushBranch(activeRepoId, false, publishOptions);
         } catch (error) {
           if (isMissingRemoteRepositoryError(error)) {
-            setPublishRepoFormError(null);
-            setIsPublishRepoConfirmOpen(true);
+            updatePublishRepoFormError(null);
+            updateIsPublishRepoConfirmOpen(true);
             return;
           }
 
           throw error;
         } finally {
-          setIsPushing(false);
+          updateIsPushing(false);
         }
       });
       return;
@@ -5775,11 +5880,11 @@ export function RepoInfo() {
 
     if (hasDivergedBranch || shouldForcePushAfterUndoRewrite) {
       openForcePushConfirm("push", async () => {
-        setIsPushing(true);
+        updateIsPushing(true);
 
         try {
           if (!entry.active) {
-            setIsSwitchingBranch(true);
+            updateIsSwitchingBranch(true);
 
             try {
               await switchBranch(activeRepoId, entry.name);
@@ -5789,23 +5894,23 @@ export function RepoInfo() {
               });
               return;
             } finally {
-              setIsSwitchingBranch(false);
+              updateIsSwitchingBranch(false);
             }
           }
 
           await pushBranch(activeRepoId, true);
         } finally {
-          setIsPushing(false);
+          updateIsPushing(false);
         }
       });
       return;
     }
 
-    setIsPushing(true);
+    updateIsPushing(true);
 
     try {
       if (!entry.active) {
-        setIsSwitchingBranch(true);
+        updateIsSwitchingBranch(true);
 
         try {
           await switchBranch(activeRepoId, entry.name);
@@ -5815,7 +5920,7 @@ export function RepoInfo() {
           });
           return;
         } finally {
-          setIsSwitchingBranch(false);
+          updateIsSwitchingBranch(false);
         }
       }
 
@@ -5827,11 +5932,11 @@ export function RepoInfo() {
     } catch (error) {
       if (isMissingRemoteRepositoryError(error)) {
         openPublishRepoConfirm(async (publishOptions) => {
-          setIsPushing(true);
+          updateIsPushing(true);
 
           try {
             if (!entry.active) {
-              setIsSwitchingBranch(true);
+              updateIsSwitchingBranch(true);
 
               try {
                 await switchBranch(activeRepoId, entry.name);
@@ -5841,13 +5946,13 @@ export function RepoInfo() {
                 });
                 return;
               } finally {
-                setIsSwitchingBranch(false);
+                updateIsSwitchingBranch(false);
               }
             }
 
             await pushBranch(activeRepoId, false, publishOptions);
           } finally {
-            setIsPushing(false);
+            updateIsPushing(false);
           }
         });
         return;
@@ -5855,7 +5960,7 @@ export function RepoInfo() {
 
       throw error;
     } finally {
-      setIsPushing(false);
+      updateIsPushing(false);
     }
   };
 
@@ -6443,7 +6548,7 @@ export function RepoInfo() {
     );
   };
 
-  const renderEntryContextMenuContent = (entry: SidebarEntry) => {
+  const getEntryContextMenuContent = (entry: SidebarEntry) => {
     const entryCommitHash = getCommitHashForEntry(entry);
     const targetRef = entryCommitHash ?? entry.name;
     const targetLabel =
@@ -6533,7 +6638,7 @@ export function RepoInfo() {
             Cherry-pick commit
           </ContextMenuItem>
           {entryCommitHash
-            ? renderCommitResetSubmenu(entryCommitHash, targetLabel, false)
+            ? getCommitResetSubmenu(entryCommitHash, targetLabel, false)
             : null}
           <ContextMenuItem
             disabled={isRevertingCommit || entryCommitHash === null}
@@ -6751,7 +6856,7 @@ export function RepoInfo() {
             >
               Cherry-pick commit
             </ContextMenuItem>
-            {renderCommitResetSubmenu(entryCommitHash, targetLabel, false)}
+            {getCommitResetSubmenu(entryCommitHash, targetLabel, false)}
             <ContextMenuItem
               disabled={isRevertingCommit}
               onClick={() => {
@@ -6832,7 +6937,7 @@ export function RepoInfo() {
     );
   };
 
-  const renderCommitResetSubmenu = (
+  const getCommitResetSubmenu = (
     target: string,
     targetLabel: string,
     disabled: boolean
@@ -6986,7 +7091,7 @@ export function RepoInfo() {
         >
           Cherry-pick commit
         </ContextMenuItem>
-        {renderCommitResetSubmenu(
+        {getCommitResetSubmenu(
           commit.hash,
           `commit ${commit.shortHash}`,
           false
@@ -7056,7 +7161,7 @@ export function RepoInfo() {
     }
 
     const timelineEntry = getSidebarEntryForTimelineRow(row);
-    return timelineEntry ? renderEntryContextMenuContent(timelineEntry) : null;
+    return timelineEntry ? getEntryContextMenuContent(timelineEntry) : null;
   };
 
   const handleGraphNodeMenuOpenChange = (rowId: string, open: boolean) => {
@@ -7072,11 +7177,11 @@ export function RepoInfo() {
 
     if (open) {
       if (row.type === "commit" && row.commitHash) {
-        setSelectedTimelineRowId(row.id);
-        setSelectedCommitId(row.commitHash);
+        updateSelectedTimelineRowId(row.id);
+        updateSelectedCommitId(row.commitHash);
       } else if (row.anchorCommitHash) {
-        setSelectedTimelineRowId(row.id);
-        setSelectedCommitId(row.anchorCommitHash);
+        updateSelectedTimelineRowId(row.id);
+        updateSelectedCommitId(row.anchorCommitHash);
       }
     }
   };
@@ -7131,7 +7236,7 @@ export function RepoInfo() {
     return [item.unstagedStatus];
   };
 
-  const renderStatusBadges = (
+  const getStatusBadges = (
     item: RepositoryWorkingTreeItem,
     section: "staged" | "unstaged"
   ) => {
@@ -7181,12 +7286,12 @@ export function RepoInfo() {
       return;
     }
 
-    setIsUnstagingAll(true);
+    updateIsUnstagingAll(true);
 
     try {
       await unstageAll(activeRepoId);
     } finally {
-      setIsUnstagingAll(false);
+      updateIsUnstagingAll(false);
     }
   };
 
@@ -7198,7 +7303,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsUpdatingFilePath(filePath);
+    updateIsUpdatingFilePath(filePath);
 
     try {
       if (mode === "stage") {
@@ -7207,7 +7312,7 @@ export function RepoInfo() {
         await unstageFile(activeRepoId, filePath);
       }
     } finally {
-      setIsUpdatingFilePath(null);
+      updateIsUpdatingFilePath(null);
     }
   };
 
@@ -7216,13 +7321,13 @@ export function RepoInfo() {
       return;
     }
 
-    setIsDiscardingAllChanges(true);
+    updateIsDiscardingAllChanges(true);
 
     try {
       await discardAllChanges(activeRepoId);
-      setIsDiscardAllConfirmOpen(false);
+      updateIsDiscardAllConfirmOpen(false);
     } finally {
-      setIsDiscardingAllChanges(false);
+      updateIsDiscardingAllChanges(false);
     }
   };
   const handleDiscardPathChanges = async (filePath: string) => {
@@ -7230,12 +7335,12 @@ export function RepoInfo() {
       return;
     }
 
-    setIsUpdatingFilePath(filePath);
+    updateIsUpdatingFilePath(filePath);
 
     try {
       await discardPathChanges(activeRepoId, filePath);
     } finally {
-      setIsUpdatingFilePath(null);
+      updateIsUpdatingFilePath(null);
     }
   };
   const handleAddIgnoreRule = async (pattern: string) => {
@@ -7243,55 +7348,93 @@ export function RepoInfo() {
       return;
     }
 
-    setIsUpdatingFilePath(pattern);
+    updateIsUpdatingFilePath(pattern);
 
     try {
       await addIgnoreRule(activeRepoId, pattern);
     } finally {
-      setIsUpdatingFilePath(null);
+      updateIsUpdatingFilePath(null);
     }
   };
   const isEditDirty =
     workspaceMode === "edit" && editBuffer !== editInitialBuffer;
   const closeDiffPreviewPanel = useCallback(() => {
-    setDiffPreviewPanelState({ kind: "idle" });
-    setWorkspaceMode(DEFAULT_DIFF_WORKSPACE_MODE);
-    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
-    setWorkspaceFilePresentation(DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION);
-    setIgnoreTrimWhitespace(false);
-    setWorkspaceEncoding(DEFAULT_DIFF_WORKSPACE_ENCODING);
-    setOpenedDiffContext(null);
-    setHasRequestedDiffSurface(false);
-    setIsDiffEditorReady(false);
-    setHasRequestedFileSurface(false);
-    setOpenedDiff(null);
-    setOpenedDiffPath(null);
-    setOpenedDiffStatusCode(null);
-    setActiveHunks([]);
-    setActiveHunkIndex(0);
-    setIsLoadingHunks(false);
-    setHunkLoadError(null);
-    setHistoryEntries([]);
-    setSelectedHistoryCommitHash(null);
-    setIsLoadingFileHistory(false);
-    setFileHistoryError(null);
-    setBlameLines([]);
-    setIsLoadingBlame(false);
-    setBlameError(null);
-    setEditBuffer("");
-    setEditInitialBuffer("");
-    setIsLoadingEditBuffer(false);
-    setIsSavingEditBuffer(false);
-    setEditLoadError(null);
-    setPendingWorkspaceMode(null);
-    setPendingOpenDiffContext(null);
-    setPendingCloseDiffPanel(false);
-    setIsUnsavedEditConfirmOpen(false);
-    setOpenedCommitDiff(null);
-    setOpenedCommitDiffStatusCode(null);
-    setIsLoadingDiffPath(null);
-    setIsLoadingCommitDiffPath(null);
-  }, []);
+    updateDiffPreviewPanelState({ kind: "idle" });
+    updateWorkspaceMode(DEFAULT_DIFF_WORKSPACE_MODE);
+    updateWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    updateWorkspaceFilePresentation(DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION);
+    updateIgnoreTrimWhitespace(false);
+    updateWorkspaceEncoding(DEFAULT_DIFF_WORKSPACE_ENCODING);
+    updateOpenedDiffContext(null);
+    updateHasRequestedDiffSurface(false);
+    updateIsDiffEditorReady(false);
+    updateHasRequestedFileSurface(false);
+    updateOpenedDiff(null);
+    updateOpenedDiffPath(null);
+    updateOpenedDiffStatusCode(null);
+    updateActiveHunks([]);
+    updateActiveHunkIndex(0);
+    updateIsLoadingHunks(false);
+    updateHunkLoadError(null);
+    updateHistoryEntries([]);
+    updateSelectedHistoryCommitHash(null);
+    updateIsLoadingFileHistory(false);
+    updateFileHistoryError(null);
+    updateBlameLines([]);
+    updateIsLoadingBlame(false);
+    updateBlameError(null);
+    updateEditBuffer("");
+    updateEditInitialBuffer("");
+    updateIsLoadingEditBuffer(false);
+    updateIsSavingEditBuffer(false);
+    updateEditLoadError(null);
+    updatePendingWorkspaceMode(null);
+    updatePendingOpenDiffContext(null);
+    updatePendingCloseDiffPanel(false);
+    updateIsUnsavedEditConfirmOpen(false);
+    updateOpenedCommitDiff(null);
+    updateOpenedCommitDiffStatusCode(null);
+    updateIsLoadingDiffPath(null);
+    updateIsLoadingCommitDiffPath(null);
+  }, [
+    updateWorkspacePresentation,
+    updateDiffPreviewPanelState,
+    updateOpenedDiff,
+    updateIsLoadingDiffPath,
+    updatePendingCloseDiffPanel,
+    updateOpenedDiffPath,
+    updateBlameError,
+    updateBlameLines,
+    updateIsLoadingEditBuffer,
+    updateIsLoadingFileHistory,
+    updateIsLoadingHunks,
+    updateIsSavingEditBuffer,
+    updateIsUnsavedEditConfirmOpen,
+    updateOpenedCommitDiff,
+    updateOpenedCommitDiffStatusCode,
+    updateOpenedDiffContext,
+    updateOpenedDiffStatusCode,
+    updatePendingOpenDiffContext,
+    updatePendingWorkspaceMode,
+    updateSelectedHistoryCommitHash,
+    updateWorkspaceEncoding,
+    updateWorkspaceFilePresentation,
+    updateIsLoadingCommitDiffPath,
+    updateWorkspaceMode,
+    updateIsLoadingBlame,
+    updateIsDiffEditorReady,
+    updateIgnoreTrimWhitespace,
+    updateHunkLoadError,
+    updateHistoryEntries,
+    updateFileHistoryError,
+    updateHasRequestedFileSurface,
+    updateEditLoadError,
+    updateActiveHunks,
+    updateHasRequestedDiffSurface,
+    updateEditInitialBuffer,
+    updateEditBuffer,
+    updateActiveHunkIndex,
+  ]);
 
   const openWorkingDiffContent = useCallback(
     async (
@@ -7303,7 +7446,7 @@ export function RepoInfo() {
         return;
       }
 
-      setDiffPreviewPanelState({
+      updateDiffPreviewPanelState({
         kind: "contentLoading",
         path: context.filePath,
         forceRender,
@@ -7318,7 +7461,7 @@ export function RepoInfo() {
       );
 
       if (!diff) {
-        setDiffPreviewPanelState({
+        updateDiffPreviewPanelState({
           kind:
             previewMode === "file" ? "errorLoadingFile" : "errorRenderingDiff",
           path: context.filePath,
@@ -7326,14 +7469,22 @@ export function RepoInfo() {
         return;
       }
 
-      setOpenedDiff(diff);
-      setOpenedDiffPath(context.filePath);
-      setOpenedDiffStatusCode(
+      updateOpenedDiff(diff);
+      updateOpenedDiffPath(context.filePath);
+      updateOpenedDiffStatusCode(
         resolveWorkingTreePreviewStatusCode(context.item)
       );
-      setDiffPreviewPanelState({ kind: "ready", path: context.filePath });
+      updateDiffPreviewPanelState({ kind: "ready", path: context.filePath });
     },
-    [activeRepoId, getFileContent, requestedWorkspaceEncoding]
+    [
+      activeRepoId,
+      getFileContent,
+      requestedWorkspaceEncoding,
+      updateOpenedDiffStatusCode,
+      updateOpenedDiffPath,
+      updateOpenedDiff,
+      updateDiffPreviewPanelState,
+    ]
   );
 
   const openCommitDiffContent = useCallback(
@@ -7352,16 +7503,19 @@ export function RepoInfo() {
         const cachedDiff = commitDiffCacheRef.current.get(cacheKey);
 
         if (cachedDiff) {
-          setOpenedCommitDiff(cachedDiff);
-          setOpenedCommitDiffStatusCode(
+          updateOpenedCommitDiff(cachedDiff);
+          updateOpenedCommitDiffStatusCode(
             resolveCommitPreviewStatusCode(context.status)
           );
-          setDiffPreviewPanelState({ kind: "ready", path: context.filePath });
+          updateDiffPreviewPanelState({
+            kind: "ready",
+            path: context.filePath,
+          });
           return;
         }
       }
 
-      setDiffPreviewPanelState({
+      updateDiffPreviewPanelState({
         kind: "contentLoading",
         path: context.filePath,
         forceRender,
@@ -7377,7 +7531,7 @@ export function RepoInfo() {
       );
 
       if (!diff) {
-        setDiffPreviewPanelState({
+        updateDiffPreviewPanelState({
           kind:
             previewMode === "file" ? "errorLoadingFile" : "errorRenderingDiff",
           path: context.filePath,
@@ -7397,17 +7551,20 @@ export function RepoInfo() {
         }
       }
 
-      setOpenedCommitDiff(diff);
-      setOpenedCommitDiffStatusCode(
+      updateOpenedCommitDiff(diff);
+      updateOpenedCommitDiffStatusCode(
         resolveCommitPreviewStatusCode(context.status)
       );
-      setDiffPreviewPanelState({ kind: "ready", path: context.filePath });
+      updateDiffPreviewPanelState({ kind: "ready", path: context.filePath });
     },
     [
       activeRepoId,
       getCommitFileContent,
       requestedWorkspaceEncoding,
       workspaceEncoding,
+      updateOpenedCommitDiffStatusCode,
+      updateOpenedCommitDiff,
+      updateDiffPreviewPanelState,
     ]
   );
 
@@ -7422,7 +7579,7 @@ export function RepoInfo() {
       }
 
       if (hasUnsupportedWorkspaceTextEncoding) {
-        setDiffPreviewPanelState({
+        updateDiffPreviewPanelState({
           kind:
             previewMode === "file" ? "errorLoadingFile" : "errorRenderingDiff",
           message: UNSUPPORTED_ENCODING_MESSAGE,
@@ -7442,7 +7599,7 @@ export function RepoInfo() {
           context.filePath,
           previewMode
         );
-        setDiffPreviewPanelState(nextState);
+        updateDiffPreviewPanelState(nextState);
 
         if (nextState.kind === "ready") {
           await openWorkingDiffContent(context, previewMode, forceRender);
@@ -7462,7 +7619,7 @@ export function RepoInfo() {
         context.filePath,
         previewMode
       );
-      setDiffPreviewPanelState(nextState);
+      updateDiffPreviewPanelState(nextState);
 
       if (nextState.kind === "ready") {
         await openCommitDiffContent(context, previewMode, forceRender);
@@ -7475,6 +7632,7 @@ export function RepoInfo() {
       hasUnsupportedWorkspaceTextEncoding,
       openCommitDiffContent,
       openWorkingDiffContent,
+      updateDiffPreviewPanelState,
     ]
   );
 
@@ -7498,9 +7656,9 @@ export function RepoInfo() {
           ? DEFAULT_DIFF_WORKSPACE_ENCODING
           : resolvedDetectedEncoding;
 
-      setWorkspaceEncoding(nextEncoding);
+      updateWorkspaceEncoding(nextEncoding);
     },
-    [activeRepoId, getFileDetectedEncoding]
+    [activeRepoId, getFileDetectedEncoding, updateWorkspaceEncoding]
   );
 
   const loadDiffHunks = useCallback(
@@ -7509,8 +7667,8 @@ export function RepoInfo() {
         return;
       }
 
-      setIsLoadingHunks(true);
-      setHunkLoadError(null);
+      updateIsLoadingHunks(true);
+      updateHunkLoadError(null);
 
       try {
         const payload =
@@ -7528,18 +7686,27 @@ export function RepoInfo() {
               );
 
         if (!payload) {
-          setActiveHunks([]);
-          setHunkLoadError("Error rendering diff");
+          updateActiveHunks([]);
+          updateHunkLoadError("Error rendering diff");
           return;
         }
 
-        setActiveHunks(payload.hunks);
-        setActiveHunkIndex(0);
+        updateActiveHunks(payload.hunks);
+        updateActiveHunkIndex(0);
       } finally {
-        setIsLoadingHunks(false);
+        updateIsLoadingHunks(false);
       }
     },
-    [activeRepoId, getCommitFileHunks, getFileHunks, ignoreTrimWhitespace]
+    [
+      activeRepoId,
+      getCommitFileHunks,
+      getFileHunks,
+      ignoreTrimWhitespace,
+      updateIsLoadingHunks,
+      updateHunkLoadError,
+      updateActiveHunks,
+      updateActiveHunkIndex,
+    ]
   );
 
   const loadHistorySurface = useCallback(
@@ -7555,9 +7722,9 @@ export function RepoInfo() {
       );
 
       if (cachedEntries) {
-        setHistoryEntries(cachedEntries);
-        setFileHistoryError(null);
-        setIsLoadingFileHistory(false);
+        updateHistoryEntries(cachedEntries);
+        updateFileHistoryError(null);
+        updateIsLoadingFileHistory(false);
 
         const nextSelectedCommitHash =
           cachedEntries.find(
@@ -7565,7 +7732,7 @@ export function RepoInfo() {
           )?.commitHash ??
           cachedEntries.at(0)?.commitHash ??
           null;
-        setSelectedHistoryCommitHash(nextSelectedCommitHash);
+        updateSelectedHistoryCommitHash(nextSelectedCommitHash);
 
         if (nextSelectedCommitHash) {
           const previewContext: DiffPreviewOpenContext = {
@@ -7575,19 +7742,19 @@ export function RepoInfo() {
             filePath: context.filePath,
             status: "M",
           };
-          setOpenedDiffContext(previewContext);
+          updateOpenedDiffContext(previewContext);
           await runDiffPreviewPreflight(previewContext, "diff");
         } else {
-          setOpenedCommitDiff(null);
-          setOpenedCommitDiffStatusCode(null);
-          setDiffPreviewPanelState({ kind: "idle" });
+          updateOpenedCommitDiff(null);
+          updateOpenedCommitDiffStatusCode(null);
+          updateDiffPreviewPanelState({ kind: "idle" });
         }
 
         return;
       }
 
-      setIsLoadingFileHistory(true);
-      setFileHistoryError(null);
+      updateIsLoadingFileHistory(true);
+      updateFileHistoryError(null);
 
       try {
         const payload = await getFileHistory(
@@ -7597,16 +7764,16 @@ export function RepoInfo() {
         );
 
         if (!payload) {
-          setHistoryEntries([]);
-          setSelectedHistoryCommitHash(null);
-          setFileHistoryError("Error loading file history");
-          setOpenedCommitDiff(null);
-          setOpenedCommitDiffStatusCode(null);
-          setDiffPreviewPanelState({ kind: "idle" });
+          updateHistoryEntries([]);
+          updateSelectedHistoryCommitHash(null);
+          updateFileHistoryError("Error loading file history");
+          updateOpenedCommitDiff(null);
+          updateOpenedCommitDiffStatusCode(null);
+          updateDiffPreviewPanelState({ kind: "idle" });
           return;
         }
 
-        setHistoryEntries(payload.entries);
+        updateHistoryEntries(payload.entries);
         writeCachedValue(
           fileHistoryCacheRef.current,
           cacheKey,
@@ -7620,7 +7787,7 @@ export function RepoInfo() {
           )?.commitHash ??
           payload.entries.at(0)?.commitHash ??
           null;
-        setSelectedHistoryCommitHash(nextSelectedCommitHash);
+        updateSelectedHistoryCommitHash(nextSelectedCommitHash);
 
         if (nextSelectedCommitHash) {
           const previewContext: DiffPreviewOpenContext = {
@@ -7630,15 +7797,15 @@ export function RepoInfo() {
             filePath: context.filePath,
             status: "M",
           };
-          setOpenedDiffContext(previewContext);
+          updateOpenedDiffContext(previewContext);
           await runDiffPreviewPreflight(previewContext, "diff");
         } else {
-          setOpenedCommitDiff(null);
-          setOpenedCommitDiffStatusCode(null);
-          setDiffPreviewPanelState({ kind: "idle" });
+          updateOpenedCommitDiff(null);
+          updateOpenedCommitDiffStatusCode(null);
+          updateDiffPreviewPanelState({ kind: "idle" });
         }
       } finally {
-        setIsLoadingFileHistory(false);
+        updateIsLoadingFileHistory(false);
       }
     },
     [
@@ -7646,6 +7813,14 @@ export function RepoInfo() {
       getFileHistory,
       runDiffPreviewPreflight,
       selectedHistoryCommitHash,
+      updateOpenedCommitDiff,
+      updateSelectedHistoryCommitHash,
+      updateIsLoadingFileHistory,
+      updateFileHistoryError,
+      updateOpenedDiffContext,
+      updateOpenedCommitDiffStatusCode,
+      updateHistoryEntries,
+      updateDiffPreviewPanelState,
     ]
   );
 
@@ -7661,14 +7836,14 @@ export function RepoInfo() {
       const cachedLines = readCachedValue(fileBlameCacheRef.current, cacheKey);
 
       if (cachedLines) {
-        setBlameLines(cachedLines);
-        setBlameError(null);
-        setIsLoadingBlame(false);
+        updateBlameLines(cachedLines);
+        updateBlameError(null);
+        updateIsLoadingBlame(false);
         return;
       }
 
-      setIsLoadingBlame(true);
-      setBlameError(null);
+      updateIsLoadingBlame(true);
+      updateBlameError(null);
 
       try {
         const payload = await getFileBlame(
@@ -7678,12 +7853,12 @@ export function RepoInfo() {
         );
 
         if (!payload) {
-          setBlameLines([]);
-          setBlameError("Error loading blame");
+          updateBlameLines([]);
+          updateBlameError("Error loading blame");
           return;
         }
 
-        setBlameLines(payload.lines);
+        updateBlameLines(payload.lines);
         writeCachedValue(
           fileBlameCacheRef.current,
           cacheKey,
@@ -7691,10 +7866,16 @@ export function RepoInfo() {
           DIFF_WORKSPACE_PAYLOAD_CACHE_LIMIT
         );
       } finally {
-        setIsLoadingBlame(false);
+        updateIsLoadingBlame(false);
       }
     },
-    [activeRepoId, getFileBlame]
+    [
+      activeRepoId,
+      getFileBlame,
+      updateIsLoadingBlame,
+      updateBlameLines,
+      updateBlameError,
+    ]
   );
 
   const loadEditSurface = useCallback(
@@ -7703,14 +7884,14 @@ export function RepoInfo() {
         return;
       }
 
-      setIsLoadingEditBuffer(true);
-      setEditLoadError(null);
+      updateIsLoadingEditBuffer(true);
+      updateEditLoadError(null);
 
       if (hasUnsupportedWorkspaceTextEncoding) {
-        setEditBuffer("");
-        setEditInitialBuffer("");
-        setEditLoadError(UNSUPPORTED_ENCODING_MESSAGE);
-        setIsLoadingEditBuffer(false);
+        updateEditBuffer("");
+        updateEditInitialBuffer("");
+        updateEditLoadError(UNSUPPORTED_ENCODING_MESSAGE);
+        updateIsLoadingEditBuffer(false);
         return;
       }
 
@@ -7722,16 +7903,16 @@ export function RepoInfo() {
         );
 
         if (text === null) {
-          setEditBuffer("");
-          setEditInitialBuffer("");
-          setEditLoadError("Error loading file");
+          updateEditBuffer("");
+          updateEditInitialBuffer("");
+          updateEditLoadError("Error loading file");
           return;
         }
 
-        setEditBuffer(text);
-        setEditInitialBuffer(text);
+        updateEditBuffer(text);
+        updateEditInitialBuffer(text);
       } finally {
-        setIsLoadingEditBuffer(false);
+        updateIsLoadingEditBuffer(false);
       }
     },
     [
@@ -7739,6 +7920,10 @@ export function RepoInfo() {
       getFileText,
       hasUnsupportedWorkspaceTextEncoding,
       requestedWorkspaceEncoding,
+      updateIsLoadingEditBuffer,
+      updateEditLoadError,
+      updateEditInitialBuffer,
+      updateEditBuffer,
     ]
   );
 
@@ -7775,10 +7960,10 @@ export function RepoInfo() {
         return;
       }
 
-      setWorkspaceMode(nextMode);
+      updateWorkspaceMode(nextMode);
       await loadWorkspaceMode(openedDiffContext, nextMode);
     },
-    [loadWorkspaceMode, openedDiffContext]
+    [loadWorkspaceMode, openedDiffContext, updateWorkspaceMode]
   );
 
   const requestWorkspaceModeChange = useCallback(
@@ -7788,16 +7973,24 @@ export function RepoInfo() {
       }
 
       if (isEditDirty) {
-        setPendingWorkspaceMode(nextMode);
-        setPendingOpenDiffContext(null);
-        setPendingCloseDiffPanel(false);
-        setIsUnsavedEditConfirmOpen(true);
+        updatePendingWorkspaceMode(nextMode);
+        updatePendingOpenDiffContext(null);
+        updatePendingCloseDiffPanel(false);
+        updateIsUnsavedEditConfirmOpen(true);
         return;
       }
 
       await applyWorkspaceModeChange(nextMode);
     },
-    [applyWorkspaceModeChange, isEditDirty, workspaceMode]
+    [
+      applyWorkspaceModeChange,
+      isEditDirty,
+      workspaceMode,
+      updatePendingWorkspaceMode,
+      updatePendingOpenDiffContext,
+      updatePendingCloseDiffPanel,
+      updateIsUnsavedEditConfirmOpen,
+    ]
   );
 
   const handleSaveEditedFile = useCallback(async () => {
@@ -7805,7 +7998,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsSavingEditBuffer(true);
+    updateIsSavingEditBuffer(true);
 
     try {
       const didSave = await saveFileText(
@@ -7819,13 +8012,13 @@ export function RepoInfo() {
         return;
       }
 
-      setEditInitialBuffer(editBuffer);
+      updateEditInitialBuffer(editBuffer);
       await runDiffPreviewPreflight(
         openedDiffContext,
         workspaceMode === "file" ? "file" : "diff"
       );
     } finally {
-      setIsSavingEditBuffer(false);
+      updateIsSavingEditBuffer(false);
     }
   }, [
     activeRepoId,
@@ -7836,6 +8029,8 @@ export function RepoInfo() {
     saveFileText,
     requestedWorkspaceEncoding,
     workspaceMode,
+    updateIsSavingEditBuffer,
+    updateEditInitialBuffer,
   ]);
 
   const handleOpenFileDiff = async (item: RepositoryWorkingTreeItem) => {
@@ -7857,38 +8052,38 @@ export function RepoInfo() {
     }
 
     if (isEditDirty) {
-      setPendingWorkspaceMode(initialMode);
-      setPendingOpenDiffContext({
+      updatePendingWorkspaceMode(initialMode);
+      updatePendingOpenDiffContext({
         source: "working",
         mode: initialMode,
         filePath,
         item,
       });
-      setPendingCloseDiffPanel(false);
-      setIsUnsavedEditConfirmOpen(true);
+      updatePendingCloseDiffPanel(false);
+      updateIsUnsavedEditConfirmOpen(true);
       return;
     }
 
-    setWorkspaceMode(initialMode);
-    setWorkspaceFilePresentation(
+    updateWorkspaceMode(initialMode);
+    updateWorkspaceFilePresentation(
       initialMode === "file" ? DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION : "code"
     );
-    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
-    setIgnoreTrimWhitespace(false);
-    setOpenedCommitDiff(null);
-    setOpenedCommitDiffStatusCode(null);
-    setOpenedDiff(null);
-    setOpenedDiffPath(null);
-    setOpenedDiffStatusCode(null);
-    setActiveHunks([]);
-    setActiveHunkIndex(0);
-    setHistoryEntries([]);
-    setSelectedHistoryCommitHash(null);
-    setBlameLines([]);
-    setEditBuffer("");
-    setEditInitialBuffer("");
-    setEditLoadError(null);
-    setPendingOpenDiffContext(null);
+    updateWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    updateIgnoreTrimWhitespace(false);
+    updateOpenedCommitDiff(null);
+    updateOpenedCommitDiffStatusCode(null);
+    updateOpenedDiff(null);
+    updateOpenedDiffPath(null);
+    updateOpenedDiffStatusCode(null);
+    updateActiveHunks([]);
+    updateActiveHunkIndex(0);
+    updateHistoryEntries([]);
+    updateSelectedHistoryCommitHash(null);
+    updateBlameLines([]);
+    updateEditBuffer("");
+    updateEditInitialBuffer("");
+    updateEditLoadError(null);
+    updatePendingOpenDiffContext(null);
 
     const nextContext: DiffPreviewOpenContext = {
       source: "working",
@@ -7896,14 +8091,14 @@ export function RepoInfo() {
       filePath,
       item,
     };
-    setOpenedDiffContext(nextContext);
-    setDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
-    setIsLoadingDiffPath(filePath);
+    updateOpenedDiffContext(nextContext);
+    updateDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
+    updateIsLoadingDiffPath(filePath);
 
     try {
       await loadWorkspaceMode(nextContext, initialMode);
     } finally {
-      setIsLoadingDiffPath(null);
+      updateIsLoadingDiffPath(null);
     }
   };
 
@@ -8044,19 +8239,19 @@ export function RepoInfo() {
 
   useEffect(() => {
     if (isMarkdownPreviewableFile) {
-      setWorkspaceFilePresentation(DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION);
+      updateWorkspaceFilePresentation(DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION);
       return;
     }
 
-    setWorkspaceFilePresentation("code");
-  }, [isMarkdownPreviewableFile]);
+    updateWorkspaceFilePresentation("code");
+  }, [isMarkdownPreviewableFile, updateWorkspaceFilePresentation]);
 
   useEffect(() => {
     if (!shouldMountDiffMonacoSurface) {
       openedDiffEditorRef.current = null;
-      setIsDiffEditorReady(false);
+      updateIsDiffEditorReady(false);
     }
-  }, [shouldMountDiffMonacoSurface]);
+  }, [shouldMountDiffMonacoSurface, updateIsDiffEditorReady]);
 
   useEffect(() => {
     if (
@@ -8072,17 +8267,21 @@ export function RepoInfo() {
     }
   }, [shouldMountEditMonacoSurface]);
 
-  useEffect(() => {
+  const markDiffSurfaceRequested = useCallback(() => {
     if (shouldMountDiffMonacoSurface) {
-      setHasRequestedDiffSurface(true);
+      updateHasRequestedDiffSurface(true);
     }
-  }, [shouldMountDiffMonacoSurface]);
+  }, [shouldMountDiffMonacoSurface, updateHasRequestedDiffSurface]);
 
-  useEffect(() => {
+  useEffect(markDiffSurfaceRequested, [markDiffSurfaceRequested]);
+
+  const markFileSurfaceRequested = useCallback(() => {
     if (shouldMountFileMonacoSurface) {
-      setHasRequestedFileSurface(true);
+      updateHasRequestedFileSurface(true);
     }
-  }, [shouldMountFileMonacoSurface]);
+  }, [shouldMountFileMonacoSurface, updateHasRequestedFileSurface]);
+
+  useEffect(markFileSurfaceRequested, [markFileSurfaceRequested]);
 
   useEffect(() => {
     if (
@@ -8101,8 +8300,12 @@ export function RepoInfo() {
       return;
     }
 
-    setWorkspacePresentation(resolvedPresentation);
-  }, [resolvedPresentation, workspacePresentation]);
+    updateWorkspacePresentation(resolvedPresentation);
+  }, [
+    resolvedPresentation,
+    workspacePresentation,
+    updateWorkspacePresentation,
+  ]);
 
   useEffect(() => {
     if (
@@ -8113,12 +8316,13 @@ export function RepoInfo() {
     }
 
     detectAndApplyGuessedWorkspaceEncoding(openedDiffContext).catch(() => {
-      setWorkspaceEncoding(DEFAULT_DIFF_WORKSPACE_ENCODING);
+      updateWorkspaceEncoding(DEFAULT_DIFF_WORKSPACE_ENCODING);
     });
   }, [
     detectAndApplyGuessedWorkspaceEncoding,
     openedDiffContext,
     workspaceEncoding,
+    updateWorkspaceEncoding,
   ]);
 
   useEffect(() => {
@@ -8168,7 +8372,7 @@ export function RepoInfo() {
     }
 
     if (workspaceMode === "file" || workspaceMode === "diff") {
-      setDiffPreviewPanelState({
+      updateDiffPreviewPanelState({
         kind: "preflightLoading",
         path: openedDiffContext.filePath,
       });
@@ -8235,9 +8439,9 @@ export function RepoInfo() {
       status: "M",
     };
 
-    setOpenedDiffContext(nextContext);
-    setSelectedHistoryCommitHash(entry.commitHash);
-    setDiffPreviewPanelState({
+    updateOpenedDiffContext(nextContext);
+    updateSelectedHistoryCommitHash(entry.commitHash);
+    updateDiffPreviewPanelState({
       kind: "preflightLoading",
       path: nextContext.filePath,
     });
@@ -8246,15 +8450,22 @@ export function RepoInfo() {
 
   const handleWorkspaceCloseRequest = useCallback(() => {
     if (isEditDirty) {
-      setPendingWorkspaceMode(null);
-      setPendingOpenDiffContext(null);
-      setPendingCloseDiffPanel(true);
-      setIsUnsavedEditConfirmOpen(true);
+      updatePendingWorkspaceMode(null);
+      updatePendingOpenDiffContext(null);
+      updatePendingCloseDiffPanel(true);
+      updateIsUnsavedEditConfirmOpen(true);
       return;
     }
 
     closeDiffPreviewPanel();
-  }, [closeDiffPreviewPanel, isEditDirty]);
+  }, [
+    closeDiffPreviewPanel,
+    isEditDirty,
+    updatePendingWorkspaceMode,
+    updatePendingOpenDiffContext,
+    updatePendingCloseDiffPanel,
+    updateIsUnsavedEditConfirmOpen,
+  ]);
 
   const toolbarControls = resolveToolbarControlState({
     hasDiffEditor: isDiffEditorReady,
@@ -8281,7 +8492,7 @@ export function RepoInfo() {
   }
 
   const handleDiscardUnsavedEditChanges = async () => {
-    setIsUnsavedEditConfirmOpen(false);
+    updateIsUnsavedEditConfirmOpen(false);
 
     if (pendingCloseDiffPanel) {
       closeDiffPreviewPanel();
@@ -8290,17 +8501,17 @@ export function RepoInfo() {
 
     if (pendingOpenDiffContext) {
       const nextContext = pendingOpenDiffContext;
-      setPendingOpenDiffContext(null);
-      setPendingWorkspaceMode(null);
-      setWorkspaceMode(nextContext.mode);
-      setWorkspaceFilePresentation(
+      updatePendingOpenDiffContext(null);
+      updatePendingWorkspaceMode(null);
+      updateWorkspaceMode(nextContext.mode);
+      updateWorkspaceFilePresentation(
         nextContext.mode === "file"
           ? DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION
           : "code"
       );
-      setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
-      setOpenedDiffContext(nextContext);
-      setDiffPreviewPanelState({
+      updateWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+      updateOpenedDiffContext(nextContext);
+      updateDiffPreviewPanelState({
         kind: "preflightLoading",
         path: nextContext.filePath,
       });
@@ -8310,7 +8521,7 @@ export function RepoInfo() {
 
     if (pendingWorkspaceMode) {
       const nextMode = pendingWorkspaceMode;
-      setPendingWorkspaceMode(null);
+      updatePendingWorkspaceMode(null);
       await applyWorkspaceModeChange(nextMode);
     }
   };
@@ -8338,39 +8549,39 @@ export function RepoInfo() {
     }
 
     if (isEditDirty) {
-      setPendingWorkspaceMode(initialMode);
-      setPendingOpenDiffContext({
+      updatePendingWorkspaceMode(initialMode);
+      updatePendingOpenDiffContext({
         source: "commit",
         mode: initialMode,
         commitHash,
         filePath,
         status,
       });
-      setPendingCloseDiffPanel(false);
-      setIsUnsavedEditConfirmOpen(true);
+      updatePendingCloseDiffPanel(false);
+      updateIsUnsavedEditConfirmOpen(true);
       return;
     }
 
-    setWorkspaceMode(initialMode);
-    setWorkspaceFilePresentation(
+    updateWorkspaceMode(initialMode);
+    updateWorkspaceFilePresentation(
       initialMode === "file" ? DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION : "code"
     );
-    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
-    setIgnoreTrimWhitespace(false);
-    setOpenedDiff(null);
-    setOpenedDiffPath(null);
-    setOpenedDiffStatusCode(null);
-    setOpenedCommitDiff(null);
-    setOpenedCommitDiffStatusCode(null);
-    setActiveHunks([]);
-    setActiveHunkIndex(0);
-    setHistoryEntries([]);
-    setSelectedHistoryCommitHash(null);
-    setBlameLines([]);
-    setEditBuffer("");
-    setEditInitialBuffer("");
-    setEditLoadError(null);
-    setPendingOpenDiffContext(null);
+    updateWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    updateIgnoreTrimWhitespace(false);
+    updateOpenedDiff(null);
+    updateOpenedDiffPath(null);
+    updateOpenedDiffStatusCode(null);
+    updateOpenedCommitDiff(null);
+    updateOpenedCommitDiffStatusCode(null);
+    updateActiveHunks([]);
+    updateActiveHunkIndex(0);
+    updateHistoryEntries([]);
+    updateSelectedHistoryCommitHash(null);
+    updateBlameLines([]);
+    updateEditBuffer("");
+    updateEditInitialBuffer("");
+    updateEditLoadError(null);
+    updatePendingOpenDiffContext(null);
 
     const nextContext: DiffPreviewOpenContext = {
       source: "commit",
@@ -8379,15 +8590,15 @@ export function RepoInfo() {
       filePath,
       status,
     };
-    setOpenedDiffContext(nextContext);
-    setDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
+    updateOpenedDiffContext(nextContext);
+    updateDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
 
-    setIsLoadingCommitDiffPath(`${commitHash}:${filePath}`);
+    updateIsLoadingCommitDiffPath(`${commitHash}:${filePath}`);
 
     try {
       await loadWorkspaceMode(nextContext, initialMode);
     } finally {
-      setIsLoadingCommitDiffPath(null);
+      updateIsLoadingCommitDiffPath(null);
     }
   };
 
@@ -8407,25 +8618,25 @@ export function RepoInfo() {
       },
     };
 
-    setOpenedDiff(null);
-    setOpenedCommitDiff(null);
-    setOpenedDiffPath(null);
-    setOpenedDiffStatusCode(null);
-    setOpenedCommitDiffStatusCode(null);
-    setActiveHunks([]);
-    setHistoryEntries([]);
-    setSelectedHistoryCommitHash(null);
-    setBlameLines([]);
-    setEditBuffer("");
-    setEditInitialBuffer("");
-    setEditLoadError(null);
-    setPendingWorkspaceMode(null);
-    setPendingOpenDiffContext(null);
-    setPendingCloseDiffPanel(false);
-    setOpenedDiffContext(context);
-    setWorkspaceMode(mode);
-    setWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
-    setDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
+    updateOpenedDiff(null);
+    updateOpenedCommitDiff(null);
+    updateOpenedDiffPath(null);
+    updateOpenedDiffStatusCode(null);
+    updateOpenedCommitDiffStatusCode(null);
+    updateActiveHunks([]);
+    updateHistoryEntries([]);
+    updateSelectedHistoryCommitHash(null);
+    updateBlameLines([]);
+    updateEditBuffer("");
+    updateEditInitialBuffer("");
+    updateEditLoadError(null);
+    updatePendingWorkspaceMode(null);
+    updatePendingOpenDiffContext(null);
+    updatePendingCloseDiffPanel(false);
+    updateOpenedDiffContext(context);
+    updateWorkspaceMode(mode);
+    updateWorkspacePresentation(DEFAULT_DIFF_WORKSPACE_PRESENTATION);
+    updateDiffPreviewPanelState({ kind: "preflightLoading", path: filePath });
 
     if (mode === "diff" || mode === "file") {
       await runDiffPreviewPreflight(context, mode);
@@ -8441,7 +8652,7 @@ export function RepoInfo() {
   const toggleCommitTreeNode = (commitHash: string, nodePath: string) => {
     const key = getCommitTreeNodeStateKey(commitHash, nodePath);
 
-    setExpandedCommitTreeNodePaths((current) => ({
+    updateExpandedCommitTreeNodePaths((current) => ({
       ...current,
       [key]: !current[key],
     }));
@@ -8456,7 +8667,7 @@ export function RepoInfo() {
       getCommitTreeNodeStateKey
     );
   const collapseCommitTree = (commitHash: string) => {
-    setExpandedCommitTreeNodePaths((current) => {
+    updateExpandedCommitTreeNodePaths((current) => {
       const nextEntries = Object.entries(current).filter(
         ([key]) => !key.startsWith(`${commitHash}:`)
       );
@@ -8468,7 +8679,7 @@ export function RepoInfo() {
     commitHash: string,
     nodes: CommitFileTreeNode[]
   ) => {
-    setExpandedCommitTreeNodePaths((current) => ({
+    updateExpandedCommitTreeNodePaths((current) => ({
       ...current,
       ...collectExpandableCommitTreeKeys(nodes, commitHash),
     }));
@@ -8494,7 +8705,7 @@ export function RepoInfo() {
     );
   };
 
-  const renderCommitTreeNodes = (
+  const getCommitTreeNodes = (
     nodes: CommitFileTreeNode[],
     commitHash: string,
     depth = 0,
@@ -8615,7 +8826,7 @@ export function RepoInfo() {
             ) : null}
           </button>
           {isExpanded
-            ? renderCommitTreeNodes(
+            ? getCommitTreeNodes(
                 Array.from(node.children.values()),
                 commitHash,
                 depth + 1,
@@ -8632,7 +8843,7 @@ export function RepoInfo() {
 
     return renderedNodes;
   };
-  const renderCommitPathRows = (
+  const getCommitPathRows = (
     files: RepositoryCommitFile[],
     commitHash: string,
     budget: RenderBudget = createRenderBudget(Number.POSITIVE_INFINITY)
@@ -8722,7 +8933,7 @@ export function RepoInfo() {
       globalThis.removeEventListener("keydown", handleEscapeToCloseDiff);
     };
   }, [handleWorkspaceCloseRequest, isDiffPanelOpen]);
-  const renderChangeContextMenuContent = (
+  const getChangeContextMenuContent = (
     targetPath: string,
     section: "staged" | "unstaged",
     options?: { isFolder?: boolean; folderName?: string }
@@ -8906,7 +9117,7 @@ export function RepoInfo() {
       </ContextMenuContent>
     );
   };
-  const renderChangeTreeNodes = (
+  const getChangeTreeNodes = (
     nodes: ChangeTreeNode[],
     section: ChangeTreeSection,
     depth = 0,
@@ -8960,8 +9171,8 @@ export function RepoInfo() {
                 />
                 <div className="pointer-events-none inline-flex min-w-3 items-center justify-center">
                   {section === "all"
-                    ? renderStatusBadges(item, "unstaged")
-                    : renderStatusBadges(item, section)}
+                    ? getStatusBadges(item, "unstaged")
+                    : getStatusBadges(item, section)}
                 </div>
                 <div className="pointer-events-none min-w-0 flex-1">
                   <p className="truncate">{node.name}</p>
@@ -8995,7 +9206,7 @@ export function RepoInfo() {
             </ContextMenuTrigger>
             {section === "all"
               ? null
-              : renderChangeContextMenuContent(item.path, section)}
+              : getChangeContextMenuContent(item.path, section)}
           </ContextMenu>
         );
 
@@ -9064,14 +9275,14 @@ export function RepoInfo() {
             </ContextMenuTrigger>
             {section === "all"
               ? null
-              : renderChangeContextMenuContent(node.fullPath, section, {
+              : getChangeContextMenuContent(node.fullPath, section, {
                   folderName: node.name,
                   isFolder: true,
                 })}
           </ContextMenu>
           {hasChildren && isExpanded ? (
             <div>
-              {renderChangeTreeNodes(
+              {getChangeTreeNodes(
                 Array.from(node.children.values()),
                 section,
                 depth + 1,
@@ -9090,7 +9301,7 @@ export function RepoInfo() {
     return renderedNodes;
   };
 
-  const renderFlatChangeRows = (
+  const getFlatChangeRows = (
     items: RepositoryWorkingTreeItem[],
     section: "staged" | "unstaged",
     budget: RenderBudget = createRenderBudget(Number.POSITIVE_INFINITY)
@@ -9127,7 +9338,7 @@ export function RepoInfo() {
                 type="button"
               />
               <div className="pointer-events-none inline-flex min-w-3 items-center justify-center">
-                {renderStatusBadges(item, section)}
+                {getStatusBadges(item, section)}
               </div>
               <p className="pointer-events-none min-w-0 flex-1 truncate">
                 {item.path}
@@ -9157,7 +9368,7 @@ export function RepoInfo() {
               ) : null}
             </div>
           </ContextMenuTrigger>
-          {renderChangeContextMenuContent(item.path, section)}
+          {getChangeContextMenuContent(item.path, section)}
         </ContextMenu>
       );
     }
@@ -9165,7 +9376,7 @@ export function RepoInfo() {
     return renderedRows;
   };
 
-  const renderChangesSectionContent = (
+  const getChangesSectionContent = (
     items: RepositoryWorkingTreeItem[],
     tree: ChangeTreeNode[],
     section: "staged" | "unstaged"
@@ -9189,7 +9400,7 @@ export function RepoInfo() {
     if (changesViewMode === "tree") {
       return (
         <>
-          {renderChangeTreeNodes(tree, section, 0, renderBudget)}
+          {getChangeTreeNodes(tree, section, 0, renderBudget)}
           {renderLimit < totalVisibleCount
             ? renderProgressiveLoadingMessage("files")
             : null}
@@ -9199,14 +9410,14 @@ export function RepoInfo() {
 
     return (
       <>
-        {renderFlatChangeRows(items, section, renderBudget)}
+        {getFlatChangeRows(items, section, renderBudget)}
         {renderLimit < totalVisibleCount
           ? renderProgressiveLoadingMessage("files")
           : null}
       </>
     );
   };
-  const renderAllFilesSectionContent = () => {
+  const getAllFilesSectionContent = () => {
     if (allRepositoryFiles.length === 0) {
       return (
         <p className="px-2 py-1.5 text-muted-foreground text-xs">
@@ -9227,7 +9438,7 @@ export function RepoInfo() {
 
     return (
       <>
-        {renderChangeTreeNodes(allFilesTree, "all", 0, renderBudget)}
+        {getChangeTreeNodes(allFilesTree, "all", 0, renderBudget)}
         {allFilesRenderLimit < allFilesVisibleNodeCount
           ? renderProgressiveLoadingMessage("files")
           : null}
@@ -9243,14 +9454,14 @@ export function RepoInfo() {
     const isSameRow = selectedTimelineRowId === WORKING_TREE_ROW_ID;
 
     if (isSameRow && isRightSidebarVisible) {
-      setIsRightSidebarOpen(false);
+      updateIsRightSidebarOpen(false);
       return;
     }
 
-    setSelectedTimelineRowId(WORKING_TREE_ROW_ID);
-    setSelectedCommitId(WORKING_TREE_ROW_ID);
+    updateSelectedTimelineRowId(WORKING_TREE_ROW_ID);
+    updateSelectedCommitId(WORKING_TREE_ROW_ID);
     if (!isWorkspaceAttributionMode) {
-      setIsRightSidebarOpen(true);
+      updateIsRightSidebarOpen(true);
     }
   };
 
@@ -9258,14 +9469,14 @@ export function RepoInfo() {
     const isSameCommit = selectedTimelineRowId === commitHash;
 
     if (isSameCommit && isRightSidebarVisible) {
-      setIsRightSidebarOpen(false);
+      updateIsRightSidebarOpen(false);
       return;
     }
 
-    setSelectedTimelineRowId(commitHash);
-    setSelectedCommitId(commitHash);
+    updateSelectedTimelineRowId(commitHash);
+    updateSelectedCommitId(commitHash);
     if (!isWorkspaceAttributionMode) {
-      setIsRightSidebarOpen(true);
+      updateIsRightSidebarOpen(true);
     }
   };
 
@@ -9274,14 +9485,14 @@ export function RepoInfo() {
       const isSameRow = selectedTimelineRowId === rowId;
 
       if (isSameRow && isRightSidebarVisible) {
-        setIsRightSidebarOpen(false);
+        updateIsRightSidebarOpen(false);
         return;
       }
 
-      setSelectedTimelineRowId(rowId);
-      setSelectedCommitId(anchorCommitHash);
+      updateSelectedTimelineRowId(rowId);
+      updateSelectedCommitId(anchorCommitHash);
       if (!isWorkspaceAttributionMode) {
-        setIsRightSidebarOpen(true);
+        updateIsRightSidebarOpen(true);
       }
       if (shouldScroll) {
         scrollTimelineRowIntoView(rowId);
@@ -9292,6 +9503,9 @@ export function RepoInfo() {
       isWorkspaceAttributionMode,
       scrollTimelineRowIntoView,
       selectedTimelineRowId,
+      updateSelectedTimelineRowId,
+      updateSelectedCommitId,
+      updateIsRightSidebarOpen,
     ]
   );
 
@@ -9304,11 +9518,17 @@ export function RepoInfo() {
         return;
       }
 
-      setSelectedTimelineRowId(rowId);
-      setSelectedCommitId(anchorCommitHash);
+      updateSelectedTimelineRowId(rowId);
+      updateSelectedCommitId(anchorCommitHash);
       scrollTimelineRowIntoView(rowId);
     },
-    [getCommitHashForEntry, getTimelineRowIdForEntry, scrollTimelineRowIntoView]
+    [
+      getCommitHashForEntry,
+      getTimelineRowIdForEntry,
+      scrollTimelineRowIntoView,
+      updateSelectedTimelineRowId,
+      updateSelectedCommitId,
+    ]
   );
 
   const handleSidebarEntryClick = (entry: SidebarEntry) => {
@@ -9339,16 +9559,16 @@ export function RepoInfo() {
     action: () => Promise<void>
   ) => {
     pendingForcePushActionRef.current = action;
-    setForcePushConfirmMode(mode);
-    setIsForcePushConfirmOpen(true);
+    updateForcePushConfirmMode(mode);
+    updateIsForcePushConfirmOpen(true);
   };
 
   const openPublishRepoConfirm = (
     action: (options: PublishRepositoryOptions) => Promise<void>
   ) => {
     pendingPublishPushActionRef.current = action;
-    setPublishRepoFormError(null);
-    setIsPublishRepoConfirmOpen(true);
+    updatePublishRepoFormError(null);
+    updateIsPublishRepoConfirmOpen(true);
   };
 
   const handleStageAll = async () => {
@@ -9356,12 +9576,12 @@ export function RepoInfo() {
       return;
     }
 
-    setIsStagingAll(true);
+    updateIsStagingAll(true);
 
     try {
       await stageAll(activeRepoId);
     } finally {
-      setIsStagingAll(false);
+      updateIsStagingAll(false);
     }
   };
 
@@ -9374,20 +9594,20 @@ export function RepoInfo() {
       return;
     }
 
-    setIsGeneratingAiCommitMessage(true);
+    updateIsGeneratingAiCommitMessage(true);
     aiCommitGenerationStatusMessageRef.current =
       "Preparing AI commit generation";
     aiCommitGenerationPreviewRef.current = "";
-    setAiCommitGenerationStatusMessage("Preparing AI commit generation");
-    setAiCommitGenerationPreview("");
+    updateAiCommitGenerationStatusMessage("Preparing AI commit generation");
+    updateAiCommitGenerationPreview("");
     let generationSucceeded = false;
 
     try {
       const generatedCommit = await generateAiCommitMessage(activeRepoId, "");
 
-      setDraftCommitSummary(generatedCommit.title);
-      setDraftCommitDescription(generatedCommit.body);
-      setLastAiCommitGeneration({
+      updateDraftCommitSummary(generatedCommit.title);
+      updateDraftCommitDescription(generatedCommit.body);
+      updateLastAiCommitGeneration({
         promptMode: generatedCommit.promptMode,
         providerKind: generatedCommit.providerKind,
         schemaFallbackUsed: generatedCommit.schemaFallbackUsed,
@@ -9403,9 +9623,9 @@ export function RepoInfo() {
       );
       aiCommitGenerationStatusMessageRef.current = nextState.statusMessage;
       aiCommitGenerationPreviewRef.current = nextState.preview;
-      setAiCommitGenerationStatusMessage(nextState.statusMessage);
-      setAiCommitGenerationPreview(nextState.preview);
-      setIsGeneratingAiCommitMessage(false);
+      updateAiCommitGenerationStatusMessage(nextState.statusMessage);
+      updateAiCommitGenerationPreview(nextState.preview);
+      updateIsGeneratingAiCommitMessage(false);
     }
   };
   const handleGenerateAiRewordMessage = async () => {
@@ -9418,20 +9638,20 @@ export function RepoInfo() {
       return;
     }
 
-    setIsGeneratingAiRewordMessage(true);
+    updateIsGeneratingAiRewordMessage(true);
 
     try {
       const generatedCommit = await generateAiCommitMessage(activeRepoId, "");
 
-      setRewordCommitSummary(generatedCommit.title);
-      setRewordCommitDescription(generatedCommit.body);
-      setLastAiRewordGeneration({
+      updateRewordCommitSummary(generatedCommit.title);
+      updateRewordCommitDescription(generatedCommit.body);
+      updateLastAiRewordGeneration({
         promptMode: generatedCommit.promptMode,
         providerKind: generatedCommit.providerKind,
         schemaFallbackUsed: generatedCommit.schemaFallbackUsed,
       });
     } finally {
-      setIsGeneratingAiRewordMessage(false);
+      updateIsGeneratingAiRewordMessage(false);
     }
   };
 
@@ -9473,7 +9693,7 @@ export function RepoInfo() {
       return;
     }
 
-    setIsCommitting(true);
+    updateIsCommitting(true);
 
     try {
       await commitChanges(
@@ -9510,15 +9730,15 @@ export function RepoInfo() {
           await pushBranch(activeRepoId, false, publishOptions);
         }
       }
-      setDraftCommitSummary("");
-      setDraftCommitDescription("");
-      setAmendPreviousCommit(false);
-      setPushAfterCommit(false);
-      setSkipCommitHooks(false);
-      setLastAiCommitGeneration(null);
+      updateDraftCommitSummary("");
+      updateDraftCommitDescription("");
+      updateAmendPreviousCommit(false);
+      updatePushAfterCommit(false);
+      updateSkipCommitHooks(false);
+      updateLastAiCommitGeneration(null);
       preAmendDraftRef.current = null;
     } finally {
-      setIsCommitting(false);
+      updateIsCommitting(false);
     }
   };
 
@@ -9526,7 +9746,7 @@ export function RepoInfo() {
     const pendingAction = pendingForcePushActionRef.current;
 
     if (!pendingAction) {
-      setIsForcePushConfirmOpen(false);
+      updateIsForcePushConfirmOpen(false);
       return;
     }
 
@@ -9534,7 +9754,7 @@ export function RepoInfo() {
       await pendingAction();
     } finally {
       pendingForcePushActionRef.current = null;
-      setIsForcePushConfirmOpen(false);
+      updateIsForcePushConfirmOpen(false);
     }
   };
   let forcePushConfirmActionLabel = "Force push";
@@ -9587,7 +9807,7 @@ export function RepoInfo() {
                     className="focus-visible:desktop-focus h-7 pr-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                     onChange={(event) => {
                       const nextValue = event.target.value;
-                      setSidebarFilterInputValue(nextValue);
+                      updateSidebarFilterInputValue(nextValue);
                       scheduleSidebarFilterUpdate(nextValue);
                     }}
                     placeholder="Filter (Ctrl + Alt + f)"
@@ -9619,7 +9839,7 @@ export function RepoInfo() {
                         <button
                           className="flex w-full items-center justify-between py-0.5"
                           onClick={() =>
-                            setCollapsedGroupKeys((current) => ({
+                            updateCollapsedGroupKeys((current) => ({
                               ...current,
                               [group.key]: !current[group.key],
                             }))
@@ -9632,7 +9852,7 @@ export function RepoInfo() {
                             ) : (
                               <CaretDownIcon className="size-3" />
                             )}
-                            {renderSidebarGroupSectionIcon(group.key)}
+                            {getSidebarGroupSectionIcon(group.key)}
                             {group.name}
                           </span>
                           <span className="font-medium text-muted-foreground text-xs">
@@ -9645,7 +9865,7 @@ export function RepoInfo() {
                         <SidebarGroupContent>
                           <SidebarMenu>
                             {group.treeNodes
-                              ? renderSidebarBranchTreeNodes(
+                              ? getSidebarBranchTreeNodes(
                                   group.key,
                                   group.treeNodes,
                                   0,
@@ -9799,7 +10019,7 @@ export function RepoInfo() {
                           "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
-                      onClick={() => setPullActionMode("fetch-all")}
+                      onClick={() => updatePullActionMode("fetch-all")}
                     >
                       Fetch All
                     </DropdownMenuItem>
@@ -9810,7 +10030,7 @@ export function RepoInfo() {
                           "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
-                      onClick={() => setPullActionMode("pull-ff-possible")}
+                      onClick={() => updatePullActionMode("pull-ff-possible")}
                     >
                       Pull (fast-forward if possible)
                     </DropdownMenuItem>
@@ -9821,7 +10041,7 @@ export function RepoInfo() {
                           "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
-                      onClick={() => setPullActionMode("pull-ff-only")}
+                      onClick={() => updatePullActionMode("pull-ff-only")}
                     >
                       Pull (fast-forward only)
                     </DropdownMenuItem>
@@ -9832,7 +10052,7 @@ export function RepoInfo() {
                           "bg-accent text-accent-foreground"
                       )}
                       disabled={isPulling}
-                      onClick={() => setPullActionMode("pull-rebase")}
+                      onClick={() => updatePullActionMode("pull-rebase")}
                     >
                       Pull (rebase)
                     </DropdownMenuItem>
@@ -10043,7 +10263,7 @@ export function RepoInfo() {
                             className="cursor-pointer gap-2"
                             key={launcher.id}
                             onClick={() => {
-                              setSelectedLauncherId(launcher.id);
+                              updateSelectedLauncherId(launcher.id);
                               handleOpenPath(launcher.id).catch(
                                 () => undefined
                               );
@@ -10276,7 +10496,7 @@ export function RepoInfo() {
                   >
                     {timelineVisibleColumns.map((columnId) => (
                       <Fragment key={columnId}>
-                        {renderTimelineCell(columnId, {
+                        {getTimelineCell(columnId, {
                           branchCell:
                             columnId === "branch" ? (
                               <div className="min-w-0 truncate">
@@ -10312,7 +10532,7 @@ export function RepoInfo() {
                                     className="focus-visible:desktop-focus h-full border-0 bg-transparent px-3 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
                                     disabled={isCreatingBranch}
                                     onChange={(event) =>
-                                      setNewBranchName(event.target.value)
+                                      updateNewBranchName(event.target.value)
                                     }
                                     onKeyDown={(event) => {
                                       if (event.key === "Escape") {
@@ -10395,7 +10615,7 @@ export function RepoInfo() {
                     >
                       {timelineVisibleColumns.map((columnId) => (
                         <Fragment key={columnId}>
-                          {renderTimelineCell(columnId, {
+                          {getTimelineCell(columnId, {
                             commitMessageCell:
                               columnId === "commitMessage" ? (
                                 <div className="flex min-w-0 items-center gap-1.5">
@@ -10479,13 +10699,13 @@ export function RepoInfo() {
                               resolvedTimelineBranchColumnWidth
                             }
                             commits={visibleTimelineCommits}
+                            getNodeContextMenu={
+                              renderGraphNodeContextMenuContent
+                            }
                             graph={visibleHistoryGraph}
                             graphColumnWidth={effectiveTimelineGraphColumnWidth}
                             onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
                             onNodeSelect={handleGraphNodeSelect}
-                            renderNodeContextMenu={
-                              renderGraphNodeContextMenuContent
-                            }
                             rowHeight={TIMELINE_ROW_HEIGHT}
                             rows={visibleTimelineRows}
                             selectedRowId={selectedTimelineRowId}
@@ -10576,7 +10796,7 @@ export function RepoInfo() {
                                 >
                                   {timelineVisibleColumns.map((columnId) => (
                                     <Fragment key={columnId}>
-                                      {renderTimelineCell(columnId, {
+                                      {getTimelineCell(columnId, {
                                         branchCell:
                                           columnId === "branch" ? (
                                             <div className="min-w-0 truncate pr-2">
@@ -10743,7 +10963,7 @@ export function RepoInfo() {
                           >
                             {timelineVisibleColumns.map((columnId) => (
                               <Fragment key={columnId}>
-                                {renderTimelineCell(columnId, {
+                                {getTimelineCell(columnId, {
                                   branchCell:
                                     columnId === "branch" ? (
                                       <div className="min-w-0 truncate pr-2">
@@ -10807,7 +11027,7 @@ export function RepoInfo() {
                         return (
                           <ContextMenu key={row.id}>
                             <ContextMenuTrigger>{rowButton}</ContextMenuTrigger>
-                            {renderEntryContextMenuContent(timelineEntry)}
+                            {getEntryContextMenuContent(timelineEntry)}
                           </ContextMenu>
                         );
                       })}
@@ -10849,12 +11069,12 @@ export function RepoInfo() {
                       requestWorkspaceModeChange("edit").catch(() => undefined);
                     }}
                     onEncodingChange={(encoding) => {
-                      setWorkspaceEncoding(
+                      updateWorkspaceEncoding(
                         resolveDiffWorkspaceEncodingValue(encoding)
                       );
                     }}
                     onMarkdownFilePresentationChange={(mode) => {
-                      setWorkspaceFilePresentation(mode);
+                      updateWorkspaceFilePresentation(mode);
                     }}
                     onModeChange={(mode) => {
                       requestWorkspaceModeChange(mode).catch(() => undefined);
@@ -10868,7 +11088,7 @@ export function RepoInfo() {
                         return;
                       }
 
-                      setWorkspacePresentation(mode);
+                      updateWorkspacePresentation(mode);
                     }}
                     onPreviousChange={handlePreviousChange}
                     onPrimaryModeChange={(primaryMode) => {
@@ -10885,7 +11105,7 @@ export function RepoInfo() {
                         nextMode === "file" &&
                         isMarkdownPreviewablePath(activeDiffPath)
                       ) {
-                        setWorkspaceFilePresentation(
+                        updateWorkspaceFilePresentation(
                           DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION
                         );
                       }
@@ -10898,7 +11118,7 @@ export function RepoInfo() {
                       handleOpenedDiffShortcutAction().catch(() => undefined);
                     }}
                     onToggleWhitespace={() => {
-                      setIgnoreTrimWhitespace((current) => !current);
+                      updateIgnoreTrimWhitespace((current) => !current);
                     }}
                     presentation={resolvedPresentation}
                     stageActionLabel={stageActionLabel}
@@ -11247,7 +11467,8 @@ export function RepoInfo() {
                             "inmemory://litgit/unknown?blame"
                           }
                           onPreviewEditorMount={(editor) => {
-                            openedFileEditorRef.current = editor as EditorView;
+                            openedFileEditorRef.current =
+                              editor as CodeMirrorEditorViewLike;
                           }}
                           onRetry={() => {
                             handleRetryDiffPreview().catch(() => undefined);
@@ -11309,7 +11530,7 @@ export function RepoInfo() {
                                   lineNumbers={editorPreferences.lineNumbers}
                                   mode="edit"
                                   modelPath={editMonacoModelPath ?? "untitled"}
-                                  onChange={setEditBuffer}
+                                  onChange={updateEditBuffer}
                                   onMount={(editor) => {
                                     openedEditEditorRef.current = editor;
                                   }}
@@ -11437,8 +11658,10 @@ export function RepoInfo() {
                                   className="focus-visible:desktop-focus h-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   id="reword-summary"
                                   onChange={(event) => {
-                                    setRewordCommitSummary(event.target.value);
-                                    setLastAiRewordGeneration(null);
+                                    updateRewordCommitSummary(
+                                      event.target.value
+                                    );
+                                    updateLastAiRewordGeneration(null);
                                   }}
                                   placeholder="Describe your changes"
                                   value={rewordCommitSummary}
@@ -11462,10 +11685,10 @@ export function RepoInfo() {
                                   className="focus-visible:desktop-focus h-20 resize-none overflow-y-scroll text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   id="reword-description"
                                   onChange={(event) => {
-                                    setRewordCommitDescription(
+                                    updateRewordCommitDescription(
                                       event.target.value
                                     );
-                                    setLastAiRewordGeneration(null);
+                                    updateLastAiRewordGeneration(null);
                                   }}
                                   placeholder="Add more detail for this commit"
                                   value={rewordCommitDescription}
@@ -11505,12 +11728,12 @@ export function RepoInfo() {
                                   className="focus-visible:desktop-focus h-8 flex-1 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   disabled={isRewordingCommitMessage}
                                   onClick={() => {
-                                    setIsEditingSelectedCommitMessage(false);
-                                    setLastAiRewordGeneration(null);
-                                    setRewordCommitSummary(
+                                    updateIsEditingSelectedCommitMessage(false);
+                                    updateLastAiRewordGeneration(null);
+                                    updateRewordCommitSummary(
                                       selectedCommit.messageSummary
                                     );
-                                    setRewordCommitDescription(
+                                    updateRewordCommitDescription(
                                       selectedCommit.messageDescription
                                     );
                                   }}
@@ -11534,7 +11757,7 @@ export function RepoInfo() {
                                 <button
                                   className="w-full cursor-pointer text-left"
                                   onClick={() => {
-                                    setIsEditingSelectedCommitMessage(true);
+                                    updateIsEditingSelectedCommitMessage(true);
                                   }}
                                   type="button"
                                 >
@@ -11634,7 +11857,7 @@ export function RepoInfo() {
                                       aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
                                       className="focus-visible:desktop-focus-strong h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                                       onClick={() => {
-                                        setCommitFileSortOrder((current) =>
+                                        updateCommitFileSortOrder((current) =>
                                           current === "asc" ? "desc" : "asc"
                                         );
                                       }}
@@ -11668,7 +11891,7 @@ export function RepoInfo() {
                                         : "text-muted-foreground hover:text-foreground"
                                     )}
                                     onClick={() =>
-                                      setCommitDetailsViewMode("path")
+                                      updateCommitDetailsViewMode("path")
                                     }
                                     type="button"
                                   >
@@ -11683,7 +11906,7 @@ export function RepoInfo() {
                                       : "text-muted-foreground hover:text-foreground"
                                   )}
                                   onClick={() =>
-                                    setCommitDetailsViewMode("tree")
+                                    updateCommitDetailsViewMode("tree")
                                   }
                                   type="button"
                                 >
@@ -11691,10 +11914,14 @@ export function RepoInfo() {
                                 </button>
                               </div>
                             </div>
-                            <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+                            <label
+                              className="inline-flex items-center gap-2 text-muted-foreground text-xs"
+                              htmlFor="commit-file-panel-show-all-files"
+                            >
                               <Checkbox
                                 checked={showAllCommitFiles}
                                 className="shrink-0"
+                                id="commit-file-panel-show-all-files"
                                 onCheckedChange={(checked) => {
                                   setShowAllCommitFilesState(checked === true);
                                 }}
@@ -11732,7 +11959,7 @@ export function RepoInfo() {
                                       <Input
                                         className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                         onChange={(event) => {
-                                          setCommitFileFilterInputValue(
+                                          updateCommitFileFilterInputValue(
                                             event.target.value
                                           );
                                         }}
@@ -11804,7 +12031,7 @@ export function RepoInfo() {
 
                                         return (
                                           <>
-                                            {renderCommitTreeNodes(
+                                            {getCommitTreeNodes(
                                               selectedCommitTree,
                                               selectedCommit.hash,
                                               0,
@@ -11826,7 +12053,7 @@ export function RepoInfo() {
 
                                       return (
                                         <>
-                                          {renderCommitPathRows(
+                                          {getCommitPathRows(
                                             sortedCommitPathRows,
                                             selectedCommit.hash,
                                             renderBudget
@@ -12075,8 +12302,9 @@ export function RepoInfo() {
                                         aria-label={`Sort by filename ${commitFileSortOrder === "asc" ? "descending" : "ascending"}`}
                                         className="focus-visible:desktop-focus-strong h-7 w-7 border border-border/70 bg-background/60 p-0 text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
                                         onClick={() => {
-                                          setCommitFileSortOrder((current) =>
-                                            current === "asc" ? "desc" : "asc"
+                                          updateCommitFileSortOrder(
+                                            (current) =>
+                                              current === "asc" ? "desc" : "asc"
                                           );
                                         }}
                                         size="icon-sm"
@@ -12109,7 +12337,7 @@ export function RepoInfo() {
                                           : "text-muted-foreground hover:text-foreground"
                                       )}
                                       onClick={() =>
-                                        setCommitDetailsViewMode("path")
+                                        updateCommitDetailsViewMode("path")
                                       }
                                       type="button"
                                     >
@@ -12124,7 +12352,7 @@ export function RepoInfo() {
                                         : "text-muted-foreground hover:text-foreground"
                                     )}
                                     onClick={() =>
-                                      setCommitDetailsViewMode("tree")
+                                      updateCommitDetailsViewMode("tree")
                                     }
                                     type="button"
                                   >
@@ -12132,10 +12360,14 @@ export function RepoInfo() {
                                   </button>
                                 </div>
                               </div>
-                              <label className="inline-flex items-center gap-2 text-muted-foreground text-xs">
+                              <label
+                                className="inline-flex items-center gap-2 text-muted-foreground text-xs"
+                                htmlFor="commit-details-panel-show-all-files"
+                              >
                                 <Checkbox
                                   checked={showAllCommitFiles}
                                   className="shrink-0"
+                                  id="commit-details-panel-show-all-files"
                                   onCheckedChange={(checked) => {
                                     setShowAllCommitFilesState(
                                       checked === true
@@ -12150,7 +12382,7 @@ export function RepoInfo() {
                                 <Input
                                   className="focus-visible:desktop-focus h-7 focus-visible:ring-0! focus-visible:ring-offset-0!"
                                   onChange={(event) => {
-                                    setCommitFileFilterInputValue(
+                                    updateCommitFileFilterInputValue(
                                       event.target.value
                                     );
                                   }}
@@ -12259,7 +12491,7 @@ export function RepoInfo() {
 
                                   return (
                                     <>
-                                      {renderCommitTreeNodes(
+                                      {getCommitTreeNodes(
                                         selectedReferenceTree,
                                         selectedReferenceRevision,
                                         0,
@@ -12281,7 +12513,7 @@ export function RepoInfo() {
 
                                 return (
                                   <>
-                                    {renderCommitPathRows(
+                                    {getCommitPathRows(
                                       sortedSelectedReferencePathRows,
                                       selectedReferenceRevision,
                                       renderBudget
@@ -12311,7 +12543,7 @@ export function RepoInfo() {
                           disabled={
                             !hasAnyWorkingTreeChanges || isDiscardingAllChanges
                           }
-                          onClick={() => setIsDiscardAllConfirmOpen(true)}
+                          onClick={() => updateIsDiscardAllConfirmOpen(true)}
                           size="icon-sm"
                           type="button"
                           variant="ghost"
@@ -12484,7 +12716,7 @@ export function RepoInfo() {
                                 </div>
                               ) : null}
                               <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-                                {renderAllFilesSectionContent()}
+                                {getAllFilesSectionContent()}
                               </div>
                             </section>
                           ) : (
@@ -12543,7 +12775,7 @@ export function RepoInfo() {
 
                                 {isUnstagedSectionCollapsed ? null : (
                                   <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                                    {renderChangesSectionContent(
+                                    {getChangesSectionContent(
                                       unstagedItems,
                                       unstagedTree,
                                       "unstaged"
@@ -12607,7 +12839,7 @@ export function RepoInfo() {
 
                                 {isStagedSectionCollapsed ? null : (
                                   <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
-                                    {renderChangesSectionContent(
+                                    {getChangesSectionContent(
                                       stagedItems,
                                       stagedTree,
                                       "staged"
@@ -12672,8 +12904,8 @@ export function RepoInfo() {
                             className="focus-visible:desktop-focus h-7 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
                             id="commit-summary"
                             onChange={(event) => {
-                              setDraftCommitSummary(event.target.value);
-                              setLastAiCommitGeneration(null);
+                              updateDraftCommitSummary(event.target.value);
+                              updateLastAiCommitGeneration(null);
                             }}
                             placeholder="Describe your changes"
                             ref={commitSummaryInputRef}
@@ -12708,8 +12940,8 @@ export function RepoInfo() {
                             className="focus-visible:desktop-focus h-20 w-full resize-none overflow-y-scroll border border-input bg-background px-2.5 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground placeholder:text-xs"
                             id="commit-description"
                             onChange={(event) => {
-                              setDraftCommitDescription(event.target.value);
-                              setLastAiCommitGeneration(null);
+                              updateDraftCommitDescription(event.target.value);
+                              updateLastAiCommitGeneration(null);
                             }}
                             placeholder="Optional details..."
                             value={draftCommitDescription}
@@ -12719,7 +12951,9 @@ export function RepoInfo() {
                           <button
                             className="focus-visible:desktop-focus inline-flex items-center gap-1 font-medium text-muted-foreground text-xs"
                             onClick={() =>
-                              setIsCommitOptionsCollapsed((current) => !current)
+                              updateIsCommitOptionsCollapsed(
+                                (current) => !current
+                              )
                             }
                             type="button"
                           >
@@ -12732,28 +12966,32 @@ export function RepoInfo() {
                           </button>
                           {isCommitOptionsCollapsed ? null : (
                             <div className="mt-2 space-y-2">
-                              <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                              <label
+                                className="inline-flex min-h-5 items-center gap-2 text-xs"
+                                htmlFor="commit-option-amend-previous"
+                              >
                                 <Checkbox
                                   checked={amendPreviousCommit}
                                   className="shrink-0"
+                                  id="commit-option-amend-previous"
                                   onCheckedChange={(checked) => {
                                     const shouldAmend = checked === true;
-                                    setAmendPreviousCommit(shouldAmend);
+                                    updateAmendPreviousCommit(shouldAmend);
 
                                     if (!shouldAmend) {
                                       const previousDraft =
                                         preAmendDraftRef.current;
 
                                       if (previousDraft) {
-                                        setDraftCommitSummary(
+                                        updateDraftCommitSummary(
                                           previousDraft.summary
                                         );
-                                        setDraftCommitDescription(
+                                        updateDraftCommitDescription(
                                           previousDraft.description
                                         );
                                       } else {
-                                        setDraftCommitSummary("");
-                                        setDraftCommitDescription("");
+                                        updateDraftCommitSummary("");
+                                        updateDraftCommitDescription("");
                                       }
 
                                       preAmendDraftRef.current = null;
@@ -12775,10 +13013,10 @@ export function RepoInfo() {
                                           return;
                                         }
 
-                                        setDraftCommitSummary(
+                                        updateDraftCommitSummary(
                                           latestCommitMessage.summary
                                         );
-                                        setDraftCommitDescription(
+                                        updateDraftCommitDescription(
                                           latestCommitMessage.description
                                         );
                                       })
@@ -12788,22 +13026,30 @@ export function RepoInfo() {
                                 Amend previous commit
                               </label>
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                                <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                                <label
+                                  className="inline-flex min-h-5 items-center gap-2 text-xs"
+                                  htmlFor="commit-option-push-after"
+                                >
                                   <Checkbox
                                     checked={pushAfterCommit}
                                     className="shrink-0"
+                                    id="commit-option-push-after"
                                     onCheckedChange={(checked) =>
-                                      setPushAfterCommit(checked === true)
+                                      updatePushAfterCommit(checked === true)
                                     }
                                   />
                                   Push after committing
                                 </label>
-                                <label className="inline-flex min-h-5 items-center gap-2 text-xs">
+                                <label
+                                  className="inline-flex min-h-5 items-center gap-2 text-xs"
+                                  htmlFor="commit-option-skip-hooks"
+                                >
                                   <Checkbox
                                     checked={skipCommitHooks}
                                     className="shrink-0"
+                                    id="commit-option-skip-hooks"
                                     onCheckedChange={(checked) =>
-                                      setSkipCommitHooks(checked === true)
+                                      updateSkipCommitHooks(checked === true)
                                     }
                                   />
                                   Skip Git hooks
@@ -12837,11 +13083,11 @@ export function RepoInfo() {
             return;
           }
 
-          setIsRenameBranchDialogOpen(open);
+          updateIsRenameBranchDialogOpen(open);
 
           if (!open) {
-            setRenameBranchSourceName(null);
-            setRenameBranchTargetName("");
+            updateRenameBranchSourceName(null);
+            updateRenameBranchTargetName("");
           }
         }}
         open={isRenameBranchDialogOpen}
@@ -12865,7 +13111,7 @@ export function RepoInfo() {
               disabled={isRenamingBranch}
               id="rename-branch-name"
               onChange={(event) =>
-                setRenameBranchTargetName(event.target.value)
+                updateRenameBranchTargetName(event.target.value)
               }
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -12888,9 +13134,9 @@ export function RepoInfo() {
               className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isRenamingBranch}
               onClick={() => {
-                setIsRenameBranchDialogOpen(false);
-                setRenameBranchSourceName(null);
-                setRenameBranchTargetName("");
+                updateIsRenameBranchDialogOpen(false);
+                updateRenameBranchSourceName(null);
+                updateRenameBranchTargetName("");
               }}
               type="button"
               variant="outline"
@@ -12918,13 +13164,13 @@ export function RepoInfo() {
             return;
           }
 
-          setIsSetUpstreamDialogOpen(open);
+          updateIsSetUpstreamDialogOpen(open);
 
           if (!open) {
-            setSetUpstreamLocalBranchName(null);
-            setSetUpstreamRemoteName("");
-            setSetUpstreamRemoteBranchName("");
-            setSetUpstreamFormError(null);
+            updateSetUpstreamLocalBranchName(null);
+            updateSetUpstreamRemoteName("");
+            updateSetUpstreamRemoteBranchName("");
+            updateSetUpstreamFormError(null);
           }
         }}
         open={isSetUpstreamDialogOpen}
@@ -12946,8 +13192,8 @@ export function RepoInfo() {
               <Select
                 disabled={isSettingUpstream}
                 onValueChange={(value) => {
-                  setSetUpstreamRemoteName(value ?? "");
-                  setSetUpstreamFormError(null);
+                  updateSetUpstreamRemoteName(value ?? "");
+                  updateSetUpstreamFormError(null);
                 }}
                 value={setUpstreamRemoteName}
               >
@@ -12970,8 +13216,8 @@ export function RepoInfo() {
                 disabled={isSettingUpstream}
                 id="set-upstream-target-branch"
                 onChange={(event) => {
-                  setSetUpstreamRemoteBranchName(event.target.value);
-                  setSetUpstreamFormError(null);
+                  updateSetUpstreamRemoteBranchName(event.target.value);
+                  updateSetUpstreamFormError(null);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
@@ -12993,11 +13239,11 @@ export function RepoInfo() {
               className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isSettingUpstream}
               onClick={() => {
-                setIsSetUpstreamDialogOpen(false);
-                setSetUpstreamLocalBranchName(null);
-                setSetUpstreamRemoteName("");
-                setSetUpstreamRemoteBranchName("");
-                setSetUpstreamFormError(null);
+                updateIsSetUpstreamDialogOpen(false);
+                updateSetUpstreamLocalBranchName(null);
+                updateSetUpstreamRemoteName("");
+                updateSetUpstreamRemoteBranchName("");
+                updateSetUpstreamFormError(null);
               }}
               type="button"
               variant="outline"
@@ -13027,12 +13273,12 @@ export function RepoInfo() {
             return;
           }
 
-          setIsCreateRefBranchDialogOpen(open);
+          updateIsCreateRefBranchDialogOpen(open);
 
           if (!open) {
-            setCreateRefBranchTarget(null);
-            setCreateRefBranchLabel("");
-            setCreateRefBranchName("");
+            updateCreateRefBranchTarget(null);
+            updateCreateRefBranchLabel("");
+            updateCreateRefBranchName("");
           }
         }}
         open={isCreateRefBranchDialogOpen}
@@ -13057,7 +13303,7 @@ export function RepoInfo() {
               disabled={isCreatingRefBranch}
               id="create-ref-branch-name"
               onChange={(event) => {
-                setCreateRefBranchName(event.target.value);
+                updateCreateRefBranchName(event.target.value);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -13074,7 +13320,7 @@ export function RepoInfo() {
               className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isCreatingRefBranch}
               onClick={() => {
-                setIsCreateRefBranchDialogOpen(false);
+                updateIsCreateRefBranchDialogOpen(false);
               }}
               type="button"
               variant="outline"
@@ -13102,13 +13348,13 @@ export function RepoInfo() {
             return;
           }
 
-          setIsCreateTagDialogOpen(open);
+          updateIsCreateTagDialogOpen(open);
 
           if (!open) {
-            setCreateTagTarget(null);
-            setCreateTagTargetLabel("");
-            setCreateTagNameValue("");
-            setCreateTagAnnotated(false);
+            updateCreateTagTarget(null);
+            updateCreateTagTargetLabel("");
+            updateCreateTagNameValue("");
+            updateCreateTagAnnotated(false);
           }
         }}
         open={isCreateTagDialogOpen}
@@ -13137,7 +13383,7 @@ export function RepoInfo() {
               disabled={isCreatingTagAtReference}
               id="create-tag-name"
               onChange={(event) => {
-                setCreateTagNameValue(event.target.value);
+                updateCreateTagNameValue(event.target.value);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -13154,7 +13400,7 @@ export function RepoInfo() {
               className="focus-visible:desktop-focus focus-visible:ring-0! focus-visible:ring-offset-0!"
               disabled={isCreatingTagAtReference}
               onClick={() => {
-                setIsCreateTagDialogOpen(false);
+                updateIsCreateTagDialogOpen(false);
               }}
               type="button"
               variant="outline"
@@ -13187,18 +13433,18 @@ export function RepoInfo() {
             return;
           }
 
-          setIsSubmittingPublishRepo(true);
-          setPublishRepoFormError(null);
+          updateIsSubmittingPublishRepo(true);
+          updatePublishRepoFormError(null);
 
           try {
             await pendingAction(publishOptions);
             pendingPublishPushActionRef.current = null;
-            setIsPublishRepoConfirmOpen(false);
+            updateIsPublishRepoConfirmOpen(false);
           } catch (error) {
-            setPublishRepoFormError(getErrorMessage(error));
+            updatePublishRepoFormError(getErrorMessage(error));
             throw error;
           } finally {
-            setIsSubmittingPublishRepo(false);
+            updateIsSubmittingPublishRepo(false);
           }
         }}
         onOpenChange={(open) => {
@@ -13206,11 +13452,11 @@ export function RepoInfo() {
             return;
           }
 
-          setIsPublishRepoConfirmOpen(open);
+          updateIsPublishRepoConfirmOpen(open);
 
           if (!open) {
             pendingPublishPushActionRef.current = null;
-            setPublishRepoFormError(null);
+            updatePublishRepoFormError(null);
           }
         }}
         open={isPublishRepoConfirmOpen}
@@ -13221,12 +13467,12 @@ export function RepoInfo() {
             return;
           }
 
-          setIsResetConfirmOpen(open);
+          updateIsResetConfirmOpen(open);
 
           if (!open) {
-            setResetTarget(null);
-            setResetTargetLabel("");
-            setResetTargetMode("mixed");
+            updateResetTarget(null);
+            updateResetTargetLabel("");
+            updateResetTargetMode("mixed");
           }
         }}
         open={isResetConfirmOpen}
@@ -13265,11 +13511,11 @@ export function RepoInfo() {
             return;
           }
 
-          setIsDropCommitConfirmOpen(open);
+          updateIsDropCommitConfirmOpen(open);
 
           if (!open) {
-            setPendingDropCommitHash(null);
-            setPendingDropCommitLabel("");
+            updatePendingDropCommitHash(null);
+            updatePendingDropCommitLabel("");
           }
         }}
         open={isDropCommitConfirmOpen}
@@ -13304,12 +13550,12 @@ export function RepoInfo() {
       </AlertDialog>
       <AlertDialog
         onOpenChange={(open) => {
-          setIsUnsavedEditConfirmOpen(open);
+          updateIsUnsavedEditConfirmOpen(open);
 
           if (!open) {
-            setPendingWorkspaceMode(null);
-            setPendingOpenDiffContext(null);
-            setPendingCloseDiffPanel(false);
+            updatePendingWorkspaceMode(null);
+            updatePendingOpenDiffContext(null);
+            updatePendingCloseDiffPanel(false);
           }
         }}
         open={isUnsavedEditConfirmOpen}
@@ -13341,7 +13587,7 @@ export function RepoInfo() {
             return;
           }
 
-          setIsDiscardAllConfirmOpen(open);
+          updateIsDiscardAllConfirmOpen(open);
         }}
         open={isDiscardAllConfirmOpen}
       >
@@ -13378,12 +13624,12 @@ export function RepoInfo() {
             return;
           }
 
-          setIsDeleteBranchConfirmOpen(open);
+          updateIsDeleteBranchConfirmOpen(open);
 
           if (!open) {
-            setPendingDeleteBranchName(null);
-            setPendingDeleteBranchRemoteName(null);
-            setIsDeleteRemoteBranch(false);
+            updatePendingDeleteBranchName(null);
+            updatePendingDeleteBranchRemoteName(null);
+            updateIsDeleteRemoteBranch(false);
           }
         }}
         open={isDeleteBranchConfirmOpen}
@@ -13424,7 +13670,7 @@ export function RepoInfo() {
             return;
           }
 
-          setIsForcePushConfirmOpen(open);
+          updateIsForcePushConfirmOpen(open);
 
           if (!open) {
             pendingForcePushActionRef.current = null;

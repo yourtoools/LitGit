@@ -23,9 +23,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { useTheme } from "next-themes";
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
-import { renderHeaderTabsCommandIcon } from "@/components/shell/header-tabs-search-icons";
+import { getHeaderTabsCommandIcon } from "@/components/shell/header-tabs-search-icons";
 import {
   type HeaderTabsCommandPaletteItem,
   type HeaderTabsSearchTabItem,
@@ -43,6 +43,7 @@ import {
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
 import { useLauncherActions } from "@/hooks/use-launcher-actions";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   getChangeRepositoryShortcutKeys,
   getCloseTabShortcutLabel,
@@ -114,21 +115,21 @@ export function HeaderTabsSearch() {
   const toggleSearch = useTabSearchStore((state) => state.toggle);
   const setSearchMode = useTabSearchStore((state) => state.setMode);
   const closeSearch = useTabSearchStore((state) => state.close);
-  const [query, setQuery] = useState("");
+  const [query, updateQuery] = useReducerState("");
   const wasOpenRef = useRef(isOpen);
   const ignoredSelectedInputValueRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
-      setQuery("");
+      updateQuery("");
     } else if (!wasOpenRef.current && mode === "commands") {
-      setQuery((currentQuery) =>
+      updateQuery((currentQuery) =>
         currentQuery.length === 0 ? ">" : currentQuery
       );
     }
 
     wasOpenRef.current = isOpen;
-  }, [isOpen, mode]);
+  }, [isOpen, mode, updateQuery]);
 
   const normalizedDebouncedQuery = useDebouncedValue(
     query,
@@ -167,13 +168,16 @@ export function HeaderTabsSearch() {
   const createStash = useRepoStore((state) => state.createStash);
   const createBranch = useRepoStore((state) => state.createBranch);
   const { activeRepo, activeRepoId } = useRootActiveRepoContext();
-  const [launcherApplications, setLauncherApplications] = useState<
+  const [launcherApplications, updateLauncherApplications] = useReducerState<
     ExternalLauncherApp[]
   >([]);
-  const [branchName, setBranchName] = useState("");
-  const [branchNameError, setBranchNameError] = useState<string | null>(null);
-  const [isBranchDialogOpen, setIsBranchDialogOpen] = useState(false);
-  const [isCreateLocalDialogOpen, setIsCreateLocalDialogOpen] = useState(false);
+  const [branchName, updateBranchName] = useReducerState("");
+  const [branchNameError, updateBranchNameError] = useReducerState<
+    string | null
+  >(null);
+  const [isBranchDialogOpen, updateIsBranchDialogOpen] = useReducerState(false);
+  const [isCreateLocalDialogOpen, updateIsCreateLocalDialogOpen] =
+    useReducerState(false);
   const stashes = useRepoStashes(activeRepoId);
   const workingTreeItems = useRepoWorkingTreeItems(activeRepoId);
   const undoDepth = useRepoUndoDepth(activeRepoId);
@@ -210,11 +214,11 @@ export function HeaderTabsSearch() {
         const nextApplications = await getLauncherApplications();
 
         if (!isDisposed) {
-          setLauncherApplications(nextApplications);
+          updateLauncherApplications(nextApplications);
         }
       } catch {
         if (!isDisposed) {
-          setLauncherApplications([]);
+          updateLauncherApplications([]);
         }
       }
     };
@@ -224,14 +228,14 @@ export function HeaderTabsSearch() {
     return () => {
       isDisposed = true;
     };
-  }, [tauriRuntime]);
+  }, [tauriRuntime, updateLauncherApplications]);
 
   useEffect(() => {
     if (!isBranchDialogOpen) {
-      setBranchName("");
-      setBranchNameError(null);
+      updateBranchName("");
+      updateBranchNameError(null);
     }
-  }, [isBranchDialogOpen]);
+  }, [isBranchDialogOpen, updateBranchNameError, updateBranchName]);
 
   const {
     dialogContent,
@@ -705,7 +709,7 @@ export function HeaderTabsSearch() {
       ReturnType<typeof searchHeaderTabsPalette>
     >
   > | null>(null);
-  const [searchResults, setSearchResults] = useState(() =>
+  const [searchResults, updateSearchResults] = useReducerState(() =>
     searchHeaderTabsPalette({
       closedItems: [],
       commands: [],
@@ -760,7 +764,7 @@ export function HeaderTabsSearch() {
     runWorkerTask(workerClient, nextInput, searchHeaderTabsPalette).then(
       (result) => {
         if (!cancelled) {
-          setSearchResults(result);
+          updateSearchResults(result);
         }
       },
       () => undefined
@@ -769,7 +773,13 @@ export function HeaderTabsSearch() {
     return () => {
       cancelled = true;
     };
-  }, [commands, normalizedCommandQuery, normalizedDebouncedQuery, parsedItems]);
+  }, [
+    commands,
+    normalizedCommandQuery,
+    normalizedDebouncedQuery,
+    parsedItems,
+    updateSearchResults,
+  ]);
 
   const { commandGroups, filteredClosed, filteredCommands, filteredOpen } =
     searchResults;
@@ -794,7 +804,7 @@ export function HeaderTabsSearch() {
 
       if (isOpen) {
         setSearchMode("commands");
-        setQuery((currentQuery) =>
+        updateQuery((currentQuery) =>
           currentQuery.startsWith(">") ? currentQuery : `>${currentQuery}`
         );
       } else {
@@ -860,7 +870,7 @@ export function HeaderTabsSearch() {
         return;
       }
       case "search-tabs": {
-        setQuery("");
+        updateQuery("");
         openSearch("tabs");
         return;
       }
@@ -873,7 +883,7 @@ export function HeaderTabsSearch() {
         return;
       }
       case "create-local-repository": {
-        setIsCreateLocalDialogOpen(true);
+        updateIsCreateLocalDialogOpen(true);
         return;
       }
       case "create-branch": {
@@ -881,7 +891,7 @@ export function HeaderTabsSearch() {
           return;
         }
 
-        setIsBranchDialogOpen(true);
+        updateIsBranchDialogOpen(true);
         return;
       }
       case "open-repository": {
@@ -1111,15 +1121,15 @@ export function HeaderTabsSearch() {
     const trimmedBranchName = branchName.trim();
 
     if (trimmedBranchName.length === 0) {
-      setBranchNameError("Enter a branch name.");
+      updateBranchNameError("Enter a branch name.");
       return;
     }
 
     try {
       await createBranch(activeRepoId, trimmedBranchName);
-      setIsBranchDialogOpen(false);
+      updateIsBranchDialogOpen(false);
     } catch (error) {
-      setBranchNameError(
+      updateBranchNameError(
         error instanceof Error ? error.message : "Failed to create branch"
       );
     }
@@ -1155,12 +1165,12 @@ export function HeaderTabsSearch() {
 
               if (nextInputValue.startsWith(">")) {
                 setSearchMode("commands");
-                setQuery(nextInputValue);
+                updateQuery(nextInputValue);
                 return;
               }
 
               setSearchMode("tabs");
-              setQuery(nextInputValue);
+              updateQuery(nextInputValue);
             }}
             onValueChange={(value) => {
               handleSelect(value).catch(() => undefined);
@@ -1168,7 +1178,6 @@ export function HeaderTabsSearch() {
           >
             <div className="border-b px-3 py-1.5">
               <ComboboxInput
-                autoFocus
                 className="flex h-7 w-full bg-transparent text-xs outline-hidden placeholder:text-muted-foreground"
                 onKeyDown={(event) => {
                   if (event.key !== "Escape") {
@@ -1216,7 +1225,7 @@ export function HeaderTabsSearch() {
                           key={item.id}
                           value={item}
                         >
-                          {renderHeaderTabsCommandIcon(item.id, resolvedTheme)}
+                          {getHeaderTabsCommandIcon(item.id, resolvedTheme)}
                           <div className="min-w-0 flex-1">
                             <div className="truncate font-medium">
                               {item.label}
@@ -1307,11 +1316,11 @@ export function HeaderTabsSearch() {
       />
 
       <RepositoryStartLocalDialog
-        onOpenChange={setIsCreateLocalDialogOpen}
+        onOpenChange={updateIsCreateLocalDialogOpen}
         open={isCreateLocalDialogOpen}
       />
 
-      <Dialog onOpenChange={setIsBranchDialogOpen} open={isBranchDialogOpen}>
+      <Dialog onOpenChange={updateIsBranchDialogOpen} open={isBranchDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create Branch</DialogTitle>
@@ -1322,12 +1331,11 @@ export function HeaderTabsSearch() {
           <div className="space-y-2">
             <Label htmlFor="command-palette-branch-name">Branch name</Label>
             <Input
-              autoFocus
               id="command-palette-branch-name"
               onChange={(event) => {
-                setBranchName(event.target.value);
+                updateBranchName(event.target.value);
                 if (branchNameError) {
-                  setBranchNameError(null);
+                  updateBranchNameError(null);
                 }
               }}
               onKeyDown={(event) => {
@@ -1347,7 +1355,7 @@ export function HeaderTabsSearch() {
           </div>
           <DialogFooter>
             <Button
-              onClick={() => setIsBranchDialogOpen(false)}
+              onClick={() => updateIsBranchDialogOpen(false)}
               type="button"
               variant="outline"
             >

@@ -129,11 +129,13 @@ export function GitAuthDialog({
     [flowState, onContinue]
   );
 
-  useEffect(() => {
+  const loadStatusesWhenOpen = useCallback(() => {
     if (open) {
       loadStatuses();
     }
   }, [open, loadStatuses]);
+
+  useEffect(loadStatusesWhenOpen, [loadStatusesWhenOpen]);
 
   useEffect(() => {
     const unlisten = listen("oauth-callback", (event) => {

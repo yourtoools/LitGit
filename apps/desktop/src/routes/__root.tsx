@@ -7,7 +7,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { GlobalGitAuthDialog } from "@/components/auth/global-git-auth-dialog";
 import { RootShell } from "@/components/layout/root-shell";
 import { ThemeProvider } from "@/components/providers/theme-provider";
@@ -35,7 +35,7 @@ import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 
 import "@/styles/index.css";
 
-export interface RouterAppContext extends Record<string, never> {}
+interface RouterAppContext extends Record<string, never> {}
 
 export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootComponent,
@@ -188,11 +188,13 @@ function RootPreferenceEffects() {
     }
   }, [lastNonSettingsRoute, pathname, setLastNonSettingsRoute]);
 
-  useEffect(() => {
+  const applyThemePreference = useCallback(() => {
     if (theme) {
       setTheme(theme);
     }
   }, [setTheme, theme]);
+
+  useEffect(applyThemePreference, [applyThemePreference]);
 
   useEffect(() => {
     if (

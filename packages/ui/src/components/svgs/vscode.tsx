@@ -10,7 +10,6 @@ const Vscode = ({ title = "VS Code", ...props }: VscodeProps) => (
     <mask
       height="100"
       id="a"
-      mask-type="alpha"
       maskUnits="userSpaceOnUse"
       width="100"
       x="0"

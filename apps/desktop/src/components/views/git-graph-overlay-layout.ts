@@ -9,7 +9,7 @@ import type {
   RepositoryCommitGraphPayload,
 } from "@/stores/repo/repo-store-types";
 
-export interface GitGraphOverlayLayoutHitTarget {
+interface GitGraphOverlayLayoutHitTarget {
   ariaLabel: string;
   id: string;
   rowId: string;

@@ -23,13 +23,13 @@ export type SettingsSectionId =
   | "network"
   | "ai";
 
-export interface GeneralPreferences {
+interface GeneralPreferences {
   autoFetchIntervalMinutes: number;
   defaultBranchName: string;
   rememberTabs: boolean;
 }
 
-export interface UiPreferences {
+interface UiPreferences {
   dateFormat: DateFormatPreset;
   locale: string;
   repoFileBrowserByRepoId: Record<string, RepoFileBrowserState>;
@@ -113,13 +113,13 @@ export interface EditorPreferences {
   wordWrap: "off" | "on";
 }
 
-export interface SshPreferences {
+interface SshPreferences {
   privateKeyPath: string;
   publicKeyPath: string;
   useLocalAgent: boolean;
 }
 
-export interface ProviderIntegration {
+interface ProviderIntegration {
   avatarUrl: string | null;
   connected: boolean;
   displayName: string | null;
@@ -133,20 +133,20 @@ export interface ProviderIntegration {
   useSystemAgent: boolean;
 }
 
-export interface IntegrationsPreferences {
+interface IntegrationsPreferences {
   bitbucket: ProviderIntegration;
   github: ProviderIntegration;
   gitlab: ProviderIntegration;
 }
 
-export interface SigningPreferences {
+interface SigningPreferences {
   gpgProgramPath: string;
   signCommitsByDefault: boolean;
   signingFormat: "gpg" | "ssh";
   signingKey: string;
 }
 
-export interface NetworkPreferences {
+interface NetworkPreferences {
   enableProxy: boolean;
   proxyAuthEnabled: boolean;
   proxyAuthSecretStorageMode: "secure" | "session" | null;
@@ -159,7 +159,7 @@ export interface NetworkPreferences {
   useGitCredentialManager: boolean;
 }
 
-export interface AiPreferences {
+interface AiPreferences {
   availableModels: Array<{ id: string; label: string }>;
   commitInstruction: string;
   customEndpoint: string;
@@ -169,7 +169,7 @@ export interface AiPreferences {
   provider: "openai" | "anthropic" | "azure" | "google" | "ollama" | "custom";
 }
 
-export type AiProvider = AiPreferences["provider"];
+type AiProvider = AiPreferences["provider"];
 
 const DEFAULT_PROVIDER_INTEGRATION: ProviderIntegration = {
   connected: false,
@@ -201,10 +201,10 @@ export interface AppPreferences {
   ui: UiPreferences;
 }
 
-export const DEFAULT_TERMINAL_FONT_FAMILY =
+export const DEFAULT_EDITOR_FONT_FAMILY =
   "JetBrains Mono Variable, JetBrains Mono, monospace";
 
-export const DEFAULT_EDITOR_FONT_FAMILY = DEFAULT_TERMINAL_FONT_FAMILY;
+const DEFAULT_TERMINAL_FONT_FAMILY = DEFAULT_EDITOR_FONT_FAMILY;
 
 export const AUTO_FETCH_INTERVAL_LIMITS = {
   max: 60,

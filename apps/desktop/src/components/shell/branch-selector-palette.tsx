@@ -12,13 +12,14 @@ import { Input } from "@litgit/ui/components/input";
 import { cn } from "@litgit/ui/lib/utils";
 import { GitBranchIcon, PlusIcon, TagIcon, XIcon } from "@phosphor-icons/react";
 import { matchSorter } from "match-sorter";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   normalizeComboboxQuery,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   useRepoActions,
   useRepoActiveContext,
@@ -72,12 +73,10 @@ function BranchPaletteClearButton({ onClear }: { onClear: () => void }) {
 }
 
 function BranchSearchInput({
-  autoFocus = false,
   onClear,
   placeholder,
   query,
 }: {
-  autoFocus?: boolean;
   onClear: () => void;
   placeholder: string;
   query: string;
@@ -85,7 +84,6 @@ function BranchSearchInput({
   return (
     <div className="border-b px-3 py-1.5">
       <ComboboxInput
-        autoFocus={autoFocus}
         className="flex h-7 w-full bg-transparent text-xs outline-hidden placeholder:text-muted-foreground **:data-[slot=input-group-control]:pr-7"
         placeholder={placeholder}
         showClear={false}
@@ -158,13 +156,13 @@ export function BranchSelectorPalette() {
     useRepoActions();
   const branches = useRepoBranches(activeRepoId);
 
-  const [mode, setMode] = useState<BranchPaletteMode>("browse");
-  const [query, setQuery] = useState("");
-  const [newBranchName, setNewBranchName] = useState("");
-  const [createBranchError, setCreateBranchError] = useState<string | null>(
-    null
-  );
-  const [sourceRef, setSourceRef] = useState<string | null>(null);
+  const [mode, updateMode] = useReducerState<BranchPaletteMode>("browse");
+  const [query, updateQuery] = useReducerState("");
+  const [newBranchName, updateNewBranchName] = useReducerState("");
+  const [createBranchError, updateCreateBranchError] = useReducerState<
+    string | null
+  >(null);
+  const [sourceRef, updateSourceRef] = useReducerState<string | null>(null);
   const ignoredInputValueRef = useRef<null | string>(null);
   const normalizedDebouncedQuery = useDebouncedValue(
     query,
@@ -216,12 +214,19 @@ export function BranchSelectorPalette() {
       return;
     }
 
-    setMode("browse");
-    setQuery("");
-    setNewBranchName("");
-    setCreateBranchError(null);
-    setSourceRef(null);
-  }, [isOpen]);
+    updateMode("browse");
+    updateQuery("");
+    updateNewBranchName("");
+    updateCreateBranchError(null);
+    updateSourceRef(null);
+  }, [
+    isOpen,
+    updateMode,
+    updateSourceRef,
+    updateQuery,
+    updateNewBranchName,
+    updateCreateBranchError,
+  ]);
 
   const itemToStringLabel = (item: BranchPaletteItem) =>
     isBranchPaletteAction(item) ? item.label : item.name;
@@ -233,7 +238,7 @@ export function BranchSelectorPalette() {
     }
 
     ignoredInputValueRef.current = null;
-    setQuery(nextInputValue);
+    updateQuery(nextInputValue);
   };
 
   const handleBranchSelection = async (item: BranchPaletteItem | null) => {
@@ -244,25 +249,25 @@ export function BranchSelectorPalette() {
     ignoredInputValueRef.current = itemToStringLabel(item);
 
     if (isBranchPaletteAction(item)) {
-      setQuery("");
-      setCreateBranchError(null);
+      updateQuery("");
+      updateCreateBranchError(null);
 
       if (item.id === CREATE_BRANCH_ACTION.id) {
-        setSourceRef(null);
-        setMode("enter-name");
+        updateSourceRef(null);
+        updateMode("enter-name");
         return;
       }
 
-      setSourceRef(null);
-      setMode("pick-source");
+      updateSourceRef(null);
+      updateMode("pick-source");
       return;
     }
 
     if (mode === "pick-source") {
-      setSourceRef(item.name);
-      setQuery("");
-      setCreateBranchError(null);
-      setMode("enter-name");
+      updateSourceRef(item.name);
+      updateQuery("");
+      updateCreateBranchError(null);
+      updateMode("enter-name");
       return;
     }
 
@@ -285,7 +290,7 @@ export function BranchSelectorPalette() {
     const trimmedBranchName = newBranchName.trim();
 
     if (trimmedBranchName.length === 0) {
-      setCreateBranchError("Branch name is required");
+      updateCreateBranchError("Branch name is required");
       return;
     }
 
@@ -303,7 +308,7 @@ export function BranchSelectorPalette() {
       toast.success(`Created and switched to ${trimmedBranchName}`);
       closePalette();
     } catch (error) {
-      setCreateBranchError(
+      updateCreateBranchError(
         error instanceof Error ? error.message : "Failed to create branch"
       );
     }
@@ -351,11 +356,10 @@ export function BranchSelectorPalette() {
         {mode === "enter-name" ? (
           <div className="flex flex-col gap-2 px-3 pt-1.5">
             <Input
-              autoFocus
               className="h-7 text-xs"
               onChange={(event) => {
-                setNewBranchName(event.target.value);
-                setCreateBranchError(null);
+                updateNewBranchName(event.target.value);
+                updateCreateBranchError(null);
               }}
               onKeyDown={handleBranchNameKeyDown}
               placeholder="Please provide a new branch name"
@@ -380,9 +384,8 @@ export function BranchSelectorPalette() {
             }}
           >
             <BranchSearchInput
-              autoFocus
               onClear={() => {
-                setQuery("");
+                updateQuery("");
               }}
               placeholder={
                 mode === "pick-source"

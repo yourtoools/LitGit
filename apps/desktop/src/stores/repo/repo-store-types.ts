@@ -1,6 +1,6 @@
 import type { Provider } from "@/lib/tauri-integrations-client";
 
-export interface PickedRepository {
+interface PickedRepository {
   name: string;
   path: string;
 }
@@ -41,7 +41,7 @@ export interface GitIdentityStatus {
   repoPath: string | null;
 }
 
-export type GitIdentityScope = "global" | "local";
+type GitIdentityScope = "global" | "local";
 
 export interface GitIdentityWriteInput {
   email: string;
@@ -93,7 +93,7 @@ export interface RepositoryCommit {
 
 export type RepositoryCommitSyncState = "normal" | "pullable";
 
-export interface RepositoryCommitGraphNode {
+interface RepositoryCommitGraphNode {
   color: string;
   lane: number;
   parentLanes: number[];
@@ -265,7 +265,7 @@ export interface RepositoryFileBlamePayload {
   revision: string;
 }
 
-export type OpenRepositoryResult =
+type OpenRepositoryResult =
   | {
       repository: OpenedRepository;
       status: "opened";

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export interface AiGenerationMetrics {
+interface AiGenerationMetrics {
   failureCount: number;
   fastPromptCount: number;
   fullPromptCount: number;

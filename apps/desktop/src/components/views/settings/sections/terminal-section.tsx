@@ -6,7 +6,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@litgit/ui/components/select";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   BUNDLED_FONT_OPTIONS,
   ensureSelectedOption,
@@ -36,9 +36,10 @@ import {
   normalizeComboboxQuery,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clampTerminalFontSize,
-  DEFAULT_TERMINAL_FONT_FAMILY,
+  DEFAULT_EDITOR_FONT_FAMILY as DEFAULT_TERMINAL_FONT_FAMILY,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 
@@ -65,22 +66,24 @@ function TerminalSection({ query }: { query: string }) {
   const setLineHeight = usePreferencesStore(
     (state) => state.setTerminalLineHeight
   );
-  const [systemTerminalFonts, setSystemTerminalFonts] = useState<
+  const [systemTerminalFonts, updateSystemTerminalFonts] = useReducerState<
     readonly FontPickerOption[]
   >([]);
-  const [terminalFontStatus, setTerminalFontStatus] =
-    useState<SystemFontReadResult["status"]>("available");
-  const [isLoadingTerminalFonts, setIsLoadingTerminalFonts] = useState(false);
-  const [hasLoadedTerminalFonts, setHasLoadedTerminalFonts] = useState(false);
-  const [terminalFontQuery, setTerminalFontQuery] = useState("");
+  const [terminalFontStatus, updateTerminalFontStatus] =
+    useReducerState<SystemFontReadResult["status"]>("available");
+  const [isLoadingTerminalFonts, updateIsLoadingTerminalFonts] =
+    useReducerState(false);
+  const [hasLoadedTerminalFonts, updateHasLoadedTerminalFonts] =
+    useReducerState(false);
+  const [terminalFontQuery, updateTerminalFontQuery] = useReducerState("");
   const debouncedTerminalFontQuery = useDebouncedValue(
     terminalFontQuery,
     COMBOBOX_DEBOUNCE_DELAY_MS
   );
-  const [terminalFontSizeInput, setTerminalFontSizeInput] = useState(() =>
-    String(fontSize)
+  const [terminalFontSizeInput, updateTerminalFontSizeInput] = useReducerState(
+    () => String(fontSize)
   );
-  const [previewSidebarWidth, setPreviewSidebarWidth] = useState(
+  const [previewSidebarWidth, updatePreviewSidebarWidth] = useReducerState(
     getInitialTerminalPreviewSidebarWidth
   );
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
@@ -142,26 +145,33 @@ function TerminalSection({ query }: { query: string }) {
   }, [fontFamily, setFontFamily, terminalFonts]);
 
   useEffect(() => {
-    setTerminalFontSizeInput(String(fontSize));
-  }, [fontSize]);
+    updateTerminalFontSizeInput(String(fontSize));
+  }, [fontSize, updateTerminalFontSizeInput]);
 
   const loadTerminalFonts = useCallback(() => {
     if (hasLoadedTerminalFonts || isLoadingTerminalFonts) {
       return;
     }
 
-    setIsLoadingTerminalFonts(true);
+    updateIsLoadingTerminalFonts(true);
     readSystemFontFamilies()
       .then((result) => {
-        setSystemTerminalFonts(result.options);
-        setTerminalFontStatus(result.status);
-        setHasLoadedTerminalFonts(true);
+        updateSystemTerminalFonts(result.options);
+        updateTerminalFontStatus(result.status);
+        updateHasLoadedTerminalFonts(true);
       })
       .catch(() => undefined)
       .finally(() => {
-        setIsLoadingTerminalFonts(false);
+        updateIsLoadingTerminalFonts(false);
       });
-  }, [hasLoadedTerminalFonts, isLoadingTerminalFonts]);
+  }, [
+    hasLoadedTerminalFonts,
+    isLoadingTerminalFonts,
+    updateTerminalFontStatus,
+    updateSystemTerminalFonts,
+    updateIsLoadingTerminalFonts,
+    updateHasLoadedTerminalFonts,
+  ]);
 
   useEffect(() => {
     if (hasLoadedTerminalFonts || isLoadingTerminalFonts) {
@@ -178,26 +188,29 @@ function TerminalSection({ query }: { query: string }) {
     []
   );
 
-  const schedulePreviewSidebarWidthUpdate = useCallback((nextWidth: number) => {
-    pendingPreviewSidebarWidthRef.current = nextWidth;
+  const schedulePreviewSidebarWidthUpdate = useCallback(
+    (nextWidth: number) => {
+      pendingPreviewSidebarWidthRef.current = nextWidth;
 
-    if (previewResizeAnimationFrameRef.current !== null) {
-      return;
-    }
-
-    previewResizeAnimationFrameRef.current = window.requestAnimationFrame(
-      () => {
-        const width = pendingPreviewSidebarWidthRef.current;
-
-        previewResizeAnimationFrameRef.current = null;
-        pendingPreviewSidebarWidthRef.current = null;
-
-        if (typeof width === "number") {
-          setPreviewSidebarWidth(width);
-        }
+      if (previewResizeAnimationFrameRef.current !== null) {
+        return;
       }
-    );
-  }, []);
+
+      previewResizeAnimationFrameRef.current = window.requestAnimationFrame(
+        () => {
+          const width = pendingPreviewSidebarWidthRef.current;
+
+          previewResizeAnimationFrameRef.current = null;
+          pendingPreviewSidebarWidthRef.current = null;
+
+          if (typeof width === "number") {
+            updatePreviewSidebarWidth(width);
+          }
+        }
+      );
+    },
+    [updatePreviewSidebarWidth]
+  );
 
   const resetPreviewResizeState = useCallback(() => {
     previewResizeStateRef.current = null;
@@ -256,11 +269,11 @@ function TerminalSection({ query }: { query: string }) {
     );
 
     if (maxWidth <= 0) {
-      setPreviewSidebarWidth(0);
+      updatePreviewSidebarWidth(0);
       return;
     }
 
-    setPreviewSidebarWidth((currentWidth) =>
+    updatePreviewSidebarWidth((currentWidth) =>
       clampWidth(currentWidth + delta, minWidth, maxWidth)
     );
   };
@@ -287,7 +300,7 @@ function TerminalSection({ query }: { query: string }) {
       const { minWidth } = getEditorPreviewResizeBounds(
         getAvailableTerminalWidth()
       );
-      setPreviewSidebarWidth(minWidth);
+      updatePreviewSidebarWidth(minWidth);
       return;
     }
 
@@ -296,7 +309,7 @@ function TerminalSection({ query }: { query: string }) {
       const { maxWidth } = getEditorPreviewResizeBounds(
         getAvailableTerminalWidth()
       );
-      setPreviewSidebarWidth(maxWidth);
+      updatePreviewSidebarWidth(maxWidth);
     }
   };
 
@@ -363,7 +376,7 @@ function TerminalSection({ query }: { query: string }) {
         getAvailableTerminalWidth()
       );
 
-      setPreviewSidebarWidth((currentWidth) => {
+      updatePreviewSidebarWidth((currentWidth) => {
         if (maxWidth <= 0) {
           return 0;
         }
@@ -387,7 +400,7 @@ function TerminalSection({ query }: { query: string }) {
       window.removeEventListener("resize", clampPreviewWidthToViewport);
       resizeObserver.disconnect();
     };
-  }, [getAvailableTerminalWidth]);
+  }, [getAvailableTerminalWidth, updatePreviewSidebarWidth]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -428,10 +441,10 @@ function TerminalSection({ query }: { query: string }) {
             setFontVisibility(checked ? "monospace-only" : "all-fonts");
           }}
           onPickerInteract={loadTerminalFonts}
-          onSearchChange={setTerminalFontQuery}
+          onSearchChange={updateTerminalFontQuery}
           onValueChange={(value) => {
             setFontFamily(value);
-            setTerminalFontQuery("");
+            updateTerminalFontQuery("");
           }}
           options={visibleTerminalFonts}
           query={query}
@@ -453,24 +466,24 @@ function TerminalSection({ query }: { query: string }) {
             min={8}
             onBlur={() => {
               if (terminalFontSizeInput.trim().length === 0) {
-                setTerminalFontSizeInput(String(fontSize));
+                updateTerminalFontSizeInput(String(fontSize));
                 return;
               }
 
               const parsedValue = Number(terminalFontSizeInput);
 
               if (!Number.isFinite(parsedValue)) {
-                setTerminalFontSizeInput(String(fontSize));
+                updateTerminalFontSizeInput(String(fontSize));
                 return;
               }
 
               const clampedValue = clampTerminalFontSize(parsedValue);
               setFontSize(clampedValue);
-              setTerminalFontSizeInput(String(clampedValue));
+              updateTerminalFontSizeInput(String(clampedValue));
             }}
             onChange={(event) => {
               const nextValue = event.target.value;
-              setTerminalFontSizeInput(nextValue);
+              updateTerminalFontSizeInput(nextValue);
 
               if (nextValue.trim().length === 0) {
                 return;

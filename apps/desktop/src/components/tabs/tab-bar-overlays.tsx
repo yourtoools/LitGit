@@ -14,7 +14,7 @@ interface TabDragOverlayProps {
   tab: Tab;
 }
 
-export const noop = () => undefined;
+const noop = () => undefined;
 
 export function GroupDragOverlay({ group, tabs }: GroupDragOverlayProps) {
   const shouldPreviewTabs = !group.collapsed;

@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getTauriInvoke } from "@/lib/tauri-repo-client";
 
-export interface TerminalOutputPayload {
+interface TerminalOutputPayload {
   data: string;
 }
 

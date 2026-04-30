@@ -7,7 +7,7 @@ import {
   SelectTrigger,
 } from "@litgit/ui/components/select";
 import { Switch } from "@litgit/ui/components/switch";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   BUNDLED_FONT_OPTIONS,
   ensureSelectedOption,
@@ -37,6 +37,7 @@ import {
   normalizeComboboxQuery,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clampEditorFontSize,
   clampEditorTabSize,
@@ -49,7 +50,7 @@ function EditorSection({ query }: { query: string }) {
   const setEditorPreferences = usePreferencesStore(
     (state) => state.setEditorPreferences
   );
-  const [previewSidebarWidth, setPreviewSidebarWidth] = useState(
+  const [previewSidebarWidth, updatePreviewSidebarWidth] = useReducerState(
     getInitialEditorPreviewSidebarWidth
   );
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
@@ -60,25 +61,27 @@ function EditorSection({ query }: { query: string }) {
     cursor: string;
     userSelect: string;
   } | null>(null);
-  const [systemEditorFonts, setSystemEditorFonts] = useState<
+  const [systemEditorFonts, updateSystemEditorFonts] = useReducerState<
     readonly FontPickerOption[]
   >([]);
-  const [editorFontStatus, setEditorFontStatus] =
-    useState<SystemFontReadResult["status"]>("available");
-  const [isLoadingEditorFonts, setIsLoadingEditorFonts] = useState(false);
-  const [hasLoadedEditorFonts, setHasLoadedEditorFonts] = useState(false);
-  const [editorFontQuery, setEditorFontQuery] = useState("");
+  const [editorFontStatus, updateEditorFontStatus] =
+    useReducerState<SystemFontReadResult["status"]>("available");
+  const [isLoadingEditorFonts, updateIsLoadingEditorFonts] =
+    useReducerState(false);
+  const [hasLoadedEditorFonts, updateHasLoadedEditorFonts] =
+    useReducerState(false);
+  const [editorFontQuery, updateEditorFontQuery] = useReducerState("");
   const debouncedEditorFontQuery = useDebouncedValue(
     editorFontQuery,
     COMBOBOX_DEBOUNCE_DELAY_MS
   );
-  const [editorFontSizeInput, setEditorFontSizeInput] = useState(() =>
+  const [editorFontSizeInput, updateEditorFontSizeInput] = useReducerState(() =>
     String(editor.fontSize)
   );
-  const [editorTabSizeInput, setEditorTabSizeInput] = useState(() =>
+  const [editorTabSizeInput, updateEditorTabSizeInput] = useReducerState(() =>
     String(editor.tabSize)
   );
-  const [editorPreviewMode, setEditorPreviewMode] = useState<
+  const [editorPreviewMode, updateEditorPreviewMode] = useReducerState<
     "diff" | "regular"
   >("regular");
   const editorFonts = useMemo(
@@ -132,30 +135,37 @@ function EditorSection({ query }: { query: string }) {
   }, [editor.fontFamily, editorFonts, setEditorPreferences]);
 
   useEffect(() => {
-    setEditorFontSizeInput(String(editor.fontSize));
-  }, [editor.fontSize]);
+    updateEditorFontSizeInput(String(editor.fontSize));
+  }, [editor.fontSize, updateEditorFontSizeInput]);
 
   useEffect(() => {
-    setEditorTabSizeInput(String(editor.tabSize));
-  }, [editor.tabSize]);
+    updateEditorTabSizeInput(String(editor.tabSize));
+  }, [editor.tabSize, updateEditorTabSizeInput]);
 
   const loadEditorFonts = useCallback(() => {
     if (hasLoadedEditorFonts || isLoadingEditorFonts) {
       return;
     }
 
-    setIsLoadingEditorFonts(true);
+    updateIsLoadingEditorFonts(true);
     readSystemFontFamilies()
       .then((result) => {
-        setSystemEditorFonts(result.options);
-        setEditorFontStatus(result.status);
-        setHasLoadedEditorFonts(true);
+        updateSystemEditorFonts(result.options);
+        updateEditorFontStatus(result.status);
+        updateHasLoadedEditorFonts(true);
       })
       .catch(() => undefined)
       .finally(() => {
-        setIsLoadingEditorFonts(false);
+        updateIsLoadingEditorFonts(false);
       });
-  }, [hasLoadedEditorFonts, isLoadingEditorFonts]);
+  }, [
+    hasLoadedEditorFonts,
+    isLoadingEditorFonts,
+    updateHasLoadedEditorFonts,
+    updateSystemEditorFonts,
+    updateIsLoadingEditorFonts,
+    updateEditorFontStatus,
+  ]);
 
   useEffect(() => {
     if (hasLoadedEditorFonts || isLoadingEditorFonts) {
@@ -172,26 +182,29 @@ function EditorSection({ query }: { query: string }) {
     []
   );
 
-  const schedulePreviewSidebarWidthUpdate = useCallback((nextWidth: number) => {
-    pendingPreviewSidebarWidthRef.current = nextWidth;
+  const schedulePreviewSidebarWidthUpdate = useCallback(
+    (nextWidth: number) => {
+      pendingPreviewSidebarWidthRef.current = nextWidth;
 
-    if (previewResizeAnimationFrameRef.current !== null) {
-      return;
-    }
-
-    previewResizeAnimationFrameRef.current = window.requestAnimationFrame(
-      () => {
-        const width = pendingPreviewSidebarWidthRef.current;
-
-        previewResizeAnimationFrameRef.current = null;
-        pendingPreviewSidebarWidthRef.current = null;
-
-        if (typeof width === "number") {
-          setPreviewSidebarWidth(width);
-        }
+      if (previewResizeAnimationFrameRef.current !== null) {
+        return;
       }
-    );
-  }, []);
+
+      previewResizeAnimationFrameRef.current = window.requestAnimationFrame(
+        () => {
+          const width = pendingPreviewSidebarWidthRef.current;
+
+          previewResizeAnimationFrameRef.current = null;
+          pendingPreviewSidebarWidthRef.current = null;
+
+          if (typeof width === "number") {
+            updatePreviewSidebarWidth(width);
+          }
+        }
+      );
+    },
+    [updatePreviewSidebarWidth]
+  );
 
   const resetPreviewResizeState = useCallback(() => {
     previewResizeStateRef.current = null;
@@ -250,11 +263,11 @@ function EditorSection({ query }: { query: string }) {
     );
 
     if (maxWidth <= 0) {
-      setPreviewSidebarWidth(0);
+      updatePreviewSidebarWidth(0);
       return;
     }
 
-    setPreviewSidebarWidth((currentWidth) =>
+    updatePreviewSidebarWidth((currentWidth) =>
       clampWidth(currentWidth + delta, minWidth, maxWidth)
     );
   };
@@ -281,7 +294,7 @@ function EditorSection({ query }: { query: string }) {
       const { minWidth } = getEditorPreviewResizeBounds(
         getAvailableEditorWidth()
       );
-      setPreviewSidebarWidth(minWidth);
+      updatePreviewSidebarWidth(minWidth);
       return;
     }
 
@@ -290,7 +303,7 @@ function EditorSection({ query }: { query: string }) {
       const { maxWidth } = getEditorPreviewResizeBounds(
         getAvailableEditorWidth()
       );
-      setPreviewSidebarWidth(maxWidth);
+      updatePreviewSidebarWidth(maxWidth);
     }
   };
 
@@ -357,7 +370,7 @@ function EditorSection({ query }: { query: string }) {
         getAvailableEditorWidth()
       );
 
-      setPreviewSidebarWidth((currentWidth) => {
+      updatePreviewSidebarWidth((currentWidth) => {
         if (maxWidth <= 0) {
           return 0;
         }
@@ -381,7 +394,7 @@ function EditorSection({ query }: { query: string }) {
       window.removeEventListener("resize", clampPreviewWidthToViewport);
       resizeObserver.disconnect();
     };
-  }, [getAvailableEditorWidth]);
+  }, [getAvailableEditorWidth, updatePreviewSidebarWidth]);
 
   let editorFontHelperText =
     "Loading installed system fonts in the background. Bundled fallbacks are available immediately.";
@@ -417,10 +430,10 @@ function EditorSection({ query }: { query: string }) {
             });
           }}
           onPickerInteract={loadEditorFonts}
-          onSearchChange={setEditorFontQuery}
+          onSearchChange={updateEditorFontQuery}
           onValueChange={(value) => {
             setEditorPreferences({ fontFamily: value });
-            setEditorFontQuery("");
+            updateEditorFontQuery("");
           }}
           options={visibleEditorFonts}
           query={query}
@@ -440,24 +453,24 @@ function EditorSection({ query }: { query: string }) {
             min={10}
             onBlur={() => {
               if (editorFontSizeInput.trim().length === 0) {
-                setEditorFontSizeInput(String(editor.fontSize));
+                updateEditorFontSizeInput(String(editor.fontSize));
                 return;
               }
 
               const parsedValue = Number(editorFontSizeInput);
 
               if (!Number.isFinite(parsedValue)) {
-                setEditorFontSizeInput(String(editor.fontSize));
+                updateEditorFontSizeInput(String(editor.fontSize));
                 return;
               }
 
               const clampedValue = clampEditorFontSize(parsedValue);
               setEditorPreferences({ fontSize: clampedValue });
-              setEditorFontSizeInput(String(clampedValue));
+              updateEditorFontSizeInput(String(clampedValue));
             }}
             onChange={(event) => {
               const nextValue = event.target.value;
-              setEditorFontSizeInput(nextValue);
+              updateEditorFontSizeInput(nextValue);
 
               if (nextValue.trim().length === 0) {
                 return;
@@ -496,24 +509,24 @@ function EditorSection({ query }: { query: string }) {
             min={1}
             onBlur={() => {
               if (editorTabSizeInput.trim().length === 0) {
-                setEditorTabSizeInput(String(editor.tabSize));
+                updateEditorTabSizeInput(String(editor.tabSize));
                 return;
               }
 
               const parsedValue = Number(editorTabSizeInput);
 
               if (!Number.isFinite(parsedValue)) {
-                setEditorTabSizeInput(String(editor.tabSize));
+                updateEditorTabSizeInput(String(editor.tabSize));
                 return;
               }
 
               const clampedValue = clampEditorTabSize(parsedValue);
               setEditorPreferences({ tabSize: clampedValue });
-              setEditorTabSizeInput(String(clampedValue));
+              updateEditorTabSizeInput(String(clampedValue));
             }}
             onChange={(event) => {
               const nextValue = event.target.value;
-              setEditorTabSizeInput(nextValue);
+              updateEditorTabSizeInput(nextValue);
 
               if (nextValue.trim().length === 0) {
                 return;
@@ -663,7 +676,7 @@ function EditorSection({ query }: { query: string }) {
                 fontSize={editor.fontSize}
                 lineNumbers={editor.lineNumbers}
                 mode={editorPreviewMode}
-                onModeChange={setEditorPreviewMode}
+                onModeChange={updateEditorPreviewMode}
                 syntaxHighlighting={editor.syntaxHighlighting}
                 tabSize={editor.tabSize}
                 wordWrap={editor.wordWrap}
@@ -680,7 +693,7 @@ function EditorSection({ query }: { query: string }) {
             fontSize={editor.fontSize}
             lineNumbers={editor.lineNumbers}
             mode={editorPreviewMode}
-            onModeChange={setEditorPreviewMode}
+            onModeChange={updateEditorPreviewMode}
             syntaxHighlighting={editor.syntaxHighlighting}
             tabSize={editor.tabSize}
             wordWrap={editor.wordWrap}

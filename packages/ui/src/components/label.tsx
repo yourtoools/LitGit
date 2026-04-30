@@ -1,7 +1,11 @@
 import { cn } from "@litgit/ui/lib/utils";
 import type * as React from "react";
 
-function Label({ className, ...props }: React.ComponentProps<"label">) {
+type LabelProps = Omit<React.ComponentProps<"label">, "htmlFor"> & {
+  htmlFor: string;
+};
+
+function Label({ className, htmlFor, ...props }: LabelProps) {
   return (
     <label
       className={cn(
@@ -9,6 +13,7 @@ function Label({ className, ...props }: React.ComponentProps<"label">) {
         className
       )}
       data-slot="label"
+      htmlFor={htmlFor}
       {...props}
     />
   );

@@ -28,11 +28,10 @@ import {
   useId,
   useMemo,
   useRef,
-  useState,
 } from "react";
 
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
-
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   type CloneRepositoryProgress,
   pickCloneDestinationFolder,
@@ -92,15 +91,15 @@ interface CloneFormPanelProps {
   recurseSubmodules: boolean;
   repositoryUrl: string;
   repositoryUrlRef: RefObject<HTMLInputElement | null>;
-  setDestinationParent: Dispatch<SetStateAction<string>>;
-  setErrors: Dispatch<SetStateAction<ValidationErrors>>;
-  setFolderName: Dispatch<SetStateAction<string>>;
-  setFormError: Dispatch<SetStateAction<string | null>>;
-  setIsFolderDirty: Dispatch<SetStateAction<boolean>>;
-  setRecurseSubmodules: Dispatch<SetStateAction<boolean>>;
-  setRepositoryUrl: Dispatch<SetStateAction<string>>;
   statusRegionId: string;
   submodulesCheckboxId: string;
+  updateDestinationParent: Dispatch<SetStateAction<string>>;
+  updateErrors: Dispatch<SetStateAction<ValidationErrors>>;
+  updateFolderName: Dispatch<SetStateAction<string>>;
+  updateFormError: Dispatch<SetStateAction<string | null>>;
+  updateIsFolderDirty: Dispatch<SetStateAction<boolean>>;
+  updateRecurseSubmodules: Dispatch<SetStateAction<boolean>>;
+  updateRepositoryUrl: Dispatch<SetStateAction<string>>;
   urlInputId: string;
 }
 
@@ -265,13 +264,13 @@ function CloneFormPanel({
   recurseSubmodules,
   repositoryUrl,
   repositoryUrlRef,
-  setDestinationParent,
-  setErrors,
-  setFolderName,
-  setFormError,
-  setIsFolderDirty,
-  setRecurseSubmodules,
-  setRepositoryUrl,
+  updateDestinationParent,
+  updateErrors,
+  updateFolderName,
+  updateFormError,
+  updateIsFolderDirty,
+  updateRecurseSubmodules,
+  updateRepositoryUrl,
   statusRegionId,
   submodulesCheckboxId,
   urlInputId,
@@ -295,12 +294,12 @@ function CloneFormPanel({
             className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={urlInputId}
             onChange={(event) => {
-              setRepositoryUrl(event.target.value);
-              setErrors((current) => ({
+              updateRepositoryUrl(event.target.value);
+              updateErrors((current) => ({
                 ...current,
                 repositoryUrl: undefined,
               }));
-              setFormError(null);
+              updateFormError(null);
             }}
             placeholder="https://github.com/owner/repository.git"
             ref={repositoryUrlRef}
@@ -335,12 +334,12 @@ function CloneFormPanel({
               className="h-7 flex-1 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
               id={destinationInputId}
               onChange={(event) => {
-                setDestinationParent(event.target.value);
-                setErrors((current) => ({
+                updateDestinationParent(event.target.value);
+                updateErrors((current) => ({
                   ...current,
                   destinationParent: undefined,
                 }));
-                setFormError(null);
+                updateFormError(null);
               }}
               placeholder="/Users/name/projects"
               spellCheck={false}
@@ -388,13 +387,13 @@ function CloneFormPanel({
             className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={folderInputId}
             onChange={(event) => {
-              setFolderName(event.target.value);
-              setIsFolderDirty(event.target.value.trim().length > 0);
-              setErrors((current) => ({
+              updateFolderName(event.target.value);
+              updateIsFolderDirty(event.target.value.trim().length > 0);
+              updateErrors((current) => ({
                 ...current,
                 folderName: undefined,
               }));
-              setFormError(null);
+              updateFormError(null);
             }}
             placeholder="repository-name"
             spellCheck={false}
@@ -468,7 +467,7 @@ function CloneFormPanel({
           disabled={isBusy}
           id={submodulesCheckboxId}
           onCheckedChange={(checked) => {
-            setRecurseSubmodules(checked === true);
+            updateRecurseSubmodules(checked === true);
           }}
         />
         <span className="select-none text-foreground/85 text-xs">
@@ -621,21 +620,20 @@ export function RepositoryCloneDialog({
   const sshPreferences = usePreferencesStore((state) => state.ssh);
   const { routeRepository } = useOpenRepositoryTabRouting();
 
-  const [repositoryUrl, setRepositoryUrl] = useState("");
-  const [destinationParent, setDestinationParent] = useState("");
-  const [folderName, setFolderName] = useState("");
-  const [recurseSubmodules, setRecurseSubmodules] = useState(true);
-  const [isFolderDirty, setIsFolderDirty] = useState(false);
-  const [isPickingDestination, setIsPickingDestination] = useState(false);
-  const [isCloning, setIsCloning] = useState(false);
-  const [progress, setProgress] = useState<CloneRepositoryProgress | null>(
-    null
-  );
-  const [successState, setSuccessState] = useState<CloneSuccessState | null>(
-    null
-  );
-  const [errors, setErrors] = useState<ValidationErrors>({});
-  const [formError, setFormError] = useState<string | null>(null);
+  const [repositoryUrl, updateRepositoryUrl] = useReducerState("");
+  const [destinationParent, updateDestinationParent] = useReducerState("");
+  const [folderName, updateFolderName] = useReducerState("");
+  const [recurseSubmodules, updateRecurseSubmodules] = useReducerState(true);
+  const [isFolderDirty, updateIsFolderDirty] = useReducerState(false);
+  const [isPickingDestination, updateIsPickingDestination] =
+    useReducerState(false);
+  const [isCloning, updateIsCloning] = useReducerState(false);
+  const [progress, updateProgress] =
+    useReducerState<CloneRepositoryProgress | null>(null);
+  const [successState, updateSuccessState] =
+    useReducerState<CloneSuccessState | null>(null);
+  const [errors, updateErrors] = useReducerState<ValidationErrors>({});
+  const [formError, updateFormError] = useReducerState<string | null>(null);
 
   const urlInputId = useId();
   const destinationInputId = useId();
@@ -646,17 +644,17 @@ export function RepositoryCloneDialog({
 
   useEffect(() => {
     if (!open) {
-      setRepositoryUrl("");
-      setDestinationParent("");
-      setFolderName("");
-      setRecurseSubmodules(true);
-      setIsFolderDirty(false);
-      setIsPickingDestination(false);
-      setIsCloning(false);
-      setProgress(null);
-      setSuccessState(null);
-      setErrors({});
-      setFormError(null);
+      updateRepositoryUrl("");
+      updateDestinationParent("");
+      updateFolderName("");
+      updateRecurseSubmodules(true);
+      updateIsFolderDirty(false);
+      updateIsPickingDestination(false);
+      updateIsCloning(false);
+      updateProgress(null);
+      updateSuccessState(null);
+      updateErrors({});
+      updateFormError(null);
       return;
     }
 
@@ -665,7 +663,21 @@ export function RepositoryCloneDialog({
         repositoryUrlRef.current?.focus();
       });
     }
-  }, [open, successState]);
+  }, [
+    open,
+    successState,
+    updateSuccessState,
+    updateRepositoryUrl,
+    updateRecurseSubmodules,
+    updateProgress,
+    updateIsPickingDestination,
+    updateIsCloning,
+    updateErrors,
+    updateIsFolderDirty,
+    updateFormError,
+    updateFolderName,
+    updateDestinationParent,
+  ]);
 
   useEffect(() => {
     if (!(open && !successState)) {
@@ -678,8 +690,8 @@ export function RepositoryCloneDialog({
       return;
     }
 
-    setFolderName(derivedFolderName);
-  }, [isFolderDirty, open, repositoryUrl, successState]);
+    updateFolderName(derivedFolderName);
+  }, [isFolderDirty, open, repositoryUrl, successState, updateFolderName]);
 
   useEffect(() => {
     if (!(open && isCloning)) {
@@ -694,7 +706,7 @@ export function RepositoryCloneDialog({
         return;
       }
 
-      setProgress(event.payload);
+      updateProgress(event.payload);
     })
       .then((unlisten) => {
         unsubscribe = unlisten;
@@ -707,7 +719,7 @@ export function RepositoryCloneDialog({
       isMounted = false;
       unsubscribe?.();
     };
-  }, [isCloning, open]);
+  }, [isCloning, open, updateProgress]);
 
   const fullDestinationPath = useMemo(() => {
     const trimmedParent = destinationParent.trim();
@@ -754,7 +766,7 @@ export function RepositoryCloneDialog({
         "Selected SSH public key must match the private key path (`<private>.pub`).";
     }
 
-    setErrors(nextErrors);
+    updateErrors(nextErrors);
 
     return Object.keys(nextErrors).length === 0;
   }, [
@@ -764,6 +776,7 @@ export function RepositoryCloneDialog({
     sshPreferences.privateKeyPath,
     sshPreferences.publicKeyPath,
     sshPreferences.useLocalAgent,
+    updateErrors,
   ]);
 
   const handlePickDestination = useCallback(async () => {
@@ -771,7 +784,7 @@ export function RepositoryCloneDialog({
       return;
     }
 
-    setIsPickingDestination(true);
+    updateIsPickingDestination(true);
 
     try {
       const pickedFolder = await pickCloneDestinationFolder();
@@ -780,21 +793,26 @@ export function RepositoryCloneDialog({
         return;
       }
 
-      setDestinationParent(pickedFolder);
-      setErrors((current) => ({ ...current, destinationParent: undefined }));
+      updateDestinationParent(pickedFolder);
+      updateErrors((current) => ({ ...current, destinationParent: undefined }));
     } finally {
-      setIsPickingDestination(false);
+      updateIsPickingDestination(false);
     }
-  }, [isCloning]);
+  }, [
+    isCloning,
+    updateIsPickingDestination,
+    updateErrors,
+    updateDestinationParent,
+  ]);
 
   const handleClone = useCallback(async () => {
     if (!(validateForm() && !isCloning)) {
       return;
     }
 
-    setIsCloning(true);
-    setFormError(null);
-    setProgress({
+    updateIsCloning(true);
+    updateFormError(null);
+    updateProgress({
       message: "Starting clone request",
       percent: 6,
       phase: "preparing",
@@ -820,26 +838,26 @@ export function RepositoryCloneDialog({
       );
 
       if (!openedRepository) {
-        setFormError("Failed to clone repository.");
+        updateFormError("Failed to clone repository.");
         return;
       }
 
-      setProgress({
+      updateProgress({
         message: `Clone complete: ${openedRepository.name}`,
         percent: 100,
         phase: "complete",
       });
-      setSuccessState({
+      updateSuccessState({
         name: openedRepository.name,
         path: openedRepository.path,
         repoId: openedRepository.id,
       });
     } catch (error) {
-      setFormError(
+      updateFormError(
         error instanceof Error ? error.message : "Failed to clone repository."
       );
     } finally {
-      setIsCloning(false);
+      updateIsCloning(false);
     }
   }, [
     cloneRepository,
@@ -858,6 +876,10 @@ export function RepositoryCloneDialog({
     sshPreferences.publicKeyPath,
     sshPreferences.useLocalAgent,
     validateForm,
+    updateSuccessState,
+    updateProgress,
+    updateIsCloning,
+    updateFormError,
   ]);
 
   const handleOpenNow = useCallback(async () => {
@@ -941,15 +963,15 @@ export function RepositoryCloneDialog({
               recurseSubmodules={recurseSubmodules}
               repositoryUrl={repositoryUrl}
               repositoryUrlRef={repositoryUrlRef}
-              setDestinationParent={setDestinationParent}
-              setErrors={setErrors}
-              setFolderName={setFolderName}
-              setFormError={setFormError}
-              setIsFolderDirty={setIsFolderDirty}
-              setRecurseSubmodules={setRecurseSubmodules}
-              setRepositoryUrl={setRepositoryUrl}
               statusRegionId={statusRegionId}
               submodulesCheckboxId={submodulesCheckboxId}
+              updateDestinationParent={updateDestinationParent}
+              updateErrors={updateErrors}
+              updateFolderName={updateFolderName}
+              updateFormError={updateFormError}
+              updateIsFolderDirty={updateIsFolderDirty}
+              updateRecurseSubmodules={updateRecurseSubmodules}
+              updateRepositoryUrl={updateRepositoryUrl}
               urlInputId={urlInputId}
             />
           )}

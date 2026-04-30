@@ -16,7 +16,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { PageContainer } from "@/components/layout/page-container";
 import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
 import { QuickActionButton } from "@/components/views/quick-actions-launcher";
@@ -29,6 +29,7 @@ import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   getPrimaryShortcutAria,
   getPrimaryShortcutLabel,
@@ -77,24 +78,27 @@ export function NewTabContent() {
   const search = useSearch({ strict: false });
   const action = search.action as string | undefined;
 
-  const [searchInputValue, setSearchInputValue] = useState("");
+  const [searchInputValue, updateSearchInputValue] = useReducerState("");
   const debouncedSearchQuery = useDebouncedValue(
     searchInputValue,
     COMBOBOX_DEBOUNCE_DELAY_MS
   );
-  const [isInitializingRepository, setIsInitializingRepository] =
-    useState(false);
-  const [isCloneDialogOpen, setIsCloneDialogOpen] = useState(false);
-  const [isStartLocalDialogOpen, setIsStartLocalDialogOpen] = useState(false);
-  const [isGitIdentityDialogOpen, setIsGitIdentityDialogOpen] = useState(false);
-  const [gitIdentityStatus, setGitIdentityStatus] =
-    useState<GitIdentityStatus | null>(null);
-  const [pendingRepoInitialization, setPendingRepoInitialization] =
-    useState<PickedRepositorySelection | null>(null);
-  const [showRecentTopFade, setShowRecentTopFade] = useState(false);
-  const [showRecentBottomFade, setShowRecentBottomFade] = useState(false);
-  const [focusedRepoIndex, setFocusedRepoIndex] = useState(-1);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isInitializingRepository, updateIsInitializingRepository] =
+    useReducerState(false);
+  const [isCloneDialogOpen, updateIsCloneDialogOpen] = useReducerState(false);
+  const [isStartLocalDialogOpen, updateIsStartLocalDialogOpen] =
+    useReducerState(false);
+  const [isGitIdentityDialogOpen, updateIsGitIdentityDialogOpen] =
+    useReducerState(false);
+  const [gitIdentityStatus, updateGitIdentityStatus] =
+    useReducerState<GitIdentityStatus | null>(null);
+  const [pendingRepoInitialization, updatePendingRepoInitialization] =
+    useReducerState<PickedRepositorySelection | null>(null);
+  const [showRecentTopFade, updateShowRecentTopFade] = useReducerState(false);
+  const [showRecentBottomFade, updateShowRecentBottomFade] =
+    useReducerState(false);
+  const [focusedRepoIndex, updateFocusedRepoIndex] = useReducerState(-1);
+  const [isExpanded, updateIsExpanded] = useReducerState(false);
   const recentListRef = useRef<HTMLDivElement | null>(null);
   const repoButtonRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -151,7 +155,7 @@ export function NewTabContent() {
     }
 
     if (result.status === "requires-initial-commit") {
-      setPendingRepoInitialization(result.repository);
+      updatePendingRepoInitialization(result.repository);
       return;
     }
 
@@ -164,6 +168,7 @@ export function NewTabContent() {
     openRepository,
     routeRepository,
     tabId,
+    updatePendingRepoInitialization,
   ]);
 
   useEffect(() => {
@@ -172,7 +177,7 @@ export function NewTabContent() {
     }
 
     if (action === "clone") {
-      setIsCloneDialogOpen(true);
+      updateIsCloneDialogOpen(true);
     }
 
     if (action === "open") {
@@ -180,7 +185,7 @@ export function NewTabContent() {
     }
 
     navigate({ to: "/", search: {}, replace: true }).catch(() => undefined);
-  }, [action, handleOpenRepoPicker, navigate]);
+  }, [action, handleOpenRepoPicker, navigate, updateIsCloneDialogOpen]);
 
   const completeRepositoryInitialization = useCallback(
     async (gitIdentity?: GitIdentityWriteInput | null) => {
@@ -188,7 +193,7 @@ export function NewTabContent() {
         return;
       }
 
-      setIsInitializingRepository(true);
+      updateIsInitializingRepository(true);
 
       try {
         const openedRepository = await initializeRepository(
@@ -200,13 +205,13 @@ export function NewTabContent() {
           return;
         }
 
-        setPendingRepoInitialization(null);
-        setIsGitIdentityDialogOpen(false);
+        updatePendingRepoInitialization(null);
+        updateIsGitIdentityDialogOpen(false);
         await routeRepository(openedRepository.id, openedRepository.name, {
           preferredTabId: tabId,
         });
       } finally {
-        setIsInitializingRepository(false);
+        updateIsInitializingRepository(false);
       }
     },
     [
@@ -215,6 +220,9 @@ export function NewTabContent() {
       pendingRepoInitialization,
       routeRepository,
       tabId,
+      updateIsInitializingRepository,
+      updatePendingRepoInitialization,
+      updateIsGitIdentityDialogOpen,
     ]
   );
 
@@ -232,12 +240,14 @@ export function NewTabContent() {
       return;
     }
 
-    setGitIdentityStatus(identityStatus);
-    setIsGitIdentityDialogOpen(true);
+    updateGitIdentityStatus(identityStatus);
+    updateIsGitIdentityDialogOpen(true);
   }, [
     completeRepositoryInitialization,
     isInitializingRepository,
     pendingRepoInitialization,
+    updateGitIdentityStatus,
+    updateIsGitIdentityDialogOpen,
   ]);
 
   const openExternalUrl = useCallback(async (url: string) => {
@@ -262,14 +272,14 @@ export function NewTabContent() {
       recentList.scrollHeight - recentList.clientHeight
     );
 
-    setShowRecentTopFade(
+    updateShowRecentTopFade(
       recentList.scrollTop > RECENT_LIST_SCROLL_EDGE_THRESHOLD
     );
-    setShowRecentBottomFade(
+    updateShowRecentBottomFade(
       recentList.scrollTop < maxScrollTop - RECENT_LIST_SCROLL_EDGE_THRESHOLD &&
         maxScrollTop > 0
     );
-  }, []);
+  }, [updateShowRecentTopFade, updateShowRecentBottomFade]);
 
   const wasRefreshingOpenedReposRef = useRef(isRefreshingOpenedRepos);
 
@@ -374,14 +384,20 @@ export function NewTabContent() {
         return;
       }
 
-      setFocusedRepoIndex(nextIndex);
+      updateFocusedRepoIndex(nextIndex);
       const repo = visibleRepos[nextIndex];
       if (repo) {
         const button = repoButtonRefs.current.get(repo.id);
         button?.focus();
       }
     },
-    [visibleRepos, focusedRepoIndex, routeRepository, tabId]
+    [
+      visibleRepos,
+      focusedRepoIndex,
+      routeRepository,
+      tabId,
+      updateFocusedRepoIndex,
+    ]
   );
 
   const totalReposLabel =
@@ -493,7 +509,7 @@ export function NewTabContent() {
                   />
                 }
                 label="Clone Repository"
-                onClick={() => setIsCloneDialogOpen(true)}
+                onClick={() => updateIsCloneDialogOpen(true)}
                 tooltip="Clone from a remote URL to a local folder and open it."
               />
               <QuickActionButton
@@ -505,7 +521,7 @@ export function NewTabContent() {
                   />
                 }
                 label="Start Local Repo"
-                onClick={() => setIsStartLocalDialogOpen(true)}
+                onClick={() => updateIsStartLocalDialogOpen(true)}
                 tooltip="Initialize a brand-new repository in a selected folder."
               />
             </div>
@@ -523,7 +539,7 @@ export function NewTabContent() {
             {hasMoreThanLimit && !isSearching ? (
               <Button
                 className="focus-visible:desktop-focus h-6 gap-1.5 px-2 text-muted-foreground text-xs tracking-wide hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
-                onClick={() => setIsExpanded((prev) => !prev)}
+                onClick={() => updateIsExpanded((prev) => !prev)}
                 type="button"
                 variant="ghost"
               >
@@ -547,18 +563,18 @@ export function NewTabContent() {
               className="focus-visible:desktop-focus h-9 border-border/60 bg-card pr-16 pl-10 text-sm shadow-sm transition-all duration-200 hover:border-border focus-visible:ring-0! focus-visible:ring-offset-0!"
               id={RECENT_REPO_SEARCH_INPUT_ID}
               onChange={(event) => {
-                setSearchInputValue(event.target.value);
-                setFocusedRepoIndex(-1);
+                updateSearchInputValue(event.target.value);
+                updateFocusedRepoIndex(-1);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Escape" && searchInputValue.length > 0) {
                   event.preventDefault();
-                  setSearchInputValue("");
-                  setFocusedRepoIndex(-1);
+                  updateSearchInputValue("");
+                  updateFocusedRepoIndex(-1);
                 }
                 if (event.key === "ArrowDown" && visibleRepos.length > 0) {
                   event.preventDefault();
-                  setFocusedRepoIndex(0);
+                  updateFocusedRepoIndex(0);
                   const firstRepo = visibleRepos[0];
                   if (firstRepo) {
                     const button = repoButtonRefs.current.get(firstRepo.id);
@@ -808,8 +824,8 @@ export function NewTabContent() {
         }}
         onOpenChange={(open) => {
           if (!(open || isInitializingRepository)) {
-            setPendingRepoInitialization(null);
-            setIsGitIdentityDialogOpen(false);
+            updatePendingRepoInitialization(null);
+            updateIsGitIdentityDialogOpen(false);
           }
         }}
         open={Boolean(pendingRepoInitialization)}
@@ -821,17 +837,17 @@ export function NewTabContent() {
         onConfirm={async (gitIdentity) => {
           await completeRepositoryInitialization(gitIdentity);
         }}
-        onOpenChange={setIsGitIdentityDialogOpen}
+        onOpenChange={updateIsGitIdentityDialogOpen}
         open={isGitIdentityDialogOpen}
         submitLabel="Save and create first commit"
         title="Set your global Git identity"
       />
       <RepositoryCloneDialog
-        onOpenChange={setIsCloneDialogOpen}
+        onOpenChange={updateIsCloneDialogOpen}
         open={isCloneDialogOpen}
       />
       <RepositoryStartLocalDialog
-        onOpenChange={setIsStartLocalDialogOpen}
+        onOpenChange={updateIsStartLocalDialogOpen}
         open={isStartLocalDialogOpen}
       />
     </div>

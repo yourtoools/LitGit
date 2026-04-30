@@ -8,7 +8,7 @@ interface ShortcutEvent {
   shiftKey: boolean;
 }
 
-export const getPrimaryModifierLabel = () => (isMacPlatform() ? "Cmd" : "Ctrl");
+const getPrimaryModifierLabel = () => (isMacPlatform() ? "Cmd" : "Ctrl");
 
 export const getPrimaryModifierAriaKey = () =>
   isMacPlatform() ? "Meta" : "Control";
@@ -43,18 +43,7 @@ export const isPrimaryShortcut = (event: ShortcutEvent, key: string) => {
   );
 };
 
-export const isPrimaryAltShortcut = (event: ShortcutEvent, key: string) => {
-  const normalizedKey = key.toLowerCase();
-
-  return (
-    !event.shiftKey &&
-    event.altKey &&
-    (event.metaKey || event.ctrlKey) &&
-    event.key.toLowerCase() === normalizedKey
-  );
-};
-
-export const isPrimaryShiftShortcut = (event: ShortcutEvent, key: string) => {
+const isPrimaryShiftShortcut = (event: ShortcutEvent, key: string) => {
   const normalizedKey = key.toLowerCase();
 
   return (
@@ -189,9 +178,6 @@ export const getResetZoomShortcutLabel = () =>
   `${getPrimaryModifierLabel()} + 0`;
 
 export const getToggleTerminalShortcutLabel = () => "Ctrl + `";
-
-export const getSidebarFilterShortcutLabel = () =>
-  `${getPrimaryModifierLabel()} + Alt + F`;
 
 export const getReopenClosedTabShortcutLabel = () =>
   `${getPrimaryModifierLabel()} + Shift + T`;

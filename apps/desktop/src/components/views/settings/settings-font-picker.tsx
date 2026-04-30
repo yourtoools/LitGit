@@ -327,9 +327,13 @@ function FontPickerField({
             </ComboboxContent>
           </Combobox>
         )}
-        <label className="inline-flex items-center gap-2">
+        <label
+          className="inline-flex items-center gap-2"
+          htmlFor="font-picker-monospace-only"
+        >
           <Switch
             checked={monospaceOnly}
+            id="font-picker-monospace-only"
             onCheckedChange={(checked) =>
               onMonospaceOnlyChange(Boolean(checked))
             }
@@ -351,11 +355,9 @@ function FontPickerField({
 export type { FontPickerOption, SystemFontReadResult };
 export {
   BUNDLED_FONT_OPTIONS,
-  describeFontSource,
   ensureSelectedOption,
   FontPickerField,
   getVisibleFonts,
-  MONOSPACE_FONT_NAMES,
   matchesQuery,
   readSystemFontFamilies,
   runWhenBrowserIsIdle,

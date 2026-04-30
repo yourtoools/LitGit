@@ -146,7 +146,7 @@ function ThemePreviewCard({
   const optionId = `theme-option-${option.value}`;
 
   return (
-    <label className="block" htmlFor={optionId}>
+    <label aria-label={option.label} className="block" htmlFor={optionId}>
       <input
         checked={isSelected}
         className="sr-only"

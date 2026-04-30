@@ -1,9 +1,9 @@
-export interface AiCommitGenerationUiState {
+interface AiCommitGenerationUiState {
   preview: string;
   statusMessage: string | null;
 }
 
-export interface AiCommitGenerationProgressPayload {
+interface AiCommitGenerationProgressPayload {
   message: string;
   stage: string;
 }

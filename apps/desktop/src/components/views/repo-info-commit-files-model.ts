@@ -8,7 +8,7 @@ import type {
   RepositoryFileEntry,
 } from "@/stores/repo/repo-store-types";
 
-export interface RepoInfoCommitFilesSummary {
+interface RepoInfoCommitFilesSummary {
   addedCount: number;
   modifiedCount: number;
   removedCount: number;

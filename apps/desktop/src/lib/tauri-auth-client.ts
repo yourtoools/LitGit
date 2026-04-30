@@ -35,16 +35,9 @@ export async function submitGitAuthPromptResponse(
   await invoke("submit_git_auth_prompt_response", { input });
 }
 
-// Git credential status types
-export interface GitCredentialsStatus {
-  Bitbucket: boolean;
-  GitHub: boolean;
-  GitLab: boolean;
-}
+type GitProvider = "github" | "gitlab" | "bitbucket" | "unknown";
 
-export type GitProvider = "github" | "gitlab" | "bitbucket" | "unknown";
-
-export function detectGitProvider(urlOrHost: string): GitProvider {
+function detectGitProvider(urlOrHost: string): GitProvider {
   const lower = urlOrHost.toLowerCase();
 
   if (lower.includes("github.com") || lower.includes("github")) {
@@ -72,7 +65,7 @@ export function resolveOAuthProviderForPrompt(
 }
 
 // SSH Key Management Types
-export interface SshKeyInfo {
+interface SshKeyInfo {
   comment: string | null;
   fingerprint: string;
   isEncrypted: boolean;

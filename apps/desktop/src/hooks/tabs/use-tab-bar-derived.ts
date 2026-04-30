@@ -15,7 +15,7 @@ interface UseTabBarDerivedParams {
   tabs: Tab[];
 }
 
-export interface TabBarDerivedState {
+interface TabBarDerivedState {
   getGroupById: (groupId: string) => TabGroup | undefined;
   getGroupEndIndex: (groupId: string) => number;
   getGroupStartIndex: (groupId: string) => number;

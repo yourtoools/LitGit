@@ -1,7 +1,4 @@
-export type RuntimeWindowChromeMode =
-  | "custom"
-  | "native"
-  | "overlay-native-controls";
+type RuntimeWindowChromeMode = "custom" | "native" | "overlay-native-controls";
 
 const WINDOW_CHROME_DATA_ATTRIBUTE = "windowChrome";
 

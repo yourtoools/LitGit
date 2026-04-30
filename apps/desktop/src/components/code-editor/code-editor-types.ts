@@ -8,7 +8,7 @@ export interface BlameDecoration {
   lineNumber: number;
 }
 
-export interface CodeEditorBaseProps {
+interface CodeEditorBaseProps {
   fontFamily: string;
   fontSize: number;
   language: string;

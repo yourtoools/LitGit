@@ -1,12 +1,13 @@
 import { Button } from "@litgit/ui/components/button";
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import {
   SectionActionRow,
   SettingsField,
   SettingsHelpText,
 } from "@/components/views/settings/settings-shared-ui";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   getGitIdentityStatus,
   saveGitIdentity,
@@ -23,7 +24,7 @@ function GitSection({ query }: { query: string }) {
   );
   const setRepoGitIdentity = useRepoStore((state) => state.setRepoGitIdentity);
 
-  const [identityStatus, setIdentityStatus] = useState<null | {
+  const [identityStatus, updateIdentityStatus] = useReducerState<null | {
     effective: {
       email: string | null;
       isComplete: boolean;
@@ -38,19 +39,21 @@ function GitSection({ query }: { query: string }) {
     } | null;
     repoPath: string | null;
   }>(null);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editSnapshot, setEditSnapshot] = useState<{
+  const [name, updateName] = useReducerState("");
+  const [email, updateEmail] = useReducerState("");
+  const [statusMessage, updateStatusMessage] = useReducerState<string | null>(
+    null
+  );
+  const [isSaving, updateIsSaving] = useReducerState(false);
+  const [isRefreshing, updateIsRefreshing] = useReducerState(false);
+  const [isEditing, updateIsEditing] = useReducerState(false);
+  const [editSnapshot, updateEditSnapshot] = useReducerState<{
     email: string;
     name: string;
   } | null>(null);
-  const [lastLoadedRepoPath, setLastLoadedRepoPath] = useState<string | null>(
-    null
-  );
+  const [lastLoadedRepoPath, updateLastLoadedRepoPath] = useReducerState<
+    string | null
+  >(null);
 
   const areIdentityStatusesEqual = useCallback(
     (
@@ -114,26 +117,34 @@ function GitSection({ query }: { query: string }) {
   );
 
   const refreshIdentity = useCallback(async () => {
-    setIsRefreshing(true);
+    updateIsRefreshing(true);
 
     try {
       const nextStatus = await getGitIdentityStatus(activeRepo?.path ?? null);
-      setIdentityStatus(nextStatus);
-      setLastLoadedRepoPath(activeRepo?.path ?? null);
+      updateIdentityStatus(nextStatus);
+      updateLastLoadedRepoPath(activeRepo?.path ?? null);
 
       if (activeRepoId) {
         setRepoGitIdentity(activeRepoId, nextStatus);
       }
 
-      setStatusMessage(null);
+      updateStatusMessage(null);
     } catch (error: unknown) {
-      setStatusMessage(
+      updateStatusMessage(
         error instanceof Error ? error.message : "Failed to read Git profile"
       );
     } finally {
-      setIsRefreshing(false);
+      updateIsRefreshing(false);
     }
-  }, [activeRepo?.path, activeRepoId, setRepoGitIdentity]);
+  }, [
+    activeRepo?.path,
+    activeRepoId,
+    setRepoGitIdentity,
+    updateStatusMessage,
+    updateIsRefreshing,
+    updateLastLoadedRepoPath,
+    updateIdentityStatus,
+  ]);
 
   useEffect(() => {
     refreshIdentity().catch(() => undefined);
@@ -144,7 +155,7 @@ function GitSection({ query }: { query: string }) {
       return;
     }
 
-    setIdentityStatus((currentStatus) => {
+    updateIdentityStatus((currentStatus) => {
       if (areIdentityStatusesEqual(currentStatus, activeRepoIdentity)) {
         return currentStatus;
       }
@@ -157,7 +168,7 @@ function GitSection({ query }: { query: string }) {
       identityStatus !== null &&
       !areIdentityStatusesEqual(identityStatus, activeRepoIdentity)
     ) {
-      setStatusMessage("Profile changed outside LitGit; values refreshed.");
+      updateStatusMessage("Profile changed outside LitGit; values refreshed.");
     }
   }, [
     activeRepo,
@@ -165,15 +176,17 @@ function GitSection({ query }: { query: string }) {
     areIdentityStatusesEqual,
     identityStatus,
     lastLoadedRepoPath,
+    updateStatusMessage,
+    updateIdentityStatus,
   ]);
 
   useEffect(() => {
     const preferredIdentity =
       identityStatus?.global ?? identityStatus?.effective;
 
-    setName(preferredIdentity?.name ?? "");
-    setEmail(preferredIdentity?.email ?? "");
-  }, [identityStatus]);
+    updateName(preferredIdentity?.name ?? "");
+    updateEmail(preferredIdentity?.email ?? "");
+  }, [identityStatus, updateName, updateEmail]);
 
   let effectiveIdentityHelpText =
     "No global profile is configured. Click Change to set one.";
@@ -204,7 +217,7 @@ function GitSection({ query }: { query: string }) {
                   <Input
                     className="h-7 text-xs"
                     id="git-settings-name"
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event) => updateName(event.target.value)}
                     placeholder="Jane Developer"
                     value={name}
                   />
@@ -216,7 +229,7 @@ function GitSection({ query }: { query: string }) {
                   <Input
                     className="h-7 text-xs"
                     id="git-settings-email"
-                    onChange={(event) => setEmail(event.target.value)}
+                    onChange={(event) => updateEmail(event.target.value)}
                     placeholder="jane@example.com"
                     type="email"
                     value={email}
@@ -226,32 +239,32 @@ function GitSection({ query }: { query: string }) {
                   <Button
                     disabled={isSaving}
                     onClick={() => {
-                      setIsSaving(true);
+                      updateIsSaving(true);
                       saveGitIdentity({
                         gitIdentity: { email, name, scope: "global" },
                         repoPath: null,
                       })
                         .then((nextStatus) => {
-                          setIdentityStatus(nextStatus);
-                          setLastLoadedRepoPath(activeRepo?.path ?? null);
+                          updateIdentityStatus(nextStatus);
+                          updateLastLoadedRepoPath(activeRepo?.path ?? null);
 
                           if (activeRepoId) {
                             setRepoGitIdentity(activeRepoId, nextStatus);
                           }
 
-                          setStatusMessage("Saved global profile.");
-                          setIsEditing(false);
-                          setEditSnapshot(null);
+                          updateStatusMessage("Saved global profile.");
+                          updateIsEditing(false);
+                          updateEditSnapshot(null);
                         })
                         .catch((error: unknown) => {
-                          setStatusMessage(
+                          updateStatusMessage(
                             error instanceof Error
                               ? error.message
                               : "Failed to save Git profile"
                           );
                         })
                         .finally(() => {
-                          setIsSaving(false);
+                          updateIsSaving(false);
                         });
                     }}
                     size="sm"
@@ -263,13 +276,13 @@ function GitSection({ query }: { query: string }) {
                     disabled={isSaving}
                     onClick={() => {
                       if (editSnapshot) {
-                        setName(editSnapshot.name);
-                        setEmail(editSnapshot.email);
+                        updateName(editSnapshot.name);
+                        updateEmail(editSnapshot.email);
                       }
 
-                      setIsEditing(false);
-                      setEditSnapshot(null);
-                      setStatusMessage(null);
+                      updateIsEditing(false);
+                      updateEditSnapshot(null);
+                      updateStatusMessage(null);
                     }}
                     size="sm"
                     type="button"
@@ -317,9 +330,9 @@ function GitSection({ query }: { query: string }) {
                   </Button>
                   <Button
                     onClick={() => {
-                      setEditSnapshot({ email, name });
-                      setIsEditing(true);
-                      setStatusMessage(null);
+                      updateEditSnapshot({ email, name });
+                      updateIsEditing(true);
+                      updateStatusMessage(null);
                     }}
                     size="sm"
                     type="button"

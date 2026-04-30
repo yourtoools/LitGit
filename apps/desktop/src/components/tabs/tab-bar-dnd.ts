@@ -30,7 +30,7 @@ import { useGroupHoverIntent } from "@/hooks/tabs/use-group-hover-intent";
 
 type CollisionArgs = Parameters<CollisionDetection>[0];
 
-export interface UseTabBarDndParams {
+interface UseTabBarDndParams {
   addTabButtonWrapperRef: RefObject<HTMLDivElement | null>;
   addTabToGroup: (tabId: string, groupId: string) => void;
   getGroupEndIndex: (groupId: string) => number;

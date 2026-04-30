@@ -317,7 +317,6 @@ export function KeyboardShortcutsDialog() {
           <div className="border-border/60 border-b px-4 py-3">
             <Input
               aria-describedby={shortcutHelpId}
-              autoFocus
               className="h-7 text-xs"
               onChange={(event) => setShortcutQuery(event.target.value)}
               placeholder="Filter shortcuts"

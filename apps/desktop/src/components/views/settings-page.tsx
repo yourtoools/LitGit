@@ -33,7 +33,7 @@ import {
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 
-function renderSection(
+function getSectionContent(
   sectionId: SettingsSectionId,
   query: string
 ): React.ReactNode {
@@ -334,10 +334,10 @@ export function SettingsPage() {
       activeDefinition={activeDefinition}
       contentPanelRef={contentPanelRef}
       filteredSections={filteredSections}
+      getSectionContent={getSectionContent}
       handleExitPreferences={handleExitPreferences}
       leftSidebarWidth={leftSidebarWidth}
       query={query}
-      renderSection={renderSection}
       resetSettingsSearch={resetSettingsSearch}
       setSearchQuery={setSearchQuery}
       setSection={setSection}

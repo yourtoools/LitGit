@@ -9,7 +9,8 @@ import {
 } from "@litgit/ui/components/dialog";
 import { Input } from "@litgit/ui/components/input";
 import { Label } from "@litgit/ui/components/label";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import type {
   GitIdentityStatus,
   GitIdentityWriteInput,
@@ -65,22 +66,25 @@ export function GitIdentityDialog({
   submitLabel,
   title,
 }: GitIdentityDialogProps) {
-  const [formState, setFormState] = useState<GitIdentityFormState>(() =>
-    getInitialFormState(identityStatus)
+  const [formState, updateFormState] = useReducerState<GitIdentityFormState>(
+    () => getInitialFormState(identityStatus)
   );
-  const [errors, setErrors] = useState<{ email?: string; name?: string }>({});
-  const [formError, setFormError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [errors, updateErrors] = useReducerState<{
+    email?: string;
+    name?: string;
+  }>({});
+  const [formError, updateFormError] = useReducerState<string | null>(null);
+  const [isSaving, updateIsSaving] = useReducerState(false);
 
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    setFormState(getInitialFormState(identityStatus));
-    setErrors({});
-    setFormError(null);
-  }, [identityStatus, open]);
+    updateFormState(getInitialFormState(identityStatus));
+    updateErrors({});
+    updateFormError(null);
+  }, [identityStatus, open, updateFormState, updateFormError, updateErrors]);
 
   const handleSubmit = async () => {
     const trimmedName = formState.name.trim();
@@ -97,14 +101,14 @@ export function GitIdentityDialog({
       nextErrors.email = "Enter a valid email address.";
     }
 
-    setErrors(nextErrors);
-    setFormError(null);
+    updateErrors(nextErrors);
+    updateFormError(null);
 
     if (Object.keys(nextErrors).length > 0) {
       return;
     }
 
-    setIsSaving(true);
+    updateIsSaving(true);
 
     try {
       await onConfirm({
@@ -113,11 +117,11 @@ export function GitIdentityDialog({
         scope: "global",
       });
     } catch (error: unknown) {
-      setFormError(
+      updateFormError(
         error instanceof Error ? error.message : "Failed to save Git identity"
       );
     } finally {
-      setIsSaving(false);
+      updateIsSaving(false);
     }
   };
 
@@ -178,12 +182,12 @@ export function GitIdentityDialog({
               className="h-7 text-xs"
               id="git-identity-name"
               onChange={(event) => {
-                setFormState((current) => ({
+                updateFormState((current) => ({
                   ...current,
                   name: event.target.value,
                 }));
-                setErrors((current) => ({ ...current, name: undefined }));
-                setFormError(null);
+                updateErrors((current) => ({ ...current, name: undefined }));
+                updateFormError(null);
               }}
               placeholder="Jane Developer"
               value={formState.name}
@@ -210,12 +214,12 @@ export function GitIdentityDialog({
               className="h-7 text-xs"
               id="git-identity-email"
               onChange={(event) => {
-                setFormState((current) => ({
+                updateFormState((current) => ({
                   ...current,
                   email: event.target.value,
                 }));
-                setErrors((current) => ({ ...current, email: undefined }));
-                setFormError(null);
+                updateErrors((current) => ({ ...current, email: undefined }));
+                updateFormError(null);
               }}
               placeholder="jane@example.com"
               type="email"

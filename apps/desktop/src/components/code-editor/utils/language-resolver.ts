@@ -195,121 +195,6 @@ const FILE_LANGUAGE_MAP: Record<string, string> = {
   diff: "diff",
 };
 
-// Markdown fence language mapping
-const FENCE_LANGUAGE_MAP: Record<string, string> = {
-  // Web
-  css: "css",
-  scss: "css",
-  sass: "css",
-  less: "css",
-  html: "html",
-  xml: "xml",
-  svg: "html",
-  vue: "vue",
-  js: "javascript",
-  javascript: "javascript",
-  ts: "typescript",
-  typescript: "typescript",
-  jsx: "javascript",
-  tsx: "typescript",
-  json: "json",
-  jsonc: "json",
-  json5: "json",
-  md: "markdown",
-  markdown: "markdown",
-  mdx: "markdown",
-
-  // Systems
-  c: "c",
-  cpp: "cpp",
-  cplusplus: "cpp",
-  "c++": "cpp",
-  go: "go",
-  golang: "go",
-  rs: "rust",
-  rust: "rust",
-  java: "java",
-  kt: "kotlin",
-  kotlin: "kotlin",
-  scala: "scala",
-  swift: "swift",
-  objc: "objectivec",
-  objectivec: "objectivec",
-  "objective-c": "objectivec",
-
-  // Scripting
-  py: "python",
-  python: "python",
-  rb: "ruby",
-  ruby: "ruby",
-  php: "php",
-  lua: "lua",
-  perl: "perl",
-  pl: "perl",
-  sh: "shell",
-  shell: "shell",
-  bash: "shell",
-  zsh: "shell",
-  fish: "shell",
-  ps1: "powershell",
-  powershell: "powershell",
-  pwsh: "powershell",
-
-  // Functional
-  hs: "haskell",
-  haskell: "haskell",
-  elm: "elm",
-  erl: "erlang",
-  erlang: "erlang",
-  ex: "elixir",
-  exs: "elixir",
-  elixir: "elixir",
-  clj: "clojure",
-  clojure: "clojure",
-  lisp: "commonlisp",
-  commonlisp: "commonlisp",
-  scheme: "scheme",
-  fs: "fsharp",
-  fsharp: "fsharp",
-  ml: "ocaml",
-  ocaml: "ocaml",
-
-  // Data & Config
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  ini: "properties",
-  sql: "sql",
-  graphql: "graphql",
-  gql: "graphql",
-
-  // Other
-  r: "r",
-  jl: "julia",
-  julia: "julia",
-  coffee: "coffeescript",
-  coffeescript: "coffeescript",
-  dart: "dart",
-  sol: "solidity",
-  solidity: "solidity",
-  cr: "crystal",
-  crystal: "crystal",
-  nim: "nim",
-  zig: "zig",
-  v: "v",
-  dockerfile: "dockerfile",
-  docker: "dockerfile",
-  makefile: "makefile",
-  cmake: "cmake",
-  nginx: "nginx",
-  tex: "stex",
-  latex: "stex",
-  proto: "protobuf",
-  protobuf: "protobuf",
-  diff: "diff",
-  patch: "diff",
-};
-
 export function resolveLanguage(filePath: string): string {
   // Handle Dockerfile without extension
   const lowerPath = filePath.toLowerCase();
@@ -327,16 +212,6 @@ export function resolveLanguage(filePath: string): string {
 
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   return FILE_LANGUAGE_MAP[ext] ?? "plaintext";
-}
-
-export function resolveFenceLanguage(language: string): string {
-  const normalized = language.trim().toLowerCase();
-
-  if (normalized.length === 0) {
-    return "plaintext";
-  }
-
-  return FENCE_LANGUAGE_MAP[normalized] ?? "plaintext";
 }
 
 export async function loadLanguageSupport(

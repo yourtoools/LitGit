@@ -6,7 +6,7 @@ export interface DiffWorkspaceEncodingOption {
 }
 
 export const DIFF_WORKSPACE_GUESS_ENCODING_VALUE = "guess";
-export const DIFF_WORKSPACE_BINARY_ENCODING_VALUE = "binary";
+const DIFF_WORKSPACE_BINARY_ENCODING_VALUE = "binary";
 
 export const DEFAULT_DIFF_WORKSPACE_ENCODING = "utf-8";
 

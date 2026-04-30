@@ -20,7 +20,7 @@ import {
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
 import { KeyboardShortcutsDialog } from "@/components/shell/footer/keyboard-shortcuts-dialog";
@@ -29,6 +29,7 @@ import {
   shouldRefreshProviderStatuses,
 } from "@/components/shell/footer/provider-status-refresh";
 import { FooterZoomControl } from "@/components/shell/footer/zoom-control";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   isResetZoomShortcut,
   isZoomInShortcut,
@@ -67,17 +68,17 @@ export default function Footer() {
   const currentBranch = branches.find((branch) => branch.isCurrent);
   const openBranchPalette = useBranchSearchStore((state) => state.open);
 
-  const [zoom, setZoom] = useState(100);
-  const [isFetching, setIsFetching] = useState(false);
-  const [appVersion, setAppVersion] = useState("dev");
-  const [providerStatuses, setProviderStatuses] = useState<Record<
+  const [zoom, updateZoom] = useReducerState(100);
+  const [isFetching, updateIsFetching] = useReducerState(false);
+  const [appVersion, updateAppVersion] = useReducerState("dev");
+  const [providerStatuses, updateProviderStatuses] = useReducerState<Record<
     Provider,
     ProviderStatus
   > | null>(null);
-  const [hasLoadedProviderStatuses, setHasLoadedProviderStatuses] =
-    useState(false);
-  const [providerStatusLoadFailed, setProviderStatusLoadFailed] =
-    useState(false);
+  const [hasLoadedProviderStatuses, updateHasLoadedProviderStatuses] =
+    useReducerState(false);
+  const [providerStatusLoadFailed, updateProviderStatusLoadFailed] =
+    useReducerState(false);
   const lastProviderStatusRefreshAtRef = useRef<number | null>(null);
   const previousPathnameRef = useRef<string | null>(pathname);
   const providerStatusRefreshInFlightRef = useRef(false);
@@ -97,7 +98,7 @@ export default function Footer() {
       const version = await getVersion();
 
       if (!cancelled) {
-        setAppVersion(version);
+        updateAppVersion(version);
       }
     };
 
@@ -109,14 +110,14 @@ export default function Footer() {
       }
 
       if (!cancelled) {
-        setAppVersion("dev");
+        updateAppVersion("dev");
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [updateAppVersion]);
 
   const refreshProviderStatuses = useCallback(
     async (
@@ -150,9 +151,9 @@ export default function Footer() {
 
       try {
         const statuses = await getProviderStatus();
-        setProviderStatuses(statuses);
-        setHasLoadedProviderStatuses(true);
-        setProviderStatusLoadFailed(false);
+        updateProviderStatuses(statuses);
+        updateHasLoadedProviderStatuses(true);
+        updateProviderStatusLoadFailed(false);
         lastProviderStatusRefreshAtRef.current = Date.now();
       } catch (error: unknown) {
         if (import.meta.env.DEV) {
@@ -163,9 +164,9 @@ export default function Footer() {
           );
         }
 
-        setProviderStatuses(null);
-        setProviderStatusLoadFailed(true);
-        setHasLoadedProviderStatuses(true);
+        updateProviderStatuses(null);
+        updateProviderStatusLoadFailed(true);
+        updateHasLoadedProviderStatuses(true);
       } finally {
         providerStatusRefreshInFlightRef.current = false;
 
@@ -181,7 +182,13 @@ export default function Footer() {
         }
       }
     },
-    [hasLoadedProviderStatuses, pathname]
+    [
+      hasLoadedProviderStatuses,
+      pathname,
+      updateProviderStatuses,
+      updateProviderStatusLoadFailed,
+      updateHasLoadedProviderStatuses,
+    ]
   );
 
   useEffect(() => {
@@ -297,7 +304,7 @@ export default function Footer() {
 
     event.preventDefault();
 
-    setZoom((currentZoom) => {
+    updateZoom((currentZoom) => {
       if (shouldResetZoom) {
         return 100;
       }
@@ -315,7 +322,7 @@ export default function Footer() {
       return;
     }
 
-    setIsFetching(true);
+    updateIsFetching(true);
     try {
       await pullBranch(activeRepoId, "fetch-all");
       toast.success("Fetch Successful", {
@@ -326,16 +333,16 @@ export default function Footer() {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     } finally {
-      setIsFetching(false);
+      updateIsFetching(false);
     }
-  }, [activeRepoId, isFetching, pullBranch]);
+  }, [activeRepoId, isFetching, pullBranch, updateIsFetching]);
 
   const handlePush = useCallback(async () => {
     if (!activeRepoId || isFetching) {
       return;
     }
 
-    setIsFetching(true);
+    updateIsFetching(true);
     try {
       await pushBranch(activeRepoId);
       toast.success("Push Successful");
@@ -344,9 +351,9 @@ export default function Footer() {
         description: error instanceof Error ? error.message : "Unknown error",
       });
     } finally {
-      setIsFetching(false);
+      updateIsFetching(false);
     }
-  }, [activeRepoId, isFetching, pushBranch]);
+  }, [activeRepoId, isFetching, pushBranch, updateIsFetching]);
 
   const openReleaseNotes = async () => {
     if (isTauri()) {
@@ -502,7 +509,7 @@ export default function Footer() {
         <div className="flex items-center gap-4">
           <KeyboardShortcutsDialog />
           <FooterZoomControl
-            onSelectZoom={setZoom}
+            onSelectZoom={updateZoom}
             zoom={zoom}
             zoomOptions={ZOOM_OPTIONS}
           />

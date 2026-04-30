@@ -4,7 +4,7 @@ import { useTabStore } from "@/stores/tabs/use-tab-store";
 
 type TabStoreState = ReturnType<typeof useTabStore.getState>;
 
-export interface TabBarStoreState {
+interface TabBarStoreState {
   actions: {
     addTab: TabStoreState["addTab"];
     addTabToGroup: TabStoreState["addTabToGroup"];

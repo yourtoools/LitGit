@@ -1,6 +1,6 @@
 type MaybePromise<T> = Promise<T> | T;
 
-export interface WorkerTaskRunner<TInput, TOutput> {
+interface WorkerTaskRunner<TInput, TOutput> {
   run: (payload: TInput) => Promise<TOutput>;
 }
 

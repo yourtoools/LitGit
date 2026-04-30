@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type TabSearchMode = "commands" | "tabs";
+type TabSearchMode = "commands" | "tabs";
 
 interface TabSearchStore {
   close: () => void;

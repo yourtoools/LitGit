@@ -13,10 +13,11 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 import { TerminalPlaceholder } from "@/components/terminal/terminal-placeholder";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   closeTerminalSession,
   createTerminalSession,
@@ -222,9 +223,11 @@ export function TerminalViewport({
   const repoWorkingTreeStatuses = useRepoStore(
     (state) => state.repoWorkingTreeStatuses
   );
-  const [isReady, setIsReady] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [suggestionState, setSuggestionState] = useState<{
+  const [isReady, updateIsReady] = useReducerState(false);
+  const [errorMessage, updateErrorMessage] = useReducerState<string | null>(
+    null
+  );
+  const [suggestionState, updateSuggestionState] = useReducerState<{
     active: boolean;
     completions: GitSuggestion[];
     nextCommands: string[];
@@ -237,7 +240,7 @@ export function TerminalViewport({
     selectedIndex: 0,
     currentWord: "",
   });
-  const [suggestionPosition, setSuggestionPosition] = useState({
+  const [suggestionPosition, commitSuggestionPosition] = useReducerState({
     left: 16,
     top: 16,
   });
@@ -291,7 +294,7 @@ export function TerminalViewport({
         return;
       }
 
-      setSuggestionState((prev) => ({ ...prev, active: false }));
+      updateSuggestionState((prev) => ({ ...prev, active: false }));
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -299,7 +302,7 @@ export function TerminalViewport({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, []);
+  }, [updateSuggestionState]);
 
   useEffect(() => {
     if (!suggestionState.active) {
@@ -364,11 +367,11 @@ export function TerminalViewport({
       Math.max(mountElement.clientHeight - popupHeight - 16, 16)
     );
 
-    setSuggestionPosition({
+    commitSuggestionPosition({
       left,
       top,
     });
-  }, []);
+  }, [commitSuggestionPosition]);
 
   useEffect(() => {
     if (commandLineRef.current.trim().length === 0) {
@@ -378,7 +381,7 @@ export function TerminalViewport({
     const parsed = parseCommandLine(commandLineRef.current);
 
     if (!parsed) {
-      setSuggestionState((prev) =>
+      updateSuggestionState((prev) =>
         prev.active ? { ...prev, active: false } : prev
       );
       return;
@@ -390,7 +393,7 @@ export function TerminalViewport({
       repoSuggestionContext
     );
 
-    setSuggestionState((prev) => ({
+    updateSuggestionState((prev) => ({
       active:
         suggestions.completions.length > 0 ||
         suggestions.nextCommands.length > 0,
@@ -405,14 +408,14 @@ export function TerminalViewport({
       ),
       currentWord: parsed.currentWord,
     }));
-  }, [repoSuggestionContext]);
+  }, [repoSuggestionContext, updateSuggestionState]);
 
   useEffect(() => {
     if (!mountRef.current) {
       return;
     }
 
-    setErrorMessage(null);
+    updateErrorMessage(null);
 
     const terminalTheme = createTerminalTheme(
       resolvedTheme === "light" ? "light" : "dark"
@@ -489,13 +492,13 @@ export function TerminalViewport({
         terminal.write(cacheEntry.outputBuffer);
       }
 
-      const updateSuggestionState = (nextLine: string) => {
+      const syncSuggestionStateFromLine = (nextLine: string) => {
         commandLineRef.current = nextLine;
 
         const parsed = parseCommandLine(nextLine);
 
         if (!parsed) {
-          setSuggestionState((prev) =>
+          updateSuggestionState((prev) =>
             prev.active ? { ...prev, active: false } : prev
           );
           return;
@@ -507,7 +510,7 @@ export function TerminalViewport({
           repoSuggestionContextRef.current
         );
 
-        setSuggestionState((prev) => ({
+        updateSuggestionState((prev) => ({
           active:
             suggestions.completions.length > 0 ||
             suggestions.nextCommands.length > 0,
@@ -575,12 +578,12 @@ export function TerminalViewport({
             state.completions.length + state.nextCommands.length;
 
           if (event.key === "Escape") {
-            setSuggestionState((prev) => ({ ...prev, active: false }));
+            updateSuggestionState((prev) => ({ ...prev, active: false }));
             return false;
           }
 
           if (event.key === "ArrowUp") {
-            setSuggestionState((prev) => ({
+            updateSuggestionState((prev) => ({
               ...prev,
               selectedIndex:
                 prev.selectedIndex > 0
@@ -591,7 +594,7 @@ export function TerminalViewport({
           }
 
           if (event.key === "ArrowDown") {
-            setSuggestionState((prev) => ({
+            updateSuggestionState((prev) => ({
               ...prev,
               selectedIndex:
                 prev.selectedIndex < totalItems - 1
@@ -630,18 +633,18 @@ export function TerminalViewport({
                 writeTerminalSession(sessionId, textToInsert).catch(
                   () => undefined
                 );
-                updateSuggestionState(
+                syncSuggestionStateFromLine(
                   `${commandLineRef.current}${textToInsert}`.trimEnd()
                 );
               }
             }
 
-            setSuggestionState((prev) => ({ ...prev, active: false }));
+            updateSuggestionState((prev) => ({ ...prev, active: false }));
             return false;
           }
 
           if (event.key === "Enter") {
-            setSuggestionState((prev) => ({ ...prev, active: false }));
+            updateSuggestionState((prev) => ({ ...prev, active: false }));
             return true;
           }
         }
@@ -678,7 +681,7 @@ export function TerminalViewport({
           return;
         }
 
-        updateSuggestionState(
+        syncSuggestionStateFromLine(
           applyTerminalInputToLine(commandLineRef.current, input)
         );
 
@@ -688,7 +691,7 @@ export function TerminalViewport({
       });
 
       await syncSizeToBackend(cacheEntry.sessionId);
-      setIsReady(true);
+      updateIsReady(true);
       updateSuggestionPosition();
 
       if (isActive && autoFocus) {
@@ -715,7 +718,7 @@ export function TerminalViewport({
           error instanceof Error && error.message.trim().length > 0
             ? error.message
             : "Failed to start terminal session.";
-        setErrorMessage(message);
+        updateErrorMessage(message);
         terminal.write(`\r\n${message}\r\n`);
       });
 
@@ -726,7 +729,7 @@ export function TerminalViewport({
 
       cleanupDone = true;
       const currentEntry = sessionCacheByContext.get(contextKey);
-      setIsReady(false);
+      updateIsReady(false);
       resizeObserver.disconnect();
       inputSubscription?.dispose();
       unlistenOutput?.();
@@ -753,6 +756,9 @@ export function TerminalViewport({
     lineHeight,
     resolvedTheme,
     updateSuggestionPosition,
+    updateIsReady,
+    updateErrorMessage,
+    updateSuggestionState,
   ]);
 
   useEffect(() => {

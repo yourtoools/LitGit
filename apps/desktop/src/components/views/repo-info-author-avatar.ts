@@ -5,7 +5,7 @@ const GITLAB_NOREPLY_EMAIL_SUFFIX = "@users.noreply.gitlab.com";
 const BITBUCKET_NOREPLY_EMAIL_SUFFIX = "@users.noreply.bitbucket.org";
 const ASCII_DIGITS_PATTERN = /^\d+$/;
 
-export function isValidGitHubUsername(username: string): boolean {
+function isValidGitHubUsername(username: string): boolean {
   const length = username.length;
   if (length === 0 || length > 39) {
     return false;
@@ -29,7 +29,7 @@ export function isValidGitHubUsername(username: string): boolean {
   return true;
 }
 
-export function isValidBitbucketUsername(username: string): boolean {
+function isValidBitbucketUsername(username: string): boolean {
   const length = username.length;
   if (length === 0 || length > 39) {
     return false;
@@ -162,7 +162,7 @@ function resolveBitbucketAvatarFromIdentityEmail(
   return null;
 }
 
-export function resolveCommitAuthorAvatarFromIdentityEmail(
+function resolveCommitAuthorAvatarFromIdentityEmail(
   email: string | null
 ): string | null {
   const normalizedEmail = email?.trim().toLowerCase() ?? "";

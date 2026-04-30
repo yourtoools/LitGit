@@ -19,13 +19,14 @@ import {
 import { SpinnerIcon } from "@phosphor-icons/react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { ProviderOAuthTokenDialog } from "@/components/auth/provider-oauth-token-dialog";
 import {
   resolveDefaultPublishProvider,
   resolveDefaultPublishTarget,
   resolvePublishRepositoryNameError,
 } from "@/components/views/repo-info/publish-repository-dialog.helpers";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import type { Provider, ProviderStatus } from "@/lib/tauri-integrations-client";
 import {
   completeOAuthFlow,
@@ -77,26 +78,28 @@ export function PublishRepositoryDialog({
   onOpenChange,
   open,
 }: PublishRepositoryDialogProps) {
-  const [statuses, setStatuses] = useState<Record<
+  const [statuses, updateStatuses] = useReducerState<Record<
     Provider,
     ProviderStatus
   > | null>(null);
-  const [provider, setProvider] = useState<Provider | null>(null);
-  const [targets, setTargets] = useState<PublishTarget[]>([]);
-  const [targetId, setTargetId] = useState("");
-  const [repoName, setRepoName] = useState(initialRepoName);
-  const [visibility, setVisibility] = useState<"private" | "public">("private");
-  const [isLoadingStatuses, setIsLoadingStatuses] = useState(false);
-  const [isLoadingTargets, setIsLoadingTargets] = useState(false);
-  const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(
-    null
+  const [provider, updateProvider] = useReducerState<Provider | null>(null);
+  const [targets, updateTargets] = useReducerState<PublishTarget[]>([]);
+  const [targetId, updateTargetId] = useReducerState("");
+  const [repoName, updateRepoName] = useReducerState(initialRepoName);
+  const [visibility, updateVisibility] = useReducerState<"private" | "public">(
+    "private"
   );
-  const [pendingOAuthFlow, setPendingOAuthFlow] = useState<{
+  const [isLoadingStatuses, updateIsLoadingStatuses] = useReducerState(false);
+  const [isLoadingTargets, updateIsLoadingTargets] = useReducerState(false);
+  const [localErrorMessage, updateLocalErrorMessage] = useReducerState<
+    string | null
+  >(null);
+  const [pendingOAuthFlow, updatePendingOAuthFlow] = useReducerState<{
     provider: Provider;
     state: string;
   } | null>(null);
-  const [isOAuthDialogOpen, setIsOAuthDialogOpen] = useState(false);
-  const [isOAuthSubmitting, setIsOAuthSubmitting] = useState(false);
+  const [isOAuthDialogOpen, updateIsOAuthDialogOpen] = useReducerState(false);
+  const [isOAuthSubmitting, updateIsOAuthSubmitting] = useReducerState(false);
 
   const selectedProviderStatus = provider ? statuses?.[provider] : null;
   const isProviderConnected = selectedProviderStatus?.connected ?? false;
@@ -105,22 +108,29 @@ export function PublishRepositoryDialog({
 
   const handleOAuthSuccess = useCallback(
     async (oauthProvider: Provider, code: string, state: string) => {
-      setIsOAuthSubmitting(true);
+      updateIsOAuthSubmitting(true);
       try {
         await completeOAuthFlow(code, state);
         const nextStatuses = await getProviderStatus();
-        setStatuses(nextStatuses);
-        setProvider(oauthProvider);
-        setLocalErrorMessage(null);
-        setPendingOAuthFlow(null);
-        setIsOAuthDialogOpen(false);
+        updateStatuses(nextStatuses);
+        updateProvider(oauthProvider);
+        updateLocalErrorMessage(null);
+        updatePendingOAuthFlow(null);
+        updateIsOAuthDialogOpen(false);
       } catch (error) {
-        setLocalErrorMessage(getErrorMessage(error));
+        updateLocalErrorMessage(getErrorMessage(error));
       } finally {
-        setIsOAuthSubmitting(false);
+        updateIsOAuthSubmitting(false);
       }
     },
-    []
+    [
+      updateProvider,
+      updateIsOAuthSubmitting,
+      updateStatuses,
+      updateLocalErrorMessage,
+      updatePendingOAuthFlow,
+      updateIsOAuthDialogOpen,
+    ]
   );
 
   useEffect(() => {
@@ -129,13 +139,13 @@ export function PublishRepositoryDialog({
     }
 
     let ignore = false;
-    setIsLoadingStatuses(true);
-    setStatuses(null);
-    setTargets([]);
-    setTargetId("");
-    setRepoName(initialRepoName);
-    setVisibility("private");
-    setLocalErrorMessage(null);
+    updateIsLoadingStatuses(true);
+    updateStatuses(null);
+    updateTargets([]);
+    updateTargetId("");
+    updateRepoName(initialRepoName);
+    updateVisibility("private");
+    updateLocalErrorMessage(null);
 
     const loadProviderStatus = async () => {
       try {
@@ -144,18 +154,18 @@ export function PublishRepositoryDialog({
           return;
         }
 
-        setStatuses(nextStatuses);
-        setProvider(resolveDefaultPublishProvider(nextStatuses));
+        updateStatuses(nextStatuses);
+        updateProvider(resolveDefaultPublishProvider(nextStatuses));
       } catch (error) {
         if (ignore) {
           return;
         }
-        setStatuses(null);
-        setProvider(null);
-        setLocalErrorMessage(getErrorMessage(error));
+        updateStatuses(null);
+        updateProvider(null);
+        updateLocalErrorMessage(getErrorMessage(error));
       } finally {
         if (!ignore) {
-          setIsLoadingStatuses(false);
+          updateIsLoadingStatuses(false);
         }
       }
     };
@@ -165,21 +175,32 @@ export function PublishRepositoryDialog({
     return () => {
       ignore = true;
     };
-  }, [initialRepoName, open]);
+  }, [
+    initialRepoName,
+    open,
+    updateProvider,
+    updateVisibility,
+    updateTargetId,
+    updateStatuses,
+    updateRepoName,
+    updateIsLoadingStatuses,
+    updateTargets,
+    updateLocalErrorMessage,
+  ]);
 
   useEffect(() => {
     if (!(open && provider && statuses?.[provider]?.connected)) {
-      setTargets([]);
-      setTargetId("");
-      setIsLoadingTargets(false);
+      updateTargets([]);
+      updateTargetId("");
+      updateIsLoadingTargets(false);
       return;
     }
 
     let ignore = false;
-    setIsLoadingTargets(true);
-    setLocalErrorMessage(null);
-    setTargets([]);
-    setTargetId("");
+    updateIsLoadingTargets(true);
+    updateLocalErrorMessage(null);
+    updateTargets([]);
+    updateTargetId("");
 
     const loadPublishTargets = async () => {
       try {
@@ -188,8 +209,8 @@ export function PublishRepositoryDialog({
           return;
         }
 
-        setTargets(nextTargets);
-        setTargetId(
+        updateTargets(nextTargets);
+        updateTargetId(
           resolveDefaultPublishTarget(provider, nextTargets)?.id ?? ""
         );
       } catch (error) {
@@ -197,12 +218,12 @@ export function PublishRepositoryDialog({
           return;
         }
 
-        setTargets([]);
-        setTargetId("");
-        setLocalErrorMessage(getErrorMessage(error));
+        updateTargets([]);
+        updateTargetId("");
+        updateLocalErrorMessage(getErrorMessage(error));
       } finally {
         if (!ignore) {
-          setIsLoadingTargets(false);
+          updateIsLoadingTargets(false);
         }
       }
     };
@@ -212,7 +233,15 @@ export function PublishRepositoryDialog({
     return () => {
       ignore = true;
     };
-  }, [open, provider, statuses]);
+  }, [
+    open,
+    provider,
+    statuses,
+    updateTargetId,
+    updateLocalErrorMessage,
+    updateIsLoadingTargets,
+    updateTargets,
+  ]);
 
   useEffect(() => {
     if (!(open && pendingOAuthFlow)) {
@@ -230,7 +259,7 @@ export function PublishRepositoryDialog({
         payload.code,
         payload.state
       ).catch((error) => {
-        setLocalErrorMessage(getErrorMessage(error));
+        updateLocalErrorMessage(getErrorMessage(error));
       });
     });
 
@@ -238,10 +267,10 @@ export function PublishRepositoryDialog({
       unlisten
         .then((cleanup) => cleanup())
         .catch((error) => {
-          setLocalErrorMessage(getErrorMessage(error));
+          updateLocalErrorMessage(getErrorMessage(error));
         });
     };
-  }, [handleOAuthSuccess, open, pendingOAuthFlow]);
+  }, [handleOAuthSuccess, open, pendingOAuthFlow, updateLocalErrorMessage]);
 
   const providerTargets = useMemo(
     () => targets.filter((target) => target.provider === provider),
@@ -249,16 +278,16 @@ export function PublishRepositoryDialog({
   );
 
   const handleStartOAuth = async (oauthProvider: Provider) => {
-    setLocalErrorMessage(null);
+    updateLocalErrorMessage(null);
     try {
       const { url, state } = await startOAuthFlow(oauthProvider);
-      setPendingOAuthFlow({ provider: oauthProvider, state });
-      setIsOAuthDialogOpen(true);
+      updatePendingOAuthFlow({ provider: oauthProvider, state });
+      updateIsOAuthDialogOpen(true);
       await openUrl(url);
     } catch (error) {
-      setPendingOAuthFlow(null);
-      setIsOAuthDialogOpen(false);
-      setLocalErrorMessage(getErrorMessage(error));
+      updatePendingOAuthFlow(null);
+      updateIsOAuthDialogOpen(false);
+      updateLocalErrorMessage(getErrorMessage(error));
     }
   };
 
@@ -273,27 +302,29 @@ export function PublishRepositoryDialog({
 
   const handleConfirm = async () => {
     if (!provider) {
-      setLocalErrorMessage("Choose a provider before publishing.");
+      updateLocalErrorMessage("Choose a provider before publishing.");
       return;
     }
 
     if (!statuses?.[provider]?.connected) {
-      setLocalErrorMessage("Connect the selected provider before publishing.");
+      updateLocalErrorMessage(
+        "Connect the selected provider before publishing."
+      );
       return;
     }
 
     const repoNameError = resolvePublishRepositoryNameError(repoName);
     if (repoNameError) {
-      setLocalErrorMessage(repoNameError);
+      updateLocalErrorMessage(repoNameError);
       return;
     }
 
     if (!targetId) {
-      setLocalErrorMessage("Choose a destination before publishing.");
+      updateLocalErrorMessage("Choose a destination before publishing.");
       return;
     }
 
-    setLocalErrorMessage(null);
+    updateLocalErrorMessage(null);
     await onConfirm({
       provider,
       targetId,
@@ -330,8 +361,8 @@ export function PublishRepositoryDialog({
                     disabled={isSubmitting || isLoadingStatuses}
                     key={providerOption}
                     onClick={() => {
-                      setProvider(providerOption);
-                      setLocalErrorMessage(null);
+                      updateProvider(providerOption);
+                      updateLocalErrorMessage(null);
                     }}
                     size="sm"
                     type="button"
@@ -388,8 +419,8 @@ export function PublishRepositoryDialog({
                   providerTargets.length === 0
                 }
                 onValueChange={(value) => {
-                  setTargetId(value ?? "");
-                  setLocalErrorMessage(null);
+                  updateTargetId(value ?? "");
+                  updateLocalErrorMessage(null);
                 }}
                 value={targetId}
               >
@@ -427,8 +458,8 @@ export function PublishRepositoryDialog({
                 disabled={isSubmitting}
                 id="publish-repository-name"
                 onChange={(event) => {
-                  setRepoName(event.target.value);
-                  setLocalErrorMessage(null);
+                  updateRepoName(event.target.value);
+                  updateLocalErrorMessage(null);
                 }}
                 placeholder="my-repository"
                 spellCheck={false}
@@ -444,8 +475,8 @@ export function PublishRepositoryDialog({
                   className="justify-start text-xs"
                   disabled={isSubmitting}
                   onClick={() => {
-                    setVisibility("private");
-                    setLocalErrorMessage(null);
+                    updateVisibility("private");
+                    updateLocalErrorMessage(null);
                   }}
                   size="sm"
                   type="button"
@@ -458,8 +489,8 @@ export function PublishRepositoryDialog({
                   className="justify-start text-xs"
                   disabled={isSubmitting}
                   onClick={() => {
-                    setVisibility("public");
-                    setLocalErrorMessage(null);
+                    updateVisibility("public");
+                    updateLocalErrorMessage(null);
                   }}
                   size="sm"
                   type="button"
@@ -511,9 +542,9 @@ export function PublishRepositoryDialog({
       <ProviderOAuthTokenDialog
         isSubmitting={isOAuthSubmitting}
         onOpenChange={(nextOpen) => {
-          setIsOAuthDialogOpen(nextOpen);
+          updateIsOAuthDialogOpen(nextOpen);
           if (!(nextOpen || isOAuthSubmitting)) {
-            setPendingOAuthFlow(null);
+            updatePendingOAuthFlow(null);
           }
         }}
         onSubmit={handleCompleteOAuthFromPaste}

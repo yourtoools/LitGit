@@ -98,7 +98,8 @@ export function WindowTitlebar({ hideSearch = false }: WindowTitlebarProps) {
 
     const toggleMaximizeWindow = async () => {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().toggleMaximize();
+      const currentWindow = getCurrentWindow();
+      await currentWindow.toggleMaximize();
       await syncMaximizedState();
     };
 

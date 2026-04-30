@@ -19,7 +19,7 @@ export interface CommitFileTreeNode {
   name: string;
 }
 
-export interface CollapsedCommitTreeSummary {
+interface CollapsedCommitTreeSummary {
   addedCount: number;
   modifiedCount: number;
   removedCount: number;

@@ -34,7 +34,6 @@ import {
   useId,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
@@ -43,6 +42,7 @@ import {
   normalizeComboboxQuery,
   useDebouncedValue,
 } from "@/hooks/use-debounced-value";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   loadRepositoryTemplates,
   type RepositoryTemplates,
@@ -125,14 +125,14 @@ interface StartLocalFormPanelProps {
   name: string;
   nameInputId: string;
   nameInputRef: RefObject<HTMLInputElement | null>;
-  setDefaultBranch: Dispatch<SetStateAction<string>>;
-  setDestinationParent: Dispatch<SetStateAction<string>>;
-  setErrors: Dispatch<SetStateAction<ValidationErrors>>;
-  setFormError: Dispatch<SetStateAction<string | null>>;
-  setGitignoreTemplateKey: Dispatch<SetStateAction<string | null>>;
-  setLicenseTemplateKey: Dispatch<SetStateAction<string | null>>;
-  setName: Dispatch<SetStateAction<string>>;
   statusRegionId: string;
+  updateDefaultBranch: Dispatch<SetStateAction<string>>;
+  updateDestinationParent: Dispatch<SetStateAction<string>>;
+  updateErrors: Dispatch<SetStateAction<ValidationErrors>>;
+  updateFormError: Dispatch<SetStateAction<string | null>>;
+  updateGitignoreTemplateKey: Dispatch<SetStateAction<string | null>>;
+  updateLicenseTemplateKey: Dispatch<SetStateAction<string | null>>;
+  updateName: Dispatch<SetStateAction<string>>;
 }
 
 interface StartLocalDialogFooterProps {
@@ -199,7 +199,7 @@ function TemplateSelect({
   value,
 }: TemplateSelectProps) {
   const selectedOption = options.find((option) => option.key === value) ?? null;
-  const [templateQuery, setTemplateQuery] = useState("");
+  const [templateQuery, updateTemplateQuery] = useReducerState("");
   const normalizedTemplateQuery = useDebouncedValue(
     templateQuery,
     COMBOBOX_DEBOUNCE_DELAY_MS,
@@ -251,10 +251,10 @@ function TemplateSelect({
         items={visibleOptions}
         itemToStringLabel={(option: RepositoryTemplateOption) => option.label}
         onInputValueChange={(nextInputValue) => {
-          setTemplateQuery(nextInputValue);
+          updateTemplateQuery(nextInputValue);
         }}
         onValueChange={(nextValue: RepositoryTemplateOption | null) => {
-          setTemplateQuery("");
+          updateTemplateQuery("");
           onValueChange(nextValue?.key ?? null);
         }}
         value={selectedOption}
@@ -356,13 +356,13 @@ function StartLocalFormPanel({
   name,
   nameInputId,
   nameInputRef,
-  setDefaultBranch,
-  setDestinationParent,
-  setErrors,
-  setFormError,
-  setGitignoreTemplateKey,
-  setLicenseTemplateKey,
-  setName,
+  updateDefaultBranch,
+  updateDestinationParent,
+  updateErrors,
+  updateFormError,
+  updateGitignoreTemplateKey,
+  updateLicenseTemplateKey,
+  updateName,
   statusRegionId,
 }: StartLocalFormPanelProps) {
   const areTemplateSelectsDisabled =
@@ -383,9 +383,9 @@ function StartLocalFormPanel({
             className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={nameInputId}
             onChange={(event) => {
-              setName(event.target.value);
-              setErrors((current) => ({ ...current, name: undefined }));
-              setFormError(null);
+              updateName(event.target.value);
+              updateErrors((current) => ({ ...current, name: undefined }));
+              updateFormError(null);
             }}
             placeholder="my-local-repo"
             ref={nameInputRef}
@@ -418,12 +418,12 @@ function StartLocalFormPanel({
               className="h-7 flex-1 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
               id={destinationInputId}
               onChange={(event) => {
-                setDestinationParent(event.target.value);
-                setErrors((current) => ({
+                updateDestinationParent(event.target.value);
+                updateErrors((current) => ({
                   ...current,
                   destinationParent: undefined,
                 }));
-                setFormError(null);
+                updateFormError(null);
               }}
               placeholder="/Users/name/projects"
               spellCheck={false}
@@ -471,12 +471,12 @@ function StartLocalFormPanel({
             className="h-7 border-border/60 bg-background/60 px-2.5 font-mono text-xs placeholder:font-sans placeholder:text-muted-foreground/60"
             id={defaultBranchInputId}
             onChange={(event) => {
-              setDefaultBranch(event.target.value);
-              setErrors((current) => ({
+              updateDefaultBranch(event.target.value);
+              updateErrors((current) => ({
                 ...current,
                 defaultBranch: undefined,
               }));
-              setFormError(null);
+              updateFormError(null);
             }}
             placeholder="main"
             spellCheck={false}
@@ -502,7 +502,7 @@ function StartLocalFormPanel({
           fallback="Select a .gitignore template to add to your repository."
           id={gitignoreTemplateInputId}
           label=".gitignore template (optional)"
-          onValueChange={setGitignoreTemplateKey}
+          onValueChange={updateGitignoreTemplateKey}
           options={gitignoreTemplatesState.options}
           placeholder="No template"
           state={gitignoreTemplatesState}
@@ -514,7 +514,7 @@ function StartLocalFormPanel({
           fallback="Select a license to add to your repository. You can customize it after creation."
           id={licenseTemplateInputId}
           label="License template (optional)"
-          onValueChange={setLicenseTemplateKey}
+          onValueChange={updateLicenseTemplateKey}
           options={licenseTemplatesState.options}
           placeholder="No license"
           state={licenseTemplatesState}
@@ -667,40 +667,42 @@ export function RepositoryStartLocalDialog({
   );
   const { routeRepository } = useOpenRepositoryTabRouting();
 
-  const [repositoryTemplates, setRepositoryTemplates] =
-    useState<RepositoryTemplates | null>(null);
-  const [name, setName] = useState("");
-  const [destinationParent, setDestinationParent] = useState("");
-  const [defaultBranch, setDefaultBranch] = useState(
+  const [repositoryTemplates, updateRepositoryTemplates] =
+    useReducerState<RepositoryTemplates | null>(null);
+  const [name, updateName] = useReducerState("");
+  const [destinationParent, updateDestinationParent] = useReducerState("");
+  const [defaultBranch, updateDefaultBranch] = useReducerState(
     preferredDefaultBranchName
   );
-  const [gitignoreTemplateKey, setGitignoreTemplateKey] = useState<
+  const [gitignoreTemplateKey, updateGitignoreTemplateKey] = useReducerState<
     string | null
   >(null);
-  const [licenseTemplateKey, setLicenseTemplateKey] = useState<string | null>(
-    null
-  );
-  const [gitignoreTemplatesState, setGitignoreTemplatesState] =
-    useState<TemplateState>({
+  const [licenseTemplateKey, updateLicenseTemplateKey] = useReducerState<
+    string | null
+  >(null);
+  const [gitignoreTemplatesState, updateGitignoreTemplatesState] =
+    useReducerState<TemplateState>({
       error: null,
       isLoading: true,
       options: [],
     });
-  const [licenseTemplatesState, setLicenseTemplatesState] =
-    useState<TemplateState>({
+  const [licenseTemplatesState, updateLicenseTemplatesState] =
+    useReducerState<TemplateState>({
       error: null,
       isLoading: true,
       options: [],
     });
-  const [errors, setErrors] = useState<ValidationErrors>({});
-  const [formError, setFormError] = useState<string | null>(null);
-  const [isPickingDestination, setIsPickingDestination] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isGitIdentityDialogOpen, setIsGitIdentityDialogOpen] = useState(false);
-  const [gitIdentityStatus, setGitIdentityStatus] =
-    useState<GitIdentityStatus | null>(null);
-  const [successState, setSuccessState] =
-    useState<StartLocalSuccessState | null>(null);
+  const [errors, updateErrors] = useReducerState<ValidationErrors>({});
+  const [formError, updateFormError] = useReducerState<string | null>(null);
+  const [isPickingDestination, updateIsPickingDestination] =
+    useReducerState(false);
+  const [isCreating, updateIsCreating] = useReducerState(false);
+  const [isGitIdentityDialogOpen, updateIsGitIdentityDialogOpen] =
+    useReducerState(false);
+  const [gitIdentityStatus, updateGitIdentityStatus] =
+    useReducerState<GitIdentityStatus | null>(null);
+  const [successState, updateSuccessState] =
+    useReducerState<StartLocalSuccessState | null>(null);
 
   const nameInputId = useId();
   const destinationInputId = useId();
@@ -712,39 +714,39 @@ export function RepositoryStartLocalDialog({
 
   useEffect(() => {
     if (!open) {
-      setRepositoryTemplates(null);
-      setGitignoreTemplatesState({
+      updateRepositoryTemplates(null);
+      updateGitignoreTemplatesState({
         error: null,
         isLoading: true,
         options: [],
       });
-      setLicenseTemplatesState({
+      updateLicenseTemplatesState({
         error: null,
         isLoading: true,
         options: [],
       });
-      setName("");
-      setDestinationParent("");
-      setDefaultBranch(preferredDefaultBranchName);
-      setGitignoreTemplateKey(null);
-      setLicenseTemplateKey(null);
-      setErrors({});
-      setFormError(null);
-      setIsPickingDestination(false);
-      setIsCreating(false);
-      setIsGitIdentityDialogOpen(false);
-      setGitIdentityStatus(null);
-      setSuccessState(null);
+      updateName("");
+      updateDestinationParent("");
+      updateDefaultBranch(preferredDefaultBranchName);
+      updateGitignoreTemplateKey(null);
+      updateLicenseTemplateKey(null);
+      updateErrors({});
+      updateFormError(null);
+      updateIsPickingDestination(false);
+      updateIsCreating(false);
+      updateIsGitIdentityDialogOpen(false);
+      updateGitIdentityStatus(null);
+      updateSuccessState(null);
       return;
     }
 
     let isCancelled = false;
-    setGitignoreTemplatesState((current) => ({
+    updateGitignoreTemplatesState((current) => ({
       ...current,
       error: null,
       isLoading: true,
     }));
-    setLicenseTemplatesState((current) => ({
+    updateLicenseTemplatesState((current) => ({
       ...current,
       error: null,
       isLoading: true,
@@ -756,13 +758,13 @@ export function RepositoryStartLocalDialog({
           return;
         }
 
-        setRepositoryTemplates(templates);
-        setGitignoreTemplatesState({
+        updateRepositoryTemplates(templates);
+        updateGitignoreTemplatesState({
           error: null,
           isLoading: false,
           options: templates.gitignoreOptions,
         });
-        setLicenseTemplatesState({
+        updateLicenseTemplatesState({
           error: null,
           isLoading: false,
           options: templates.licenseOptions,
@@ -778,12 +780,12 @@ export function RepositoryStartLocalDialog({
             ? error.message
             : "Failed to load repository templates.";
 
-        setGitignoreTemplatesState({
+        updateGitignoreTemplatesState({
           error: message,
           isLoading: false,
           options: [],
         });
-        setLicenseTemplatesState({
+        updateLicenseTemplatesState({
           error: message,
           isLoading: false,
           options: [],
@@ -791,7 +793,7 @@ export function RepositoryStartLocalDialog({
       });
 
     if (!successState) {
-      setDefaultBranch((currentValue) =>
+      updateDefaultBranch((currentValue) =>
         currentValue.trim().length === 0
           ? preferredDefaultBranchName
           : currentValue
@@ -805,7 +807,26 @@ export function RepositoryStartLocalDialog({
     return () => {
       isCancelled = true;
     };
-  }, [open, preferredDefaultBranchName, successState]);
+  }, [
+    open,
+    preferredDefaultBranchName,
+    successState,
+    updateDefaultBranch,
+    updateSuccessState,
+    updateRepositoryTemplates,
+    updateName,
+    updateLicenseTemplatesState,
+    updateLicenseTemplateKey,
+    updateIsPickingDestination,
+    updateGitignoreTemplatesState,
+    updateIsGitIdentityDialogOpen,
+    updateGitignoreTemplateKey,
+    updateErrors,
+    updateIsCreating,
+    updateGitIdentityStatus,
+    updateFormError,
+    updateDestinationParent,
+  ]);
 
   const fullDestinationPath = useMemo(
     () => formatDisplayPath(destinationParent, name),
@@ -829,17 +850,17 @@ export function RepositoryStartLocalDialog({
       nextErrors.defaultBranch = "Enter the default branch name.";
     }
 
-    setErrors(nextErrors);
+    updateErrors(nextErrors);
 
     return Object.keys(nextErrors).length === 0;
-  }, [defaultBranch, destinationParent, name]);
+  }, [defaultBranch, destinationParent, name, updateErrors]);
 
   const handlePickDestination = useCallback(async () => {
     if (isCreating) {
       return;
     }
 
-    setIsPickingDestination(true);
+    updateIsPickingDestination(true);
 
     try {
       const pickedFolder = await pickLocalRepositoryParentFolder();
@@ -848,22 +869,28 @@ export function RepositoryStartLocalDialog({
         return;
       }
 
-      setDestinationParent(pickedFolder);
-      setErrors((current) => ({ ...current, destinationParent: undefined }));
-      setFormError(null);
+      updateDestinationParent(pickedFolder);
+      updateErrors((current) => ({ ...current, destinationParent: undefined }));
+      updateFormError(null);
     } finally {
-      setIsPickingDestination(false);
+      updateIsPickingDestination(false);
     }
-  }, [isCreating]);
+  }, [
+    isCreating,
+    updateErrors,
+    updateIsPickingDestination,
+    updateDestinationParent,
+    updateFormError,
+  ]);
 
   const performCreate = useCallback(
     async (gitIdentity?: GitIdentityWriteInput | null) => {
-      setIsCreating(true);
-      setFormError(null);
+      updateIsCreating(true);
+      updateFormError(null);
 
       try {
         if (!repositoryTemplates) {
-          setFormError("Repository templates are still loading. Try again.");
+          updateFormError("Repository templates are still loading. Try again.");
           return;
         }
 
@@ -890,20 +917,20 @@ export function RepositoryStartLocalDialog({
           return;
         }
 
-        setSuccessState({
+        updateSuccessState({
           name: openedRepository.name,
           path: openedRepository.path,
           repoId: openedRepository.id,
         });
-        setIsGitIdentityDialogOpen(false);
+        updateIsGitIdentityDialogOpen(false);
       } catch (error) {
-        setFormError(
+        updateFormError(
           error instanceof Error
             ? error.message
             : "Failed to create local repository."
         );
       } finally {
-        setIsCreating(false);
+        updateIsCreating(false);
       }
     },
     [
@@ -914,6 +941,10 @@ export function RepositoryStartLocalDialog({
       licenseTemplateKey,
       name,
       repositoryTemplates,
+      updateIsCreating,
+      updateSuccessState,
+      updateIsGitIdentityDialogOpen,
+      updateFormError,
     ]
   );
 
@@ -929,9 +960,15 @@ export function RepositoryStartLocalDialog({
       return;
     }
 
-    setGitIdentityStatus(identityStatus);
-    setIsGitIdentityDialogOpen(true);
-  }, [isCreating, performCreate, validateForm]);
+    updateGitIdentityStatus(identityStatus);
+    updateIsGitIdentityDialogOpen(true);
+  }, [
+    isCreating,
+    performCreate,
+    validateForm,
+    updateIsGitIdentityDialogOpen,
+    updateGitIdentityStatus,
+  ]);
 
   const handleOpenNow = useCallback(async () => {
     if (!successState) {
@@ -1013,14 +1050,14 @@ export function RepositoryStartLocalDialog({
                 name={name}
                 nameInputId={nameInputId}
                 nameInputRef={nameInputRef}
-                setDefaultBranch={setDefaultBranch}
-                setDestinationParent={setDestinationParent}
-                setErrors={setErrors}
-                setFormError={setFormError}
-                setGitignoreTemplateKey={setGitignoreTemplateKey}
-                setLicenseTemplateKey={setLicenseTemplateKey}
-                setName={setName}
                 statusRegionId={statusRegionId}
+                updateDefaultBranch={updateDefaultBranch}
+                updateDestinationParent={updateDestinationParent}
+                updateErrors={updateErrors}
+                updateFormError={updateFormError}
+                updateGitignoreTemplateKey={updateGitignoreTemplateKey}
+                updateLicenseTemplateKey={updateLicenseTemplateKey}
+                updateName={updateName}
               />
             )}
           </div>
@@ -1041,7 +1078,7 @@ export function RepositoryStartLocalDialog({
         onConfirm={async (gitIdentity) => {
           await performCreate(gitIdentity);
         }}
-        onOpenChange={setIsGitIdentityDialogOpen}
+        onOpenChange={updateIsGitIdentityDialogOpen}
         open={isGitIdentityDialogOpen}
         submitLabel="Save and create repository"
         title="Set your global Git identity"

@@ -10,9 +10,9 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   type WheelEvent,
 } from "react";
+import { useReducerState } from "@/hooks/use-reducer-state";
 
 interface ImageDiffViewerProps {
   filePath: string;
@@ -68,30 +68,36 @@ function useElementSize<TElement extends HTMLElement>(): {
   ref: (node: TElement | null) => void;
   size: ImageDimensions;
 } {
-  const [element, setElement] = useState<TElement | null>(null);
-  const [size, setSize] = useState<ImageDimensions>({ width: 0, height: 0 });
+  const [element, updateElement] = useReducerState<TElement | null>(null);
+  const [size, updateSize] = useReducerState<ImageDimensions>({
+    width: 0,
+    height: 0,
+  });
 
-  const ref = useCallback((node: TElement | null): void => {
-    setElement(node);
-  }, []);
+  const ref = useCallback(
+    (node: TElement | null): void => {
+      updateElement(node);
+    },
+    [updateElement]
+  );
 
   useEffect(() => {
     if (element === null) {
-      setSize({ width: 0, height: 0 });
+      updateSize({ width: 0, height: 0 });
       return;
     }
 
-    const updateSize = (): void => {
-      setSize({
+    const syncSize = (): void => {
+      updateSize({
         width: element.clientWidth,
         height: element.clientHeight,
       });
     };
 
-    updateSize();
+    syncSize();
 
     const resizeObserver = new ResizeObserver(() => {
-      updateSize();
+      syncSize();
     });
 
     resizeObserver.observe(element);
@@ -99,17 +105,18 @@ function useElementSize<TElement extends HTMLElement>(): {
     return () => {
       resizeObserver.disconnect();
     };
-  }, [element]);
+  }, [element, updateSize]);
 
   return { ref, size };
 }
 
 function useImageDimensions(src: string | null): ImageDimensions | null {
-  const [dimensions, setDimensions] = useState<ImageDimensions | null>(null);
+  const [dimensions, updateDimensions] =
+    useReducerState<ImageDimensions | null>(null);
 
   useEffect(() => {
     if (src === null) {
-      setDimensions(null);
+      updateDimensions(null);
       return;
     }
 
@@ -121,7 +128,7 @@ function useImageDimensions(src: string | null): ImageDimensions | null {
         return;
       }
 
-      setDimensions({
+      updateDimensions({
         width: image.naturalWidth,
         height: image.naturalHeight,
       });
@@ -132,7 +139,7 @@ function useImageDimensions(src: string | null): ImageDimensions | null {
         return;
       }
 
-      setDimensions(null);
+      updateDimensions(null);
     };
 
     image.addEventListener("load", handleLoad);
@@ -144,7 +151,7 @@ function useImageDimensions(src: string | null): ImageDimensions | null {
       image.removeEventListener("load", handleLoad);
       image.removeEventListener("error", handleError);
     };
-  }, [src]);
+  }, [src, updateDimensions]);
 
   return dimensions;
 }
@@ -223,7 +230,7 @@ export function ImageDiffViewer({
       imageWidth: zoomSizing.width,
       imageHeight: zoomSizing.height,
     });
-  const [currentScale, setCurrentScale] = useState(fitScale);
+  const [currentScale, updateCurrentScale] = useReducerState(fitScale);
 
   const hasZoomTarget = splitView
     ? oldImageSrc !== null || newImageSrc !== null
@@ -232,7 +239,7 @@ export function ImageDiffViewer({
   const syncOtherPane = useCallback(
     (source: "new" | "old", state: ImageZoomTransformState): void => {
       currentTransformRef.current = state;
-      setCurrentScale(state.scale);
+      updateCurrentScale(state.scale);
 
       if (source === "old") {
         newImageRef.current?.setTransform(
@@ -249,15 +256,15 @@ export function ImageDiffViewer({
         state.scale
       );
     },
-    []
+    [updateCurrentScale]
   );
 
   const commitTransformState = useCallback(
     (state: ImageZoomTransformState): void => {
       currentTransformRef.current = state;
-      setCurrentScale(state.scale);
+      updateCurrentScale(state.scale);
     },
-    []
+    [updateCurrentScale]
   );
 
   const syncStateFromActiveZoom = useCallback((): void => {
@@ -320,7 +327,7 @@ export function ImageDiffViewer({
         positionY: 0,
         scale: fitScale,
       };
-      setCurrentScale(fitScale);
+      updateCurrentScale(fitScale);
 
       const frameId = window.requestAnimationFrame(() => {
         syncStateFromActiveZoom();
@@ -337,6 +344,7 @@ export function ImageDiffViewer({
     oldImageSrc,
     splitView,
     syncStateFromActiveZoom,
+    updateCurrentScale,
   ]);
 
   const applyTransform = useCallback(

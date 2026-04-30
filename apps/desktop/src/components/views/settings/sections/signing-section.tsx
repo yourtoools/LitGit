@@ -80,9 +80,13 @@ function SigningSection({ query }: { query: string }) {
         label="Sign commits by default"
         query={query}
       >
-        <label className="inline-flex items-center gap-1.5">
+        <label
+          className="inline-flex items-center gap-1.5"
+          htmlFor="sign-commits-by-default"
+        >
           <Checkbox
             checked={signCommitsByDefault}
+            id="sign-commits-by-default"
             onCheckedChange={(checked) => {
               setSigningPreferences({
                 signCommitsByDefault: Boolean(checked),

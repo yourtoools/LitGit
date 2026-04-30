@@ -40,11 +40,11 @@ const EMPTY_COMPUTED_LAYOUT = {
 interface GitGraphOverlayProps {
   branchColumnWidth?: number;
   commits: RepositoryCommit[];
+  getNodeContextMenu?: (row: GitTimelineRow) => ReactNode;
   graph: RepositoryCommitGraphPayload;
   graphColumnWidth: number;
   onNodeMenuOpenChange?: (rowId: string, open: boolean) => void;
   onNodeSelect?: (row: GitTimelineRow) => void;
-  renderNodeContextMenu?: (row: GitTimelineRow) => ReactNode;
   rowHeight: number;
   rows: GitTimelineRow[];
   selectedRowId: string | null;
@@ -58,7 +58,7 @@ export function GitGraphOverlay({
   graphColumnWidth,
   onNodeMenuOpenChange,
   onNodeSelect,
-  renderNodeContextMenu,
+  getNodeContextMenu,
   rowHeight,
   rows,
   selectedRowId,
@@ -176,7 +176,7 @@ export function GitGraphOverlay({
         zoomOnPinch={false}
         zoomOnScroll={false}
       />
-      {renderNodeContextMenu
+      {getNodeContextMenu
         ? computedLayout.hitTargets.map((target) => {
             const row = rowById.get(target.rowId);
 
@@ -207,7 +207,7 @@ export function GitGraphOverlay({
                     type="button"
                   />
                 </ContextMenuTrigger>
-                {renderNodeContextMenu(row)}
+                {getNodeContextMenu(row)}
               </ContextMenu>
             );
           })

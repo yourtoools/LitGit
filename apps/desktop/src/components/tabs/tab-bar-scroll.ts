@@ -14,7 +14,7 @@ interface UseTabBarScrollParams {
   tabCount: number;
 }
 
-export interface TabBarScrollState {
+interface TabBarScrollState {
   addTabButtonWrapperRef: RefObject<HTMLDivElement | null>;
   canScrollLeft: boolean;
   canScrollRight: boolean;

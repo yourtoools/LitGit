@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import {
   OAuthButton,
@@ -9,6 +9,7 @@ import {
 import { ProviderCard } from "@/components/auth/provider-card";
 import { ProviderOAuthTokenDialog } from "@/components/auth/provider-oauth-token-dialog";
 import { SettingsField } from "@/components/views/settings/settings-shared-ui";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   completeOAuthFlow,
   disconnectProvider,
@@ -33,30 +34,30 @@ interface IntegrationsSectionProps {
 const PROVIDERS: Provider[] = ["github", "gitlab", "bitbucket"];
 
 export function IntegrationsSection({ query }: IntegrationsSectionProps) {
-  const [statuses, setStatuses] = useState<Record<
+  const [statuses, updateStatuses] = useReducerState<Record<
     Provider,
     ProviderStatus
   > | null>(null);
-  const [sshStatuses, setSshStatuses] = useState<Record<
+  const [sshStatuses, updateSshStatuses] = useReducerState<Record<
     Provider,
     ProviderSshStatus
   > | null>(null);
-  const [_loading, setLoading] = useState<Record<Provider, boolean>>({
+  const [_loading, updateLoading] = useReducerState<Record<Provider, boolean>>({
     github: false,
     gitlab: false,
     bitbucket: false,
   });
-  const [pendingOAuthFlow, setPendingOAuthFlow] = useState<{
+  const [pendingOAuthFlow, updatePendingOAuthFlow] = useReducerState<{
     provider: Provider;
     state: string;
   } | null>(null);
-  const [isOAuthDialogOpen, setIsOAuthDialogOpen] = useState(false);
-  const [isOAuthSubmitting, setIsOAuthSubmitting] = useState(false);
+  const [isOAuthDialogOpen, updateIsOAuthDialogOpen] = useReducerState(false);
+  const [isOAuthSubmitting, updateIsOAuthSubmitting] = useReducerState(false);
 
   const loadStatuses = useCallback(async () => {
     try {
       const providerStatuses = await getProviderStatus();
-      setStatuses(providerStatuses);
+      updateStatuses(providerStatuses);
 
       // Fetch SSH statuses in parallel for connected providers only
       const sshFetchPromises = PROVIDERS.filter(
@@ -77,11 +78,11 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
         Provider,
         ProviderSshStatus
       >;
-      setSshStatuses(sshStats);
+      updateSshStatuses(sshStats);
     } catch (error) {
       console.error("Failed to load provider statuses:", error);
       // Set empty states on error to stop showing skeletons
-      setStatuses({
+      updateStatuses({
         github: {
           connected: false,
           username: null,
@@ -101,13 +102,16 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
           avatarUrl: null,
         },
       });
-      setSshStatuses({
+      updateSshStatuses({
         github: { useSystemAgent: true },
         gitlab: { useSystemAgent: true },
         bitbucket: { useSystemAgent: true },
       });
     }
-  }, []);
+  }, [
+    updateSshStatuses, // Set empty states on error to stop showing skeletons
+    updateStatuses,
+  ]);
 
   const handleOAuthCallback = useCallback(
     async (code: string, state: string) => {
@@ -115,7 +119,7 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
         return;
       }
 
-      setIsOAuthSubmitting(true);
+      updateIsOAuthSubmitting(true);
 
       // Defer heavy work to allow UI to paint loading state
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -125,7 +129,7 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
         toast.success(
           `Connected to ${pendingOAuthFlow.provider} as ${userInfo.username}`
         );
-        setStatuses((previousStatuses) =>
+        updateStatuses((previousStatuses) =>
           previousStatuses
             ? {
                 ...previousStatuses,
@@ -138,18 +142,25 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
               }
             : previousStatuses
         );
-        setPendingOAuthFlow(null);
-        setIsOAuthDialogOpen(false);
+        updatePendingOAuthFlow(null);
+        updateIsOAuthDialogOpen(false);
         await loadStatuses();
       } catch (error) {
         toast.error(
           `Failed to complete ${pendingOAuthFlow.provider} connection: ${error}`
         );
       } finally {
-        setIsOAuthSubmitting(false);
+        updateIsOAuthSubmitting(false);
       }
     },
-    [pendingOAuthFlow, loadStatuses]
+    [
+      pendingOAuthFlow,
+      loadStatuses,
+      updateIsOAuthSubmitting,
+      updateStatuses,
+      updatePendingOAuthFlow,
+      updateIsOAuthDialogOpen,
+    ]
   );
 
   useEffect(() => {
@@ -168,13 +179,13 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
   const handleConnect = async (provider: Provider) => {
     try {
       const { url, state } = await startOAuthFlow(provider);
-      setPendingOAuthFlow({ provider, state });
-      setIsOAuthDialogOpen(true);
+      updatePendingOAuthFlow({ provider, state });
+      updateIsOAuthDialogOpen(true);
       await openUrl(url);
     } catch (error) {
       toast.error(`Failed to start ${provider} connection: ${error}`);
-      setPendingOAuthFlow(null);
-      setIsOAuthDialogOpen(false);
+      updatePendingOAuthFlow(null);
+      updateIsOAuthDialogOpen(false);
     }
   };
 
@@ -182,7 +193,7 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
     provider: Provider,
     token: string
   ) => {
-    setIsOAuthSubmitting(true);
+    updateIsOAuthSubmitting(true);
 
     // Defer heavy work to next tick to allow UI to paint loading state
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -193,7 +204,7 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
       const userInfo = await completeOAuthFlow(code, state);
 
       toast.success(`Connected to ${provider} as ${userInfo.username}`);
-      setStatuses((previousStatuses) =>
+      updateStatuses((previousStatuses) =>
         previousStatuses
           ? {
               ...previousStatuses,
@@ -206,22 +217,22 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
             }
           : previousStatuses
       );
-      setPendingOAuthFlow(null);
-      setIsOAuthDialogOpen(false);
+      updatePendingOAuthFlow(null);
+      updateIsOAuthDialogOpen(false);
       await loadStatuses();
     } finally {
-      setIsOAuthSubmitting(false);
+      updateIsOAuthSubmitting(false);
     }
   };
 
   const handleDisconnect = async (provider: Provider) => {
-    setLoading((prev) => ({ ...prev, [provider]: true }));
+    updateLoading((prev) => ({ ...prev, [provider]: true }));
     try {
       await disconnectProvider(provider);
       toast.success(`Disconnected from ${provider}`);
 
       // Update local state immediately to reflect disconnection
-      setStatuses((previousStatuses) =>
+      updateStatuses((previousStatuses) =>
         previousStatuses
           ? {
               ...previousStatuses,
@@ -239,12 +250,12 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
     } catch (error) {
       toast.error(`Failed to disconnect from ${provider}: ${error}`);
     } finally {
-      setLoading((prev) => ({ ...prev, [provider]: false }));
+      updateLoading((prev) => ({ ...prev, [provider]: false }));
     }
   };
 
   const handleGenerateKey = async (provider: Provider, title: string) => {
-    setLoading((prev) => ({ ...prev, [provider]: true }));
+    updateLoading((prev) => ({ ...prev, [provider]: true }));
     try {
       await generateProviderSshKey(provider, title);
       toast.success("SSH key generated and added to your account");
@@ -252,12 +263,12 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
     } catch (error) {
       toast.error(`Failed to generate SSH key: ${error}`);
     } finally {
-      setLoading((prev) => ({ ...prev, [provider]: false }));
+      updateLoading((prev) => ({ ...prev, [provider]: false }));
     }
   };
 
   const handleRemoveKey = async (provider: Provider) => {
-    setLoading((prev) => ({ ...prev, [provider]: true }));
+    updateLoading((prev) => ({ ...prev, [provider]: true }));
     try {
       await removeProviderSshKey(provider);
       toast.success("SSH key removed");
@@ -265,7 +276,7 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
     } catch (error) {
       toast.error(`Failed to remove SSH key: ${error}`);
     } finally {
-      setLoading((prev) => ({ ...prev, [provider]: false }));
+      updateLoading((prev) => ({ ...prev, [provider]: false }));
     }
   };
 
@@ -285,7 +296,7 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
     provider: Provider,
     privateKeyPath: string
   ) => {
-    setLoading((prev) => ({ ...prev, [provider]: true }));
+    updateLoading((prev) => ({ ...prev, [provider]: true }));
     try {
       await setProviderCustomSshKey(provider, privateKeyPath);
       toast.success("SSH key configured successfully");
@@ -293,7 +304,7 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
     } catch (error) {
       toast.error(`Failed to set SSH key: ${error}`);
     } finally {
-      setLoading((prev) => ({ ...prev, [provider]: false }));
+      updateLoading((prev) => ({ ...prev, [provider]: false }));
     }
   };
 
@@ -368,10 +379,10 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
       <ProviderOAuthTokenDialog
         isSubmitting={isOAuthSubmitting}
         onOpenChange={(open) => {
-          setIsOAuthDialogOpen(open);
+          updateIsOAuthDialogOpen(open);
           if (!open) {
-            setPendingOAuthFlow(null);
-            setIsOAuthSubmitting(false);
+            updatePendingOAuthFlow(null);
+            updateIsOAuthSubmitting(false);
           }
         }}
         onSubmit={handleCompleteOAuthFromPaste}
