@@ -55,7 +55,16 @@ temp
 # Miscellaneous
 _bmad
 _bmad-output
-.opencode
+.opencode/*
+!.opencode/
+!.opencode/plugins/
+!.opencode/plugins/graphify.js
+!.opencode/opencode.json
 
 # Added by code-review-graph
 .code-review-graph/
+
+graphify-out/*
+!graphify-out/GRAPH_REPORT.md
+!graphify-out/graph.json
+!graphify-out/graph.html
