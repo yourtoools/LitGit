@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "windows-decorum",
+  "description": "enables Windows window snap overlay controls",
+  "windows": ["main"],
+  "platforms": ["windows"],
+  "permissions": ["decorum:allow-show-snap-overlay"]
+}

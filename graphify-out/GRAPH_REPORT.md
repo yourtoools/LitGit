@@ -1,7 +1,7 @@
 # Graph Report - LitGit  (2026-04-30)
 
 ## Corpus Check
-- 257 files · ~216,395 words
+- 257 files · ~216,414 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary

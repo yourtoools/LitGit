@@ -10,6 +10,7 @@
     "beforeBuildCommand": "cd .. && bun run build:desktop-web"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [],
     "security": {
       "csp": null
