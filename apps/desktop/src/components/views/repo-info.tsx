@@ -115,7 +115,7 @@ import {
   TrayArrowUpIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useSearch } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -125,6 +125,7 @@ import {
   Fragment,
   lazy,
   type ReactNode,
+  type SetStateAction,
   Suspense,
   useCallback,
   useDeferredValue,
@@ -528,6 +529,17 @@ function getStatusDescriptor(code: string) {
   return GIT_STATUS_STYLE_BY_CODE[code] ?? null;
 }
 
+function resolveStateAction<Value>(
+  value: SetStateAction<Value>,
+  current: Value
+): Value {
+  if (typeof value === "function") {
+    return (value as (currentValue: Value) => Value)(current);
+  }
+
+  return value;
+}
+
 function normalizeCommitRefLabel(rawReference: string): string | null {
   const trimmedReference = rawReference.trim();
 
@@ -598,10 +610,6 @@ const PREVIEW_UNAVAILABLE_ASCII_ART = `       _____________
     |    [ ! ]   |  |
     |            | /
     |____________|/`;
-const EMPTY_ALL_FILES_MODEL = {
-  allFilesTree: [],
-  filteredRepositoryFiles: [],
-} satisfies ReturnType<typeof buildRepoInfoAllFilesModel>;
 const EMPTY_COMMIT_FILES_MODEL = {
   filteredFiles: [],
   sortedPathRows: [],
@@ -620,30 +628,6 @@ const EMPTY_REFERENCE_MODEL = {
   sidebarEntryByTimelineRowId: {},
   timelineRowIdByEntryKey: {},
 } satisfies ReturnType<typeof buildRepoInfoReferenceModel>;
-const EMPTY_SIDEBAR_RESULTS = {
-  filteredSidebarEntryCount: 0,
-  filteredSidebarGroups: [],
-} satisfies ReturnType<typeof buildRepoInfoSidebarGroups>;
-const EMPTY_VISIBLE_COUNTS_MODEL = {
-  allFilesVisibleNodeCount: 0,
-  selectedCommitVisibleNodeCount: 0,
-  selectedReferenceVisibleNodeCount: 0,
-  sidebarVisibleNodeCount: 0,
-  stagedVisibleNodeCount: 0,
-  unstagedVisibleNodeCount: 0,
-} satisfies ReturnType<typeof buildRepoInfoVisibleCountsModel>;
-const EMPTY_VISIBLE_GRAPH_MODEL = {
-  currentBranchLaneColor: "",
-  visibleHistoryGraph: {
-    commitLanes: {},
-    graphWidth: 0,
-  },
-} satisfies ReturnType<typeof buildRepoInfoVisibleGraphModel>;
-const EMPTY_WORKING_TREE_MODEL = {
-  stagedTree: [],
-  unstagedTree: [],
-} satisfies ReturnType<typeof buildRepoInfoWorkingTreeModel>;
-
 const LAUNCHER_ICON_CLASS = "size-[15px] shrink-0";
 
 function ExplorerIcon({ className }: { className?: string }) {
@@ -987,7 +971,12 @@ function getRightSidebarMaxWidth(
 }
 
 export function RepoInfo() {
-  const { activeRepoId, openedRepos } = useRepoActiveContext();
+  const { repoId: routeRepoId } = useParams({ from: "/repo/$repoId" });
+  const { activeRepoId: storeActiveRepoId, openedRepos } =
+    useRepoActiveContext();
+  const activeRepoId = openedRepos.some((repo) => repo.id === routeRepoId)
+    ? routeRepoId
+    : storeActiveRepoId;
   const {
     addIgnoreRule,
     applyStash,
@@ -1029,6 +1018,7 @@ export function RepoInfo() {
     revertCommit,
     rewordCommitMessage,
     saveFileText,
+    setActiveRepo,
     setBranchUpstream,
     stageAll,
     stageFile,
@@ -1055,7 +1045,7 @@ export function RepoInfo() {
   const { isLoadingBranches, isLoadingHistory, isLoadingStatus, isLoadingWip } =
     useRepoLoadingState();
   useRepoRefreshStatus(activeRepoId);
-  const [collapsedGroupKeys, updateCollapsedGroupKeys] = useReducerState<
+  const [collapsedGroupKeys, updateCollapsedGroupKeysState] = useReducerState<
     Record<string, boolean>
   >({
     local: true,
@@ -1066,20 +1056,20 @@ export function RepoInfo() {
   const [remoteAvatarUrlByName, updateRemoteAvatarUrlByName] = useReducerState<
     Record<string, string | null>
   >({});
-  const [collapsedBranchFolderKeys, updateCollapsedBranchFolderKeys] =
+  const [collapsedBranchFolderKeys, updateCollapsedBranchFolderKeysState] =
     useReducerState<Record<string, boolean>>({});
-  const [selectedCommitId, updateSelectedCommitId] = useReducerState<
+  const [selectedCommitId, updateSelectedCommitIdState] = useReducerState<
     string | null
   >(null);
-  const [selectedTimelineRowId, updateSelectedTimelineRowId] = useReducerState<
-    string | null
-  >(null);
+  const [selectedTimelineRowId, updateSelectedTimelineRowIdState] =
+    useReducerState<string | null>(null);
   const isLeftSidebarOpen = true;
-  const [isRightSidebarOpen, updateIsRightSidebarOpen] = useReducerState(true);
-  const [leftSidebarWidth, updateLeftSidebarWidth] = useReducerState(
+  const [isRightSidebarOpen, updateIsRightSidebarOpenState] =
+    useReducerState(true);
+  const [leftSidebarWidth, updateLeftSidebarWidthState] = useReducerState(
     LEFT_SIDEBAR_DEFAULT_WIDTH
   );
-  const [rightSidebarWidth, updateRightSidebarWidth] = useReducerState(
+  const [rightSidebarWidth, updateRightSidebarWidthState] = useReducerState(
     RIGHT_SIDEBAR_DEFAULT_WIDTH
   );
   const [isTimelineGraphAutoCompact, updateIsTimelineGraphAutoCompact] =
@@ -1264,7 +1254,7 @@ export function RepoInfo() {
   );
   const [commitFileSortOrder, updateCommitFileSortOrder] =
     useReducerState<RepoFileBrowserSortOrder>("asc");
-  const [expandedCommitTreeNodePaths, updateExpandedCommitTreeNodePaths] =
+  const [expandedCommitTreeNodePaths, updateExpandedCommitTreeNodePathsState] =
     useReducerState<Record<string, boolean>>({});
   const [isLoadingDiffPath, updateIsLoadingDiffPath] = useReducerState<
     string | null
@@ -1524,6 +1514,14 @@ export function RepoInfo() {
   const activeRepoPath = activeRepo?.path ?? null;
 
   useEffect(() => {
+    if (!activeRepo || storeActiveRepoId === activeRepo.id) {
+      return;
+    }
+
+    setActiveRepo(activeRepo.id, { background: true }).catch(() => undefined);
+  }, [activeRepo, setActiveRepo, storeActiveRepoId]);
+
+  useEffect(() => {
     if (!tauriRuntime) {
       return;
     }
@@ -1677,19 +1675,148 @@ export function RepoInfo() {
       ),
     [timelineCommits, preferredWipEmail, preferredWipRawName]
   );
-  const persistRepoFileBrowserState = (
-    input:
-      | Partial<typeof repoFileBrowserPreferences>
-      | ((
-          current: typeof repoFileBrowserPreferences
-        ) => Partial<typeof repoFileBrowserPreferences>)
-  ) => {
-    if (!activeRepoId) {
-      return;
-    }
+  const persistRepoFileBrowserState = useCallback(
+    (
+      input:
+        | Partial<typeof repoFileBrowserPreferences>
+        | ((
+            current: typeof repoFileBrowserPreferences
+          ) => Partial<typeof repoFileBrowserPreferences>)
+    ) => {
+      if (!activeRepoId) {
+        return;
+      }
 
-    setRepoFileBrowserState(activeRepoId, input);
-  };
+      setRepoFileBrowserState(activeRepoId, input);
+    },
+    [activeRepoId, setRepoFileBrowserState]
+  );
+  const updateCollapsedGroupKeys = useCallback(
+    (value: SetStateAction<Record<string, boolean>>) => {
+      updateCollapsedGroupKeysState(value);
+      persistRepoFileBrowserState((current) => ({
+        collapsedSidebarGroupKeys: resolveStateAction(
+          value,
+          current.collapsedSidebarGroupKeys
+        ),
+      }));
+    },
+    [persistRepoFileBrowserState, updateCollapsedGroupKeysState]
+  );
+  const updateCollapsedBranchFolderKeys = useCallback(
+    (value: SetStateAction<Record<string, boolean>>) => {
+      updateCollapsedBranchFolderKeysState(value);
+      persistRepoFileBrowserState((current) => ({
+        collapsedBranchFolderKeys: resolveStateAction(
+          value,
+          current.collapsedBranchFolderKeys
+        ),
+      }));
+    },
+    [persistRepoFileBrowserState, updateCollapsedBranchFolderKeysState]
+  );
+  const updateExpandedCommitTreeNodePaths = useCallback(
+    (value: SetStateAction<Record<string, boolean>>) => {
+      updateExpandedCommitTreeNodePathsState(value);
+      persistRepoFileBrowserState((current) => ({
+        expandedCommitTreeNodePaths: resolveStateAction(
+          value,
+          current.expandedCommitTreeNodePaths
+        ),
+      }));
+    },
+    [persistRepoFileBrowserState, updateExpandedCommitTreeNodePathsState]
+  );
+  const updateSelectedCommitId = useCallback(
+    (value: SetStateAction<string | null>) => {
+      updateSelectedCommitIdState(value);
+      persistRepoFileBrowserState((current) => ({
+        selectedCommitId: resolveStateAction(value, current.selectedCommitId),
+      }));
+    },
+    [persistRepoFileBrowserState, updateSelectedCommitIdState]
+  );
+  const updateSelectedTimelineRowId = useCallback(
+    (value: SetStateAction<string | null>) => {
+      updateSelectedTimelineRowIdState(value);
+      persistRepoFileBrowserState((current) => ({
+        selectedTimelineRowId: resolveStateAction(
+          value,
+          current.selectedTimelineRowId
+        ),
+      }));
+    },
+    [persistRepoFileBrowserState, updateSelectedTimelineRowIdState]
+  );
+  const updateIsRightSidebarOpen = useCallback(
+    (value: SetStateAction<boolean>) => {
+      updateIsRightSidebarOpenState(value);
+      persistRepoFileBrowserState((current) => ({
+        isRightSidebarOpen: resolveStateAction(
+          value,
+          current.isRightSidebarOpen
+        ),
+      }));
+    },
+    [persistRepoFileBrowserState, updateIsRightSidebarOpenState]
+  );
+  const updateLeftSidebarWidth = useCallback(
+    (value: SetStateAction<number>) => {
+      updateLeftSidebarWidthState(value);
+      persistRepoFileBrowserState((current) => ({
+        leftSidebarWidth: resolveStateAction(value, current.leftSidebarWidth),
+      }));
+    },
+    [persistRepoFileBrowserState, updateLeftSidebarWidthState]
+  );
+  const updateRightSidebarWidth = useCallback(
+    (value: SetStateAction<number>) => {
+      updateRightSidebarWidthState(value);
+      persistRepoFileBrowserState((current) => ({
+        rightSidebarWidth: resolveStateAction(value, current.rightSidebarWidth),
+      }));
+    },
+    [persistRepoFileBrowserState, updateRightSidebarWidthState]
+  );
+
+  useEffect(() => {
+    updateCollapsedGroupKeysState(
+      repoFileBrowserPreferences.collapsedSidebarGroupKeys
+    );
+    updateCollapsedBranchFolderKeysState(
+      repoFileBrowserPreferences.collapsedBranchFolderKeys
+    );
+    updateExpandedCommitTreeNodePathsState(
+      repoFileBrowserPreferences.expandedCommitTreeNodePaths
+    );
+    updateSelectedCommitIdState(repoFileBrowserPreferences.selectedCommitId);
+    updateSelectedTimelineRowIdState(
+      repoFileBrowserPreferences.selectedTimelineRowId
+    );
+    updateIsRightSidebarOpenState(
+      repoFileBrowserPreferences.isRightSidebarOpen
+    );
+    updateLeftSidebarWidthState(repoFileBrowserPreferences.leftSidebarWidth);
+    updateRightSidebarWidthState(repoFileBrowserPreferences.rightSidebarWidth);
+  }, [
+    repoFileBrowserPreferences.collapsedBranchFolderKeys,
+    repoFileBrowserPreferences.collapsedSidebarGroupKeys,
+    repoFileBrowserPreferences.expandedCommitTreeNodePaths,
+    repoFileBrowserPreferences.isRightSidebarOpen,
+    repoFileBrowserPreferences.leftSidebarWidth,
+    repoFileBrowserPreferences.rightSidebarWidth,
+    repoFileBrowserPreferences.selectedCommitId,
+    repoFileBrowserPreferences.selectedTimelineRowId,
+    updateCollapsedBranchFolderKeysState,
+    updateCollapsedGroupKeysState,
+    updateExpandedCommitTreeNodePathsState,
+    updateIsRightSidebarOpenState,
+    updateLeftSidebarWidthState,
+    updateRightSidebarWidthState,
+    updateSelectedCommitIdState,
+    updateSelectedTimelineRowIdState,
+  ]);
+
   const setChangesViewMode = (viewMode: ChangesViewMode) => {
     persistRepoFileBrowserState({ viewMode });
   };
@@ -1842,7 +1969,7 @@ export function RepoInfo() {
   > | null>(null);
   const [workingTreeModel, updateWorkingTreeModel] = useReducerState<
     ReturnType<typeof buildRepoInfoWorkingTreeModel>
-  >(EMPTY_WORKING_TREE_MODEL);
+  >(() => buildRepoInfoWorkingTreeModel(workingTreeModelInput));
   const { stagedTree, unstagedTree } = workingTreeModel;
   const normalizedRepositoryFileFilter = debouncedRepositoryFileFilterInputValue
     .trim()
@@ -1873,7 +2000,7 @@ export function RepoInfo() {
   > | null>(null);
   const [allFilesModel, updateAllFilesModel] = useReducerState<
     ReturnType<typeof buildRepoInfoAllFilesModel>
-  >(EMPTY_ALL_FILES_MODEL);
+  >(() => buildRepoInfoAllFilesModel(allFilesModelInput));
   const { allFilesTree, filteredRepositoryFiles } = allFilesModel;
 
   useEffect(() => {
@@ -1998,7 +2125,7 @@ export function RepoInfo() {
   > | null>(null);
   const [visibleGraphModel, updateVisibleGraphModel] = useReducerState<
     ReturnType<typeof buildRepoInfoVisibleGraphModel>
-  >(EMPTY_VISIBLE_GRAPH_MODEL);
+  >(() => buildRepoInfoVisibleGraphModel(visibleGraphModelInput));
 
   useEffect(() => {
     if (typeof Worker === "undefined") {
@@ -2674,7 +2801,7 @@ export function RepoInfo() {
   > | null>(null);
   const [sidebarResults, updateSidebarResults] = useReducerState<
     ReturnType<typeof buildRepoInfoSidebarGroups>
-  >(EMPTY_SIDEBAR_RESULTS);
+  >(() => buildRepoInfoSidebarGroups(sidebarGroupsInput));
 
   useEffect(() => {
     if (typeof Worker === "undefined") {
@@ -2779,7 +2906,7 @@ export function RepoInfo() {
   > | null>(null);
   const [visibleCountsModel, updateVisibleCountsModel] = useReducerState<
     ReturnType<typeof buildRepoInfoVisibleCountsModel>
-  >(EMPTY_VISIBLE_COUNTS_MODEL);
+  >(() => buildRepoInfoVisibleCountsModel(visibleCountsModelInput));
 
   useEffect(() => {
     if (typeof Worker === "undefined") {
@@ -3704,8 +3831,9 @@ export function RepoInfo() {
       return;
     }
 
-    const fallbackCommitHash =
-      localHeadCommit?.hash ?? timelineCommits[0]?.hash ?? null;
+    const fallbackCommitHash = hasAnyWorkingTreeChanges
+      ? WORKING_TREE_ROW_ID
+      : (localHeadCommit?.hash ?? timelineCommits[0]?.hash ?? null);
 
     if (selectedTimelineRowId !== fallbackCommitHash) {
       updateSelectedTimelineRowId(fallbackCommitHash);
@@ -3841,14 +3969,12 @@ export function RepoInfo() {
     updateShowAllCommitFiles(false);
     updateCommitFileFilterInputValue("");
     updateCommitFileSortOrder("asc");
-    updateExpandedCommitTreeNodePaths({});
   }, [
     isSelectedCommitRow,
     isSelectedReferenceRow,
     isWorkingTreeSelection,
     selectedCommit,
     selectedReferenceRevision,
-    updateExpandedCommitTreeNodePaths,
     updateCommitFileSortOrder,
     updateCommitFileFilterInputValue,
     updateShowAllCommitFiles,
@@ -12530,6 +12656,22 @@ export function RepoInfo() {
                         </div>
                       </div>
                     </>
+                  );
+                }
+
+                if (!isWorkingTreeSelection && selectedTimelineRowId !== null) {
+                  return (
+                    <div className="px-2.5 py-3 text-muted-foreground text-xs">
+                      Loading repository details...
+                    </div>
+                  );
+                }
+
+                if (selectedTimelineRowId === null && isLoadingHistory) {
+                  return (
+                    <div className="px-2.5 py-3 text-muted-foreground text-xs">
+                      Loading repository details...
+                    </div>
                   );
                 }
 

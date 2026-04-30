@@ -75,17 +75,19 @@ export function useTabRepoSync() {
   );
   const setRepoGitIdentity = useRepoStore((state) => state.setRepoGitIdentity);
   const setActiveRepo = useRepoStore((state) => state.setActiveRepo);
-  const repoLastLoadedAtById = useRepoStore(
-    (state) => state.repoLastLoadedAtById
-  );
-  const repoBackgroundRefreshById = useRepoStore(
-    (state) => state.repoBackgroundRefreshById
-  );
   const activeTabId = useTabStore((state) => state.activeTabId);
   const activeTabRepoId = useTabStore((state) => {
     const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId);
     return activeTab?.repoId ?? null;
   });
+  const activeTabRepoLastLoadedAt = useRepoStore((state) =>
+    activeTabRepoId ? (state.repoLastLoadedAtById[activeTabRepoId] ?? 0) : 0
+  );
+  const isActiveTabRepoBackgroundRefreshing = useRepoStore((state) =>
+    activeTabRepoId
+      ? (state.repoBackgroundRefreshById[activeTabRepoId] ?? false)
+      : false
+  );
   const prevOpenedRepos = useRef(openedRepos);
   const prevActiveTabState = useRef<{
     repoId: string | null;
@@ -117,8 +119,7 @@ export function useTabRepoSync() {
       const activeRepoId = useRepoStore.getState().activeRepoId;
 
       if (didTabChange) {
-        const hasLoadedRepoBefore =
-          (repoLastLoadedAtById[activeTabRepoId] ?? 0) > 0;
+        const hasLoadedRepoBefore = activeTabRepoLastLoadedAt > 0;
         setActiveRepo(activeTabRepoId, {
           background: true,
           refreshMode: hasLoadedRepoBefore ? "light" : "full",
@@ -141,9 +142,9 @@ export function useTabRepoSync() {
   }, [
     activeTabId,
     activeTabRepoId,
+    activeTabRepoLastLoadedAt,
     clearActiveRepo,
     refreshOpenedRepositories,
-    repoLastLoadedAtById,
     setActiveRepo,
   ]);
 
@@ -248,9 +249,7 @@ export function useTabRepoSync() {
           setActiveRepo,
           refreshOpenedRepositories,
           setRepoGitIdentity,
-          activeTabRepoId
-            ? (repoBackgroundRefreshById[activeTabRepoId] ?? false)
-            : false
+          isActiveTabRepoBackgroundRefreshing
         );
       } finally {
         refreshInFlightRef.current = false;
@@ -339,9 +338,8 @@ export function useTabRepoSync() {
       unlistenTauriMoved?.();
     };
   }, [
-    activeTabRepoId,
+    isActiveTabRepoBackgroundRefreshing,
     refreshOpenedRepositories,
-    repoBackgroundRefreshById,
     setActiveRepo,
     setRepoGitIdentity,
   ]);

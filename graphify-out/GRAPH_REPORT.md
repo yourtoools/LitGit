@@ -1,12 +1,12 @@
 # Graph Report - LitGit  (2026-04-30)
 
 ## Corpus Check
-- 257 files · ~216,414 words
+- 257 files · ~216,831 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2597 nodes · 5084 edges · 70 communities detected
-- Extraction: 85% EXTRACTED · 15% INFERRED · 0% AMBIGUOUS · INFERRED: 781 edges (avg confidence: 0.8)
+- 2597 nodes · 5078 edges · 72 communities detected
+- Extraction: 85% EXTRACTED · 15% INFERRED · 0% AMBIGUOUS · INFERRED: 782 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -37,49 +37,51 @@
 - [[_COMMUNITY_Community 24|Community 24]]
 - [[_COMMUNITY_Community 25|Community 25]]
 - [[_COMMUNITY_Community 26|Community 26]]
-- [[_COMMUNITY_Community 28|Community 28]]
+- [[_COMMUNITY_Community 27|Community 27]]
 - [[_COMMUNITY_Community 29|Community 29]]
 - [[_COMMUNITY_Community 30|Community 30]]
+- [[_COMMUNITY_Community 31|Community 31]]
 - [[_COMMUNITY_Community 32|Community 32]]
-- [[_COMMUNITY_Community 33|Community 33]]
 - [[_COMMUNITY_Community 34|Community 34]]
-- [[_COMMUNITY_Community 38|Community 38]]
-- [[_COMMUNITY_Community 39|Community 39]]
-- [[_COMMUNITY_Community 42|Community 42]]
-- [[_COMMUNITY_Community 43|Community 43]]
+- [[_COMMUNITY_Community 35|Community 35]]
+- [[_COMMUNITY_Community 36|Community 36]]
+- [[_COMMUNITY_Community 40|Community 40]]
+- [[_COMMUNITY_Community 41|Community 41]]
 - [[_COMMUNITY_Community 44|Community 44]]
+- [[_COMMUNITY_Community 45|Community 45]]
 - [[_COMMUNITY_Community 46|Community 46]]
-- [[_COMMUNITY_Community 47|Community 47]]
 - [[_COMMUNITY_Community 48|Community 48]]
 - [[_COMMUNITY_Community 49|Community 49]]
 - [[_COMMUNITY_Community 50|Community 50]]
 - [[_COMMUNITY_Community 51|Community 51]]
-- [[_COMMUNITY_Community 54|Community 54]]
-- [[_COMMUNITY_Community 55|Community 55]]
+- [[_COMMUNITY_Community 52|Community 52]]
+- [[_COMMUNITY_Community 53|Community 53]]
 - [[_COMMUNITY_Community 56|Community 56]]
-- [[_COMMUNITY_Community 59|Community 59]]
-- [[_COMMUNITY_Community 60|Community 60]]
+- [[_COMMUNITY_Community 57|Community 57]]
+- [[_COMMUNITY_Community 58|Community 58]]
 - [[_COMMUNITY_Community 61|Community 61]]
+- [[_COMMUNITY_Community 62|Community 62]]
 - [[_COMMUNITY_Community 63|Community 63]]
-- [[_COMMUNITY_Community 68|Community 68]]
-- [[_COMMUNITY_Community 71|Community 71]]
-- [[_COMMUNITY_Community 72|Community 72]]
+- [[_COMMUNITY_Community 65|Community 65]]
+- [[_COMMUNITY_Community 70|Community 70]]
 - [[_COMMUNITY_Community 73|Community 73]]
 - [[_COMMUNITY_Community 74|Community 74]]
+- [[_COMMUNITY_Community 75|Community 75]]
 - [[_COMMUNITY_Community 76|Community 76]]
-- [[_COMMUNITY_Community 77|Community 77]]
-- [[_COMMUNITY_Community 81|Community 81]]
-- [[_COMMUNITY_Community 86|Community 86]]
-- [[_COMMUNITY_Community 90|Community 90]]
-- [[_COMMUNITY_Community 113|Community 113]]
-- [[_COMMUNITY_Community 114|Community 114]]
+- [[_COMMUNITY_Community 78|Community 78]]
+- [[_COMMUNITY_Community 79|Community 79]]
+- [[_COMMUNITY_Community 83|Community 83]]
+- [[_COMMUNITY_Community 88|Community 88]]
+- [[_COMMUNITY_Community 92|Community 92]]
 - [[_COMMUNITY_Community 115|Community 115]]
 - [[_COMMUNITY_Community 116|Community 116]]
-- [[_COMMUNITY_Community 144|Community 144]]
-- [[_COMMUNITY_Community 196|Community 196]]
-- [[_COMMUNITY_Community 197|Community 197]]
+- [[_COMMUNITY_Community 117|Community 117]]
+- [[_COMMUNITY_Community 118|Community 118]]
+- [[_COMMUNITY_Community 146|Community 146]]
 - [[_COMMUNITY_Community 198|Community 198]]
 - [[_COMMUNITY_Community 199|Community 199]]
+- [[_COMMUNITY_Community 200|Community 200]]
+- [[_COMMUNITY_Community 201|Community 201]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `getTauriInvoke()` - 83 edges
@@ -114,11 +116,11 @@
 
 ### Community 0 - "Community 0"
 Cohesion: 0.03
-Nodes (171): create_repository_branch_at_reference_inner(), create_repository_branch_inner(), delete_remote_repository_branch_inner(), delete_repository_branch_inner(), ensure_output_success(), get_repository_branches_inner(), get_repository_remote_names_inner(), rename_repository_branch_inner() (+163 more)
+Nodes (168): create_repository_branch_at_reference_inner(), create_repository_branch_inner(), delete_remote_repository_branch_inner(), delete_repository_branch_inner(), ensure_output_success(), get_repository_branches_inner(), get_repository_remote_names_inner(), rename_repository_branch_inner() (+160 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.02
-Nodes (160): isNullableNumber(), isNullableString(), isPreviewGate(), isPreviewMode(), isRecord(), isViewerKind(), parseDiffContentBase(), parseFilePreflightBase() (+152 more)
+Nodes (147): isNullableNumber(), isRecord(), parseRepositoryCommitFileHunks(), parseRepositoryFileBlame(), parseRepositoryFileBlameLine(), parseRepositoryFileDetectedEncoding(), parseRepositoryFileHistory(), parseRepositoryFileHistoryEntry() (+139 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.03
@@ -133,20 +135,20 @@ Cohesion: 0.04
 Nodes (109): apply_kde_child_environment(), apply_kde_child_environment_sets_expected_overrides(), assert_linux_file_manager_strategy(), assert_linux_file_manager_strategy_from_path(), assert_terminal_candidate_prefix(), assert_terminal_candidates_have_no_duplicates(), assert_windows_terminal_candidate_prefix(), assert_windows_terminal_candidates_have_no_duplicates() (+101 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.03
-Nodes (101): clear_provider_token_secret(), create_temp_home_dir(), default_provider_config_should_use_system_agent(), disconnect_provider(), ensure_litgit_dir(), ensure_profile_id(), generate_profile_id(), get_all_provider_status() (+93 more)
+Cohesion: 0.04
+Nodes (75): existing_repo_network_commands_can_apply_auth_session_env(), apply_auth_session_environment(), apply_auth_session_environment_clears_existing_askpass(), apply_auth_session_environment_from_snapshot(), apply_auth_session_environment_rejects_missing_socket_path(), apply_existing_git_preferences(), apply_existing_git_preferences_from_snapshot(), apply_git_preferences() (+67 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.04
-Nodes (72): existing_repo_network_commands_can_apply_auth_session_env(), apply_auth_session_environment(), apply_auth_session_environment_clears_existing_askpass(), apply_auth_session_environment_from_snapshot(), apply_auth_session_environment_rejects_missing_socket_path(), apply_existing_git_preferences(), apply_existing_git_preferences_from_snapshot(), apply_git_preferences() (+64 more)
-
-### Community 7 - "Community 7"
 Cohesion: 0.07
 Nodes (75): git_credential_reject(), git_error_message(), git_process_error_message(), is_git_authentication_message(), build_commit_message_text(), build_commit_message_text_joins_trimmed_summary_and_description(), build_commit_message_text_returns_error_when_summary_is_blank(), checkout_repository_commit() (+67 more)
 
-### Community 8 - "Community 8"
+### Community 7 - "Community 7"
 Cohesion: 0.04
-Nodes (39): async(), clampSidebarWidths(), clampWidth(), formatUnsupportedExtensionLabel(), getCheckoutFailureReason(), getCommitActionFailureReason(), getCreateBranchFailureReason(), getDeleteBranchFailureReason() (+31 more)
+Nodes (77): clear_provider_token_secret(), create_temp_home_dir(), default_provider_config_should_use_system_agent(), disconnect_provider(), ensure_litgit_dir(), ensure_profile_id(), generate_profile_id(), get_all_provider_status() (+69 more)
+
+### Community 8 - "Community 8"
+Cohesion: 0.03
+Nodes (32): async(), clampSidebarWidths(), clampWidth(), formatUnsupportedExtensionLabel(), getCheckoutFailureReason(), getCommitActionFailureReason(), getCreateBranchFailureReason(), getDeleteBranchFailureReason() (+24 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.05
@@ -201,168 +203,168 @@ Cohesion: 0.13
 Nodes (29): Checkbox(), applyUpdates(), checkForUpdates(), collectDependencies(), confirmMajorBumps(), createPackageBrowserUrl(), detectVersionType(), fetchPackageInfo() (+21 more)
 
 ### Community 22 - "Community 22"
+Cohesion: 0.13
+Nodes (24): canonicalize_if_exists(), copy_public_key(), default_ssh_dir(), default_ssh_dir_returns_ssh_subdirectory(), delete_ssh_key(), ensure_ssh_dir(), generate_litgit_key_with_dialog_inner(), generate_ssh_key() (+16 more)
+
+### Community 23 - "Community 23"
 Cohesion: 0.12
 Nodes (19): allow_remember_for_kind(), classify_prompt_kind(), create_temp_home_dir(), GitAuthPromptPayload, normalize_optional_input(), provider_key_from_host(), resolve_oauth_prompt_response(), resolve_prompt_response() (+11 more)
 
-### Community 23 - "Community 23"
+### Community 24 - "Community 24"
 Cohesion: 0.08
 Nodes (14): CodeEditor(), isViewMode(), CodeEditorImplementation(), createBehaviorExtensions(), createBlameExtension(), createEditExtensions(), createEditorCompartments(), createReadOnlyExtensions() (+6 more)
 
-### Community 24 - "Community 24"
+### Community 25 - "Community 25"
 Cohesion: 0.15
 Nodes (17): adjustPreviewSidebarWidth(), clampPreviewWidthToViewport(), handlePointerMove(), handlePreviewResizeHandleKeyDown(), startPreviewResize(), adjustPreviewSidebarWidth(), clampPreviewWidthToViewport(), handlePointerMove() (+9 more)
 
-### Community 25 - "Community 25"
+### Community 26 - "Community 26"
 Cohesion: 0.15
 Nodes (20): close_terminal_session(), close_terminal_session_inner(), create_temp_dir(), create_temp_path(), create_terminal_session(), create_terminal_session_inner(), default_shell(), remove_temp_path() (+12 more)
 
-### Community 26 - "Community 26"
+### Community 27 - "Community 27"
 Cohesion: 0.13
 Nodes (14): buildRepoInfoAllFilesModel(), buildRepoInfoCommitFilesModel(), summarizeSelectedFiles(), buildChangeTree(), buildCommitFileTree(), buildRepositoryFileTree(), collectCommitTreeChangeSummary(), collectTreeStatusCounts() (+6 more)
 
-### Community 28 - "Community 28"
-Cohesion: 0.13
-Nodes (6): notifyRepoLoadErrors(), notifyRepoLoadErrorsForMode(), setRepoLoadingFlags(), setRepoLoadingFlagsForMode(), resolveErrorMessage(), resolveErrorSummary()
-
 ### Community 29 - "Community 29"
+Cohesion: 0.13
+Nodes (7): notifyRepoLoadErrors(), notifyRepoLoadErrorsForMode(), refreshRepoGitIdentity(), setRepoLoadingFlags(), setRepoLoadingFlagsForMode(), resolveErrorMessage(), resolveErrorSummary()
+
+### Community 30 - "Community 30"
 Cohesion: 0.2
 Nodes (14): buildGitGraphLayout(), createEdge(), createNode(), getCommitLaneColor(), getLaneColor(), projectVisibleGitGraph(), resolveCommitLane(), resolveCommitLaneColor() (+6 more)
 
-### Community 30 - "Community 30"
+### Community 31 - "Community 31"
 Cohesion: 0.14
 Nodes (6): Avatar(), reducerState(), useReducerState(), useElementSize(), useImageDimensions(), GitIdentityDialog()
 
 ### Community 32 - "Community 32"
+Cohesion: 0.34
+Nodes (13): isNullableNumber(), isNullableString(), isPreviewGate(), isPreviewMode(), isRecord(), isViewerKind(), parseDiffContentBase(), parseFilePreflightBase() (+5 more)
+
+### Community 34 - "Community 34"
 Cohesion: 0.21
 Nodes (6): createDefaultState(), migrateFromRepoStore(), moveItemInArray(), reorderTabsWithinGroup(), applyMigratedOrDefaultState(), rehydrateTabStore()
 
-### Community 33 - "Community 33"
+### Community 35 - "Community 35"
 Cohesion: 0.21
 Nodes (6): formatActivityLogLine(), formatLogTimestamp(), formatSystemLogLine(), getSelectedTextInContainer(), getSystemLogDetail(), updateSelectedText()
 
-### Community 34 - "Community 34"
+### Community 36 - "Community 36"
 Cohesion: 0.23
 Nodes (8): useRootAutoFetchIntervalMinutes(), useRootOnboardingPreferences(), useRootSchedulerPreferences(), useRootThemePreference(), useRootToasterPosition(), useRootActiveRepoContext(), RootComponent(), RootPreferenceEffects()
 
-### Community 38 - "Community 38"
+### Community 40 - "Community 40"
 Cohesion: 0.24
 Nodes (6): ImageZoom(), clampPosition(), getBoundedImagePanPosition(), isImageZoomModifierHeld(), resolveImageZoomCursor(), resolveModifierHeldFromKeyboardEvent()
 
-### Community 39 - "Community 39"
+### Community 41 - "Community 41"
 Cohesion: 0.22
 Nodes (4): createTrailingWhitespaceExtension(), createTrailingWhitespacePlugin(), TrailingSpaceWidget, TrailingTabWidget
 
-### Community 42 - "Community 42"
+### Community 44 - "Community 44"
 Cohesion: 0.39
 Nodes (7): buildSkillsAddArgs(), formatSkillsAddCommand(), main(), parseSkillsLock(), runCommand(), selectLockedSkills(), String
 
-### Community 43 - "Community 43"
+### Community 45 - "Community 45"
 Cohesion: 0.33
 Nodes (5): handleBranchNameKeyDown(), handleBranchSelection(), handleCreateBranch(), isBranchPaletteAction(), itemToStringLabel()
 
-### Community 44 - "Community 44"
+### Community 46 - "Community 46"
 Cohesion: 0.25
 Nodes (3): GitAuthDialog(), detectGitProvider(), resolveOAuthProviderForPrompt()
 
-### Community 46 - "Community 46"
+### Community 48 - "Community 48"
 Cohesion: 0.32
 Nodes (3): buildZoomSteps(), formatZoomLabel(), isCloseToFit()
 
-### Community 47 - "Community 47"
+### Community 49 - "Community 49"
 Cohesion: 0.43
 Nodes (4): getRepoRedoStack(), getRepoUndoStack(), recordRepoHistoryEntry(), updateRepoHistoryState()
 
-### Community 48 - "Community 48"
+### Community 50 - "Community 50"
 Cohesion: 0.29
 Nodes (3): countVisibleChangeTreeNodes(), countVisibleCommitTreeNodes(), buildRepoInfoVisibleCountsModel()
 
-### Community 49 - "Community 49"
+### Community 51 - "Community 51"
 Cohesion: 0.46
 Nodes (7): isValidBitbucketUsername(), isValidGitHubUsername(), resolveBitbucketAvatarFromIdentityEmail(), resolveCommitAuthorAvatarFromIdentityEmail(), resolveGitHubAvatarFromIdentityEmail(), resolveGitLabAvatarFromIdentityEmail(), resolveWipAuthorAvatarUrl()
 
-### Community 50 - "Community 50"
+### Community 52 - "Community 52"
 Cohesion: 0.48
 Nodes (6): closeConfirmDialog(), closePopoverMenu(), handleCloseGroupClick(), handleConfirmAction(), handleNewTab(), handleUngroupClick()
 
-### Community 51 - "Community 51"
+### Community 53 - "Community 53"
 Cohesion: 0.43
 Nodes (5): buildBranchTree(), buildRepoInfoSidebarGroups(), countBranchTreeEntries(), createEmptyBranchTreeNode(), filterBranchTree()
 
-### Community 54 - "Community 54"
+### Community 56 - "Community 56"
 Cohesion: 0.4
 Nodes (2): toDateLabel(), toRelativeDateLabel()
 
-### Community 55 - "Community 55"
+### Community 57 - "Community 57"
 Cohesion: 0.47
 Nodes (4): RootShell(), getRuntimeWindowChromeMode(), normalizeWindowChromeMode(), shouldUseWindowTitlebar()
 
-### Community 56 - "Community 56"
+### Community 58 - "Community 58"
 Cohesion: 0.53
 Nodes (5): buildLocaleOption(), getLocaleDisplayNames(), getLocaleOption(), getLocaleOptions(), getRegionDisplayNames()
 
-### Community 59 - "Community 59"
+### Community 61 - "Community 61"
 Cohesion: 0.4
 Nodes (2): createLanguageSupport(), loadLanguageSupport()
 
-### Community 60 - "Community 60"
+### Community 62 - "Community 62"
 Cohesion: 0.7
 Nodes (4): buildRepoInfoReferenceModel(), createSidebarEntryFromRefName(), formatStashLabel(), normalizeCommitRefLabel()
 
-### Community 61 - "Community 61"
+### Community 63 - "Community 63"
 Cohesion: 0.7
 Nodes (4): buildRepoInfoTimelineRows(), formatStashLabel(), normalizeCommitRefLabel(), resolveTagNameFromCommitRef()
 
-### Community 63 - "Community 63"
+### Community 65 - "Community 65"
 Cohesion: 0.6
 Nodes (3): formatMegabytes(), resolveDiffPreviewUiState(), resolveGuardCopy()
 
-### Community 68 - "Community 68"
+### Community 70 - "Community 70"
 Cohesion: 0.5
 Nodes (2): GlobalGitAuthDialog(), useGitAuthPrompts()
 
-### Community 71 - "Community 71"
+### Community 73 - "Community 73"
 Cohesion: 0.83
 Nodes (3): isDiffWorkspaceTextEncodingUnsupported(), resolveDiffWorkspaceEncodingValue(), resolveDiffWorkspaceRequestedEncoding()
 
-### Community 72 - "Community 72"
+### Community 74 - "Community 74"
 Cohesion: 0.67
 Nodes (2): toDateLabel(), toRelativeDateLabel()
 
-### Community 73 - "Community 73"
+### Community 75 - "Community 75"
 Cohesion: 0.83
 Nodes (3): isBlockBoundary(), parseFenceInfo(), parseMarkdownBlocks()
 
-### Community 74 - "Community 74"
+### Community 76 - "Community 76"
 Cohesion: 0.83
 Nodes (3): loadGitignoreTemplates(), loadLicenseTemplates(), loadRepositoryTemplates()
 
-### Community 76 - "Community 76"
+### Community 78 - "Community 78"
 Cohesion: 1.0
 Nodes (2): main(), runCommand()
 
-### Community 77 - "Community 77"
+### Community 79 - "Community 79"
 Cohesion: 1.0
 Nodes (2): appendEntry(), createEntryId()
 
-### Community 81 - "Community 81"
+### Community 83 - "Community 83"
 Cohesion: 1.0
 Nodes (2): createEditorChromeTheme(), createThemeExtension()
 
-### Community 86 - "Community 86"
+### Community 88 - "Community 88"
 Cohesion: 1.0
 Nodes (2): groupCommands(), searchHeaderTabsPalette()
 
-### Community 90 - "Community 90"
+### Community 92 - "Community 92"
 Cohesion: 0.67
 Nodes (3): Desktop Database Hooks, Icon Cache Hooks, litgit-desktop-bin.install
-
-### Community 113 - "Community 113"
-Cohesion: 1.0
-Nodes (1): String
-
-### Community 114 - "Community 114"
-Cohesion: 1.0
-Nodes (1): String
 
 ### Community 115 - "Community 115"
 Cohesion: 1.0
@@ -372,70 +374,78 @@ Nodes (1): String
 Cohesion: 1.0
 Nodes (1): String
 
-### Community 144 - "Community 144"
+### Community 117 - "Community 117"
+Cohesion: 1.0
+Nodes (1): String
+
+### Community 118 - "Community 118"
+Cohesion: 1.0
+Nodes (1): String
+
+### Community 146 - "Community 146"
 Cohesion: 1.0
 Nodes (2): Desktop Development Commands, Vite Desktop Preview
 
-### Community 196 - "Community 196"
+### Community 198 - "Community 198"
 Cohesion: 1.0
 Nodes (1): GitHub Provider Icon
 
-### Community 197 - "Community 197"
+### Community 199 - "Community 199"
 Cohesion: 1.0
 Nodes (1): GitLab Provider Icon
 
-### Community 198 - "Community 198"
+### Community 200 - "Community 200"
 Cohesion: 1.0
 Nodes (1): Bitbucket Provider Icon
 
-### Community 199 - "Community 199"
+### Community 201 - "Community 201"
 Cohesion: 1.0
 Nodes (1): Default Provider Icon
 
 ## Knowledge Gaps
 - **178 isolated node(s):** `RepositoryError`, `String`, `PickedRepository`, `PickedFilePath`, `CloneRepositoryProgress` (+173 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 54`** (6 nodes): `diff-workspace-blame-surface.tsx`, `DiffWorkspaceBlameSurface()`, `resolveAuthorColor()`, `resolveAvatarLabel()`, `toDateLabel()`, `toRelativeDateLabel()`
+- **Thin community `Community 56`** (6 nodes): `diff-workspace-blame-surface.tsx`, `DiffWorkspaceBlameSurface()`, `resolveAuthorColor()`, `resolveAvatarLabel()`, `toDateLabel()`, `toRelativeDateLabel()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 59`** (5 nodes): `language-support.ts`, `language-resolver.ts`, `createLanguageSupport()`, `loadLanguageSupport()`, `resolveLanguage()`
+- **Thin community `Community 61`** (5 nodes): `language-support.ts`, `language-resolver.ts`, `createLanguageSupport()`, `loadLanguageSupport()`, `resolveLanguage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 68`** (4 nodes): `global-git-auth-dialog.tsx`, `use-git-auth-prompts.ts`, `GlobalGitAuthDialog()`, `useGitAuthPrompts()`
+- **Thin community `Community 70`** (4 nodes): `global-git-auth-dialog.tsx`, `use-git-auth-prompts.ts`, `GlobalGitAuthDialog()`, `useGitAuthPrompts()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 72`** (4 nodes): `diff-workspace-history-surface.tsx`, `resolveAvatarLabel()`, `toDateLabel()`, `toRelativeDateLabel()`
+- **Thin community `Community 74`** (4 nodes): `diff-workspace-history-surface.tsx`, `resolveAvatarLabel()`, `toDateLabel()`, `toRelativeDateLabel()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 76`** (3 nodes): `main()`, `cleanup.mjs`, `runCommand()`
+- **Thin community `Community 78`** (3 nodes): `main()`, `cleanup.mjs`, `runCommand()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 77`** (3 nodes): `use-operation-log-store.ts`, `appendEntry()`, `createEntryId()`
+- **Thin community `Community 79`** (3 nodes): `use-operation-log-store.ts`, `appendEntry()`, `createEntryId()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 81`** (3 nodes): `theme-extension.ts`, `createEditorChromeTheme()`, `createThemeExtension()`
+- **Thin community `Community 83`** (3 nodes): `theme-extension.ts`, `createEditorChromeTheme()`, `createThemeExtension()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 86`** (3 nodes): `header-tabs-search-search.ts`, `groupCommands()`, `searchHeaderTabsPalette()`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 113`** (2 nodes): `String`, `.from()`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 114`** (2 nodes): `String`, `.from()`
+- **Thin community `Community 88`** (3 nodes): `header-tabs-search-search.ts`, `groupCommands()`, `searchHeaderTabsPalette()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 115`** (2 nodes): `String`, `.from()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 116`** (2 nodes): `String`, `.from()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 144`** (2 nodes): `Desktop Development Commands`, `Vite Desktop Preview`
+- **Thin community `Community 117`** (2 nodes): `String`, `.from()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 196`** (1 nodes): `GitHub Provider Icon`
+- **Thin community `Community 118`** (2 nodes): `String`, `.from()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 197`** (1 nodes): `GitLab Provider Icon`
+- **Thin community `Community 146`** (2 nodes): `Desktop Development Commands`, `Vite Desktop Preview`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 198`** (1 nodes): `Bitbucket Provider Icon`
+- **Thin community `Community 198`** (1 nodes): `GitHub Provider Icon`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 199`** (1 nodes): `Default Provider Icon`
+- **Thin community `Community 199`** (1 nodes): `GitLab Provider Icon`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 200`** (1 nodes): `Bitbucket Provider Icon`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 201`** (1 nodes): `Default Provider Icon`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `git_command()` connect `Community 0` to `Community 2`, `Community 6`, `Community 7`, `Community 9`, `Community 10`, `Community 13`, `Community 14`?**
+- **Why does `git_command()` connect `Community 0` to `Community 2`, `Community 5`, `Community 6`, `Community 9`, `Community 10`, `Community 13`, `Community 14`?**
   _High betweenness centrality (0.023) - this node is a cross-community bridge._
-- **Why does `create_terminal_session_inner()` connect `Community 25` to `Community 0`?**
+- **Why does `create_terminal_session_inner()` connect `Community 26` to `Community 0`?**
   _High betweenness centrality (0.012) - this node is a cross-community bridge._
 - **Why does `create_main_window()` connect `Community 16` to `Community 0`?**
   _High betweenness centrality (0.010) - this node is a cross-community bridge._

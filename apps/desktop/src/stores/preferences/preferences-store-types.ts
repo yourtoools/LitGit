@@ -69,22 +69,43 @@ export const DEFAULT_REPO_TIMELINE_PREFERENCES: RepoTimelinePreferences = {
 export type RepoFileBrowserSortOrder = "asc" | "desc";
 
 export interface RepoFileBrowserState {
+  collapsedBranchFolderKeys: Record<string, boolean>;
+  collapsedSidebarGroupKeys: Record<string, boolean>;
+  expandedCommitTreeNodePaths: Record<string, boolean>;
   expandedTreeNodePaths: Record<string, boolean>;
   filterInputValue: string;
   hiddenGraphEntryKeys: Record<string, boolean>;
+  isRightSidebarOpen: boolean;
   isStagedSectionCollapsed: boolean;
   isUnstagedSectionCollapsed: boolean;
+  leftSidebarWidth: number;
+  rightSidebarWidth: number;
+  selectedCommitId: string | null;
+  selectedTimelineRowId: string | null;
   showAllFiles: boolean;
   sortOrder: RepoFileBrowserSortOrder;
   viewMode: "path" | "tree";
 }
 
 export const DEFAULT_REPO_FILE_BROWSER_STATE: RepoFileBrowserState = {
+  collapsedBranchFolderKeys: {},
+  collapsedSidebarGroupKeys: {
+    local: true,
+    remote: true,
+    stashes: true,
+    tags: true,
+  },
+  expandedCommitTreeNodePaths: {},
   expandedTreeNodePaths: {},
   filterInputValue: "",
   hiddenGraphEntryKeys: {},
+  isRightSidebarOpen: true,
   isStagedSectionCollapsed: false,
   isUnstagedSectionCollapsed: false,
+  leftSidebarWidth: 256,
+  rightSidebarWidth: 320,
+  selectedCommitId: null,
+  selectedTimelineRowId: null,
   showAllFiles: false,
   sortOrder: "asc",
   viewMode: "tree",

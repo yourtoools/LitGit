@@ -18,9 +18,19 @@ export function registerWorkerHandler<TInput, TOutput>(
   >
 ) {
   context.onmessage = (event: MessageEvent<WorkerRequestEnvelope<TInput>>) => {
-    context.postMessage({
-      id: event.data.id,
-      payload: resolvePayload(event.data.payload),
-    } satisfies WorkerResponseEnvelope<TOutput>);
+    try {
+      context.postMessage({
+        id: event.data.id,
+        payload: resolvePayload(event.data.payload),
+      } satisfies WorkerResponseEnvelope<TOutput>);
+    } catch (error) {
+      context.postMessage({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Worker handler failed to resolve payload",
+        id: event.data.id,
+      } satisfies WorkerResponseEnvelope<TOutput>);
+    }
   };
 }

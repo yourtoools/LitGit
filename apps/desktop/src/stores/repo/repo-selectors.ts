@@ -197,20 +197,18 @@ export const useRepoLoadingState = () => {
 };
 
 export const useRepoRefreshStatus = (repoId: string | null) => {
-  const repoBackgroundRefreshById = useRepoStore(
-    (state) => state.repoBackgroundRefreshById
+  const isBackgroundRefreshing = useRepoStore((state) =>
+    repoId ? (state.repoBackgroundRefreshById[repoId] ?? false) : false
   );
-  const repoLastLoadedAtById = useRepoStore(
-    (state) => state.repoLastLoadedAtById
+  const lastLoadedAt = useRepoStore((state) =>
+    repoId ? (state.repoLastLoadedAtById[repoId] ?? null) : null
   );
 
   return useMemo(
     () => ({
-      isBackgroundRefreshing: repoId
-        ? (repoBackgroundRefreshById[repoId] ?? false)
-        : false,
-      lastLoadedAt: repoId ? (repoLastLoadedAtById[repoId] ?? null) : null,
+      isBackgroundRefreshing,
+      lastLoadedAt,
     }),
-    [repoBackgroundRefreshById, repoId, repoLastLoadedAtById]
+    [isBackgroundRefreshing, lastLoadedAt]
   );
 };

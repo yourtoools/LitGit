@@ -98,21 +98,49 @@ const setRepoBackgroundRefreshState = (
   id: string,
   isRefreshing: boolean
 ) => {
-  set((state) => ({
-    repoBackgroundRefreshById: {
-      ...state.repoBackgroundRefreshById,
-      [id]: isRefreshing,
-    },
-  }));
+  set((state) =>
+    state.repoBackgroundRefreshById[id] === isRefreshing
+      ? state
+      : {
+          repoBackgroundRefreshById: {
+            ...state.repoBackgroundRefreshById,
+            [id]: isRefreshing,
+          },
+        }
+  );
 };
 
-const markRepoLoadedAt = (set: RepoStoreSet, id: string) => {
-  set((state) => ({
-    repoLastLoadedAtById: {
-      ...state.repoLastLoadedAtById,
-      [id]: Date.now(),
-    },
-  }));
+const refreshRepoGitIdentity = async (
+  get: RepoStoreGet,
+  set: RepoStoreSet,
+  id: string,
+  repoPath: string
+) => {
+  try {
+    const identity = await getRepoGitIdentity(repoPath);
+
+    if (!get().openedRepos.some((repo) => repo.id === id)) {
+      return;
+    }
+
+    set((state) => ({
+      repoGitIdentities: {
+        ...state.repoGitIdentities,
+        [id]: identity,
+      },
+    }));
+  } catch {
+    if (!get().openedRepos.some((repo) => repo.id === id)) {
+      return;
+    }
+
+    set((state) => ({
+      repoGitIdentities: {
+        ...state.repoGitIdentities,
+        [id]: undefined,
+      },
+    }));
+  }
 };
 
 const applyRepoPayloads = (
@@ -120,69 +148,54 @@ const applyRepoPayloads = (
   id: string,
   result: RepoDataFetchResult
 ) => {
-  const historyPayload = result.historyPayload;
-  if (historyPayload) {
-    set((state) => ({
-      repoCommits: {
-        ...state.repoCommits,
-        [id]: historyPayload.commits,
-      },
-      repoHistoryGraphsById: {
-        ...state.repoHistoryGraphsById,
-        [id]: historyPayload.graph,
-      },
-    }));
-  }
-
-  const branchesPayload = result.branchesPayload;
-  if (branchesPayload) {
-    set((state) => ({
-      repoBranches: {
-        ...state.repoBranches,
-        [id]: branchesPayload.branches,
-      },
-    }));
-  }
-
-  const remoteNamesPayload = result.remoteNamesPayload;
-  if (remoteNamesPayload) {
-    set((state) => ({
-      repoRemoteNames: {
-        ...state.repoRemoteNames,
-        [id]: remoteNamesPayload.remoteNames,
-      },
-    }));
-  }
-
-  const stashesPayload = result.stashesPayload;
-  if (stashesPayload) {
-    set((state) => ({
-      repoStashes: {
-        ...state.repoStashes,
-        [id]: stashesPayload.stashes,
-      },
-    }));
-  }
-
-  const statusPayload = result.statusPayload;
-  if (statusPayload) {
-    set((state) => ({
-      repoWorkingTreeStatuses: {
-        ...state.repoWorkingTreeStatuses,
-        [id]: statusPayload.status,
-      },
-    }));
-  }
-
-  const wipItemsPayload = result.wipItemsPayload;
-  if (wipItemsPayload) {
-    set((state) => ({
-      repoWorkingTreeItems: {
-        ...state.repoWorkingTreeItems,
-        [id]: wipItemsPayload.items,
-      },
-    }));
-  }
+  set((state) => ({
+    repoBranches: result.branchesPayload
+      ? {
+          ...state.repoBranches,
+          [id]: result.branchesPayload.branches,
+        }
+      : state.repoBranches,
+    repoCommits: result.historyPayload
+      ? {
+          ...state.repoCommits,
+          [id]: result.historyPayload.commits,
+        }
+      : state.repoCommits,
+    repoHistoryGraphsById: result.historyPayload
+      ? {
+          ...state.repoHistoryGraphsById,
+          [id]: result.historyPayload.graph,
+        }
+      : state.repoHistoryGraphsById,
+    repoLastLoadedAtById: {
+      ...state.repoLastLoadedAtById,
+      [id]: Date.now(),
+    },
+    repoRemoteNames: result.remoteNamesPayload
+      ? {
+          ...state.repoRemoteNames,
+          [id]: result.remoteNamesPayload.remoteNames,
+        }
+      : state.repoRemoteNames,
+    repoStashes: result.stashesPayload
+      ? {
+          ...state.repoStashes,
+          [id]: result.stashesPayload.stashes,
+        }
+      : state.repoStashes,
+    repoWorkingTreeItems: result.wipItemsPayload
+      ? {
+          ...state.repoWorkingTreeItems,
+          [id]: result.wipItemsPayload.items,
+        }
+      : state.repoWorkingTreeItems,
+    repoWorkingTreeStatuses: result.statusPayload
+      ? {
+          ...state.repoWorkingTreeStatuses,
+          [id]: result.statusPayload.status,
+        }
+      : state.repoWorkingTreeStatuses,
+  }));
 };
 
 const notifyRepoLoadErrors = (result: RepoDataFetchResult) => {
@@ -278,23 +291,9 @@ export const createRepoLoaderSlice = (
 
     set({ activeRepoId: id });
 
-    try {
-      const identity = await getRepoGitIdentity(targetRepo.path);
-
-      set((state) => ({
-        repoGitIdentities: {
-          ...state.repoGitIdentities,
-          [id]: identity,
-        },
-      }));
-    } catch {
-      set((state) => ({
-        repoGitIdentities: {
-          ...state.repoGitIdentities,
-          [id]: undefined,
-        },
-      }));
-    }
+    refreshRepoGitIdentity(get, set, id, targetRepo.path).catch(
+      () => undefined
+    );
 
     const cacheState = getRepoCacheState(get, id, forceRefresh);
 
@@ -342,8 +341,6 @@ export const createRepoLoaderSlice = (
       if (!shouldRefreshInBackground) {
         notifyRepoLoadErrorsForMode(result, refreshMode);
       }
-
-      markRepoLoadedAt(set, id);
     } catch (error) {
       const repoStillExists = get().openedRepos.some((repo) => repo.id === id);
 
