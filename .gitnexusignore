@@ -14,12 +14,17 @@ GEMINI.md
 .github/copilot-instructions.md
 .github/hooks/
 skills-lock.json
+.claude/skills/
+.vscode/
 
-# Keep only the OpenCode Graphify integration
-.opencode/*
-!.opencode/plugins/
-!.opencode/plugins/graphify.js
-!.opencode/opencode.json
+# OpenCode local package/runtime
+.opencode/
+
+# Generated/local knowledge graph outputs
+.gitnexus/
+
+# Random exported/scratch text dumps
+*.txt
 
 # Dependencies
 node_modules/
@@ -45,11 +50,6 @@ logs/
 tmp/
 temp/
 *.tmp
-
-# Generated local graph/cache output
-graphify-out/cache/
-graphify-out/manifest.json
-graphify-out/cost.json
 
 # Environment and secrets
 .env

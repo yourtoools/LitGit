@@ -25,6 +25,8 @@
     "dev:desktop": "turbo run dev -F desktop",
     "dev:desktop-web": "turbo run dev:desktop-web -F desktop",
     "fix": "ultracite fix",
+    "gitnexus:analyze": "bun run scripts/gitnexus-analyze-and-sync.mjs",
+    "gitnexus:sync": "bun run scripts/gitnexus-analyze-and-sync.mjs --sync-only",
     "gen:gitignore-templates": "turbo run gen:gitignore-templates -F desktop",
     "bump-deps": "bun run scripts/bump-deps.mjs",
     "bump-deps:ci": "bun run scripts/bump-deps.mjs --yes",
