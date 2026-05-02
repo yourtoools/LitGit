@@ -5,6 +5,8 @@ import { createRepoLoaderSlice } from "@/stores/repo/repo-loader.slice";
 import { createRepoSessionSlice } from "@/stores/repo/repo-session.slice";
 import type { RepoStoreState } from "@/stores/repo/repo-store-types";
 
+const REPO_STORE_PERSIST_VERSION = 2;
+
 export const useRepoStore = create<RepoStoreState>()(
   persist(
     (set, get) => ({
@@ -26,9 +28,11 @@ export const useRepoStore = create<RepoStoreState>()(
       repoRedoLabelById: {},
       repoCommitDraftPrefillById: {},
       repoHistoryRewriteHintById: {},
-      repoHistoryGraphsById: {},
       repoFilesById: {},
       repoGitIdentities: {},
+      repoHistoryHasMoreById: {},
+      repoHistoryNextCursorById: {},
+      repoHistoryNextPageLoadingById: {},
       repoLastLoadedAtById: {},
       repoRemoteNames: {},
       repoStashes: {},
@@ -49,11 +53,21 @@ export const useRepoStore = create<RepoStoreState>()(
     {
       name: "litgit-repo-store",
       storage: createJSONStorage(() => localStorage),
+      version: REPO_STORE_PERSIST_VERSION,
+      migrate: (persistedState) => {
+        if (!(persistedState && typeof persistedState === "object")) {
+          return persistedState;
+        }
+
+        const nextState = persistedState as Record<string, unknown>;
+        nextState.repoCommits = {};
+        nextState.repoHistoryGraphsById = undefined;
+
+        return nextState;
+      },
       partialize: (state) => ({
         openedRepos: state.openedRepos,
         activeRepoId: state.activeRepoId,
-        repoCommits: state.repoCommits,
-        repoHistoryGraphsById: state.repoHistoryGraphsById,
         repoFilesById: state.repoFilesById,
         repoBranches: state.repoBranches,
         repoGitIdentities: state.repoGitIdentities,

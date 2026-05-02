@@ -198,6 +198,8 @@ export function buildRepoInfoTimelineRows(
     }
 
     rows.push({
+      author: commit.author,
+      authorAvatarUrl: commit.authorAvatarUrl,
       commitHash: commit.hash,
       id: commit.hash,
       syncState: commit.syncState,

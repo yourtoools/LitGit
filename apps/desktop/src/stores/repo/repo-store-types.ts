@@ -93,17 +93,6 @@ export interface RepositoryCommit {
 
 export type RepositoryCommitSyncState = "normal" | "pullable";
 
-interface RepositoryCommitGraphNode {
-  color: string;
-  lane: number;
-  parentLanes: number[];
-}
-
-export interface RepositoryCommitGraphPayload {
-  commitLanes: Record<string, RepositoryCommitGraphNode>;
-  graphWidth: number;
-}
-
 export interface RepositoryBranch {
   aheadCount?: number;
   behindCount?: number;
@@ -468,6 +457,7 @@ export interface RepoStoreState {
   isLoadingWip: boolean;
   isPickingRepo: boolean;
   isRefreshingOpenedRepos: boolean;
+  loadMoreRepoHistory: (id: string) => Promise<void>;
   mergeReference: (
     id: string,
     targetRef: string,
@@ -498,7 +488,9 @@ export interface RepoStoreState {
   repoCommits: Record<string, RepositoryCommit[]>;
   repoFilesById: Record<string, RepositoryFileEntry[]>;
   repoGitIdentities: Record<string, GitIdentityStatus | undefined>;
-  repoHistoryGraphsById: Record<string, RepositoryCommitGraphPayload>;
+  repoHistoryHasMoreById: Record<string, boolean>;
+  repoHistoryNextCursorById: Record<string, string | null>;
+  repoHistoryNextPageLoadingById: Record<string, boolean>;
   repoHistoryRewriteHintById: Record<string, boolean>;
   repoLastLoadedAtById: Record<string, number>;
   repoRedoDepthById: Record<string, number>;
@@ -569,6 +561,13 @@ export interface RepoDataFetchResult {
 
 export interface RepositoryHistoryPayload {
   commits: RepositoryCommit[];
-  graph: RepositoryCommitGraphPayload;
+  hasMore: boolean;
   id: string;
+  nextCursor: string | null;
+}
+
+export interface RepositoryHistoryPageRequest {
+  cursor?: string | null;
+  limit?: number;
+  repoPath: string;
 }

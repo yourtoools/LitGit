@@ -3,6 +3,7 @@ import {
   fetchLightRepoData,
   fetchRepoData,
   getRepoGitIdentity,
+  loadRepoHistoryPage,
 } from "@/lib/tauri-repo-client";
 import { resolveErrorMessage } from "@/stores/repo/repo-store.helpers";
 import type {
@@ -12,6 +13,7 @@ import type {
 import type {
   RepoDataFetchResult,
   RepoStoreState,
+  RepositoryCommit,
 } from "@/stores/repo/repo-store-types";
 
 type RepoLoaderSliceKeys = "setActiveRepo";
@@ -27,15 +29,24 @@ interface RepoCacheState {
 
 type RepoRefreshMode = "full" | "light";
 
+function hasCompleteCommitHistory(
+  commits: RepositoryCommit[] | undefined
+): boolean {
+  if (!commits || commits.length === 0) {
+    return false;
+  }
+
+  const oldestCommit = commits.at(-1);
+
+  return Boolean(oldestCommit && oldestCommit.parentHashes.length === 0);
+}
+
 const getRepoCacheState = (
   get: RepoStoreGet,
   id: string,
   forceRefresh: boolean
 ): RepoCacheState => ({
-  hasCommits:
-    !forceRefresh &&
-    Boolean(get().repoCommits[id]) &&
-    Boolean(get().repoHistoryGraphsById[id]),
+  hasCommits: !forceRefresh && hasCompleteCommitHistory(get().repoCommits[id]),
   hasBranches: !forceRefresh && Boolean(get().repoBranches[id]),
   hasRemoteNames: !forceRefresh && Boolean(get().repoRemoteNames[id]),
   hasStashes: !forceRefresh && Boolean(get().repoStashes[id]),
@@ -161,12 +172,18 @@ const applyRepoPayloads = (
           [id]: result.historyPayload.commits,
         }
       : state.repoCommits,
-    repoHistoryGraphsById: result.historyPayload
+    repoHistoryHasMoreById: result.historyPayload
       ? {
-          ...state.repoHistoryGraphsById,
-          [id]: result.historyPayload.graph,
+          ...state.repoHistoryHasMoreById,
+          [id]: result.historyPayload.hasMore,
         }
-      : state.repoHistoryGraphsById,
+      : state.repoHistoryHasMoreById,
+    repoHistoryNextCursorById: result.historyPayload
+      ? {
+          ...state.repoHistoryNextCursorById,
+          [id]: result.historyPayload.nextCursor,
+        }
+      : state.repoHistoryNextCursorById,
     repoLastLoadedAtById: {
       ...state.repoLastLoadedAtById,
       [id]: Date.now(),
@@ -272,7 +289,73 @@ const notifyRepoLoadErrorsForMode = (
 export const createRepoLoaderSlice = (
   set: RepoStoreSet,
   get: RepoStoreGet
-): Pick<RepoStoreState, RepoLoaderSliceKeys> => ({
+): Pick<RepoStoreState, RepoLoaderSliceKeys | "loadMoreRepoHistory"> => ({
+  loadMoreRepoHistory: async (id) => {
+    const state = get();
+    const targetRepo = state.openedRepos.find((repo) => repo.id === id);
+    const cursor = state.repoHistoryNextCursorById[id];
+
+    if (
+      !targetRepo ||
+      state.repoHistoryNextPageLoadingById[id] === true ||
+      state.repoHistoryHasMoreById[id] !== true ||
+      !cursor
+    ) {
+      return;
+    }
+
+    set((currentState) => ({
+      repoHistoryNextPageLoadingById: {
+        ...currentState.repoHistoryNextPageLoadingById,
+        [id]: true,
+      },
+    }));
+
+    try {
+      const historyPayload = await loadRepoHistoryPage(id, {
+        cursor,
+        repoPath: targetRepo.path,
+      });
+
+      if (!historyPayload) {
+        return;
+      }
+
+      set((currentState) => {
+        const currentCommits = currentState.repoCommits[id] ?? [];
+        const seenHashes = new Set(currentCommits.map((commit) => commit.hash));
+        const appendedCommits = historyPayload.commits.filter(
+          (commit) => !seenHashes.has(commit.hash)
+        );
+
+        return {
+          repoCommits: {
+            ...currentState.repoCommits,
+            [id]: [...currentCommits, ...appendedCommits],
+          },
+          repoHistoryHasMoreById: {
+            ...currentState.repoHistoryHasMoreById,
+            [id]: historyPayload.hasMore,
+          },
+          repoHistoryNextCursorById: {
+            ...currentState.repoHistoryNextCursorById,
+            [id]: historyPayload.nextCursor,
+          },
+        };
+      });
+    } catch (error) {
+      toast.error(
+        resolveErrorMessage(error, "Failed to load more repository history")
+      );
+    } finally {
+      set((currentState) => ({
+        repoHistoryNextPageLoadingById: {
+          ...currentState.repoHistoryNextPageLoadingById,
+          [id]: false,
+        },
+      }));
+    }
+  },
   setActiveRepo: async (id, options) => {
     const targetRepo = get().openedRepos.find((repo) => repo.id === id);
 

@@ -7,7 +7,6 @@ import { defineConfig } from "vite";
 // Rolldown code splitting regex patterns
 const CODEMIRROR_PATTERN = /@codemirror|codemirror/;
 const TERMINAL_PATTERN = /xterm|@xterm/;
-const GRAPH_PATTERN = /@xyflow/;
 const DND_PATTERN = /@dnd-kit/;
 const REACT_VENDOR_PATTERN =
   /node_modules[\\/](react|react-dom|scheduler)[\\/]/;
@@ -64,12 +63,6 @@ export default defineConfig(({ mode }) => ({
               name: "terminal",
               test: TERMINAL_PATTERN,
               priority: 90,
-            },
-            // Git graph visualization
-            {
-              name: "graph",
-              test: GRAPH_PATTERN,
-              priority: 80,
             },
             // Drag and drop kit
             {

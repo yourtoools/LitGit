@@ -33,7 +33,6 @@ import type {
   RepositoryCommitFileDiff,
   RepositoryCommitFileHunks,
   RepositoryCommitFilePreflight,
-  RepositoryCommitGraphPayload,
   RepositoryCommitSyncState,
   RepositoryDiffPreviewMode,
   RepositoryFileBlamePayload,
@@ -43,6 +42,7 @@ import type {
   RepositoryFileHistoryPayload,
   RepositoryFileHunks,
   RepositoryFilePreflight,
+  RepositoryHistoryPageRequest,
   RepositoryHistoryPayload,
   RepositoryStash,
   RepositoryWorkingTreeItem,
@@ -443,52 +443,6 @@ function parseRepositoryWorkingTreeItems(
   return value.map(parseRepositoryWorkingTreeItem);
 }
 
-function parseRepositoryCommitGraphPayload(
-  value: unknown
-): RepositoryCommitGraphPayload {
-  if (!isRecord(value)) {
-    throw new Error("Invalid repository history payload");
-  }
-
-  const { commitLanes, graphWidth } = value;
-
-  if (!isRecord(commitLanes) || typeof graphWidth !== "number") {
-    throw new Error("Invalid repository history payload");
-  }
-
-  const parsedCommitLanes = Object.fromEntries(
-    Object.entries(commitLanes).map(([commitHash, entry]) => {
-      if (
-        !isRecord(entry) ||
-        typeof entry.color !== "string" ||
-        typeof entry.lane !== "number" ||
-        !(
-          Array.isArray(entry.parentLanes) &&
-          entry.parentLanes.every(
-            (parentLane): parentLane is number => typeof parentLane === "number"
-          )
-        )
-      ) {
-        throw new Error("Invalid repository history payload");
-      }
-
-      return [
-        commitHash,
-        {
-          color: entry.color,
-          lane: entry.lane,
-          parentLanes: entry.parentLanes,
-        },
-      ];
-    })
-  );
-
-  return {
-    commitLanes: parsedCommitLanes,
-    graphWidth,
-  };
-}
-
 function parseRepositoryHistoryPayload(
   value: unknown
 ): RepositoryHistoryPayload {
@@ -496,7 +450,7 @@ function parseRepositoryHistoryPayload(
     throw new Error("Invalid repository history payload");
   }
 
-  const { commits, graph } = value;
+  const { commits, hasMore, nextCursor } = value;
 
   if (!Array.isArray(commits)) {
     throw new Error("Invalid repository history payload");
@@ -504,8 +458,9 @@ function parseRepositoryHistoryPayload(
 
   return {
     commits: commits.map(parseRepositoryCommit),
-    graph: parseRepositoryCommitGraphPayload(graph),
+    hasMore: typeof hasMore === "boolean" ? hasMore : false,
     id: "",
+    nextCursor: typeof nextCursor === "string" ? nextCursor : null,
   };
 }
 
@@ -615,7 +570,8 @@ const invokeRepoCommandWithSystemLog = async <T>(params: {
 
 async function loadHistoryForRepo(
   id: string,
-  path: string
+  path: string,
+  options?: Pick<RepositoryHistoryPageRequest, "cursor" | "limit">
 ): Promise<RepositoryHistoryPayload | null> {
   const invoke = getTauriInvoke();
 
@@ -626,13 +582,26 @@ async function loadHistoryForRepo(
   const result = await invokeRepoCommandWithSystemLog<unknown>({
     command: "git log --date=iso-strict --decorate=short",
     invoke,
-    invokeArgs: { repoPath: path },
+    invokeArgs: {
+      request: {
+        cursor: options?.cursor ?? null,
+        limit: options?.limit,
+        repoPath: path,
+      } satisfies RepositoryHistoryPageRequest,
+    },
     invokeCommand: "get_repository_history",
     repoPath: path,
   });
   const historyPayload = parseRepositoryHistoryPayload(result);
 
   return { ...historyPayload, id };
+}
+
+export async function loadRepoHistoryPage(
+  id: string,
+  request: RepositoryHistoryPageRequest
+): Promise<RepositoryHistoryPayload | null> {
+  return await loadHistoryForRepo(id, request.repoPath, request);
 }
 
 async function loadBranchesForRepo(id: string, path: string) {

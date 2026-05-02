@@ -4,7 +4,7 @@ use crate::git_support::{
     GitSupportError,
 };
 use crate::settings::{GitHubIdentityCacheRecord, SettingsState};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Output;
@@ -29,27 +29,21 @@ struct RepositoryCommit {
     sync_state: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RepositoryCommitGraphNode {
-    color: String,
-    lane: usize,
-    parent_lanes: Vec<usize>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RepositoryCommitGraph {
-    commit_lanes: HashMap<String, RepositoryCommitGraphNode>,
-    graph_width: usize,
-}
-
 /// Commit history payload returned to the frontend.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RepositoryHistoryPayload {
     commits: Vec<RepositoryCommit>,
-    graph: RepositoryCommitGraph,
+    has_more: bool,
+    next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RepositoryHistoryRequest {
+    repo_path: String,
+    limit: Option<usize>,
+    cursor: Option<String>,
 }
 
 /// Latest commit message split into summary and description.
@@ -83,6 +77,15 @@ enum HistoryError {
     },
 }
 
+const DEFAULT_HISTORY_PAGE_SIZE: usize = 400;
+const MAX_HISTORY_PAGE_SIZE: usize = 2_000;
+
+fn normalize_history_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(DEFAULT_HISTORY_PAGE_SIZE)
+        .clamp(1, MAX_HISTORY_PAGE_SIZE)
+}
+
 impl HistoryError {
     fn io(action: &'static str, source: std::io::Error) -> Self {
         Self::Io { action, source }
@@ -93,107 +96,8 @@ impl HistoryError {
     }
 }
 
-const GRAPH_LANE_COLORS: [&str; 8] = [
-    "#00c8ff", "#db00ff", "#1f7cff", "#00b170", "#ff8a00", "#ff2f7d", "#8b7bff", "#00b8b8",
-];
-const GRAPH_MIN_COLUMN_WIDTH: usize = 60;
-const GRAPH_LANE_OFFSET_X: usize = 8;
-const GRAPH_LANE_SPACING_X: usize = 16;
-const GRAPH_MAX_NODE_SIZE: usize = 28;
-const GRAPH_HORIZONTAL_SAFETY_MARGIN: usize = 18;
-const GRAPH_REF_ROW_LANE_OFFSET: usize = 2;
-
 fn parse_numstat_count(bytes: &[u8]) -> usize {
     String::from_utf8_lossy(bytes).parse::<usize>().unwrap_or(0)
-}
-
-fn get_lane_color(lane: usize) -> &'static str {
-    GRAPH_LANE_COLORS[lane % GRAPH_LANE_COLORS.len()]
-}
-
-fn get_lowest_unused_lane(lane_by_hash: &HashMap<String, usize>) -> usize {
-    let used_lanes = lane_by_hash.values().copied().collect::<HashSet<_>>();
-    let mut lane = 0usize;
-
-    while used_lanes.contains(&lane) {
-        lane += 1;
-    }
-
-    lane
-}
-
-fn build_repository_commit_graph(commits: &[RepositoryCommit]) -> RepositoryCommitGraph {
-    let commit_hashes = commits
-        .iter()
-        .map(|commit| commit.hash.as_str())
-        .collect::<HashSet<_>>();
-    let mut lane_by_hash = HashMap::new();
-
-    for commit in commits {
-        if !lane_by_hash.contains_key(&commit.hash) {
-            lane_by_hash.insert(commit.hash.clone(), get_lowest_unused_lane(&lane_by_hash));
-        }
-
-        let commit_lane = lane_by_hash.get(&commit.hash).copied().unwrap_or_default();
-        let mut parent_hashes = commit.parent_hashes.iter();
-        let primary_parent_hash = parent_hashes.next();
-
-        if let Some(parent_hash) = primary_parent_hash {
-            if commit_hashes.contains(parent_hash.as_str())
-                && !lane_by_hash.contains_key(parent_hash)
-            {
-                lane_by_hash.insert(parent_hash.clone(), commit_lane);
-            }
-        }
-
-        for merge_parent_hash in parent_hashes {
-            if !commit_hashes.contains(merge_parent_hash.as_str())
-                || lane_by_hash.contains_key(merge_parent_hash)
-            {
-                continue;
-            }
-
-            lane_by_hash.insert(
-                merge_parent_hash.clone(),
-                get_lowest_unused_lane(&lane_by_hash),
-            );
-        }
-    }
-
-    let max_lane = lane_by_hash.values().copied().max().unwrap_or_default();
-    let graph_width = std::cmp::max(
-        GRAPH_MIN_COLUMN_WIDTH,
-        GRAPH_LANE_OFFSET_X
-            + (max_lane + GRAPH_REF_ROW_LANE_OFFSET) * GRAPH_LANE_SPACING_X
-            + GRAPH_MAX_NODE_SIZE
-            + GRAPH_HORIZONTAL_SAFETY_MARGIN,
-    );
-
-    let commit_lanes = commits
-        .iter()
-        .map(|commit| {
-            let lane = lane_by_hash.get(&commit.hash).copied().unwrap_or_default();
-            let parent_lanes = commit
-                .parent_hashes
-                .iter()
-                .filter_map(|parent_hash| lane_by_hash.get(parent_hash).copied())
-                .collect::<Vec<_>>();
-
-            (
-                commit.hash.clone(),
-                RepositoryCommitGraphNode {
-                    color: get_lane_color(lane).to_string(),
-                    lane,
-                    parent_lanes,
-                },
-            )
-        })
-        .collect();
-
-    RepositoryCommitGraph {
-        commit_lanes,
-        graph_width,
-    }
 }
 
 fn read_nul_terminated_field(bytes: &[u8], cursor: &mut usize) -> Option<String> {
@@ -530,6 +434,7 @@ fn load_repository_history_segment(
     commit_identity_cache: &mut HashMap<String, GitHubIdentity>,
     sync_state: &str,
     revision_args: &[&str],
+    limit: Option<usize>,
 ) -> Result<Vec<RepositoryCommit>, HistoryError> {
     let mut command = git_command();
     command.args([
@@ -539,9 +444,11 @@ fn load_repository_history_segment(
         "--decorate=short",
         "--date=iso-strict",
         "--topo-order",
-        "--max-count=150",
         "--pretty=format:%H%x1f%h%x1f%P%x1f%s%x1f%b%x1f%B%x1f%an%x1f%ae%x1f%ad%x1f%D%x1e",
     ]);
+    if let Some(limit) = limit {
+        command.arg(format!("--max-count={limit}"));
+    }
     command.args(revision_args);
 
     let output = command
@@ -603,24 +510,50 @@ fn clone_history_settings_state(state: &SettingsState) -> Result<SettingsState, 
 fn get_repository_history_inner(
     repo_path: &str,
     state: &SettingsState,
+    limit: Option<usize>,
+    cursor: Option<&str>,
 ) -> Result<RepositoryHistoryPayload, HistoryError> {
     validate_git_repo(Path::new(repo_path)).map_err(HistoryError::message)?;
+    let page_limit = normalize_history_limit(limit);
+    let query_limit = page_limit + 1;
     let mut commit_identity_cache = HashMap::new();
-    let local_commits = load_repository_history_segment(
+    let cursor_revision = cursor.map(|cursor_hash| format!("{cursor_hash}^@"));
+    let revision_args = match cursor_revision.as_deref() {
+        Some(cursor_parent_revision) => vec![cursor_parent_revision],
+        None => vec!["HEAD"],
+    };
+    let mut local_commits = load_repository_history_segment(
         repo_path,
         state,
         &mut commit_identity_cache,
         "normal",
-        &["HEAD"],
+        &revision_args,
+        Some(query_limit),
     )?;
-    let pullable_commits = if let Some(upstream_ref) = resolve_repository_upstream_ref(repo_path)? {
-        load_repository_history_segment(
-            repo_path,
-            state,
-            &mut commit_identity_cache,
-            "pullable",
-            &[upstream_ref.as_str(), "--not", "HEAD"],
-        )?
+    let has_more = local_commits.len() > page_limit;
+
+    if has_more {
+        local_commits.truncate(page_limit);
+    }
+
+    let next_cursor = if has_more {
+        local_commits.last().map(|commit| commit.hash.clone())
+    } else {
+        None
+    };
+    let pullable_commits = if cursor.is_none() {
+        if let Some(upstream_ref) = resolve_repository_upstream_ref(repo_path)? {
+            load_repository_history_segment(
+                repo_path,
+                state,
+                &mut commit_identity_cache,
+                "pullable",
+                &[upstream_ref.as_str(), "--not", "HEAD"],
+                Some(page_limit),
+            )?
+        } else {
+            Vec::new()
+        }
     } else {
         Vec::new()
     };
@@ -635,9 +568,11 @@ fn get_repository_history_inner(
         commits.push(commit);
     }
 
-    let graph = build_repository_commit_graph(&commits);
-
-    Ok(RepositoryHistoryPayload { commits, graph })
+    Ok(RepositoryHistoryPayload {
+        commits,
+        has_more,
+        next_cursor,
+    })
 }
 
 fn sync_history_settings_state_cache(
@@ -661,13 +596,18 @@ fn sync_history_settings_state_cache(
 }
 
 async fn get_repository_history_with_state(
-    repo_path: String,
+    request: RepositoryHistoryRequest,
     state: &SettingsState,
 ) -> Result<RepositoryHistoryPayload, String> {
     let history_state = clone_history_settings_state(state).map_err(|error| error.to_string())?;
 
     let (payload, github_identity_cache) = tauri::async_runtime::spawn_blocking(move || {
-        let payload = get_repository_history_inner(&repo_path, &history_state)?;
+        let payload = get_repository_history_inner(
+            &request.repo_path,
+            &history_state,
+            request.limit,
+            request.cursor.as_deref(),
+        )?;
         let github_identity_cache = history_state
             .mutate_github_identity_cache(|cache| cache.clone())
             .map_err(HistoryError::message)?;
@@ -688,10 +628,10 @@ async fn get_repository_history_with_state(
 // Tauri command arguments mirror the frontend invoke payload.
 #[tauri::command]
 pub(crate) async fn get_repository_history(
-    repo_path: String,
+    request: RepositoryHistoryRequest,
     state: State<'_, SettingsState>,
 ) -> Result<RepositoryHistoryPayload, String> {
-    get_repository_history_with_state(repo_path, state.inner()).await
+    get_repository_history_with_state(request, state.inner()).await
 }
 
 fn get_latest_repository_commit_message_inner(
@@ -803,7 +743,7 @@ pub(crate) async fn get_repository_commit_files(
 mod tests {
     use super::{
         parse_name_status_output, parse_numstat_output, parse_repository_history_stdout,
-        resolve_repository_upstream_ref, HistoryError, RepositoryCommit,
+        resolve_repository_upstream_ref, HistoryError,
     };
     use crate::settings::SettingsState;
     use serde_json::json;
@@ -945,27 +885,6 @@ mod tests {
         repo
     }
 
-    fn synthetic_commit(hash: &str, parent_hashes: &[&str]) -> RepositoryCommit {
-        RepositoryCommit {
-            author: "LitGit Tests".to_string(),
-            author_avatar_url: None,
-            author_email: Some("12345+litgit-tests@users.noreply.github.com".to_string()),
-            author_username: Some("litgit-tests".to_string()),
-            date: "2026-04-21T00:00:00+00:00".to_string(),
-            hash: hash.to_string(),
-            message: format!("Commit {hash}"),
-            message_description: String::new(),
-            message_summary: format!("Commit {hash}"),
-            parent_hashes: parent_hashes
-                .iter()
-                .map(|hash| (*hash).to_string())
-                .collect(),
-            refs: Vec::new(),
-            short_hash: hash.chars().take(7).collect(),
-            sync_state: "normal".to_string(),
-        }
-    }
-
     #[test]
     fn parse_numstat_output_tracks_counts_for_both_sides_of_rename_entries() {
         let counts = parse_numstat_output(b"4\t1\t\0old.txt\0new.txt\0");
@@ -1032,80 +951,6 @@ mod tests {
     }
 
     #[test]
-    fn build_repository_commit_graph_assigns_lanes_and_parent_lanes_for_merges() {
-        let commits = vec![
-            synthetic_commit("a111111", &["b222222", "d444444"]),
-            synthetic_commit("b222222", &["c333333"]),
-            synthetic_commit("d444444", &["c333333"]),
-            synthetic_commit("c333333", &[]),
-        ];
-
-        let graph = super::build_repository_commit_graph(&commits);
-
-        assert_eq!(graph.graph_width, 102);
-        assert_eq!(
-            graph.commit_lanes.get("a111111"),
-            Some(&super::RepositoryCommitGraphNode {
-                color: "#00c8ff".to_string(),
-                lane: 0,
-                parent_lanes: vec![0, 1],
-            })
-        );
-        assert_eq!(
-            graph.commit_lanes.get("b222222"),
-            Some(&super::RepositoryCommitGraphNode {
-                color: "#00c8ff".to_string(),
-                lane: 0,
-                parent_lanes: vec![0],
-            })
-        );
-        assert_eq!(
-            graph.commit_lanes.get("d444444"),
-            Some(&super::RepositoryCommitGraphNode {
-                color: "#db00ff".to_string(),
-                lane: 1,
-                parent_lanes: vec![0],
-            })
-        );
-        assert_eq!(
-            graph.commit_lanes.get("c333333"),
-            Some(&super::RepositoryCommitGraphNode {
-                color: "#00c8ff".to_string(),
-                lane: 0,
-                parent_lanes: Vec::new(),
-            })
-        );
-    }
-
-    #[test]
-    fn build_repository_commit_graph_tracks_graph_width_from_highest_lane() {
-        let commits = vec![
-            synthetic_commit("a111111", &["b222222", "d444444"]),
-            synthetic_commit("b222222", &["c333333"]),
-            synthetic_commit("d444444", &["e555555", "g777777"]),
-            synthetic_commit("c333333", &["f666666"]),
-            synthetic_commit("e555555", &["f666666"]),
-            synthetic_commit("g777777", &["f666666"]),
-            synthetic_commit("f666666", &[]),
-        ];
-
-        let graph = super::build_repository_commit_graph(&commits);
-
-        assert_eq!(graph.graph_width, 118);
-        assert_eq!(
-            graph.commit_lanes.get("g777777").map(|node| node.lane),
-            Some(2)
-        );
-        assert_eq!(
-            graph
-                .commit_lanes
-                .get("d444444")
-                .map(|node| node.parent_lanes.clone()),
-            Some(vec![1, 2])
-        );
-    }
-
-    #[test]
     fn history_error_message_variant_preserves_display_text() {
         let error = HistoryError::Message("history parser failed".to_string());
 
@@ -1135,6 +980,7 @@ mod tests {
             &mut commit_identity_cache,
             "normal",
             &["HEAD"],
+            None,
         )
         .expect("history");
 
@@ -1149,6 +995,35 @@ mod tests {
     }
 
     #[test]
+    fn load_repository_history_segment_returns_more_than_legacy_graph_limit() {
+        let repo = create_temp_git_repo();
+        let repo_path = repo.path();
+
+        for index in 0..160 {
+            fs::write(repo_path.join("history.txt"), format!("commit {index}\n"))
+                .expect("history file should be written");
+            run_git(repo_path, &["add", "history.txt"]);
+            run_git(
+                repo_path,
+                &["commit", "-m", &format!("History commit {index}")],
+            );
+        }
+
+        let mut commit_identity_cache = HashMap::new();
+        let commits = super::load_repository_history_segment(
+            repo_path.to_string_lossy().as_ref(),
+            &SettingsState::default(),
+            &mut commit_identity_cache,
+            "normal",
+            &["HEAD"],
+            None,
+        )
+        .expect("history");
+
+        assert_eq!(commits.len(), 160);
+    }
+
+    #[test]
     fn get_repository_history_inner_returns_commit_payload_for_single_commit_repo() {
         let repo = create_temp_git_repo_with_commit(
             "notes.txt",
@@ -1159,6 +1034,8 @@ mod tests {
         let payload = super::get_repository_history_inner(
             repo.path().to_string_lossy().as_ref(),
             &SettingsState::default(),
+            None,
+            None,
         )
         .expect("history payload");
 
@@ -1169,6 +1046,88 @@ mod tests {
             "Wrap the body line.\n\nInclude follow-up context."
         );
         assert_eq!(payload.commits[0].sync_state, "normal");
+    }
+
+    #[test]
+    fn get_repository_history_inner_returns_paginated_history_pages() {
+        let repo = create_temp_git_repo();
+        let repo_path = repo.path();
+
+        for index in 0..5 {
+            fs::write(repo_path.join("history.txt"), format!("commit {index}\n"))
+                .expect("history file should be written");
+            run_git(repo_path, &["add", "history.txt"]);
+            run_git(
+                repo_path,
+                &["commit", "-m", &format!("History commit {index}")],
+            );
+        }
+
+        let first_page = super::get_repository_history_inner(
+            repo_path.to_string_lossy().as_ref(),
+            &SettingsState::default(),
+            Some(2),
+            None,
+        )
+        .expect("first history page");
+        let second_page = super::get_repository_history_inner(
+            repo_path.to_string_lossy().as_ref(),
+            &SettingsState::default(),
+            Some(2),
+            first_page.next_cursor.as_deref(),
+        )
+        .expect("second history page");
+
+        assert_eq!(first_page.commits.len(), 2);
+        assert!(first_page.has_more);
+        assert_eq!(
+            first_page.next_cursor.as_deref(),
+            Some(first_page.commits[1].hash.as_str())
+        );
+        assert_eq!(second_page.commits.len(), 2);
+        assert!(second_page.has_more);
+        assert_ne!(first_page.commits[0].hash, second_page.commits[0].hash);
+    }
+
+    #[test]
+    fn get_repository_history_inner_caps_pullable_upstream_commits() {
+        let repo = create_temp_git_repo();
+        let repo_path = repo.path();
+
+        fs::write(repo_path.join("history.txt"), "local\n")
+            .expect("history file should be written");
+        run_git(repo_path, &["add", "history.txt"]);
+        run_git(repo_path, &["commit", "-m", "Local commit"]);
+        run_git(repo_path, &["branch", "origin/main"]);
+        run_git(repo_path, &["branch", "--set-upstream-to=origin/main"]);
+
+        for index in 0..5 {
+            fs::write(repo_path.join("remote.txt"), format!("remote {index}\n"))
+                .expect("remote file should be written");
+            run_git(repo_path, &["add", "remote.txt"]);
+            run_git(
+                repo_path,
+                &["commit", "-m", &format!("Remote commit {index}")],
+            );
+        }
+
+        run_git(repo_path, &["branch", "-f", "origin/main", "HEAD"]);
+        run_git(repo_path, &["reset", "--hard", "HEAD~5"]);
+
+        let payload = super::get_repository_history_inner(
+            repo_path.to_string_lossy().as_ref(),
+            &SettingsState::default(),
+            Some(2),
+            None,
+        )
+        .expect("history payload");
+        let pullable_count = payload
+            .commits
+            .iter()
+            .filter(|commit| commit.sync_state == "pullable")
+            .count();
+
+        assert_eq!(pullable_count, 2);
     }
 
     #[test]
@@ -1251,7 +1210,11 @@ mod tests {
             .expect("seed cache");
 
         let payload = super::get_repository_history_with_state(
-            repo.path().to_string_lossy().to_string(),
+            super::RepositoryHistoryRequest {
+                repo_path: repo.path().to_string_lossy().to_string(),
+                limit: None,
+                cursor: None,
+            },
             &state,
         )
         .await
@@ -1309,7 +1272,9 @@ mod tests {
                     .parse()
                     .expect("valid tauri test URL"),
                 body: tauri::ipc::InvokeBody::Json(json!({
-                    "repoPath": repo.path().to_string_lossy().to_string()
+                    "request": {
+                        "repoPath": repo.path().to_string_lossy().to_string()
+                    }
                 })),
                 headers: Default::default(),
                 invoke_key: tauri::test::INVOKE_KEY.to_string(),
@@ -1327,6 +1292,8 @@ mod tests {
             .expect("read synced cache");
 
         assert_eq!(payload["commits"].as_array().map(Vec::len), Some(1));
+        assert_eq!(payload["hasMore"], false);
+        assert_eq!(payload["nextCursor"], serde_json::Value::Null);
         assert_eq!(
             payload["commits"][0]["messageSummary"],
             "Add detailed notes"

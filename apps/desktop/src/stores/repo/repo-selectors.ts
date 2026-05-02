@@ -4,7 +4,6 @@ import type {
   LatestRepositoryCommitMessage,
   RepositoryBranch,
   RepositoryCommit,
-  RepositoryCommitGraphPayload,
   RepositoryFileEntry,
   RepositoryStash,
   RepositoryWorkingTreeItem,
@@ -13,10 +12,6 @@ import { useRepoStore } from "@/stores/repo/use-repo-store";
 
 const EMPTY_BRANCHES: RepositoryBranch[] = [];
 const EMPTY_COMMITS: RepositoryCommit[] = [];
-const EMPTY_COMMIT_GRAPH: RepositoryCommitGraphPayload = {
-  commitLanes: {},
-  graphWidth: 60,
-};
 const EMPTY_FILES: RepositoryFileEntry[] = [];
 const EMPTY_REMOTE_NAMES: string[] = [];
 const EMPTY_STASHES: RepositoryStash[] = [];
@@ -56,6 +51,7 @@ export const useRepoActions = () =>
       getFileText: state.getFileText,
       getLatestCommitMessage: state.getLatestCommitMessage,
       getRepositoryFiles: state.getRepositoryFiles,
+      loadMoreRepoHistory: state.loadMoreRepoHistory,
       mergeReference: state.mergeReference,
       popStash: state.popStash,
       pullBranch: state.pullBranch,
@@ -105,15 +101,6 @@ export const useRepoCommits = (repoId: null | string): RepositoryCommit[] =>
     repoId ? (state.repoCommits[repoId] ?? EMPTY_COMMITS) : EMPTY_COMMITS
   );
 
-export const useRepoHistoryGraph = (
-  repoId: null | string
-): RepositoryCommitGraphPayload =>
-  useRepoStore((state) =>
-    repoId
-      ? (state.repoHistoryGraphsById[repoId] ?? EMPTY_COMMIT_GRAPH)
-      : EMPTY_COMMIT_GRAPH
-  );
-
 export const useRepoFiles = (repoId: null | string): RepositoryFileEntry[] =>
   useRepoStore((state) =>
     repoId ? (state.repoFilesById[repoId] ?? EMPTY_FILES) : EMPTY_FILES
@@ -130,6 +117,23 @@ export const useRepoHistoryRewriteHint = (repoId: null | string): boolean =>
   useRepoStore((state) =>
     repoId ? (state.repoHistoryRewriteHintById[repoId] ?? false) : false
   );
+
+export const useRepoHistoryPagination = (repoId: null | string) => {
+  const hasMore = useRepoStore((state) =>
+    repoId ? (state.repoHistoryHasMoreById[repoId] ?? false) : false
+  );
+  const isLoadingMore = useRepoStore((state) =>
+    repoId ? (state.repoHistoryNextPageLoadingById[repoId] ?? false) : false
+  );
+
+  return useMemo(
+    () => ({
+      hasMore,
+      isLoadingMore,
+    }),
+    [hasMore, isLoadingMore]
+  );
+};
 
 export const useRepoRemoteNames = (repoId: null | string): string[] =>
   useRepoStore((state) =>

@@ -86,6 +86,7 @@ import {
   ArrowCounterClockwiseIcon,
   ArrowLineDownIcon,
   ArrowLineUpIcon,
+  CalendarBlankIcon,
   CaretDownIcon,
   CaretRightIcon,
   CheckCircleIcon,
@@ -99,6 +100,7 @@ import {
   GearIcon,
   GitBranchIcon,
   GithubLogoIcon,
+  HashIcon,
   LaptopIcon,
   MinusIcon,
   PencilSimpleIcon,
@@ -113,6 +115,7 @@ import {
   TrashIcon,
   TrayArrowDownIcon,
   TrayArrowUpIcon,
+  UserCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useParams, useSearch } from "@tanstack/react-router";
@@ -132,6 +135,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   useTransition,
 } from "react";
 import { toast } from "sonner";
@@ -139,10 +143,12 @@ import { resolveLanguage } from "@/components/code-editor/utils/language-resolve
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
 import {
   type GitTimelineRow,
-  getCommitLaneColor,
-  resolveGitGraphColumnWidth,
   TIMELINE_BRANCH_COLUMN_WIDTH,
 } from "@/components/views/git-graph-layout";
+import {
+  buildGitGraphRenderRows,
+  collectVisibleGitTimelineRows,
+} from "@/components/views/git-graph-model";
 import {
   type DiffPreviewPanelState,
   resolveDiffPreviewUiState,
@@ -254,7 +260,7 @@ import {
   useRepoCommits,
   useRepoFiles,
   useRepoGitIdentity,
-  useRepoHistoryGraph,
+  useRepoHistoryPagination,
   useRepoHistoryRewriteHint,
   useRepoLoadingState,
   useRepoRedoDepth,
@@ -540,35 +546,6 @@ function resolveStateAction<Value>(
   return value;
 }
 
-function normalizeCommitRefLabel(rawReference: string): string | null {
-  const trimmedReference = rawReference.trim();
-
-  if (trimmedReference.length === 0) {
-    return null;
-  }
-
-  const headSeparatorIndex = trimmedReference.indexOf("->");
-
-  if (headSeparatorIndex >= 0) {
-    const targetReference = trimmedReference
-      .slice(headSeparatorIndex + 2)
-      .trim();
-
-    return targetReference.length > 0 ? targetReference : null;
-  }
-
-  if (trimmedReference.startsWith("tag: ")) {
-    const tagName = trimmedReference.slice("tag: ".length).trim();
-    return tagName.length > 0 ? tagName : null;
-  }
-
-  if (trimmedReference === "HEAD") {
-    return null;
-  }
-
-  return trimmedReference;
-}
-
 const TREE_STATUS_SUMMARY_ORDER = ["M", "A", "D", "R", "C", "U", "T", "?"];
 const IMAGE_PREVIEWABLE_EXTENSIONS = new Set([
   "png",
@@ -692,7 +669,7 @@ function LauncherItemIcon({
 const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
-const TIMELINE_ROW_HEIGHT = 36;
+const TIMELINE_ROW_HEIGHT = 30;
 const TIMELINE_GRAPH_COLUMN_MIN_WIDTH = 60;
 const TIMELINE_GRAPH_COLUMN_MAX_WIDTH = 320;
 const TIMELINE_COMMIT_MESSAGE_BAR_WIDTH = 3;
@@ -701,6 +678,9 @@ const TIMELINE_AUTO_COMPACT_BREAKPOINT = 1200;
 const TIMELINE_AUTHOR_COLUMN_WIDTH = 160;
 const TIMELINE_DATE_TIME_COLUMN_WIDTH = 190;
 const TIMELINE_SHA_COLUMN_WIDTH = 110;
+const TIMELINE_COMPACT_AUTHOR_COLUMN_WIDTH = 92;
+const TIMELINE_COMPACT_DATE_TIME_COLUMN_WIDTH = 88;
+const TIMELINE_COMPACT_SHA_COLUMN_WIDTH = 64;
 const TIMELINE_COLUMN_ORDER: RepoTimelineColumnId[] = [
   "branch",
   "graph",
@@ -738,6 +718,224 @@ function isMergeViewInstance(
   value: DiffEditorInstance | null
 ): value is { a: CodeMirrorEditorViewLike; b: CodeMirrorEditorViewLike } {
   return value !== null && "a" in value && "b" in value;
+}
+
+interface TimelineReferenceCardsProps {
+  entries: SidebarEntry[];
+  isPullableCommit?: boolean;
+  laneColor: string;
+  opacity?: number;
+}
+
+interface TimelineReferenceGroup {
+  active: boolean;
+  entries: SidebarEntry[];
+  hasLocalBranch: boolean;
+  hasRemoteBranch: boolean;
+  hasTag: boolean;
+  key: string;
+  label: string;
+}
+
+interface TimelineReferenceLabelProps {
+  label: string;
+  tooltipLabel: string;
+}
+
+function getTimelineReferenceEntryIcon(entry: SidebarEntry) {
+  if (entry.type === "tag") {
+    return <TagIcon className="size-3 shrink-0" />;
+  }
+
+  if (entry.isRemote) {
+    return <CloudIcon className="size-3 shrink-0" />;
+  }
+
+  return <LaptopIcon className="size-3 shrink-0" />;
+}
+
+function getTimelineReferenceGroupKey(entry: SidebarEntry): string {
+  if (entry.type !== "branch") {
+    return `${entry.type}:${entry.name}`;
+  }
+
+  if (!entry.isRemote) {
+    return `branch:${entry.name}`;
+  }
+
+  const [, ...branchNameSegments] = entry.name.split("/");
+  const branchName = branchNameSegments.join("/");
+
+  return `branch:${branchName.length > 0 ? branchName : entry.name}`;
+}
+
+function getTimelineReferenceGroupLabel(entry: SidebarEntry): string {
+  if (entry.type !== "branch" || !entry.isRemote) {
+    return entry.name;
+  }
+
+  const [, ...branchNameSegments] = entry.name.split("/");
+  const branchName = branchNameSegments.join("/");
+
+  return branchName.length > 0 ? branchName : entry.name;
+}
+
+function groupTimelineReferenceEntries(
+  entries: SidebarEntry[]
+): TimelineReferenceGroup[] {
+  const groupByKey = new Map<string, TimelineReferenceGroup>();
+
+  for (const entry of entries) {
+    const key = getTimelineReferenceGroupKey(entry);
+    const existing = groupByKey.get(key);
+
+    if (existing) {
+      existing.entries.push(entry);
+      existing.active ||= entry.active === true;
+      existing.hasLocalBranch ||= entry.type === "branch" && !entry.isRemote;
+      existing.hasRemoteBranch ||=
+        entry.type === "branch" && entry.isRemote === true;
+      existing.hasTag ||= entry.type === "tag";
+      continue;
+    }
+
+    groupByKey.set(key, {
+      active: entry.active === true,
+      entries: [entry],
+      hasLocalBranch: entry.type === "branch" && !entry.isRemote,
+      hasRemoteBranch: entry.type === "branch" && entry.isRemote === true,
+      hasTag: entry.type === "tag",
+      key,
+      label: getTimelineReferenceGroupLabel(entry),
+    });
+  }
+
+  return Array.from(groupByKey.values());
+}
+
+function TimelineReferenceLabel({
+  label,
+  tooltipLabel,
+}: TimelineReferenceLabelProps) {
+  const labelRef = useRef<HTMLSpanElement | null>(null);
+  const [isTruncated, setIsTruncated] = useState(false);
+
+  useEffect(() => {
+    const element = labelRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const updateIsTruncated = () => {
+      setIsTruncated(element.scrollWidth > element.clientWidth);
+    };
+
+    updateIsTruncated();
+
+    const observer = new ResizeObserver(updateIsTruncated);
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  });
+
+  return (
+    <Tooltip disabled={!isTruncated}>
+      <TooltipTrigger
+        render={<span className="min-w-0 truncate" ref={labelRef} />}
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function TimelineReferenceCards({
+  entries,
+  isPullableCommit = false,
+  laneColor,
+  opacity = 1,
+}: TimelineReferenceCardsProps) {
+  const groupedEntries = groupTimelineReferenceEntries(entries);
+  const [primaryGroup, ...overflowGroups] = groupedEntries;
+
+  if (!primaryGroup) {
+    return (
+      <span className="text-muted-foreground/70 text-xs">
+        <span className="sr-only">No refs</span>
+      </span>
+    );
+  }
+
+  const primaryTooltipLabel = primaryGroup.entries
+    .map((entry) => entry.name)
+    .join(", ");
+
+  return (
+    <div className="group/reference-card relative flex h-full min-w-0 items-center gap-1 overflow-visible pr-2">
+      {isPullableCommit ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className="relative z-10 inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300"
+                style={{ opacity }}
+              />
+            }
+          >
+            <ArrowLineDownIcon className="size-3" />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            Commit available from upstream
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+      <span
+        className="relative z-10 inline-flex min-w-0 max-w-[7rem] shrink items-center gap-1 rounded border bg-background/95 px-1.5 py-0.5 text-xs leading-none shadow-sm"
+        style={{ borderColor: `${laneColor}99`, opacity }}
+      >
+        <TimelineReferenceLabel
+          label={primaryGroup.label}
+          tooltipLabel={primaryTooltipLabel}
+        />
+        {primaryGroup.hasLocalBranch ? (
+          <LaptopIcon className="size-2.5 shrink-0" />
+        ) : null}
+        {primaryGroup.hasRemoteBranch ? (
+          <CloudIcon className="size-2.5 shrink-0" />
+        ) : null}
+        {primaryGroup.hasTag ? <TagIcon className="size-2.5 shrink-0" /> : null}
+      </span>
+      {overflowGroups.length > 0 ? (
+        <>
+          <span
+            className="relative z-20 inline-flex items-center rounded border bg-background/95 px-1.5 py-0.5 font-medium text-xs leading-none shadow-sm"
+            style={{ borderColor: `${laneColor}80`, opacity }}
+          >
+            +{overflowGroups.length}
+          </span>
+          <span className="absolute top-full left-0 z-50 mt-1 hidden min-w-40 overflow-hidden rounded border bg-popover py-1 text-popover-foreground opacity-100 shadow-md group-hover/reference-card:block">
+            {groupedEntries.map((group) => {
+              const iconEntry = group.entries[0];
+
+              return (
+                <span
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs"
+                  key={group.key}
+                >
+                  {iconEntry ? getTimelineReferenceEntryIcon(iconEntry) : null}
+                  <span className="min-w-0 truncate">{group.label}</span>
+                </span>
+              );
+            })}
+          </span>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 async function navigateDiffEditor(
@@ -1008,6 +1206,7 @@ export function RepoInfo() {
     getFileText,
     getLatestCommitMessage,
     getRepositoryFiles,
+    loadMoreRepoHistory,
     mergeReference,
     popStash,
     pullBranch,
@@ -1029,11 +1228,12 @@ export function RepoInfo() {
   } = useRepoActions();
   const branches = useRepoBranches(activeRepoId);
   const commits = useRepoCommits(activeRepoId);
-  const historyGraph = useRepoHistoryGraph(activeRepoId);
   const allRepositoryFiles = useRepoFiles(activeRepoId);
   const activeRepoIdentity = useRepoGitIdentity(activeRepoId);
   const requiresForcePushAfterHistoryRewrite =
     useRepoHistoryRewriteHint(activeRepoId);
+  const { hasMore: historyHasMore, isLoadingMore: isLoadingMoreHistory } =
+    useRepoHistoryPagination(activeRepoId);
   const activeRepoRemoteNames = useRepoRemoteNames(activeRepoId);
   const stashes = useRepoStashes(activeRepoId);
   const workingTreeItems = useRepoWorkingTreeItems(activeRepoId);
@@ -1063,6 +1263,9 @@ export function RepoInfo() {
   >(null);
   const [selectedTimelineRowId, updateSelectedTimelineRowIdState] =
     useReducerState<string | null>(null);
+  const [hoveredGraphRowId, updateHoveredGraphRowId] = useReducerState<
+    string | null
+  >(null);
   const isLeftSidebarOpen = true;
   const [isRightSidebarOpen, updateIsRightSidebarOpenState] =
     useReducerState(true);
@@ -2109,80 +2312,8 @@ export function RepoInfo() {
     };
   }, [allFilesModelInput, updateAllFilesModel]);
 
-  const visibleGraphModelInput = useMemo<BuildRepoInfoVisibleGraphModelInput>(
-    () => ({
-      historyGraph,
-      localHeadCommitHash: localHeadCommit?.hash ?? null,
-      timelineCommits,
-    }),
-    [historyGraph, localHeadCommit?.hash, timelineCommits]
-  );
-  const visibleGraphWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoVisibleGraphModelInput,
-      ReturnType<typeof buildRepoInfoVisibleGraphModel>
-    >
-  > | null>(null);
-  const [visibleGraphModel, updateVisibleGraphModel] = useReducerState<
-    ReturnType<typeof buildRepoInfoVisibleGraphModel>
-  >(() => buildRepoInfoVisibleGraphModel(visibleGraphModelInput));
-
-  useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoVisibleGraphModelInput,
-        ReturnType<typeof buildRepoInfoVisibleGraphModel>
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-visible-graph.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:visible-graph" }
-      );
-      visibleGraphWorkerClientRef.current = client;
-
-      return () => {
-        visibleGraphWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      visibleGraphWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = visibleGraphWorkerClientRef.current;
-    let cancelled = false;
-
-    runWorkerTask(
-      workerClient,
-      visibleGraphModelInput,
-      buildRepoInfoVisibleGraphModel
-    ).then(
-      (result) => {
-        if (!cancelled) {
-          updateVisibleGraphModel(result);
-        }
-      },
-      () => undefined
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [visibleGraphModelInput, updateVisibleGraphModel]);
-
   const currentBranch =
     branches.find((branch) => branch.isCurrent)?.name ?? "HEAD";
-  const { currentBranchLaneColor, visibleHistoryGraph } = visibleGraphModel;
   const currentLocalBranch = useMemo(
     () =>
       branches.find(
@@ -2388,6 +2519,96 @@ export function RepoInfo() {
     () => timelineRows.filter((row) => row.type !== "wip"),
     [timelineRows]
   );
+  const visibleGraphModelInput = useMemo<BuildRepoInfoVisibleGraphModelInput>(
+    () => ({
+      localHeadCommitHash: localHeadCommit?.hash ?? null,
+      timelineCommits: timelineCommits.map(({ hash, parentHashes }) => ({
+        hash,
+        parentHashes,
+      })),
+      timelineRows: timelineDisplayRows.map((row) => ({
+        anchorCommitHash: row.anchorCommitHash,
+        author: row.author,
+        authorAvatarUrl: row.authorAvatarUrl,
+        commitHash: row.commitHash,
+        id: row.id,
+        label: row.label,
+        syncState: row.syncState,
+        type: row.type,
+      })),
+    }),
+    [localHeadCommit?.hash, timelineCommits, timelineDisplayRows]
+  );
+  const visibleGraphWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<
+      BuildRepoInfoVisibleGraphModelInput,
+      ReturnType<typeof buildRepoInfoVisibleGraphModel>
+    >
+  > | null>(null);
+  const [visibleGraphModel, updateVisibleGraphModel] = useReducerState<
+    ReturnType<typeof buildRepoInfoVisibleGraphModel>
+  >(() => buildRepoInfoVisibleGraphModel(visibleGraphModelInput));
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
+    }
+
+    try {
+      const client = createWorkerClient<
+        BuildRepoInfoVisibleGraphModelInput,
+        ReturnType<typeof buildRepoInfoVisibleGraphModel>
+      >(
+        () =>
+          new Worker(
+            new URL("./repo-info-visible-graph.worker.ts", import.meta.url),
+            {
+              type: "module",
+            }
+          ),
+        { label: "repo-info:visible-graph", requestTimeoutMs: 15_000 }
+      );
+      visibleGraphWorkerClientRef.current = client;
+
+      return () => {
+        visibleGraphWorkerClientRef.current = null;
+        client.dispose();
+      };
+    } catch {
+      visibleGraphWorkerClientRef.current = null;
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    const workerClient = visibleGraphWorkerClientRef.current;
+    let cancelled = false;
+
+    runWorkerTask(
+      workerClient,
+      visibleGraphModelInput,
+      buildRepoInfoVisibleGraphModel
+    ).then(
+      (result) => {
+        if (!cancelled) {
+          updateVisibleGraphModel(result);
+        }
+      },
+      () => undefined
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleGraphModelInput, updateVisibleGraphModel]);
+
+  const {
+    commitColorByHash,
+    currentBranchLaneColor,
+    graphRows,
+    graphWidth,
+    rowColorById,
+  } = visibleGraphModel;
   const timelineDisplayRowIndexById = useMemo(
     () => new Map(timelineDisplayRows.map((row, index) => [row.id, index])),
     [timelineDisplayRows]
@@ -2401,29 +2622,48 @@ export function RepoInfo() {
   });
   const virtualTimelineRows = timelineVirtualizer.getVirtualItems();
   const timelineVirtualRowsOffset = virtualTimelineRows[0]?.start ?? 0;
+  const visibleTimelineStartIndex = virtualTimelineRows[0]?.index ?? 0;
+  const visibleTimelineEndIndex =
+    virtualTimelineRows.at(-1)?.index ?? visibleTimelineStartIndex;
   const visibleTimelineRows = useMemo(
     () =>
-      virtualTimelineRows
-        .map((virtualRow) => timelineDisplayRows[virtualRow.index] ?? null)
-        .filter((row): row is GitTimelineRow => row !== null),
+      collectVisibleGitTimelineRows({
+        rows: timelineDisplayRows,
+        virtualRows: virtualTimelineRows,
+      }),
     [timelineDisplayRows, virtualTimelineRows]
   );
-  const visibleTimelineCommitHashes = useMemo(
+  const graphRenderRows = useMemo(
     () =>
-      new Set(
-        visibleTimelineRows
-          .map((row) => row.commitHash ?? row.anchorCommitHash ?? null)
-          .filter((hash): hash is string => hash !== null)
-      ),
-    [visibleTimelineRows]
+      buildGitGraphRenderRows({
+        rows: timelineDisplayRows,
+        visibleEndIndex: visibleTimelineEndIndex,
+        visibleStartIndex: visibleTimelineStartIndex,
+      }),
+    [timelineDisplayRows, visibleTimelineEndIndex, visibleTimelineStartIndex]
   );
-  const visibleTimelineCommits = useMemo(
-    () =>
-      timelineCommits.filter((commit) =>
-        visibleTimelineCommitHashes.has(commit.hash)
-      ),
-    [timelineCommits, visibleTimelineCommitHashes]
-  );
+
+  useEffect(() => {
+    if (!(activeRepoId && historyHasMore) || isLoadingMoreHistory) {
+      return;
+    }
+
+    const remainingRows =
+      timelineDisplayRows.length - visibleTimelineEndIndex - 1;
+
+    if (remainingRows > 32) {
+      return;
+    }
+
+    loadMoreRepoHistory(activeRepoId).catch(() => undefined);
+  }, [
+    activeRepoId,
+    historyHasMore,
+    isLoadingMoreHistory,
+    loadMoreRepoHistory,
+    timelineDisplayRows.length,
+    visibleTimelineEndIndex,
+  ]);
   const selectedTimelineRow = useMemo(
     () =>
       selectedTimelineRowId
@@ -2671,24 +2911,134 @@ export function RepoInfo() {
     () => new Map(timelineCommits.map((commit) => [commit.hash, commit])),
     [timelineCommits]
   );
-  const timelineVisibleColumns = useMemo(
+  const parentHashesByCommitHash = useMemo(
     () =>
-      TIMELINE_COLUMN_ORDER.filter(
-        (columnId) => repoTimelinePreferences.visibleColumns[columnId]
+      new Map(
+        timelineCommits.map((commit) => [commit.hash, commit.parentHashes])
       ),
-    [repoTimelinePreferences.visibleColumns]
+    [timelineCommits]
   );
+  const referenceEntryByKey = useMemo(() => {
+    const entries = new Map<string, SidebarEntry>();
+
+    for (const commitEntries of Object.values(
+      referenceModel.commitRefEntriesByCommitHash
+    )) {
+      for (const entry of commitEntries) {
+        entries.set(`${entry.type}:${entry.name}`, entry);
+      }
+    }
+
+    return entries;
+  }, [referenceModel.commitRefEntriesByCommitHash]);
+  const relatedReferenceEntriesByCommitHash = useMemo(() => {
+    const entriesByCommitHash: Record<string, SidebarEntry[]> = {};
+
+    for (const commit of timelineCommits) {
+      const relatedEntriesWithDistance: {
+        distance: number;
+        entry: SidebarEntry;
+      }[] = [];
+
+      for (const [entryKey, headCommitHash] of Object.entries(
+        referenceModel.commitHashByEntryKey
+      )) {
+        if (entryKey.startsWith("stash:")) {
+          continue;
+        }
+
+        const entry = referenceEntryByKey.get(entryKey);
+
+        if (!entry) {
+          continue;
+        }
+
+        const pendingHashes = [{ distance: 0, hash: headCommitHash }];
+        const visitedHashes = new Set<string>();
+        let relatedDistance: number | null = null;
+
+        while (pendingHashes.length > 0) {
+          const current = pendingHashes.shift();
+          const currentHash = current?.hash;
+
+          if (!currentHash || visitedHashes.has(currentHash)) {
+            continue;
+          }
+
+          if (currentHash === commit.hash) {
+            relatedDistance = current.distance;
+            break;
+          }
+
+          visitedHashes.add(currentHash);
+          for (const parentHash of parentHashesByCommitHash.get(currentHash) ??
+            []) {
+            pendingHashes.push({
+              distance: current.distance + 1,
+              hash: parentHash,
+            });
+          }
+        }
+
+        const commitColor = commitColorByHash[commit.hash] ?? null;
+        const headColor = commitColorByHash[headCommitHash] ?? null;
+
+        if (
+          relatedDistance !== null &&
+          commitColor !== null &&
+          headColor === commitColor
+        ) {
+          relatedEntriesWithDistance.push({
+            distance: relatedDistance,
+            entry,
+          });
+        }
+      }
+
+      entriesByCommitHash[commit.hash] = relatedEntriesWithDistance
+        .sort((first, second) => {
+          if (first.distance !== second.distance) {
+            return first.distance - second.distance;
+          }
+
+          if (first.entry.active !== second.entry.active) {
+            return first.entry.active ? -1 : 1;
+          }
+
+          if (first.entry.type !== second.entry.type) {
+            return first.entry.type === "branch" ? -1 : 1;
+          }
+
+          if (first.entry.isRemote !== second.entry.isRemote) {
+            return first.entry.isRemote ? 1 : -1;
+          }
+
+          return first.entry.name.localeCompare(second.entry.name);
+        })
+        .map((match) => match.entry);
+    }
+
+    return entriesByCommitHash;
+  }, [
+    commitColorByHash,
+    parentHashesByCommitHash,
+    referenceEntryByKey,
+    referenceModel.commitHashByEntryKey,
+    timelineCommits,
+  ]);
+  const timelineVisibleColumns = TIMELINE_COLUMN_ORDER;
+  const isTimelineMetadataCompact =
+    isRightSidebarOpen ||
+    isTimelineGraphAutoCompact ||
+    repoTimelinePreferences.compactGraph;
   const resolvedTimelineBranchColumnWidth = timelineVisibleColumns.includes(
     "branch"
   )
     ? TIMELINE_BRANCH_COLUMN_WIDTH
     : 0;
   const resolvedTimelineGraphColumnWidth = useMemo(
-    () =>
-      timelineVisibleColumns.includes("graph")
-        ? resolveGitGraphColumnWidth(visibleHistoryGraph)
-        : 0,
-    [timelineVisibleColumns, visibleHistoryGraph]
+    () => (timelineVisibleColumns.includes("graph") ? graphWidth : 0),
+    [graphWidth]
   );
   let timelineGraphTargetWidth = resolvedTimelineGraphColumnWidth;
 
@@ -2734,7 +3084,7 @@ export function RepoInfo() {
           definitions.push({
             id: columnId,
             label: "Commit message",
-            width: "minmax(260px,1fr)",
+            width: "minmax(160px,0.72fr)",
           });
           break;
         }
@@ -2742,7 +3092,11 @@ export function RepoInfo() {
           definitions.push({
             id: columnId,
             label: "Author",
-            width: `${TIMELINE_AUTHOR_COLUMN_WIDTH}px`,
+            width: `${
+              isTimelineMetadataCompact
+                ? TIMELINE_COMPACT_AUTHOR_COLUMN_WIDTH
+                : TIMELINE_AUTHOR_COLUMN_WIDTH
+            }px`,
           });
           break;
         }
@@ -2750,7 +3104,11 @@ export function RepoInfo() {
           definitions.push({
             id: columnId,
             label: "Date / Time",
-            width: `${TIMELINE_DATE_TIME_COLUMN_WIDTH}px`,
+            width: `${
+              isTimelineMetadataCompact
+                ? TIMELINE_COMPACT_DATE_TIME_COLUMN_WIDTH
+                : TIMELINE_DATE_TIME_COLUMN_WIDTH
+            }px`,
           });
           break;
         }
@@ -2758,7 +3116,11 @@ export function RepoInfo() {
           definitions.push({
             id: columnId,
             label: "Sha",
-            width: `${TIMELINE_SHA_COLUMN_WIDTH}px`,
+            width: `${
+              isTimelineMetadataCompact
+                ? TIMELINE_COMPACT_SHA_COLUMN_WIDTH
+                : TIMELINE_SHA_COLUMN_WIDTH
+            }px`,
           });
           break;
         }
@@ -2769,7 +3131,7 @@ export function RepoInfo() {
     }
 
     return definitions;
-  }, [effectiveTimelineGraphColumnWidth, timelineVisibleColumns]);
+  }, [effectiveTimelineGraphColumnWidth, isTimelineMetadataCompact]);
   const timelineGridTemplateColumns = timelineColumnDefinitions
     .map((column) => column.width)
     .join(" ");
@@ -3096,23 +3458,58 @@ export function RepoInfo() {
         }
         case "author": {
           return (
-            <div className="min-w-0 truncate px-2 text-xs">
-              {input.commit?.author ?? ""}
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className="min-w-0 truncate px-2 text-xs">
+                    {input.commit?.author ?? ""}
+                  </div>
+                }
+              />
+              {input.commit?.author ? (
+                <TooltipContent side="bottom">
+                  {input.commit.author}
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
           );
         }
         case "dateTime": {
+          const formattedDate = input.commit
+            ? formatCommitDate(input.commit.date)
+            : "";
+
           return (
-            <div className="min-w-0 truncate px-2 text-muted-foreground text-xs">
-              {input.commit ? formatCommitDate(input.commit.date) : ""}
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className="min-w-0 truncate px-2 text-muted-foreground text-xs">
+                    {formattedDate}
+                  </div>
+                }
+              />
+              {formattedDate.length > 0 ? (
+                <TooltipContent side="bottom">{formattedDate}</TooltipContent>
+              ) : null}
+            </Tooltip>
           );
         }
         case "sha": {
           return (
-            <div className="min-w-0 truncate px-2 font-mono text-[11px] text-muted-foreground">
-              {input.commit?.shortHash ?? ""}
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className="min-w-0 truncate px-2 font-mono text-[11px] text-muted-foreground">
+                    {input.commit?.shortHash ?? ""}
+                  </div>
+                }
+              />
+              {input.commit?.shortHash ? (
+                <TooltipContent side="bottom">
+                  {input.commit.shortHash}
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
           );
         }
         default: {
@@ -10451,24 +10848,57 @@ export function RepoInfo() {
           <div className="flex min-h-0 flex-1">
             <section className="relative flex min-w-0 flex-1 flex-col">
               {isDiffPanelOpen ? null : (
-                <div className="flex items-center overflow-hidden border-border/60 border-b">
+                <div className="sticky top-0 z-40 flex items-center overflow-hidden border-border/60 border-b bg-background/95">
                   <div
                     className="grid min-w-0 flex-1 px-2 py-1 text-muted-foreground text-xs/3 uppercase tracking-wide"
                     style={{ gridTemplateColumns: timelineGridTemplateColumns }}
                   >
-                    {timelineColumnDefinitions.map((column) => (
-                      <span
-                        className={cn(
-                          "flex items-center truncate px-2",
-                          column.align === "center"
-                            ? "justify-center"
-                            : "justify-start"
-                        )}
-                        key={column.id}
-                      >
-                        {column.label}
-                      </span>
-                    ))}
+                    {timelineColumnDefinitions.map((column) => {
+                      const compactHeaderIcon =
+                        isTimelineMetadataCompact &&
+                        (column.id === "author" ||
+                          column.id === "dateTime" ||
+                          column.id === "sha")
+                          ? column.id
+                          : null;
+
+                      return (
+                        <span
+                          className={cn(
+                            "flex items-center truncate px-2",
+                            column.align === "center" || compactHeaderIcon
+                              ? "justify-center"
+                              : "justify-start"
+                          )}
+                          key={column.id}
+                        >
+                          {compactHeaderIcon ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <span className="inline-flex items-center" />
+                                }
+                              >
+                                {compactHeaderIcon === "author" ? (
+                                  <UserCircleIcon className="size-3.5" />
+                                ) : null}
+                                {compactHeaderIcon === "dateTime" ? (
+                                  <CalendarBlankIcon className="size-3.5" />
+                                ) : null}
+                                {compactHeaderIcon === "sha" ? (
+                                  <HashIcon className="size-3.5" />
+                                ) : null}
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">
+                                {column.label}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            column.label
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                   <DropdownMenu>
                     <Tooltip>
@@ -10721,7 +11151,7 @@ export function RepoInfo() {
                   {hasAnyWorkingTreeChanges ? (
                     <button
                       className={cn(
-                        "group relative z-10 grid h-9 w-full cursor-pointer items-center border-border/35 border-b px-2 text-left transition-colors",
+                        "group relative z-10 grid w-full cursor-pointer items-center border-border/35 border-b px-2 text-left transition-colors",
                         selectedTimelineRowId === WORKING_TREE_ROW_ID
                           ? "bg-muted"
                           : "hover:bg-muted/35"
@@ -10736,6 +11166,7 @@ export function RepoInfo() {
                       ref={workingTreeTimelineRowRef}
                       style={{
                         gridTemplateColumns: timelineGridTemplateColumns,
+                        height: TIMELINE_ROW_HEIGHT,
                       }}
                       type="button"
                     >
@@ -10746,7 +11177,7 @@ export function RepoInfo() {
                               columnId === "commitMessage" ? (
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <Input
-                                    className="h-7 w-full min-w-0 max-w-52"
+                                    className="h-6 w-full min-w-0 max-w-52"
                                     disabled
                                     placeholder="// WIP"
                                     value={draftCommitSummary}
@@ -10805,7 +11236,7 @@ export function RepoInfo() {
                         width: "100%",
                       }}
                     >
-                      {repoTimelinePreferences.visibleColumns.graph ? (
+                      {timelineVisibleColumns.includes("graph") ? (
                         <Suspense
                           fallback={
                             <div
@@ -10824,17 +11255,18 @@ export function RepoInfo() {
                             branchColumnWidth={
                               resolvedTimelineBranchColumnWidth
                             }
-                            commits={visibleTimelineCommits}
                             getNodeContextMenu={
                               renderGraphNodeContextMenuContent
                             }
-                            graph={visibleHistoryGraph}
                             graphColumnWidth={effectiveTimelineGraphColumnWidth}
+                            graphRows={graphRows}
+                            onNodeHoverChange={updateHoveredGraphRowId}
                             onNodeMenuOpenChange={handleGraphNodeMenuOpenChange}
                             onNodeSelect={handleGraphNodeSelect}
                             rowHeight={TIMELINE_ROW_HEIGHT}
-                            rows={visibleTimelineRows}
+                            rows={graphRenderRows}
                             selectedRowId={selectedTimelineRowId}
+                            visibleStartIndex={visibleTimelineStartIndex}
                           />
                         </Suspense>
                       ) : null}
@@ -10856,41 +11288,50 @@ export function RepoInfo() {
                           const commitDescription = (
                             item.messageDescription ?? ""
                           ).trim();
-                          const laneColor = getCommitLaneColor(
-                            visibleHistoryGraph,
-                            item.hash
-                          );
+                          const commitTooltipText =
+                            commitDescription.length > 0
+                              ? `${commitTitle}\n\n${commitDescription}`
+                              : commitTitle;
+                          const laneColor =
+                            commitColorByHash[item.hash] ??
+                            currentBranchLaneColor;
                           const isPullableCommit =
                             item.syncState === "pullable";
-                          const commitRefs = item.refs
-                            .map(
-                              (ref) =>
-                                normalizeCommitRefLabel(ref) ?? ref.trim()
-                            )
-                            .filter(
-                              (ref) =>
-                                ref.length > 0 && !isReferenceHiddenInGraph(ref)
-                            );
-                          const visibleRefCount =
-                            repoTimelinePreferences.smartBranchVisibility ||
-                            timelineVisibleColumns.some(
-                              (columnId) =>
-                                columnId === "author" ||
-                                columnId === "dateTime" ||
-                                columnId === "sha"
-                            )
-                              ? 1
-                              : 2;
-                          const visibleCommitRefs = commitRefs.slice(
-                            0,
-                            visibleRefCount
+                          const commitRefEntries = (
+                            referenceModel.commitRefEntriesByCommitHash[
+                              item.hash
+                            ] ?? []
+                          ).filter(
+                            (entry) => !isReferenceHiddenInGraph(entry.name)
                           );
-                          const hiddenCommitRefs =
-                            commitRefs.slice(visibleRefCount);
-                          const hiddenCommitRefCount = Math.max(
-                            0,
-                            commitRefs.length - visibleCommitRefs.length
+                          const isHoveredGraphRow =
+                            hoveredGraphRowId === item.hash;
+                          const firstVisibleCommitHash =
+                            timelineCommits[0]?.hash ?? null;
+                          const relatedCommitRefEntries = (
+                            relatedReferenceEntriesByCommitHash[item.hash] ?? []
+                          ).filter(
+                            (entry) => !isReferenceHiddenInGraph(entry.name)
                           );
+                          let visibleCommitRefEntries = commitRefEntries;
+
+                          if (
+                            visibleCommitRefEntries.length === 0 &&
+                            isHoveredGraphRow
+                          ) {
+                            const [nearestReferenceGroup] =
+                              groupTimelineReferenceEntries(
+                                relatedCommitRefEntries
+                              );
+
+                            visibleCommitRefEntries =
+                              nearestReferenceGroup?.entries ?? [];
+                          }
+                          const referenceCardOpacity =
+                            isHoveredGraphRow &&
+                            firstVisibleCommitHash !== item.hash
+                              ? 0.5
+                              : 1;
 
                           return (
                             <ContextMenu
@@ -10902,7 +11343,7 @@ export function RepoInfo() {
                               <ContextMenuTrigger>
                                 <button
                                   className={cn(
-                                    "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
+                                    "group relative z-10 grid w-full items-center border-border/35 border-b px-2 text-left transition-colors",
                                     selectedTimelineRowId === item.hash ||
                                       openCommitMenuHash === item.hash
                                       ? "bg-muted hover:bg-muted"
@@ -10911,12 +11352,19 @@ export function RepoInfo() {
                                   onClick={() => {
                                     handleCommitRowClick(item.hash);
                                   }}
+                                  onMouseEnter={() => {
+                                    updateHoveredGraphRowId(item.hash);
+                                  }}
+                                  onMouseLeave={() => {
+                                    updateHoveredGraphRowId(null);
+                                  }}
                                   ref={(element) => {
                                     setTimelineRowElement(item.hash, element);
                                   }}
                                   style={{
                                     gridTemplateColumns:
                                       timelineGridTemplateColumns,
+                                    height: TIMELINE_ROW_HEIGHT,
                                   }}
                                   type="button"
                                 >
@@ -10925,82 +11373,17 @@ export function RepoInfo() {
                                       {getTimelineCell(columnId, {
                                         branchCell:
                                           columnId === "branch" ? (
-                                            <div className="min-w-0 truncate pr-2">
-                                              {visibleCommitRefs.length > 0 ? (
-                                                <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                                                  {isPullableCommit ? (
-                                                    <Tooltip>
-                                                      <TooltipTrigger
-                                                        render={
-                                                          <span className="inline-flex shrink-0 items-center gap-1 rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-700 text-xs leading-none dark:text-sky-300" />
-                                                        }
-                                                      >
-                                                        <ArrowLineDownIcon className="size-3" />
-                                                        Pull
-                                                      </TooltipTrigger>
-                                                      <TooltipContent side="bottom">
-                                                        Commit available from
-                                                        upstream
-                                                      </TooltipContent>
-                                                    </Tooltip>
-                                                  ) : null}
-                                                  {visibleCommitRefs.map(
-                                                    (ref, index) => (
-                                                      <Tooltip key={ref}>
-                                                        <TooltipTrigger
-                                                          render={
-                                                            <span
-                                                              className={cn(
-                                                                "inline-flex min-w-0 shrink items-center rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none",
-                                                                index === 0
-                                                                  ? "max-w-24"
-                                                                  : "max-w-16"
-                                                              )}
-                                                              style={{
-                                                                borderColor: `${laneColor}80`,
-                                                              }}
-                                                            />
-                                                          }
-                                                        >
-                                                          <span className="truncate">
-                                                            {ref}
-                                                          </span>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent side="bottom">
-                                                          {ref}
-                                                        </TooltipContent>
-                                                      </Tooltip>
-                                                    )
-                                                  )}
-                                                  {hiddenCommitRefCount > 0 ? (
-                                                    <Tooltip>
-                                                      <TooltipTrigger
-                                                        render={
-                                                          <span
-                                                            className="inline-flex shrink-0 items-center rounded border bg-muted/40 px-1.5 py-0.5 font-medium text-xs leading-none"
-                                                            style={{
-                                                              borderColor: `${laneColor}66`,
-                                                            }}
-                                                          />
-                                                        }
-                                                      >
-                                                        +{hiddenCommitRefCount}
-                                                      </TooltipTrigger>
-                                                      <TooltipContent side="bottom">
-                                                        {hiddenCommitRefs.join(
-                                                          ", "
-                                                        )}
-                                                      </TooltipContent>
-                                                    </Tooltip>
-                                                  ) : null}
-                                                </div>
-                                              ) : (
-                                                <span className="text-muted-foreground/70 text-xs">
-                                                  <span className="sr-only">
-                                                    No refs
-                                                  </span>
-                                                </span>
-                                              )}
+                                            <div className="h-full min-w-0 overflow-visible pr-2">
+                                              <TimelineReferenceCards
+                                                entries={
+                                                  visibleCommitRefEntries
+                                                }
+                                                isPullableCommit={
+                                                  isPullableCommit
+                                                }
+                                                laneColor={laneColor}
+                                                opacity={referenceCardOpacity}
+                                              />
                                             </div>
                                           ) : undefined,
                                         commit: item,
@@ -11025,16 +11408,31 @@ export function RepoInfo() {
                                                     TIMELINE_COMMIT_MESSAGE_BAR_GAP,
                                                 }}
                                               >
-                                                <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4">
-                                                  <span>{commitTitle}</span>
-                                                  {commitDescription.length >
+                                                <Tooltip>
+                                                  <TooltipTrigger
+                                                    render={
+                                                      <p className="min-w-0 flex-1 truncate pr-2 text-xs leading-4" />
+                                                    }
+                                                  >
+                                                    <span>{commitTitle}</span>
+                                                    {commitDescription.length >
+                                                    0 ? (
+                                                      <span className="text-muted-foreground/80">
+                                                        {" "}
+                                                        {commitDescription}
+                                                      </span>
+                                                    ) : null}
+                                                  </TooltipTrigger>
+                                                  {commitTooltipText.length >
                                                   0 ? (
-                                                    <span className="text-muted-foreground/80">
-                                                      {" "}
-                                                      {commitDescription}
-                                                    </span>
+                                                    <TooltipContent
+                                                      className="max-w-lg whitespace-pre-wrap text-left"
+                                                      side="bottom"
+                                                    >
+                                                      {commitTooltipText}
+                                                    </TooltipContent>
                                                   ) : null}
-                                                </p>
+                                                </Tooltip>
                                               </div>
                                             </div>
                                           ) : undefined,
@@ -11054,10 +11452,12 @@ export function RepoInfo() {
                           return null;
                         }
 
-                        const laneColor = getCommitLaneColor(
-                          visibleHistoryGraph,
-                          row.anchorCommitHash ?? ""
-                        );
+                        const laneColor =
+                          rowColorById[row.id] ??
+                          (row.anchorCommitHash
+                            ? commitColorByHash[row.anchorCommitHash]
+                            : undefined) ??
+                          currentBranchLaneColor;
                         const timelineEntry =
                           getSidebarEntryForTimelineRow(row);
                         const rowCommit = resolveTimelineRowCommit(row);
@@ -11070,7 +11470,7 @@ export function RepoInfo() {
                         const rowButton = (
                           <button
                             className={cn(
-                              "group relative z-10 grid h-9 w-full items-center border-border/35 border-b px-2 text-left transition-colors",
+                              "group relative z-10 grid w-full items-center border-border/35 border-b px-2 text-left transition-colors",
                               selectedTimelineRowId === row.id
                                 ? "bg-muted"
                                 : "hover:bg-muted/35"
@@ -11084,6 +11484,7 @@ export function RepoInfo() {
                             }}
                             style={{
                               gridTemplateColumns: timelineGridTemplateColumns,
+                              height: TIMELINE_ROW_HEIGHT,
                             }}
                             type="button"
                           >
@@ -11093,21 +11494,19 @@ export function RepoInfo() {
                                   branchCell:
                                     columnId === "branch" ? (
                                       <div className="min-w-0 truncate pr-2">
-                                        <span
-                                          className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none"
-                                          style={{
-                                            borderColor: `${laneColor}80`,
-                                          }}
-                                        >
-                                          {row.type === "stash" ? (
-                                            <StackSimpleIcon className="size-2.5 shrink-0" />
-                                          ) : (
+                                        {row.type === "tag" ? (
+                                          <span
+                                            className="inline-flex min-w-0 max-w-24 shrink items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs leading-none"
+                                            style={{
+                                              borderColor: `${laneColor}80`,
+                                            }}
+                                          >
                                             <TagIcon className="size-2.5 shrink-0" />
-                                          )}
-                                          <span className="truncate">
-                                            {rowLabel}
+                                            <span className="truncate">
+                                              {rowLabel}
+                                            </span>
                                           </span>
-                                        </span>
+                                        ) : null}
                                       </div>
                                     ) : undefined,
                                   commit: rowCommit,
