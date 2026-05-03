@@ -60,18 +60,28 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
       updateStatuses(providerStatuses);
 
       // Fetch SSH statuses in parallel for connected providers only
-      const sshFetchPromises = PROVIDERS.filter(
-        (provider) => providerStatuses[provider]?.connected
-      ).map(async (provider) => {
-        try {
-          const sshStatus = await getProviderSshStatus(provider);
-          return [provider, sshStatus] as const;
-        } catch (error) {
-          console.error(`Failed to load SSH status for ${provider}:`, error);
-          // Return default status on error
-          return [provider, { useSystemAgent: true }] as const;
+      const sshFetchPromises: Promise<
+        readonly [Provider, ProviderSshStatus]
+      >[] = [];
+
+      for (const provider of PROVIDERS) {
+        if (!providerStatuses[provider]?.connected) {
+          continue;
         }
-      });
+
+        sshFetchPromises.push(
+          getProviderSshStatus(provider)
+            .then((sshStatus) => [provider, sshStatus] as const)
+            .catch((error: unknown) => {
+              console.error(
+                `Failed to load SSH status for ${provider}:`,
+                error
+              );
+              // Return default status on error
+              return [provider, { useSystemAgent: true }] as const;
+            })
+        );
+      }
 
       const sshResults = await Promise.all(sshFetchPromises);
       const sshStats = Object.fromEntries(sshResults) as Record<
@@ -346,33 +356,35 @@ export function IntegrationsSection({ query }: IntegrationsSectionProps) {
           query={query}
         >
           <div className="grid gap-3">
-            {PROVIDERS.filter((p) => statuses?.[p]?.connected).map(
-              (provider) => (
-                <ProviderCard
-                  key={provider}
-                  onGenerateKey={(title) => handleGenerateKey(provider, title)}
-                  onRemoveKey={() => handleRemoveKey(provider)}
-                  onSetCustomKey={(privateKeyPath) =>
-                    handleSetCustomKey(provider, privateKeyPath)
+            {PROVIDERS.reduce<Provider[]>((connectedProviders, provider) => {
+              if (statuses?.[provider]?.connected) {
+                connectedProviders.push(provider);
+              }
+
+              return connectedProviders;
+            }, []).map((provider) => (
+              <ProviderCard
+                key={provider}
+                onGenerateKey={(title) => handleGenerateKey(provider, title)}
+                onRemoveKey={() => handleRemoveKey(provider)}
+                onSetCustomKey={(privateKeyPath) =>
+                  handleSetCustomKey(provider, privateKeyPath)
+                }
+                onUseSystemAgentChange={(use) =>
+                  handleUseSystemAgentChange(provider, use)
+                }
+                provider={provider}
+                sshStatus={sshStatuses?.[provider] ?? { useSystemAgent: true }}
+                status={
+                  statuses?.[provider] ?? {
+                    connected: false,
+                    username: null,
+                    displayName: null,
+                    avatarUrl: null,
                   }
-                  onUseSystemAgentChange={(use) =>
-                    handleUseSystemAgentChange(provider, use)
-                  }
-                  provider={provider}
-                  sshStatus={
-                    sshStatuses?.[provider] ?? { useSystemAgent: true }
-                  }
-                  status={
-                    statuses?.[provider] ?? {
-                      connected: false,
-                      username: null,
-                      displayName: null,
-                      avatarUrl: null,
-                    }
-                  }
-                />
-              )
-            )}
+                }
+              />
+            ))}
           </div>
         </SettingsField>
       )}

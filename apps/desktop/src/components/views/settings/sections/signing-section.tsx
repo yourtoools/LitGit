@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@litgit/ui/components/select";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import {
   DefaultSelectValue,
   SettingsField,
@@ -37,9 +37,13 @@ function SigningSection({ query }: { query: string }) {
   const setSigningPreferences = usePreferencesStore(
     (state) => state.setSigningPreferences
   );
-  const [availableSigningKeys, setAvailableSigningKeys] = useState<
-    Array<{ id: string; label: string; type: "gpg" | "ssh" }>
-  >([]);
+  const [availableSigningKeys, setAvailableSigningKeys] = useReducer(
+    (
+      _previous: Array<{ id: string; label: string; type: "gpg" | "ssh" }>,
+      next: Array<{ id: string; label: string; type: "gpg" | "ssh" }>
+    ) => next,
+    []
+  );
   const [signingStatusMessage, setSigningStatusMessage] = useState<
     string | null
   >(null);

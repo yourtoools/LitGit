@@ -209,8 +209,7 @@ export function SettingsPage() {
 
     pendingSidebarWidthRef.current = null;
 
-    document.body.style.userSelect = "";
-    document.body.style.cursor = "";
+    document.body.style.cssText = `${document.body.style.cssText};user-select:;cursor:;`;
   }, []);
 
   const startSidebarResize =
@@ -231,8 +230,7 @@ export function SettingsPage() {
         startX: event.clientX,
       };
 
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
+      document.body.style.cssText = `${document.body.style.cssText};user-select:none;cursor:col-resize;`;
 
       scheduleSidebarWidthUpdate(
         clampWidth(leftSidebarWidth, minWidth, maxWidth)

@@ -370,81 +370,87 @@ function DiffModeEditor(props: DiffModeProps) {
     let active = true;
     let mountedEditor: EditorView | MergeView | null = null;
 
-    const mountDiffEditor = async () => {
-      const [core, languageExtensions] = await Promise.all([
-        codeMirrorCorePromise,
-        createLanguageSupport(props.language, props.syntaxHighlighting),
-      ]);
-
+    const mountDiffEditor = () => {
       if (!active) {
         return;
       }
 
-      const behaviorExtensions = createBehaviorExtensions(core, {
-        lineNumbers: props.lineNumbers,
-        syntaxHighlighting: props.syntaxHighlighting,
-        tabSize: props.tabSize,
-        wordWrap: props.wordWrap,
-      });
-      const themeExtensions = createThemeExtension(
-        props.theme,
-        props.fontFamily,
-        props.fontSize
-      );
-      const sharedExtensions: Extension[] = [
-        ...createCommonSetupExtensions(core),
-        ...createReadOnlyExtensions(core),
-        ...behaviorExtensions,
-        createTrailingWhitespaceExtension(
-          props.showTrailingWhitespace ?? false
-        ),
-        ...themeExtensions,
-        ...languageExtensions,
-      ];
+      Promise.all([
+        codeMirrorCorePromise,
+        createLanguageSupport(props.language, props.syntaxHighlighting),
+      ])
+        .then(([core, languageExtensions]) => {
+          if (!active) {
+            return;
+          }
 
-      if (props.renderSideBySide) {
-        mountedEditor = new MergeView({
-          a: {
-            doc: props.original,
-            extensions: sharedExtensions,
-          },
-          b: {
-            doc: props.modified,
-            extensions: sharedExtensions,
-          },
-          collapseUnchanged: props.collapseUnchanged ?? undefined,
-          gutter: true,
-          highlightChanges: true,
-          parent,
-        });
-      } else {
-        const state = core.EditorState.create({
-          doc: props.modified,
-          extensions: [
-            ...sharedExtensions,
-            unifiedMergeView({
-              allowInlineDiffs: true,
+          const behaviorExtensions = createBehaviorExtensions(core, {
+            lineNumbers: props.lineNumbers,
+            syntaxHighlighting: props.syntaxHighlighting,
+            tabSize: props.tabSize,
+            wordWrap: props.wordWrap,
+          });
+          const themeExtensions = createThemeExtension(
+            props.theme,
+            props.fontFamily,
+            props.fontSize
+          );
+          const sharedExtensions: Extension[] = [
+            ...createCommonSetupExtensions(core),
+            ...createReadOnlyExtensions(core),
+            ...behaviorExtensions,
+            createTrailingWhitespaceExtension(
+              props.showTrailingWhitespace ?? false
+            ),
+            ...themeExtensions,
+            ...languageExtensions,
+          ];
+
+          if (props.renderSideBySide) {
+            mountedEditor = new MergeView({
+              a: {
+                doc: props.original,
+                extensions: sharedExtensions,
+              },
+              b: {
+                doc: props.modified,
+                extensions: sharedExtensions,
+              },
               collapseUnchanged: props.collapseUnchanged ?? undefined,
               gutter: true,
               highlightChanges: true,
-              mergeControls: false,
-              original: props.original,
-              syntaxHighlightDeletions: props.syntaxHighlighting,
-            }),
-          ],
-        });
+              parent,
+            });
+          } else {
+            const state = core.EditorState.create({
+              doc: props.modified,
+              extensions: [
+                ...sharedExtensions,
+                unifiedMergeView({
+                  allowInlineDiffs: true,
+                  collapseUnchanged: props.collapseUnchanged ?? undefined,
+                  gutter: true,
+                  highlightChanges: true,
+                  mergeControls: false,
+                  original: props.original,
+                  syntaxHighlightDeletions: props.syntaxHighlighting,
+                }),
+              ],
+            });
 
-        mountedEditor = new core.EditorView({
-          parent,
-          state,
-        });
-      }
+            mountedEditor = new core.EditorView({
+              parent,
+              state,
+            });
+          }
 
-      editorRef.current = mountedEditor;
-      props.onMount?.(mountedEditor);
+          editorRef.current = mountedEditor;
+          props.onMount?.(mountedEditor);
+        })
+        .catch(() => undefined);
     };
 
-    mountDiffEditor().catch(() => undefined);
+    mountDiffEditor();
 
     return () => {
       active = false;

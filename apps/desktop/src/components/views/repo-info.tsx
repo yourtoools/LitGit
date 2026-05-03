@@ -376,6 +376,7 @@ const WORKING_TREE_FILES_PANEL_RESIZE_HANDLE_HEIGHT = 6;
 const HORIZONTAL_RESIZE_HANDLE_WIDTH = 6;
 const MIN_TIMELINE_CONTENT_WIDTH = 560;
 const COMMIT_MESSAGE_LIST_MARKER_PATTERN = /^[-*•]\s*/;
+const SIDEBAR_FILTER_FLAGS = "gi";
 const FILE_FILTER_DEBOUNCE_MS = 500;
 const SIDEBAR_FILTER_DEBOUNCE_MS = 500;
 const SIDEBAR_TREE_BASE_PADDING_REM = 0.5;
@@ -1166,6 +1167,14 @@ function getRightSidebarMaxWidth(
     RIGHT_SIDEBAR_MIN_WIDTH,
     RIGHT_SIDEBAR_MAX_WIDTH
   );
+}
+
+function setBodyResizeCursor(cursor: "col-resize" | "row-resize"): void {
+  document.body.style.cssText += `; user-select: none; cursor: ${cursor};`;
+}
+
+function clearBodyResizeCursor(): void {
+  document.body.style.cssText += "; user-select: ; cursor: ;";
 }
 
 export function RepoInfo() {
@@ -2336,10 +2345,15 @@ export function RepoInfo() {
       };
     }
 
-    const messageLines = selectedCommit.message
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    const messageLines: string[] = [];
+
+    for (const line of selectedCommit.message.split("\n")) {
+      const trimmedLine = line.trim();
+
+      if (trimmedLine.length > 0) {
+        messageLines.push(trimmedLine);
+      }
+    }
 
     return {
       detailLines: messageLines
@@ -4660,8 +4674,7 @@ export function RepoInfo() {
       }
 
       sidebarResizeStateRef.current = null;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
+      clearBodyResizeCursor();
     };
 
     globalThis.addEventListener("mousemove", handlePointerMove);
@@ -4670,8 +4683,7 @@ export function RepoInfo() {
     return () => {
       globalThis.removeEventListener("mousemove", handlePointerMove);
       globalThis.removeEventListener("mouseup", handlePointerUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
+      clearBodyResizeCursor();
     };
   }, [updateLeftSidebarWidth, updateRightSidebarWidth]);
 
@@ -4698,8 +4710,7 @@ export function RepoInfo() {
       }
 
       commitDetailsResizeStateRef.current = null;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
+      clearBodyResizeCursor();
     };
 
     globalThis.addEventListener("mousemove", handlePointerMove);
@@ -4735,8 +4746,7 @@ export function RepoInfo() {
       }
 
       changesSectionsResizeStateRef.current = null;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
+      clearBodyResizeCursor();
     };
 
     globalThis.addEventListener("mousemove", handlePointerMove);
@@ -4805,8 +4815,7 @@ export function RepoInfo() {
       }
 
       workingTreeFilesPanelResizeStateRef.current = null;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
+      clearBodyResizeCursor();
     };
 
     globalThis.addEventListener("mousemove", handlePointerMove);
@@ -4905,8 +4914,7 @@ export function RepoInfo() {
         target,
       };
 
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = "col-resize";
+      setBodyResizeCursor("col-resize");
     };
 
   const startCommitDetailsResize = (
@@ -4920,8 +4928,7 @@ export function RepoInfo() {
       startY: event.clientY,
     };
 
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "row-resize";
+    setBodyResizeCursor("row-resize");
   };
 
   const startChangesSectionsResize = (
@@ -4944,8 +4951,7 @@ export function RepoInfo() {
       startY: event.clientY,
     };
 
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "row-resize";
+    setBodyResizeCursor("row-resize");
   };
 
   const startWorkingTreeFilesPanelResize = (
@@ -4986,8 +4992,7 @@ export function RepoInfo() {
       startY: event.clientY,
     };
 
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "row-resize";
+    setBodyResizeCursor("row-resize");
   };
 
   const setTimelineGraphCompactMode = (isCompact: boolean) => {
@@ -5227,40 +5232,23 @@ export function RepoInfo() {
       return name;
     }
 
-    const normalizedName = name.toLowerCase();
-    const firstMatchIndex = normalizedName.indexOf(normalizedSidebarFilter);
-
-    if (firstMatchIndex < 0) {
-      return name;
-    }
-
+    const filterPattern = new RegExp(
+      normalizedSidebarFilter.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      SIDEBAR_FILTER_FLAGS
+    );
     const highlightedParts: ReactNode[] = [];
     let searchFrom = 0;
     let key = 0;
+    let match = filterPattern.exec(name);
 
-    while (searchFrom < name.length) {
-      const matchIndex = normalizedName.indexOf(
-        normalizedSidebarFilter,
-        searchFrom
-      );
+    while (match !== null) {
+      const matchedText = match[0];
+      const matchIndex = match.index;
 
-      if (matchIndex < 0) {
-        const tail = name.slice(searchFrom);
-        if (tail.length > 0) {
-          highlightedParts.push(tail);
-        }
-        break;
+      if (matchIndex > searchFrom) {
+        highlightedParts.push(name.slice(searchFrom, matchIndex));
       }
 
-      const beforeMatch = name.slice(searchFrom, matchIndex);
-      if (beforeMatch.length > 0) {
-        highlightedParts.push(beforeMatch);
-      }
-
-      const matchedText = name.slice(
-        matchIndex,
-        matchIndex + normalizedSidebarFilter.length
-      );
       highlightedParts.push(
         <span
           className="bg-primary/20 px-0.5 text-foreground"
@@ -5270,7 +5258,16 @@ export function RepoInfo() {
         </span>
       );
       key += 1;
-      searchFrom = matchIndex + normalizedSidebarFilter.length;
+      searchFrom = matchIndex + matchedText.length;
+      match = filterPattern.exec(name);
+    }
+
+    if (highlightedParts.length === 0) {
+      return name;
+    }
+
+    if (searchFrom < name.length) {
+      highlightedParts.push(name.slice(searchFrom));
     }
 
     return <>{highlightedParts}</>;
@@ -11583,10 +11580,6 @@ export function RepoInfo() {
                     editLabel={editButtonLabel}
                     encoding={resolvedWorkspaceEncoding}
                     encodingOptions={DIFF_WORKSPACE_ENCODING_OPTIONS}
-                    isCompactImageToolbar={activeDiffViewerKind === "image"}
-                    isIgnoreTrimWhitespace={ignoreTrimWhitespace}
-                    isMarkdownFileView={isMarkdownFileWorkspaceMode}
-                    isStageActionDisabled={isStageActionDisabled}
                     markdownFilePresentation={workspaceFilePresentation}
                     mode={workspaceMode}
                     onClose={handleWorkspaceCloseRequest}
@@ -11652,6 +11645,12 @@ export function RepoInfo() {
                         ? openedDiffStageBadgeLabel
                         : null
                     }
+                    state={{
+                      compactImageToolbar: activeDiffViewerKind === "image",
+                      ignoreTrimWhitespace,
+                      markdownFileView: isMarkdownFileWorkspaceMode,
+                      stageActionDisabled: isStageActionDisabled,
+                    }}
                   />
                   <div className="relative min-h-0 flex-1">
                     {(workspaceMode === "diff" || workspaceMode === "file") &&

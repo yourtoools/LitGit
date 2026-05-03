@@ -223,9 +223,7 @@ function TerminalSection({ query }: { query: string }) {
     pendingPreviewSidebarWidthRef.current = null;
 
     if (previewBodyStyleSnapshotRef.current) {
-      document.body.style.userSelect =
-        previewBodyStyleSnapshotRef.current.userSelect;
-      document.body.style.cursor = previewBodyStyleSnapshotRef.current.cursor;
+      document.body.style.cssText = `${document.body.style.cssText};user-select:${previewBodyStyleSnapshotRef.current.userSelect};cursor:${previewBodyStyleSnapshotRef.current.cursor};`;
       previewBodyStyleSnapshotRef.current = null;
     }
   }, []);
@@ -255,8 +253,7 @@ function TerminalSection({ query }: { query: string }) {
       startX: event.clientX,
     };
 
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
+    document.body.style.cssText = `${document.body.style.cssText};user-select:none;cursor:col-resize;`;
 
     schedulePreviewSidebarWidthUpdate(
       clampWidth(previewSidebarWidth, minWidth, maxWidth)

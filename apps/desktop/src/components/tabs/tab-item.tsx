@@ -27,20 +27,23 @@ interface TabItemProps {
   tab: Tab;
 }
 
-export function TabItem({
-  tab,
-  isActive,
-  isLoading = false,
-  isSingleTab,
-  isFirst = false,
-  groupColor,
-  onActivate,
-  onClose,
-  ref,
-  ...props
-}: TabItemProps & {
-  ref?: React.Ref<HTMLDivElement>;
-} & React.HTMLAttributes<HTMLDivElement>) {
+export function TabItem(
+  props: TabItemProps & {
+    ref?: React.Ref<HTMLDivElement>;
+  } & React.HTMLAttributes<HTMLDivElement>
+) {
+  const {
+    tab,
+    isActive,
+    isLoading = false,
+    isSingleTab,
+    isFirst = false,
+    groupColor,
+    onActivate,
+    onClose,
+    ref,
+    ...htmlProps
+  } = props;
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
   const [isCloseButtonHovered, setIsCloseButtonHovered] = useState(false);
@@ -54,8 +57,6 @@ export function TabItem({
     );
   });
 
-  const showCloseButton =
-    !isSingleTab && (isActive || isHovered || isFocusWithin);
   const tabLabel = tab.title;
   const showBranchIcon = tab.repoId !== null;
 
@@ -70,7 +71,7 @@ export function TabItem({
         isActive
           ? "border border-border bg-muted/80 text-foreground"
           : inactiveTabClasses,
-        props.className
+        htmlProps.className
       )}
       data-state={isActive ? "active" : "inactive"}
       onBlurCapture={(event) => {
@@ -89,8 +90,8 @@ export function TabItem({
       onPointerEnter={() => setIsHovered(true)}
       onPointerLeave={() => setIsHovered(false)}
       ref={ref}
-      style={props.style}
-      {...props}
+      style={htmlProps.style}
+      {...htmlProps}
     >
       <Tooltip>
         <TooltipTrigger
@@ -170,7 +171,7 @@ export function TabItem({
         aria-label={isLoading ? `Loading ${tabLabel}` : `Close ${tabLabel}`}
         className={cn(
           "focus-visible:desktop-focus absolute right-1 size-4 border border-transparent p-0 transition-opacity duration-150 focus-visible:opacity-100 focus-visible:ring-0! focus-visible:ring-offset-0!",
-          showCloseButton
+          !isSingleTab && (isActive || isHovered || isFocusWithin)
             ? "pointer-events-auto opacity-100 hover:border-border/70 hover:bg-background/80"
             : "pointer-events-none opacity-0"
         )}
@@ -183,7 +184,9 @@ export function TabItem({
         }}
         onPointerEnter={() => setIsCloseButtonHovered(true)}
         onPointerLeave={() => setIsCloseButtonHovered(false)}
-        tabIndex={showCloseButton ? 0 : -1}
+        tabIndex={
+          !isSingleTab && (isActive || isHovered || isFocusWithin) ? 0 : -1
+        }
         type="button"
         variant="ghost"
       >

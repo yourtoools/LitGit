@@ -129,25 +129,28 @@ const readSystemFontFamiliesUncached =
 
       const fonts = await queryLocalFonts();
 
-      return {
-        options: Array.from(
-          new Map(
-            fonts
-              .filter((font) => typeof font.family === "string")
-              .map((font) => {
-                const family = font.family.trim();
+      const fontOptions = new Map<string, FontPickerOption>();
 
-                return [
-                  family,
-                  {
-                    family,
-                    isMonospace: detectMonospaceFont(family),
-                    source: "system" as const,
-                  },
-                ];
-              })
-          ).values()
-        ).filter((font) => font.family.length > 0),
+      for (const font of fonts) {
+        if (typeof font.family !== "string") {
+          continue;
+        }
+
+        const family = font.family.trim();
+
+        if (family.length === 0) {
+          continue;
+        }
+
+        fontOptions.set(family, {
+          family,
+          isMonospace: detectMonospaceFont(family),
+          source: "system" as const,
+        });
+      }
+
+      return {
+        options: Array.from(fontOptions.values()),
         status: "available",
       };
     } catch {

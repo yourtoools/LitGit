@@ -66,6 +66,9 @@ interface DiffWorkspaceHistorySurfaceProps {
 }
 
 const AUTHOR_SPLIT_PATTERN = /\s+/;
+const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat(undefined, {
+  numeric: "auto",
+});
 
 function toDateLabel(value: string): string {
   const parsed = new Date(value);
@@ -90,46 +93,51 @@ function toRelativeDateLabel(value: string): string {
 
   const now = Date.now();
   const diffInMinutes = Math.round((parsed.getTime() - now) / 60_000);
-  const formatter = new Intl.RelativeTimeFormat(undefined, {
-    numeric: "auto",
-  });
   const absMinutes = Math.abs(diffInMinutes);
 
   if (absMinutes < 60) {
-    return formatter.format(diffInMinutes, "minute");
+    return RELATIVE_TIME_FORMATTER.format(diffInMinutes, "minute");
   }
 
   const diffInHours = Math.round(diffInMinutes / 60);
   const absHours = Math.abs(diffInHours);
 
   if (absHours < 24) {
-    return formatter.format(diffInHours, "hour");
+    return RELATIVE_TIME_FORMATTER.format(diffInHours, "hour");
   }
 
   const diffInDays = Math.round(diffInHours / 24);
   const absDays = Math.abs(diffInDays);
 
   if (absDays < 30) {
-    return formatter.format(diffInDays, "day");
+    return RELATIVE_TIME_FORMATTER.format(diffInDays, "day");
   }
 
   return toDateLabel(value);
 }
 
 function resolveAvatarLabel(author: string): string {
-  const parts = author
-    .split(AUTHOR_SPLIT_PATTERN)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+  const initials: string[] = [];
 
-  if (parts.length === 0) {
+  for (const rawPart of author.split(AUTHOR_SPLIT_PATTERN)) {
+    const part = rawPart.trim();
+
+    if (part.length === 0) {
+      continue;
+    }
+
+    initials.push(part[0]?.toUpperCase() ?? "");
+
+    if (initials.length === 2) {
+      break;
+    }
+  }
+
+  if (initials.length === 0) {
     return "?";
   }
 
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
+  return initials.join("");
 }
 
 export function DiffWorkspaceHistorySurface({

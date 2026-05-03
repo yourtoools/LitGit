@@ -18,19 +18,20 @@ interface SortableTabItemProps {
   tab: Tab;
 }
 
-export function SortableTabItem({
-  tab,
-  disabled = false,
-  isGhost = false,
-  isActive,
-  isFirst = false,
-  isLoading = false,
-  isSingleTab,
-  groupColor,
-  onActivate,
-  onClose,
-  isHoveredForGroup,
-}: SortableTabItemProps) {
+export function SortableTabItem(props: SortableTabItemProps) {
+  const {
+    tab,
+    disabled = false,
+    isGhost = false,
+    isActive,
+    isFirst = false,
+    isLoading = false,
+    isSingleTab,
+    groupColor,
+    onActivate,
+    onClose,
+    isHoveredForGroup,
+  } = props;
   const sortable = useSortable({ id: tab.id, disabled });
 
   const {

@@ -64,20 +64,31 @@ interface BlameCommitSummary {
   summary: string;
 }
 const AUTHOR_SPLIT_PATTERN = /\s+/;
+const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat(undefined, {
+  numeric: "auto",
+});
 
 function resolveAvatarLabel(author: string): string {
-  const parts = author
-    .split(AUTHOR_SPLIT_PATTERN)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+  const initials: string[] = [];
 
-  if (parts.length === 0) {
+  for (const rawPart of author.split(AUTHOR_SPLIT_PATTERN)) {
+    const part = rawPart.trim();
+
+    if (part.length === 0) {
+      continue;
+    }
+
+    initials.push(part[0]?.toUpperCase() ?? "");
+
+    if (initials.length === 2) {
+      break;
+    }
+  }
+
+  if (initials.length === 0) {
     return "?";
   }
 
-  const initials = parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "");
   return initials.join("");
 }
 
@@ -114,27 +125,24 @@ function toRelativeDateLabel(authorTime: number | null): string {
   const now = Date.now();
   const sourceTime = authorTime * 1000;
   const diffInMinutes = Math.round((sourceTime - now) / 60_000);
-  const formatter = new Intl.RelativeTimeFormat(undefined, {
-    numeric: "auto",
-  });
   const absMinutes = Math.abs(diffInMinutes);
 
   if (absMinutes < 60) {
-    return formatter.format(diffInMinutes, "minute");
+    return RELATIVE_TIME_FORMATTER.format(diffInMinutes, "minute");
   }
 
   const diffInHours = Math.round(diffInMinutes / 60);
   const absHours = Math.abs(diffInHours);
 
   if (absHours < 24) {
-    return formatter.format(diffInHours, "hour");
+    return RELATIVE_TIME_FORMATTER.format(diffInHours, "hour");
   }
 
   const diffInDays = Math.round(diffInHours / 24);
   const absDays = Math.abs(diffInDays);
 
   if (absDays < 30) {
-    return formatter.format(diffInDays, "day");
+    return RELATIVE_TIME_FORMATTER.format(diffInDays, "day");
   }
 
   return toDateLabel(authorTime);
@@ -162,7 +170,7 @@ export function DiffWorkspaceBlameSurface({
     revealLineInCenter?: (line: number) => void;
   } | null>(null);
   const normalizedLines = useMemo(
-    () => [...lines].sort((left, right) => left.lineNumber - right.lineNumber),
+    () => lines.toSorted((left, right) => left.lineNumber - right.lineNumber),
     [lines]
   );
   const previewText = useMemo(

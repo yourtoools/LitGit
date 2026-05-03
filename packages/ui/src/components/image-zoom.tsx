@@ -322,11 +322,6 @@ function ImageZoom({
     };
   }, [clearExternalUpdateTimeout, resetPointerState]);
 
-  const cursor = resolveImageZoomCursor({
-    isDragging,
-    isModifierHeld,
-  });
-
   return (
     <TransformWrapper
       centerOnInit
@@ -351,7 +346,9 @@ function ImageZoom({
           onClick: handleClick,
           onMouseDown: handleMouseDown,
         }}
-        wrapperStyle={{ cursor }}
+        wrapperStyle={{
+          cursor: resolveImageZoomCursor({ isDragging, isModifierHeld }),
+        }}
       >
         {/* biome-ignore lint/correctness/useImageSize: This generic zoom wrapper does not know image dimensions up front. */}
         <img

@@ -17,74 +17,74 @@ const Antigravity = ({ title = "Antigravity", ...props }: AntigravityProps) => (
       y="0"
     >
       <path
-        d="M14.0777 13.984C14.945 14.6345 16.2458 14.2008 15.0533 13.0084C11.476 9.53949 12.2349 0 7.79033 0C3.34579 0 4.10461 9.53949 0.527295 13.0084C-0.773543 14.3092 0.635692 14.6345 1.50293 13.984C4.86344 11.7076 4.64663 7.69664 7.79033 7.69664C10.934 7.69664 10.7172 11.7076 14.0777 13.984Z"
+        d="M14.08 13.98C14.95 14.63 16.25 14.2 15.05 13.01C11.48 9.54 12.23 0 7.79 0C3.35 0 4.1 9.54 0.53 13.01C-0.77 14.31 0.64 14.63 1.5 13.98C4.86 11.71 4.65 7.7 7.79 7.7C10.93 7.7 10.72 11.71 14.08 13.98Z"
         fill="black"
       />
     </mask>
     <g mask="url(#mask0_111_52)">
       <g filter="url(#filter0_f_111_52)">
         <path
-          d="M-0.658907 -3.2306C-0.922679 -0.906781 1.07986 1.22861 3.81388 1.53894C6.54791 1.84927 8.97811 0.217009 9.24188 -2.10681C9.50565 -4.43063 7.50312 -6.56602 4.76909 -6.87635C2.03506 -7.18667 -0.395135 -5.55442 -0.658907 -3.2306Z"
+          d="M-0.66 -3.23C-0.92 -0.91 1.08 1.23 3.81 1.54C6.55 1.85 8.98 0.22 9.24 -2.11C9.51 -4.43 7.5 -6.57 4.77 -6.88C2.04 -7.19 -0.4 -5.55 -0.66 -3.23Z"
           fill="#FFE432"
         />
       </g>
       <g filter="url(#filter1_f_111_52)">
         <path
-          d="M9.88233 4.36642C10.5673 7.31568 13.566 9.13902 16.5801 8.43896C19.5942 7.73891 21.4823 4.78056 20.7973 1.83131C20.1123 -1.11795 17.1136 -2.94128 14.0995 -2.24123C11.0854 -1.54118 9.19733 1.41717 9.88233 4.36642Z"
+          d="M9.88 4.37C10.57 7.32 13.57 9.14 16.58 8.44C19.59 7.74 21.48 4.78 20.8 1.83C20.11 -1.12 17.11 -2.94 14.1 -2.24C11.09 -1.54 9.2 1.42 9.88 4.37Z"
           fill="#FC413D"
         />
       </g>
       <g filter="url(#filter2_f_111_52)">
         <path
-          d="M-8.05291 6.34512C-7.18736 9.38883 -3.28925 10.9473 0.653774 9.82598C4.5968 8.7047 7.09158 5.32829 6.22603 2.28458C5.36048 -0.759142 1.46236 -2.31758 -2.48066 -1.19629C-6.42368 -0.0750048 -8.91846 3.3014 -8.05291 6.34512Z"
+          d="M-8.05 6.35C-7.19 9.39 -3.29 10.95 0.65 9.83C4.6 8.7 7.09 5.33 6.23 2.28C5.36 -0.76 1.46 -2.32 -2.48 -1.2C-6.42 -0.08 -8.92 3.3 -8.05 6.35Z"
           fill="#00B95C"
         />
       </g>
       <g filter="url(#filter3_f_111_52)">
         <path
-          d="M-8.05291 6.34512C-7.18736 9.38883 -3.28925 10.9473 0.653774 9.82598C4.5968 8.7047 7.09158 5.32829 6.22603 2.28458C5.36048 -0.759142 1.46236 -2.31758 -2.48066 -1.19629C-6.42368 -0.0750048 -8.91846 3.3014 -8.05291 6.34512Z"
+          d="M-8.05 6.35C-7.19 9.39 -3.29 10.95 0.65 9.83C4.6 8.7 7.09 5.33 6.23 2.28C5.36 -0.76 1.46 -2.32 -2.48 -1.2C-6.42 -0.08 -8.92 3.3 -8.05 6.35Z"
           fill="#00B95C"
         />
       </g>
       <g filter="url(#filter4_f_111_52)">
         <path
-          d="M-4.92402 8.86746C-2.75421 11.0837 0.982691 10.9438 3.42257 8.55507C5.86246 6.1663 6.08139 2.43321 3.91158 0.216963C1.74177 -1.99928 -1.99513 -1.85942 -4.43501 0.529349C-6.87489 2.91812 -7.09383 6.65122 -4.92402 8.86746Z"
+          d="M-4.92 8.87C-2.75 11.08 0.98 10.94 3.42 8.56C5.86 6.17 6.08 2.43 3.91 0.22C1.74 -2 -2 -1.86 -4.44 0.53C-6.87 2.92 -7.09 6.65 -4.92 8.87Z"
           fill="#00B95C"
         />
       </g>
       <g filter="url(#filter5_f_111_52)">
         <path
-          d="M6.42819 17.2263C7.10197 20.1273 9.91278 21.953 12.7063 21.3042C15.4998 20.6553 17.2182 17.7777 16.5444 14.8767C15.8707 11.9757 13.0599 10.15 10.2663 10.7988C7.47281 11.4477 5.75441 14.3253 6.42819 17.2263Z"
+          d="M6.43 17.23C7.1 20.13 9.91 21.95 12.71 21.3C15.5 20.66 17.22 17.78 16.54 14.88C15.87 11.98 13.06 10.15 10.27 10.8C7.47 11.45 5.75 14.33 6.43 17.23Z"
           fill="#3186FF"
         />
       </g>
       <g filter="url(#filter6_f_111_52)">
         <path
-          d="M1.66508 -5.94539C0.254213 -2.80254 1.7978 0.951609 5.11277 2.43973C8.42774 3.92785 12.2588 2.58642 13.6696 -0.556431C15.0805 -3.69928 13.5369 -7.45343 10.222 -8.94155C6.90699 -10.4297 3.07594 -9.08824 1.66508 -5.94539Z"
+          d="M1.67 -5.95C0.25 -2.8 1.8 0.95 5.11 2.44C8.43 3.93 12.26 2.59 13.67 -0.56C15.08 -3.7 13.54 -7.45 10.22 -8.94C6.91 -10.43 3.08 -9.09 1.67 -5.95Z"
           fill="#FBBC04"
         />
       </g>
       <g filter="url(#filter7_f_111_52)">
         <path
-          d="M-2.11428 24.3903C-5.52984 23.0496 0.307266 12.0177 1.75874 8.32038C3.21024 4.62304 7.15576 2.71272 10.5713 4.05357C13.9869 5.39442 18.0354 12.7796 16.5838 16.477C15.1323 20.1743 1.30129 25.7311 -2.11428 24.3903Z"
+          d="M-2.11 24.39C-5.53 23.05 0.31 12.02 1.76 8.32C3.21 4.62 7.16 2.71 10.57 4.05C13.99 5.39 18.04 12.78 16.58 16.48C15.13 20.17 1.3 25.73 -2.11 24.39Z"
           fill="#3186FF"
         />
       </g>
       <g filter="url(#filter8_f_111_52)">
         <path
-          d="M18.5814 10.6598C17.6669 11.727 15.2806 11.1828 13.2514 9.44417C11.2222 7.70556 10.3185 5.43097 11.2329 4.3637C12.1473 3.29646 14.5336 3.84069 16.5628 5.57928C18.592 7.31789 19.4958 9.59249 18.5814 10.6598Z"
+          d="M18.58 10.66C17.67 11.73 15.28 11.18 13.25 9.44C11.22 7.71 10.32 5.43 11.23 4.36C12.15 3.3 14.53 3.84 16.56 5.58C18.59 7.32 19.5 9.59 18.58 10.66Z"
           fill="#749BFF"
         />
       </g>
       <g filter="url(#filter9_f_111_52)">
         <path
-          d="M11.7552 5.22715C15.5162 7.77124 19.8471 7.93838 21.4286 5.60045C23.0101 3.26253 21.2433 -0.695128 17.4823 -3.23922C13.7213 -5.78331 9.39044 -5.95044 7.80896 -3.61252C6.22747 -1.27459 7.99428 2.68306 11.7552 5.22715Z"
+          d="M11.76 5.23C15.52 7.77 19.85 7.94 21.43 5.6C23.01 3.26 21.24 -0.7 17.48 -3.24C13.72 -5.78 9.39 -5.95 7.81 -3.61C6.23 -1.27 7.99 2.68 11.76 5.23Z"
           fill="#FC413D"
         />
       </g>
       <g filter="url(#filter10_f_111_52)">
         <path
-          d="M-0.592149 1.08896C-1.5239 3.33663 -1.21959 5.59799 0.0875457 6.13985C1.39468 6.68171 3.20966 5.29888 4.14141 3.05121C5.07316 0.803541 4.76885 -1.45782 3.46171 -1.99968C2.15458 -2.54154 0.339602 -1.15871 -0.592149 1.08896Z"
+          d="M-0.59 1.09C-1.52 3.34 -1.22 5.6 0.09 6.14C1.39 6.68 3.21 5.3 4.14 3.05C5.07 0.8 4.77 -1.46 3.46 -2C2.15 -2.54 0.34 -1.16 -0.59 1.09Z"
           fill="#FFEE48"
         />
       </g>
@@ -93,17 +93,17 @@ const Antigravity = ({ title = "Antigravity", ...props }: AntigravityProps) => (
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="11.383"
+        height="11.38"
         id="filter0_f_111_52"
-        width="12.8393"
-        x="-2.12817"
-        y="-8.35998"
+        width="12.84"
+        x="-2.13"
+        y="-8.36"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="0.722959"
+          stdDeviation="0.72"
         />
       </filter>
       <filter
@@ -111,159 +111,159 @@ const Antigravity = ({ title = "Antigravity", ...props }: AntigravityProps) => (
         filterUnits="userSpaceOnUse"
         height="24.96"
         id="filter1_f_111_52"
-        width="25.1763"
-        x="2.75168"
-        y="-9.38089"
+        width="25.18"
+        x="2.75"
+        y="-9.38"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="3.49513"
+          stdDeviation="3.5"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="23.6338"
+        height="23.63"
         id="filter2_f_111_52"
-        width="26.5068"
-        x="-14.1669"
-        y="-7.50196"
+        width="26.51"
+        x="-14.17"
+        y="-7.5"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.97119"
+          stdDeviation="2.97"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="23.6338"
+        height="23.63"
         id="filter3_f_111_52"
-        width="26.5068"
-        x="-14.1669"
-        y="-7.50196"
+        width="26.51"
+        x="-14.17"
+        y="-7.5"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.97119"
+          stdDeviation="2.97"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="23.6846"
+        height="23.68"
         id="filter4_f_111_52"
-        width="23.709"
-        x="-12.3607"
-        y="-7.29981"
+        width="23.71"
+        x="-12.36"
+        y="-7.3"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.97119"
+          stdDeviation="2.97"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="22.0616"
+        height="22.06"
         id="filter5_f_111_52"
-        width="21.7027"
-        x="0.634962"
-        y="5.02095"
+        width="21.7"
+        x="0.63"
+        y="5.02"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.82351"
+          stdDeviation="2.82"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="22.8313"
+        height="22.83"
         id="filter6_f_111_52"
-        width="23.2857"
-        x="-3.97547"
-        y="-14.6666"
+        width="23.29"
+        x="-3.98"
+        y="-14.67"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.5589"
+          stdDeviation="2.56"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="30.1105"
+        height="30.11"
         id="filter7_f_111_52"
-        width="29.1982"
-        x="-7.7407"
-        y="-0.945408"
+        width="29.2"
+        x="-7.74"
+        y="-0.95"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.2852"
+          stdDeviation="2.29"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="15.5681"
+        height="15.57"
         id="filter8_f_111_52"
-        width="16.2415"
-        x="6.78641"
-        y="-0.27231"
+        width="16.24"
+        x="6.79"
+        y="-0.27"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.04485"
+          stdDeviation="2.04"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="19.4212"
+        height="19.42"
         id="filter9_f_111_52"
-        width="21.687"
-        x="3.77526"
-        y="-8.71693"
+        width="21.69"
+        x="3.78"
+        y="-8.72"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="1.72712"
+          stdDeviation="1.73"
         />
       </filter>
       <filter
         colorInterpolationFilters="sRGB"
         filterUnits="userSpaceOnUse"
-        height="16.9254"
+        height="16.93"
         id="filter10_f_111_52"
-        width="14.3639"
-        x="-5.40727"
-        y="-6.39238"
+        width="14.36"
+        x="-5.41"
+        y="-6.39"
       >
         <feFlood floodOpacity="0" result="BackgroundImageFix" />
         <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
         <feGaussianBlur
           result="effect1_foregroundBlur_111_52"
-          stdDeviation="2.1376"
+          stdDeviation="2.14"
         />
       </filter>
     </defs>

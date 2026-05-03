@@ -44,6 +44,13 @@ coverage/
 # Rust/Tauri build output - very important, this repo has a huge target dir
 apps/desktop/src-tauri/target/
 
+# Packaging build artifacts and generated AUR checkout
+packaging/aur/src/
+packaging/aur/pkg/
+packaging/aur/litgit-desktop-bin/
+packaging/aur/*.deb
+packaging/aur/*.pkg.tar.zst
+
 # Logs and temp files
 logs/
 *.log

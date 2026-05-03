@@ -1,5 +1,5 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   type MarkdownBlock,
   parseMarkdownBlocks,
@@ -248,6 +248,19 @@ function renderMarkdownBlock(block: MarkdownBlock): ReactNode {
   );
 }
 
+function MarkdownPreviewArticle({ blocks }: { blocks: MarkdownBlock[] }) {
+  const renderedBlocks = useMemo(
+    () => blocks.map(renderMarkdownBlock),
+    [blocks]
+  );
+
+  return (
+    <article className="diff-workspace-markdown-preview text-foreground [&>*:first-child]:mt-0">
+      {renderedBlocks}
+    </article>
+  );
+}
+
 export function DiffWorkspaceMarkdownPreviewSurface({
   markdown,
 }: DiffWorkspaceMarkdownPreviewSurfaceProps) {
@@ -312,13 +325,9 @@ export function DiffWorkspaceMarkdownPreviewSurface({
     };
   }, [normalized]);
 
-  const renderedBlocks = blocks.map(renderMarkdownBlock);
-
   return (
     <div className="h-full overflow-auto px-5 py-4">
-      <article className="diff-workspace-markdown-preview text-foreground [&>*:first-child]:mt-0">
-        {renderedBlocks}
-      </article>
+      <MarkdownPreviewArticle blocks={blocks} />
     </div>
   );
 }

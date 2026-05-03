@@ -656,12 +656,18 @@ export function HeaderTabsSearch() {
       type: "open",
     }));
 
-    const openRepoIds = new Set(
-      openItems
-        .filter((item) => item.repoId !== null)
-        .map((item) => item.repoId)
-    );
-    const hasOpenNewTab = openItems.some((item) => item.repoId === null);
+    const openRepoIds = new Set<string>();
+    let hasOpenNewTab = false;
+
+    for (const item of openItems) {
+      const { repoId } = item;
+
+      if (repoId === null) {
+        hasOpenNewTab = true;
+      } else {
+        openRepoIds.add(repoId);
+      }
+    }
 
     const closedItems: HeaderTabsSearchTabItem[] = [];
     let hasClosedNewTab = false;
@@ -674,29 +680,29 @@ export function HeaderTabsSearch() {
         continue;
       }
 
-      if (historyItem.tab.repoId === null) {
+      const { tab } = historyItem;
+      const { repoId } = tab;
+
+      if (repoId === null) {
         if (hasOpenNewTab || hasClosedNewTab) {
           continue;
         }
 
         hasClosedNewTab = true;
       } else {
-        if (
-          openRepoIds.has(historyItem.tab.repoId) ||
-          seenClosedRepoIds.has(historyItem.tab.repoId)
-        ) {
+        if (openRepoIds.has(repoId) || seenClosedRepoIds.has(repoId)) {
           continue;
         }
 
-        seenClosedRepoIds.add(historyItem.tab.repoId);
+        seenClosedRepoIds.add(repoId);
       }
 
       closedItems.push({
-        groupId: historyItem.tab.groupId,
-        id: `closed-${historyItem.tab.id}-${i}`,
-        repoId: historyItem.tab.repoId,
-        tabId: historyItem.tab.id,
-        title: historyItem.tab.title,
+        groupId: tab.groupId,
+        id: `closed-${tab.id}-${i}`,
+        repoId,
+        tabId: tab.id,
+        title: tab.title,
         type: "closed",
       });
     }

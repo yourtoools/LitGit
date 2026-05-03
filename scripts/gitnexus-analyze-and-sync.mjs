@@ -36,9 +36,18 @@ export function replaceGitNexusBlock(content, replacementBlock, filePath) {
 }
 
 function runGitNexusAnalyze() {
-  const result = spawnSync("gitnexus", ["analyze", "--force"], {
-    stdio: "inherit",
-  });
+  const result = spawnSync(
+    "gitnexus",
+    ["analyze", "--force", "--skip-agents-md"],
+    {
+      env: {
+        ...process.env,
+        GITNEXUS_WORKER_TIMEOUT_MS:
+          process.env.GITNEXUS_WORKER_TIMEOUT_MS ?? "300000",
+      },
+      stdio: "inherit",
+    }
+  );
 
   if (result.error) {
     throw result.error;

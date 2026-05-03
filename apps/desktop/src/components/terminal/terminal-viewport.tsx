@@ -73,9 +73,11 @@ const resolveOkLchToRgb = (oklchValue: string): string => {
   }
 
   const probe = document.createElement("span");
-  probe.style.color = oklchValue;
-  probe.style.position = "absolute";
-  probe.style.visibility = "hidden";
+  probe.style.cssText = `
+    color: ${oklchValue};
+    position: absolute;
+    visibility: hidden;
+  `;
   document.body.appendChild(probe);
 
   const resolved = window.getComputedStyle(probe).color;

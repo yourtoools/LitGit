@@ -36,10 +36,6 @@ interface DiffWorkspaceToolbarProps {
   editLabel: string;
   encoding: string;
   encodingOptions: DiffWorkspaceEncodingOption[];
-  isCompactImageToolbar: boolean;
-  isIgnoreTrimWhitespace: boolean;
-  isMarkdownFileView: boolean;
-  isStageActionDisabled: boolean;
   markdownFilePresentation: DiffWorkspaceFilePresentationMode;
   mode: DiffWorkspaceMode;
   onClose: () => void;
@@ -58,6 +54,12 @@ interface DiffWorkspaceToolbarProps {
   presentation: DiffWorkspacePresentationMode;
   stageActionLabel: string | null;
   stageBadgeLabel: string | null;
+  state: {
+    compactImageToolbar: boolean;
+    ignoreTrimWhitespace: boolean;
+    markdownFileView: boolean;
+    stageActionDisabled: boolean;
+  };
 }
 
 const PRIMARY_MODE_OPTIONS: Array<{
@@ -128,10 +130,6 @@ export function DiffWorkspaceToolbar({
   editLabel,
   encoding,
   encodingOptions,
-  isCompactImageToolbar,
-  isIgnoreTrimWhitespace,
-  isMarkdownFileView,
-  isStageActionDisabled,
   markdownFilePresentation,
   mode,
   onClose,
@@ -146,17 +144,24 @@ export function DiffWorkspaceToolbar({
   onStageAction,
   onToggleWhitespace,
   presentation,
+  state,
   stageActionLabel,
   stageBadgeLabel,
 }: DiffWorkspaceToolbarProps) {
+  const {
+    compactImageToolbar,
+    ignoreTrimWhitespace,
+    markdownFileView,
+    stageActionDisabled,
+  } = state;
   const isAttributionMode = mode === "history" || mode === "blame";
   const primaryModeOptions = useMemo(() => {
-    if (!isMarkdownFileView) {
+    if (!markdownFileView) {
       return PRIMARY_MODE_OPTIONS;
     }
 
     return PRIMARY_MODE_OPTIONS.filter((option) => option.mode === "file");
-  }, [isMarkdownFileView]);
+  }, [markdownFileView]);
   const groupedEncodingOptions = useMemo(
     () => groupEncodingOptions(encodingOptions),
     [encodingOptions]
@@ -183,7 +188,7 @@ export function DiffWorkspaceToolbar({
     [groupedEncodingOptions]
   );
 
-  if (isCompactImageToolbar) {
+  if (compactImageToolbar) {
     return (
       <div className="flex flex-wrap items-center gap-2 border-border/70 border-b px-3 py-2">
         <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
@@ -193,7 +198,7 @@ export function DiffWorkspaceToolbar({
         {stageActionLabel ? (
           <Button
             className="focus-visible:desktop-focus h-7 px-2 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
-            disabled={isStageActionDisabled}
+            disabled={stageActionDisabled}
             onClick={onStageAction}
             size="sm"
             type="button"
@@ -246,7 +251,7 @@ export function DiffWorkspaceToolbar({
         {stageActionLabel ? (
           <Button
             className="focus-visible:desktop-focus h-7 px-2 text-xs focus-visible:ring-0! focus-visible:ring-offset-0!"
-            disabled={isStageActionDisabled}
+            disabled={stageActionDisabled}
             onClick={onStageAction}
             size="sm"
             type="button"
@@ -310,7 +315,7 @@ export function DiffWorkspaceToolbar({
             ))}
           </div>
 
-          {isMarkdownFileView ? (
+          {markdownFileView ? (
             <div className={BUTTON_GROUP_CLASS}>
               {MARKDOWN_FILE_PRESENTATION_OPTIONS.map((option) => (
                 <Button
@@ -408,7 +413,7 @@ export function DiffWorkspaceToolbar({
               size="sm"
               title="Ignore leading/trailing whitespace"
               type="button"
-              variant={isIgnoreTrimWhitespace ? "secondary" : "ghost"}
+              variant={ignoreTrimWhitespace ? "secondary" : "ghost"}
             >
               <ParagraphIcon className="size-3" />
             </Button>

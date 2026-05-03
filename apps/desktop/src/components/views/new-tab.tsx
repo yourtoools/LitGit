@@ -281,6 +281,9 @@ export function NewTabContent() {
     );
   }, [updateShowRecentTopFade, updateShowRecentBottomFade]);
 
+  const updateRecentListFadesRef = useRef(updateRecentListFades);
+  updateRecentListFadesRef.current = updateRecentListFades;
+
   const wasRefreshingOpenedReposRef = useRef(isRefreshingOpenedRepos);
 
   useEffect(() => {
@@ -305,14 +308,14 @@ export function NewTabContent() {
       return;
     }
 
-    updateRecentListFades();
+    const handleRecentListUpdate = () => {
+      updateRecentListFadesRef.current();
+    };
 
-    const resizeObserver = new ResizeObserver(() => {
-      updateRecentListFades();
-    });
-    const mutationObserver = new MutationObserver(() => {
-      updateRecentListFades();
-    });
+    handleRecentListUpdate();
+
+    const resizeObserver = new ResizeObserver(handleRecentListUpdate);
+    const mutationObserver = new MutationObserver(handleRecentListUpdate);
 
     resizeObserver.observe(recentList);
     mutationObserver.observe(recentList, {
@@ -320,16 +323,16 @@ export function NewTabContent() {
       subtree: true,
       characterData: true,
     });
-    recentList.addEventListener("scroll", updateRecentListFades, {
+    recentList.addEventListener("scroll", handleRecentListUpdate, {
       passive: true,
     });
 
     return () => {
       resizeObserver.disconnect();
       mutationObserver.disconnect();
-      recentList.removeEventListener("scroll", updateRecentListFades);
+      recentList.removeEventListener("scroll", handleRecentListUpdate);
     };
-  }, [updateRecentListFades]);
+  }, []);
 
   useWindowEvent("keydown", (event) => {
     if (event.repeat || pendingRepoInitialization) {

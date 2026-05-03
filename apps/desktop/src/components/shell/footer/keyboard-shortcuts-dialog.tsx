@@ -233,11 +233,21 @@ export function KeyboardShortcutsDialog() {
     });
   }, [shortcutQuery, shortcuts]);
 
-  const shortcutGroups = useMemo(
-    () =>
-      Array.from(new Set(visibleShortcuts.map((shortcut) => shortcut.group))),
-    [visibleShortcuts]
-  );
+  const shortcutsByGroup = useMemo(() => {
+    const groups = new Map<string, ShortcutEntry[]>();
+
+    for (const shortcut of visibleShortcuts) {
+      const groupShortcuts = groups.get(shortcut.group);
+
+      if (groupShortcuts) {
+        groupShortcuts.push(shortcut);
+      } else {
+        groups.set(shortcut.group, [shortcut]);
+      }
+    }
+
+    return Array.from(groups);
+  }, [visibleShortcuts]);
 
   useWindowEvent("keydown", (event) => {
     if (event.repeat) {
@@ -330,7 +340,7 @@ export function KeyboardShortcutsDialog() {
           </div>
 
           <div className="max-h-96 overflow-y-auto px-4 py-3 [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
-            {shortcutGroups.length === 0 ? (
+            {shortcutsByGroup.length === 0 ? (
               <div className="py-8 text-left">
                 <p className="font-medium text-foreground text-xs">
                   No shortcuts found
@@ -340,30 +350,28 @@ export function KeyboardShortcutsDialog() {
                 </p>
               </div>
             ) : (
-              shortcutGroups.map((group) => (
+              shortcutsByGroup.map(([group, groupShortcuts]) => (
                 <section className="mb-6 last:mb-0" key={group}>
                   <div className="mb-2 px-3 font-semibold text-foreground text-xs">
                     {group}
                   </div>
                   <div className="flex flex-col gap-0.5">
-                    {visibleShortcuts
-                      .filter((shortcut) => shortcut.group === group)
-                      .map((shortcut) => (
-                        <div
-                          className="group flex flex-col gap-1.5 px-3 py-2.5 hover:bg-muted/50"
-                          key={shortcut.id}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-foreground text-xs">
-                              {shortcut.label}
-                            </span>
-                            <ShortcutKeys keys={shortcut.keys} />
-                          </div>
-                          <p className="text-muted-foreground text-xs leading-relaxed">
-                            {shortcut.description}
-                          </p>
+                    {groupShortcuts.map((shortcut) => (
+                      <div
+                        className="group flex flex-col gap-1.5 px-3 py-2.5 hover:bg-muted/50"
+                        key={shortcut.id}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium text-foreground text-xs">
+                            {shortcut.label}
+                          </span>
+                          <ShortcutKeys keys={shortcut.keys} />
                         </div>
-                      ))}
+                        <p className="text-muted-foreground text-xs leading-relaxed">
+                          {shortcut.description}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </section>
               ))

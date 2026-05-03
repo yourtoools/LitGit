@@ -20,7 +20,7 @@ import {
   ShieldCheckIcon,
   TerminalWindowIcon,
 } from "@phosphor-icons/react";
-import { useMemo, useState } from "react";
+import { useMemo, useReducer } from "react";
 import { toast } from "sonner";
 import { ensureSelectedOption } from "@/components/views/settings/settings-font-picker";
 import {
@@ -70,7 +70,10 @@ function UiSection({ query }: { query: string }) {
   );
   const dateFormat = usePreferencesStore((state) => state.ui.dateFormat);
   const setDateFormat = usePreferencesStore((state) => state.setDateFormat);
-  const [localeQuery, setLocaleQuery] = useState("");
+  const [localeQuery, setLocaleQuery] = useReducer(
+    (_previous: string, next: string) => next,
+    ""
+  );
   const localeOptions = getLocaleOptions();
   const selectedLocaleOption = getLocaleOption(locale) ?? localeOptions[0];
   const debouncedLocaleQuery = useDebouncedValue(
@@ -101,17 +104,17 @@ function UiSection({ query }: { query: string }) {
     selectedLocaleOption.code.trim().length === 0
       ? undefined
       : selectedLocaleOption.code;
-  const formatDatePreview = (formatPreset: "compact" | "verbose"): string => {
-    const formatOptions: Intl.DateTimeFormatOptions = {
-      dateStyle: formatPreset === "verbose" ? "full" : "medium",
-      timeStyle: formatPreset === "verbose" ? "medium" : "short",
-    };
-
-    return new Intl.DateTimeFormat(effectiveLocale, formatOptions).format(
-      PREVIEW_SAMPLE_DATE
-    );
-  };
-  const selectedDatePreview = formatDatePreview(dateFormat);
+  const formatOptions = useMemo<Intl.DateTimeFormatOptions>(
+    () => ({
+      dateStyle: dateFormat === "verbose" ? "full" : "medium",
+      timeStyle: dateFormat === "verbose" ? "medium" : "short",
+    }),
+    [dateFormat]
+  );
+  const selectedDatePreview = useMemo(
+    () => PREVIEW_SAMPLE_DATE.toLocaleString(effectiveLocale, formatOptions),
+    [effectiveLocale, formatOptions]
+  );
   const localeInputValue =
     localeQuery.length > 0 ? localeQuery : selectedLocaleOption.displayName;
 

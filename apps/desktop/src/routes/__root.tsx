@@ -7,7 +7,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useReducer } from "react";
 import { GlobalGitAuthDialog } from "@/components/auth/global-git-auth-dialog";
 import { RootShell } from "@/components/layout/root-shell";
 import { ThemeProvider } from "@/components/providers/theme-provider";
@@ -106,7 +106,8 @@ function RootPreferenceEffects() {
   const { activeRepo, activeRepoId } = useRootActiveRepoContext();
   const { resolvedTheme, setTheme } = useTheme();
   const toggleTerminal = useTerminalPanelStore((state) => state.toggle);
-  const [isGitIdentityReady, setIsGitIdentityReady] = useState<boolean | null>(
+  const [isGitIdentityReady, setIsGitIdentityReady] = useReducer(
+    (_previous: boolean | null, next: boolean | null) => next,
     null
   );
 
