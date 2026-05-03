@@ -1,4 +1,4 @@
-import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import type { GitTimelineRow } from "@/lib/git-graph/git-graph-layout";
 import type { RepositoryCommit } from "@/stores/repo/repo-store-types";
 
 export interface GitGraphEdgeSegment {

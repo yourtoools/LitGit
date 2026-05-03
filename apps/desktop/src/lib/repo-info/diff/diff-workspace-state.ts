@@ -3,7 +3,7 @@ import type {
   DiffWorkspacePresentationMode,
   DiffWorkspaceToolbarControlState,
   DiffWorkspaceViewerKind,
-} from "@/components/views/repo-info/diff-workspace-types";
+} from "@/lib/repo-info/diff/diff-workspace-types";
 
 export function resolvePresentationForViewerKind(
   requestedPresentation: DiffWorkspacePresentationMode,

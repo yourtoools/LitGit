@@ -1,4 +1,4 @@
-import type { Tab, TabGroup } from "@/components/tabs/types/tab-types";
+import type { Tab, TabGroup } from "@/stores/tabs/tab-types";
 
 export type RenderItem =
   | { type: "tab"; tab: Tab }

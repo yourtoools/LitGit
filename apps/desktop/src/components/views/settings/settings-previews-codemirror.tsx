@@ -12,7 +12,7 @@ import { CodeEditor } from "@/components/code-editor/code-editor";
 import {
   DefaultSelectValue,
   SectionActionRow,
-} from "@/components/views/settings/settings-shared-ui";
+} from "@/components/views/settings/settings-section-ui";
 import type {
   EditorPreferences,
   TerminalPreferences,

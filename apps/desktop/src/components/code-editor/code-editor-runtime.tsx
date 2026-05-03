@@ -12,21 +12,21 @@ import type {
   DiffModeProps,
   EditModeProps,
   ViewModeProps,
-} from "@/components/code-editor/code-editor-types";
+} from "@/lib/code-editor/code-editor-types";
 import {
   isDiffMode,
   isEditMode,
   isViewMode,
-} from "@/components/code-editor/code-editor-types";
-import { blameGutterExtension } from "@/components/code-editor/extensions/blame-gutter";
+} from "@/lib/code-editor/code-editor-types";
+import { blameGutterExtension } from "@/lib/code-editor/extensions/blame-gutter";
 import {
   createEditKeymap,
   createReadOnlyKeymap,
-} from "@/components/code-editor/extensions/keymaps";
-import { createLanguageSupport } from "@/components/code-editor/extensions/language-support";
-import { createThemeExtension } from "@/components/code-editor/extensions/theme-extension";
-import { createTrailingWhitespaceExtension } from "@/components/code-editor/extensions/whitespace-rendering";
-import { resolveEditorBehavior } from "@/components/code-editor/utils/editor-config";
+} from "@/lib/code-editor/extensions/keymaps";
+import { createLanguageSupport } from "@/lib/code-editor/extensions/language-support";
+import { createThemeExtension } from "@/lib/code-editor/extensions/theme-extension";
+import { createTrailingWhitespaceExtension } from "@/lib/code-editor/extensions/whitespace-rendering";
+import { resolveEditorBehavior } from "@/lib/code-editor/utils/editor-config";
 
 type Compartment = import("@codemirror/state").Compartment;
 type EditorView = import("@codemirror/view").EditorView;

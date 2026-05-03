@@ -21,12 +21,12 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo } from "react";
 import { ProviderOAuthTokenDialog } from "@/components/auth/provider-oauth-token-dialog";
+import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   resolveDefaultPublishProvider,
   resolveDefaultPublishTarget,
   resolvePublishRepositoryNameError,
-} from "@/components/views/repo-info/publish-repository-dialog.helpers";
-import { useReducerState } from "@/hooks/use-reducer-state";
+} from "@/lib/repo-info/publishing/publish-repository-dialog-helpers";
 import type { Provider, ProviderStatus } from "@/lib/tauri-integrations-client";
 import {
   completeOAuthFlow,

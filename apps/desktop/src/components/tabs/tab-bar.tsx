@@ -1,20 +1,20 @@
 import { useCallback, useMemo } from "react";
-import { fromGroupSortableId } from "@/components/tabs/lib/tab-bar-utils";
-import { useTabBarDnd } from "@/components/tabs/tab-bar-dnd";
 import {
   GroupDragOverlay,
   TabDragOverlay,
 } from "@/components/tabs/tab-bar-overlays";
 import { TabBarRender } from "@/components/tabs/tab-bar-render";
-import { useTabBarScroll } from "@/components/tabs/tab-bar-scroll";
-import {
-  createTabListKeyDownHandler,
-  useTabBarShortcuts,
-} from "@/components/tabs/tab-bar-shortcuts";
-import { useTabBarStoreState } from "@/components/tabs/tab-bar-store";
 import { useTabBarDerived } from "@/hooks/tabs/use-tab-bar-derived";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import { useUngroupConfirmation } from "@/hooks/tabs/use-ungroup-confirmation";
+import {
+  createTabListKeyDownHandler,
+  useTabBarShortcuts,
+} from "@/lib/tabs/tab-bar-shortcuts";
+import { fromGroupSortableId } from "@/lib/tabs/tab-bar-utils";
+import { useTabBarDnd } from "@/lib/tabs/use-tab-bar-dnd";
+import { useTabBarScroll } from "@/lib/tabs/use-tab-bar-scroll";
+import { useTabBarStoreState } from "@/lib/tabs/use-tab-bar-store-state";
 
 export function TabBar() {
   const { tabs, groups, emptyGroupPromptId, activeLoadingTabSignals, actions } =

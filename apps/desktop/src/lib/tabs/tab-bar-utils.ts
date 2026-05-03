@@ -1,5 +1,5 @@
-import type { RenderItem } from "@/components/tabs/types/tab-bar-types";
-import type { Tab, TabGroup } from "@/components/tabs/types/tab-types";
+import type { RenderItem } from "@/lib/tabs/tab-bar-types";
+import type { Tab, TabGroup } from "@/stores/tabs/tab-types";
 
 const GROUP_SORTABLE_PREFIX = "group:";
 const GROUP_DROP_PREFIX = "group-drop:";

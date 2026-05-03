@@ -2,12 +2,12 @@ import {
   countVisibleChangeTreeNodes,
   countVisibleCommitTreeNodes,
   countVisibleSidebarBranchTreeNodes,
-} from "@/components/views/repo-info-progressive-render";
-import type { SidebarGroupItem } from "@/components/views/repo-info-sidebar-model";
+} from "@/lib/repo-info/repo-info-progressive-render";
+import type { SidebarGroupItem } from "@/lib/repo-info/repo-info-sidebar-model";
 import type {
   ChangeTreeNode,
   CommitFileTreeNode,
-} from "@/components/views/repo-info-tree-utils";
+} from "@/lib/repo-info/repo-info-tree-utils";
 
 export interface BuildRepoInfoVisibleCountsModelInput {
   allFilesTree: ChangeTreeNode[];

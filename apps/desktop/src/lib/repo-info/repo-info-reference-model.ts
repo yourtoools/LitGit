@@ -1,9 +1,9 @@
-import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import type { GitTimelineRow } from "@/lib/git-graph/git-graph-layout";
 import {
   formatStashLabel,
   normalizeCommitRefLabel,
-} from "@/components/views/repo-info-reference-labels";
-import type { SidebarEntry } from "@/components/views/repo-info-sidebar-model";
+} from "@/lib/repo-info/repo-info-reference-labels";
+import type { SidebarEntry } from "@/lib/repo-info/repo-info-sidebar-model";
 import type {
   RepositoryBranch,
   RepositoryCommit,

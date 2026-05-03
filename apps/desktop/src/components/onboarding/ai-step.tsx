@@ -15,10 +15,6 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect } from "react";
-import {
-  AI_ENDPOINT_PLACEHOLDERS,
-  AI_PROVIDER_OPTIONS,
-} from "@/components/views/settings/settings-store";
 import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clearAiProviderSecret,
@@ -27,6 +23,10 @@ import {
   saveAiProviderSecret,
 } from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
+  AI_ENDPOINT_PLACEHOLDERS,
+  AI_PROVIDER_OPTIONS,
+} from "@/stores/ui/settings-options";
 
 interface AiStepProps {
   apiKey: string;

@@ -13,11 +13,11 @@ import {
 import { cn } from "@litgit/ui/lib/utils";
 import { ArrowLeftIcon, XIcon } from "@phosphor-icons/react";
 import type React from "react";
-import type { SettingsSectionDefinition } from "@/components/views/settings/settings-store";
 import {
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,
 } from "@/stores/preferences/preferences-store-types";
+import type { SettingsSectionDefinition } from "@/stores/ui/settings-options";
 
 interface SettingsLayoutProps {
   activeDefinition: SettingsSectionDefinition;

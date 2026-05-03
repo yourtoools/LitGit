@@ -1,14 +1,11 @@
 import { useCallback, useMemo } from "react";
+import type { GroupTabStats, RenderItem } from "@/lib/tabs/tab-bar-types";
 import {
   getRenderItems,
   toGroupDropId,
   toGroupSortableId,
-} from "@/components/tabs/lib/tab-bar-utils";
-import type {
-  GroupTabStats,
-  RenderItem,
-} from "@/components/tabs/types/tab-bar-types";
-import type { Tab, TabGroup } from "@/components/tabs/types/tab-types";
+} from "@/lib/tabs/tab-bar-utils";
+import type { Tab, TabGroup } from "@/stores/tabs/tab-types";
 
 interface UseTabBarDerivedParams {
   groups: TabGroup[];

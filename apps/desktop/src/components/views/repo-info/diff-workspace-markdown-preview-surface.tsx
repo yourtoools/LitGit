@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   type MarkdownBlock,
   parseMarkdownBlocks,
-} from "@/components/views/repo-info/diff-workspace-markdown-preview-parser";
+} from "@/lib/diff/diff-workspace-markdown-preview-parser";
 import { createWorkerClient } from "@/lib/workers/create-worker-client";
 import { runWorkerTask } from "@/lib/workers/run-worker-task";
 

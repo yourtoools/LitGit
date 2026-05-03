@@ -3,8 +3,8 @@ import type {
   PendingUngroupTab,
   PendingUngroupTabDetails,
   UngroupConfirmDialogContent,
-} from "@/components/tabs/types/tab-bar-types";
-import type { Tab, TabGroup } from "@/components/tabs/types/tab-types";
+} from "@/lib/tabs/tab-bar-types";
+import type { Tab, TabGroup } from "@/stores/tabs/tab-types";
 
 interface UseUngroupConfirmationParams {
   closeTab: (tabId: string) => void;

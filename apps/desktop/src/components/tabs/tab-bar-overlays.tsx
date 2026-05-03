@@ -1,6 +1,6 @@
-import { MAX_DRAG_PREVIEW_TABS } from "@/components/tabs/lib/constants";
 import { TabItem } from "@/components/tabs/tab-item";
-import type { Tab, TabGroup } from "@/components/tabs/types/tab-types";
+import { MAX_DRAG_PREVIEW_TABS } from "@/lib/tabs/tab-constants";
+import type { Tab, TabGroup } from "@/stores/tabs/tab-types";
 
 interface GroupDragOverlayProps {
   group: TabGroup;

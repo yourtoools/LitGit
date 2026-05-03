@@ -1,8 +1,8 @@
-import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import type { GitTimelineRow } from "@/lib/git-graph/git-graph-layout";
 import {
   formatStashLabel,
   resolveTagNameFromCommitRef,
-} from "@/components/views/repo-info-reference-labels";
+} from "@/lib/repo-info/repo-info-reference-labels";
 import type {
   RepositoryCommit,
   RepositoryStash,

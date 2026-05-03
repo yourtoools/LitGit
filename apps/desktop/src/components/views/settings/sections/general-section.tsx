@@ -3,7 +3,7 @@ import { Switch } from "@litgit/ui/components/switch";
 import {
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
+} from "@/components/views/settings/settings-section-ui";
 import { AUTO_FETCH_INTERVAL_LIMITS } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import { countUniqueRemoteNames } from "@/stores/repo/repo-store.helpers";

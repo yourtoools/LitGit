@@ -35,7 +35,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
+import { GitIdentityDialog } from "@/components/dialogs/git-identity-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import {
   COMBOBOX_DEBOUNCE_DELAY_MS,

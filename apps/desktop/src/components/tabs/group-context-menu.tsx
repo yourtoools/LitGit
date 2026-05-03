@@ -18,7 +18,7 @@ import {
 import { cn } from "@litgit/ui/lib/utils";
 import { ExportIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { GROUP_COLORS } from "@/components/tabs/lib/constants";
+import { GROUP_COLORS } from "@/lib/tabs/tab-constants";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 
 interface GroupContextMenuProps {

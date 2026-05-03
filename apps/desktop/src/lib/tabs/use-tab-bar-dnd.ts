@@ -13,6 +13,8 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { type RefObject, useState } from "react";
+import { useGroupHoverIntent } from "@/hooks/tabs/use-group-hover-intent";
+import type { PendingUngroupTab, RenderItem } from "@/lib/tabs/tab-bar-types";
 import {
   clamp,
   fromGroupDropId,
@@ -20,13 +22,8 @@ import {
   getDragId,
   isTabUngrouped,
   toGroupSortableId,
-} from "@/components/tabs/lib/tab-bar-utils";
-import type {
-  PendingUngroupTab,
-  RenderItem,
-} from "@/components/tabs/types/tab-bar-types";
-import type { Tab } from "@/components/tabs/types/tab-types";
-import { useGroupHoverIntent } from "@/hooks/tabs/use-group-hover-intent";
+} from "@/lib/tabs/tab-bar-utils";
+import type { Tab } from "@/stores/tabs/tab-types";
 
 type CollisionArgs = Parameters<CollisionDetection>[0];
 

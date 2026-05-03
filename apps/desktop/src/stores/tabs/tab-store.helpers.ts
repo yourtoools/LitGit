@@ -3,12 +3,12 @@ import {
   DEFAULT_TAB_TITLE,
   getNextGroupColor,
   MAX_CLOSED_TAB_HISTORY,
-} from "@/components/tabs/lib/constants";
+} from "@/lib/tabs/tab-constants";
 import type {
   ClosedTabEntry,
   Tab,
   TabStoreState,
-} from "@/components/tabs/types/tab-types";
+} from "@/stores/tabs/tab-types";
 
 export const TAB_STORE_KEY = "litgit-tab-store";
 const REPO_STORE_KEY = "litgit-repo-store";

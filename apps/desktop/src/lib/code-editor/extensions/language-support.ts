@@ -1,5 +1,5 @@
 import type { Extension } from "@codemirror/state";
-import { loadLanguageSupport } from "@/components/code-editor/utils/language-resolver";
+import { loadLanguageSupport } from "@/lib/code-editor/utils/language-resolver";
 
 export async function createLanguageSupport(
   language: string,

@@ -24,10 +24,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/page-shell";
 import { KeyboardShortcutsDialog } from "@/components/shell/footer/keyboard-shortcuts-dialog";
-import {
-  type ProviderStatusRefreshReason,
-  shouldRefreshProviderStatuses,
-} from "@/components/shell/footer/provider-status-refresh";
 import { FooterZoomControl } from "@/components/shell/footer/zoom-control";
 import { useReducerState } from "@/hooks/use-reducer-state";
 import {
@@ -35,6 +31,10 @@ import {
   isZoomInShortcut,
   isZoomOutShortcut,
 } from "@/lib/keyboard-shortcuts";
+import {
+  type ProviderStatusRefreshReason,
+  shouldRefreshProviderStatuses,
+} from "@/lib/shell/provider-status-refresh";
 import {
   getProviderStatus,
   PROVIDER_STATUS_CHANGED_EVENT,

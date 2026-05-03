@@ -1,6 +1,6 @@
 import { type Extension, StateEffect, StateField } from "@codemirror/state";
 import { GutterMarker, gutter } from "@codemirror/view";
-import type { BlameDecoration } from "@/components/code-editor/code-editor-types";
+import type { BlameDecoration } from "@/lib/code-editor/code-editor-types";
 
 class BlameMarker extends GutterMarker {
   private readonly author: string;

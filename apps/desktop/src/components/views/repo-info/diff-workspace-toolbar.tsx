@@ -21,13 +21,13 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useMemo } from "react";
-import type { DiffWorkspaceEncodingOption } from "@/components/views/repo-info/diff-workspace-encoding";
+import type { DiffWorkspaceEncodingOption } from "@/lib/diff/diff-workspace-encoding";
 import type {
   DiffWorkspaceFilePresentationMode,
   DiffWorkspaceMode,
   DiffWorkspacePresentationMode,
   DiffWorkspaceToolbarControlState,
-} from "@/components/views/repo-info/diff-workspace-types";
+} from "@/lib/repo-info/diff/diff-workspace-types";
 
 interface DiffWorkspaceToolbarProps {
   activePath: string;

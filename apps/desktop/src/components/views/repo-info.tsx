@@ -139,22 +139,14 @@ import {
   useTransition,
 } from "react";
 import { toast } from "sonner";
-import { resolveLanguage } from "@/components/code-editor/utils/language-resolver";
 import { IntegratedTerminalPanel } from "@/components/terminal/integrated-terminal-panel";
-import {
-  type GitTimelineRow,
-  TIMELINE_BRANCH_COLUMN_WIDTH,
-} from "@/components/views/git-graph-layout";
-import {
-  buildGitGraphRenderRows,
-  collectVisibleGitTimelineRows,
-} from "@/components/views/git-graph-model";
-import {
-  type DiffPreviewPanelState,
-  resolveDiffPreviewUiState,
-  shouldMountMonaco,
-} from "@/components/views/repo-info/diff-preview-state";
 import { DiffPreviewSurface } from "@/components/views/repo-info/diff-preview-surface";
+import { DiffWorkspaceToolbar } from "@/components/views/repo-info/diff-workspace-toolbar";
+import { ImageDiffViewer } from "@/components/views/repo-info/image-diff-viewer";
+import { PublishRepositoryDialog } from "@/components/views/repo-info/publish-repository-dialog";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useReducerState } from "@/hooks/use-reducer-state";
+import { resolveLanguage } from "@/lib/code-editor/utils/language-resolver";
 import {
   DEFAULT_DIFF_WORKSPACE_ENCODING,
   DIFF_WORKSPACE_ENCODING_OPTIONS,
@@ -162,12 +154,24 @@ import {
   isDiffWorkspaceTextEncodingUnsupported,
   resolveDiffWorkspaceEncodingValue,
   resolveDiffWorkspaceRequestedEncoding,
-} from "@/components/views/repo-info/diff-workspace-encoding";
+} from "@/lib/diff/diff-workspace-encoding";
+import {
+  type GitTimelineRow,
+  TIMELINE_BRANCH_COLUMN_WIDTH,
+} from "@/lib/git-graph/git-graph-layout";
+import {
+  buildGitGraphRenderRows,
+  collectVisibleGitTimelineRows,
+} from "@/lib/git-graph/git-graph-model";
+import {
+  type DiffPreviewPanelState,
+  resolveDiffPreviewUiState,
+  shouldMountMonaco,
+} from "@/lib/repo-info/diff/diff-preview-state";
 import {
   resolvePresentationForViewerKind,
   resolveToolbarControlState,
-} from "@/components/views/repo-info/diff-workspace-state";
-import { DiffWorkspaceToolbar } from "@/components/views/repo-info/diff-workspace-toolbar";
+} from "@/lib/repo-info/diff/diff-workspace-state";
 import {
   DEFAULT_DIFF_WORKSPACE_FILE_PRESENTATION,
   DEFAULT_DIFF_WORKSPACE_MODE,
@@ -175,49 +179,43 @@ import {
   type DiffWorkspaceFilePresentationMode,
   type DiffWorkspaceMode,
   type DiffWorkspacePresentationMode,
-} from "@/components/views/repo-info/diff-workspace-types";
-import { ImageDiffViewer } from "@/components/views/repo-info/image-diff-viewer";
-import { PublishRepositoryDialog } from "@/components/views/repo-info/publish-repository-dialog";
-import {
-  finalizeAiCommitGenerationState,
-  getNextAiCommitGenerationState,
-} from "@/components/views/repo-info-ai-commit-generation-state";
-import { getAiGenerationDisplayState } from "@/components/views/repo-info-ai-generation";
-import { resolveWipAuthorAvatarUrl } from "@/components/views/repo-info-author-avatar";
+} from "@/lib/repo-info/diff/diff-workspace-types";
+import { getAiGenerationDisplayState } from "@/lib/repo-info/repo-info-ai-generation-display";
+import { resolveWipAuthorAvatarUrl } from "@/lib/repo-info/repo-info-author-avatar";
 import {
   type BuildRepoInfoCommitFilesModelInput,
   buildRepoInfoCommitFilesModel,
-} from "@/components/views/repo-info-commit-files-model";
+} from "@/lib/repo-info/repo-info-commit-files-model";
 import {
   type BuildRepoInfoAllFilesModelInput,
   type BuildRepoInfoWorkingTreeModelInput,
   buildRepoInfoAllFilesModel,
   buildRepoInfoWorkingTreeModel,
-} from "@/components/views/repo-info-file-tree-model";
+} from "@/lib/repo-info/repo-info-file-tree-model";
 import {
   createRenderBudget,
   type RenderBudget,
   useProgressiveRenderLimit,
-} from "@/components/views/repo-info-progressive-render";
+} from "@/lib/repo-info/repo-info-progressive-render";
 import {
   formatStashLabel,
   parseStashLabel,
-} from "@/components/views/repo-info-reference-labels";
+} from "@/lib/repo-info/repo-info-reference-labels";
 import {
   type BuildRepoInfoReferenceModelInput,
   buildRepoInfoReferenceModel,
-} from "@/components/views/repo-info-reference-model";
+} from "@/lib/repo-info/repo-info-reference-model";
 import {
   type BranchTreeNode,
   type BuildRepoInfoSidebarGroupsInput,
   buildRepoInfoSidebarGroups,
   type SidebarEntry,
-} from "@/components/views/repo-info-sidebar-model";
+} from "@/lib/repo-info/repo-info-sidebar-model";
 import {
   type BuildRepoInfoTimelineRowsInput,
   buildRepoInfoTimelineRows,
   WORKING_TREE_ROW_ID,
-} from "@/components/views/repo-info-timeline-model";
+} from "@/lib/repo-info/repo-info-timeline-model";
 import {
   type ChangeTreeNode,
   type CommitFileTreeNode,
@@ -225,22 +223,20 @@ import {
   collectExpandableCommitTreeKeys as collectExpandableCommitTreeKeysModel,
   collectExpandableTreeKeys as collectExpandableTreeKeysModel,
   collectTreeStatusCounts as collectTreeStatusCountsModel,
-} from "@/components/views/repo-info-tree-utils";
+} from "@/lib/repo-info/repo-info-tree-utils";
 import {
   type BuildRepoInfoVisibleCountsModelInput,
   buildRepoInfoVisibleCountsModel,
-} from "@/components/views/repo-info-visible-counts-model";
+} from "@/lib/repo-info/repo-info-visible-counts-model";
 import {
   type BuildRepoInfoVisibleGraphModelInput,
   buildRepoInfoVisibleGraphModel,
-} from "@/components/views/repo-info-visible-graph-model";
+} from "@/lib/repo-info/repo-info-visible-graph-model";
 import type {
   RepoInfoWorkerRequest,
   RepoInfoWorkerResponse,
-} from "@/components/views/repo-info-worker-contract";
-import { runRepoInfoWorkerTask } from "@/components/views/repo-info-worker-task";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useReducerState } from "@/hooks/use-reducer-state";
+} from "@/lib/repo-info/repo-info-worker-contract";
+import { runRepoInfoWorkerTask } from "@/lib/repo-info/repo-info-worker-task";
 import { getRuntimePlatform } from "@/lib/runtime-platform";
 import { getRepositoryRemoteAvatars } from "@/lib/tauri-repo-client";
 import {
@@ -258,6 +254,10 @@ import {
   type RepoTimelinePreferences,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
+  finalizeAiCommitGenerationState,
+  getNextAiCommitGenerationState,
+} from "@/stores/repo/ai-commit-generation-state";
 import {
   useRepoActions,
   useRepoActiveContext,

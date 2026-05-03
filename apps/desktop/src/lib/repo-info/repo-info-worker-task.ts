@@ -2,7 +2,7 @@ import type {
   RepoInfoWorkerRequest,
   RepoInfoWorkerResponse,
   RepoInfoWorkerTaskMap,
-} from "@/components/views/repo-info-worker-contract";
+} from "@/lib/repo-info/repo-info-worker-contract";
 import { runWorkerTask } from "@/lib/workers/run-worker-task";
 
 type RepoInfoWorkerTaskType = keyof RepoInfoWorkerTaskMap;

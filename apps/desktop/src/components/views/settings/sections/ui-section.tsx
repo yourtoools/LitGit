@@ -33,11 +33,7 @@ import {
   DefaultSelectValue,
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
-import {
-  DATE_FORMAT_OPTIONS,
-  TOASTER_OPTIONS,
-} from "@/components/views/settings/settings-store";
+} from "@/components/views/settings/settings-section-ui";
 import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   normalizeComboboxQuery,
@@ -50,6 +46,10 @@ import {
   SYSTEM_LOCALE_CODE,
 } from "@/lib/settings/locale-options";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
+  DATE_FORMAT_OPTIONS,
+  TOASTER_OPTIONS,
+} from "@/stores/ui/settings-options";
 
 function UiSection({ query }: { query: string }) {
   const locale = usePreferencesStore((state) => state.ui.locale);

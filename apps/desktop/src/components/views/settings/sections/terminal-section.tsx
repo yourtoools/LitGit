@@ -21,16 +21,7 @@ import { TerminalPreview } from "@/components/views/settings/settings-previews-c
 import {
   DefaultSelectValue,
   SettingsField,
-} from "@/components/views/settings/settings-shared-ui";
-import {
-  CURSOR_STYLE_OPTIONS,
-  clampWidth,
-  getEditorPreviewResizeBounds,
-  getInitialTerminalPreviewSidebarWidth,
-  getSettingsLayoutWidth,
-  SETTINGS_TERMINAL_PREVIEW_WIDTH_STORAGE_KEY,
-  type SidebarResizeState,
-} from "@/components/views/settings/settings-store";
+} from "@/components/views/settings/settings-section-ui";
 import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   normalizeComboboxQuery,
@@ -42,6 +33,15 @@ import {
   DEFAULT_EDITOR_FONT_FAMILY as DEFAULT_TERMINAL_FONT_FAMILY,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
+  CURSOR_STYLE_OPTIONS,
+  clampWidth,
+  getEditorPreviewResizeBounds,
+  getInitialTerminalPreviewSidebarWidth,
+  getSettingsLayoutWidth,
+  SETTINGS_TERMINAL_PREVIEW_WIDTH_STORAGE_KEY,
+  type SidebarResizeState,
+} from "@/stores/ui/settings-options";
 
 function TerminalSection({ query }: { query: string }) {
   const cursorStyle = usePreferencesStore(

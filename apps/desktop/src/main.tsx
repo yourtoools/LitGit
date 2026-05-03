@@ -1,7 +1,7 @@
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 
-import Loader from "@/components/shared/loader";
+import Loader from "@/components/ui/loader";
 import { RUNTIME_PLATFORM_DATA_ATTRIBUTE } from "@/lib/runtime-platform";
 import { routeTree } from "@/routeTree.gen";
 

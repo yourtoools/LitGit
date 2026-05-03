@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import type { BranchTreeNode } from "@/components/views/repo-info-sidebar-model";
+import type { BranchTreeNode } from "@/lib/repo-info/repo-info-sidebar-model";
 import type {
   ChangeTreeNode,
   CommitFileTreeNode,
-} from "@/components/views/repo-info-tree-utils";
+} from "@/lib/repo-info/repo-info-tree-utils";
 
 interface ProgressiveRenderOptions {
   chunkSize?: number;

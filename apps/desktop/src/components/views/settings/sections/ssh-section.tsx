@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import {
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
+} from "@/components/views/settings/settings-section-ui";
 import { generateLitgitKeyWithDialog } from "@/lib/tauri-auth-client";
 import { pickSettingsFile } from "@/lib/tauri-settings-client";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";

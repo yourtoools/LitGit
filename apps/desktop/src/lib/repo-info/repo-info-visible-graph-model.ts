@@ -1,10 +1,10 @@
-import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import type { GitTimelineRow } from "@/lib/git-graph/git-graph-layout";
 import {
   buildGitGraphRows,
   DEFAULT_GIT_GRAPH_COLOR,
   type GitGraphRowsResult,
   resolveGitGraphRowsWidth,
-} from "@/components/views/git-graph-model";
+} from "@/lib/git-graph/git-graph-model";
 import type { RepositoryCommitSyncState } from "@/stores/repo/repo-store-types";
 
 interface GraphLayoutCommitInput {

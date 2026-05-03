@@ -14,16 +14,16 @@ import {
 import { CaretLeftIcon, CaretRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { KeyboardEventHandler, ReactNode, RefObject } from "react";
 import { EmptyGroupDialog } from "@/components/tabs/empty-group-dialog";
-import type { UseTabBarDndReturn } from "@/components/tabs/tab-bar-dnd";
 import { TabStripContent } from "@/components/tabs/tab-strip-content";
+import { UngroupConfirmDialog } from "@/components/tabs/ungroup-confirm-dialog";
+import { getNewTabShortcutLabel } from "@/lib/keyboard-shortcuts";
 import type {
   PendingUngroupTabDetails,
   RenderItem,
   UngroupConfirmDialogContent,
-} from "@/components/tabs/types/tab-bar-types";
-import type { TabGroup } from "@/components/tabs/types/tab-types";
-import { UngroupConfirmDialog } from "@/components/tabs/ungroup-confirm-dialog";
-import { getNewTabShortcutLabel } from "@/lib/keyboard-shortcuts";
+} from "@/lib/tabs/tab-bar-types";
+import type { UseTabBarDndReturn } from "@/lib/tabs/use-tab-bar-dnd";
+import type { TabGroup } from "@/stores/tabs/tab-types";
 
 interface TabBarRenderProps {
   activeDragId: string | null;

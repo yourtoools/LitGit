@@ -6,7 +6,7 @@ import {
   SectionActionRow,
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
+} from "@/components/views/settings/settings-section-ui";
 import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   getGitIdentityStatus,

@@ -12,9 +12,9 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
-import type { Tab } from "@/components/tabs/types/tab-types";
 import { getNewTabShortcutLabel } from "@/lib/keyboard-shortcuts";
 import { useRepoStore } from "@/stores/repo/use-repo-store";
+import type { Tab } from "@/stores/tabs/tab-types";
 
 interface TabItemProps {
   groupColor?: string;

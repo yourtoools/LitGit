@@ -8,7 +8,7 @@ import {
 } from "@/components/auth/oauth-button";
 import { ProviderCard } from "@/components/auth/provider-card";
 import { ProviderOAuthTokenDialog } from "@/components/auth/provider-oauth-token-dialog";
-import { SettingsField } from "@/components/views/settings/settings-shared-ui";
+import { SettingsField } from "@/components/views/settings/settings-section-ui";
 import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   completeOAuthFlow,

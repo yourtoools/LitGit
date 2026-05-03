@@ -11,7 +11,7 @@ import { Switch } from "@litgit/ui/components/switch";
 import {
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
+} from "@/components/views/settings/settings-section-ui";
 import { listSystemFontFamilies } from "@/lib/tauri-settings-client";
 
 const MONOSPACE_FONT_NAMES = new Set([

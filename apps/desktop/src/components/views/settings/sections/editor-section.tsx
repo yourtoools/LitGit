@@ -22,16 +22,7 @@ import { EditorPreview } from "@/components/views/settings/settings-previews-cod
 import {
   DefaultSelectValue,
   SettingsField,
-} from "@/components/views/settings/settings-shared-ui";
-import {
-  clampWidth,
-  EOL_OPTIONS,
-  getEditorPreviewResizeBounds,
-  getInitialEditorPreviewSidebarWidth,
-  getSettingsLayoutWidth,
-  LINE_NUMBER_OPTIONS,
-  type SidebarResizeState,
-} from "@/components/views/settings/settings-store";
+} from "@/components/views/settings/settings-section-ui";
 import {
   COMBOBOX_DEBOUNCE_DELAY_MS,
   normalizeComboboxQuery,
@@ -44,6 +35,15 @@ import {
   DEFAULT_EDITOR_FONT_FAMILY,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
+  clampWidth,
+  EOL_OPTIONS,
+  getEditorPreviewResizeBounds,
+  getInitialEditorPreviewSidebarWidth,
+  getSettingsLayoutWidth,
+  LINE_NUMBER_OPTIONS,
+  type SidebarResizeState,
+} from "@/stores/ui/settings-options";
 
 function EditorSection({ query }: { query: string }) {
   const editor = usePreferencesStore((state) => state.editor);

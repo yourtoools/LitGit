@@ -1,12 +1,9 @@
-import {
-  toGroupDropId,
-  toGroupSortableId,
-} from "@/components/tabs/lib/tab-bar-utils";
 import { SortableTabItem } from "@/components/tabs/sortable-tab-item";
 import { TabContextMenu } from "@/components/tabs/tab-context-menu";
 import { TabGroupContainer } from "@/components/tabs/tab-group-container";
-import type { RenderItem } from "@/components/tabs/types/tab-bar-types";
-import type { Tab } from "@/components/tabs/types/tab-types";
+import type { RenderItem } from "@/lib/tabs/tab-bar-types";
+import { toGroupDropId, toGroupSortableId } from "@/lib/tabs/tab-bar-utils";
+import type { Tab } from "@/stores/tabs/tab-types";
 
 interface TabStripContentProps {
   activeDragId: string | null;

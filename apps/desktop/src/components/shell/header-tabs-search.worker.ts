@@ -2,7 +2,7 @@ import {
   type SearchHeaderTabsPaletteInput,
   type SearchHeaderTabsPaletteOutput,
   searchHeaderTabsPalette,
-} from "@/components/shell/header-tabs-search-search";
+} from "@/lib/shell/header-tabs-search";
 import { registerWorkerHandler } from "@/lib/workers/register-worker-handler";
 
 registerWorkerHandler<

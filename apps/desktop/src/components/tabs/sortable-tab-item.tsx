@@ -2,7 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@litgit/ui/lib/utils";
 import { TabItem } from "@/components/tabs/tab-item";
-import type { Tab } from "@/components/tabs/types/tab-types";
+import type { Tab } from "@/stores/tabs/tab-types";
 
 interface SortableTabItemProps {
   disabled?: boolean;

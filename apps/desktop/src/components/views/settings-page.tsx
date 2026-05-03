@@ -19,6 +19,11 @@ import {
 } from "@/components/views/settings/settings-font-picker";
 import { SettingsLayout } from "@/components/views/settings/settings-layout";
 import {
+  SETTINGS_SECTION_LABELS,
+  type SettingsSectionId,
+} from "@/stores/preferences/preferences-store-types";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
   clampWidth,
   getInitialSidebarWidth,
   getSettingsLayoutWidth,
@@ -26,12 +31,7 @@ import {
   SETTINGS_SECTIONS,
   SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY,
   type SidebarResizeState,
-} from "@/components/views/settings/settings-store";
-import {
-  SETTINGS_SECTION_LABELS,
-  type SettingsSectionId,
-} from "@/stores/preferences/preferences-store-types";
-import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+} from "@/stores/ui/settings-options";
 
 function getSectionContent(
   sectionId: SettingsSectionId,

@@ -15,8 +15,7 @@ import {
   DefaultSelectValue,
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
-import { PROXY_TYPE_OPTIONS } from "@/components/views/settings/settings-store";
+} from "@/components/views/settings/settings-section-ui";
 import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clearProxyAuthSecret,
@@ -28,6 +27,7 @@ import {
 } from "@/lib/tauri-settings-client";
 import { DEFAULT_PREFERENCES } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import { PROXY_TYPE_OPTIONS } from "@/stores/ui/settings-options";
 
 function NetworkSection({ query }: { query: string }) {
   const enableProxy = usePreferencesStore((state) => state.network.enableProxy);

@@ -26,11 +26,7 @@ import {
   SectionActionRow,
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
-import {
-  AI_ENDPOINT_PLACEHOLDERS,
-  AI_PROVIDER_OPTIONS,
-} from "@/components/views/settings/settings-store";
+} from "@/components/views/settings/settings-section-ui";
 import { useReducerState } from "@/hooks/use-reducer-state";
 import {
   clearAiProviderSecret,
@@ -45,6 +41,10 @@ import {
   getDefaultAiMaxOutputTokens,
 } from "@/stores/preferences/preferences-store-types";
 import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+import {
+  AI_ENDPOINT_PLACEHOLDERS,
+  AI_PROVIDER_OPTIONS,
+} from "@/stores/ui/settings-options";
 
 function AiSection({ query }: { query: string }) {
   const commitInstruction = usePreferencesStore(

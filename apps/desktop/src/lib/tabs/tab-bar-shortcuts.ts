@@ -1,5 +1,4 @@
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect } from "react";
-import type { Tab } from "@/components/tabs/types/tab-types";
 import {
   isCloseTabShortcut,
   isEditableTarget,
@@ -8,6 +7,7 @@ import {
   isPrimaryShortcut,
   isReopenClosedTabShortcut,
 } from "@/lib/keyboard-shortcuts";
+import type { Tab } from "@/stores/tabs/tab-types";
 
 interface UseTabBarShortcutsOptions {
   readonly handleAddTab: () => void;

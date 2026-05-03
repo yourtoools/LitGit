@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { TabStoreState } from "@/components/tabs/types/tab-types";
 import { readRememberTabsPreference } from "@/stores/preferences/preferences-store-types";
 import { createTabGroupsSlice } from "@/stores/tabs/tab-groups.slice";
 import { createTabHistorySlice } from "@/stores/tabs/tab-history.slice";
@@ -9,6 +8,7 @@ import {
   migrateFromRepoStore,
   TAB_STORE_KEY,
 } from "@/stores/tabs/tab-store.helpers";
+import type { TabStoreState } from "@/stores/tabs/tab-types";
 import { createTabsCoreSlice } from "@/stores/tabs/tabs-core.slice";
 
 const applyMigratedOrDefaultState = () => {

@@ -7,9 +7,9 @@ import { Button } from "@litgit/ui/components/button";
 import { SpinnerGapIcon } from "@phosphor-icons/react";
 import type { ComponentType } from "react";
 import { useMemo } from "react";
-import type { DiffPreviewPanelState } from "@/components/views/repo-info/diff-preview-state";
 import { DiffPreviewSurface } from "@/components/views/repo-info/diff-preview-surface";
 import { ImageDiffViewer } from "@/components/views/repo-info/image-diff-viewer";
+import type { DiffPreviewPanelState } from "@/lib/repo-info/diff/diff-preview-state";
 import type {
   RepositoryCommitFileDiff,
   RepositoryFileHistoryEntry,

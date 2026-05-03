@@ -7,7 +7,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@litgit/ui/lib/utils";
 import { GroupHeader } from "@/components/tabs/group-header";
-import type { TabGroup } from "@/components/tabs/types/tab-types";
+import type { TabGroup } from "@/stores/tabs/tab-types";
 
 interface TabGroupContainerProps {
   children: React.ReactNode;

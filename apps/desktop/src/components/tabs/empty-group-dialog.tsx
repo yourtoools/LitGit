@@ -8,7 +8,7 @@ import {
   AlertDialogTitle,
 } from "@litgit/ui/components/alert-dialog";
 import { TrashIcon } from "@phosphor-icons/react";
-import type { TabGroup } from "@/components/tabs/types/tab-types";
+import type { TabGroup } from "@/stores/tabs/tab-types";
 
 interface EmptyGroupDialogProps {
   group: TabGroup | null;

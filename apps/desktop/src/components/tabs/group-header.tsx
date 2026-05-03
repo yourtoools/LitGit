@@ -4,7 +4,7 @@ import type {
 } from "@dnd-kit/core";
 import { cn } from "@litgit/ui/lib/utils";
 import { GroupContextMenu } from "@/components/tabs/group-context-menu";
-import type { TabGroup } from "@/components/tabs/types/tab-types";
+import type { TabGroup } from "@/stores/tabs/tab-types";
 import { useTabStore } from "@/stores/tabs/use-tab-store";
 
 interface GroupHeaderProps {

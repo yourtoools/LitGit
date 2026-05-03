@@ -1,6 +1,6 @@
 import { Button } from "@litgit/ui/components/button";
 import { SpinnerGapIcon } from "@phosphor-icons/react";
-import type { DiffPreviewPanelState } from "@/components/views/repo-info/diff-preview-state";
+import type { DiffPreviewPanelState } from "@/lib/repo-info/diff/diff-preview-state";
 
 interface DiffPreviewSurfaceProps {
   onCancel: () => void;

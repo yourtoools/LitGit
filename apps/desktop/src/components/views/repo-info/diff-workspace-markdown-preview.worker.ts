@@ -1,7 +1,7 @@
 import {
   type MarkdownBlock,
   parseMarkdownBlocks,
-} from "@/components/views/repo-info/diff-workspace-markdown-preview-parser";
+} from "@/lib/diff/diff-workspace-markdown-preview-parser";
 import { registerWorkerHandler } from "@/lib/workers/register-worker-handler";
 
 interface MarkdownPreviewWorkerInput {

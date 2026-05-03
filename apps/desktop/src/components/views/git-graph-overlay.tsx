@@ -14,19 +14,19 @@ import {
 } from "@litgit/ui/components/tooltip";
 import { StackSimpleIcon } from "@phosphor-icons/react";
 import { type ReactNode, useMemo } from "react";
-import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import type { GitTimelineRow } from "@/lib/git-graph/git-graph-layout";
 import type {
   GitGraphEdgeSegment,
   GitGraphRenderRow,
   GitGraphRow,
   GitGraphRowsResult,
-} from "@/components/views/git-graph-model";
+} from "@/lib/git-graph/git-graph-model";
 import {
   GIT_GRAPH_COLUMN_PADDING_X,
   GIT_GRAPH_COMPACT_COLUMN_WIDTH,
   GIT_GRAPH_LANE_WIDTH,
   GIT_GRAPH_NODE_RADIUS,
-} from "@/components/views/git-graph-model";
+} from "@/lib/git-graph/git-graph-model";
 
 const EDGE_WIDTH = 2.5;
 

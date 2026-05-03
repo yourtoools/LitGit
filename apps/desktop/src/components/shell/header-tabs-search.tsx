@@ -25,15 +25,10 @@ import { useTheme } from "next-themes";
 import type React from "react";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
+import { RepositoryCloneDialog } from "@/components/dialogs/repository-clone-dialog";
+import { RepositoryStartLocalDialog } from "@/components/dialogs/repository-start-local-dialog";
 import { getHeaderTabsCommandIcon } from "@/components/shell/header-tabs-search-icons";
-import {
-  type HeaderTabsCommandPaletteItem,
-  type HeaderTabsSearchTabItem,
-  searchHeaderTabsPalette,
-} from "@/components/shell/header-tabs-search-search";
 import { UngroupConfirmDialog } from "@/components/tabs/ungroup-confirm-dialog";
-import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
-import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import { useUngroupConfirmation } from "@/hooks/tabs/use-ungroup-confirmation";
@@ -58,6 +53,11 @@ import {
   isEditableTarget,
   isSearchTabsShortcut,
 } from "@/lib/keyboard-shortcuts";
+import {
+  type HeaderTabsCommandPaletteItem,
+  type HeaderTabsSearchTabItem,
+  searchHeaderTabsPalette,
+} from "@/lib/shell/header-tabs-search";
 import {
   type ExternalLauncherApp,
   getLauncherApplications,

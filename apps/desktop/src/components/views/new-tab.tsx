@@ -17,12 +17,12 @@ import {
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { GitIdentityDialog } from "@/components/dialogs/git-identity-dialog";
+import { RepositoryCloneDialog } from "@/components/dialogs/repository-clone-dialog";
+import { RepositoryInitializeDialog } from "@/components/dialogs/repository-initialize-dialog";
+import { RepositoryStartLocalDialog } from "@/components/dialogs/repository-start-local-dialog";
 import { PageContainer } from "@/components/layout/page-container";
-import { GitIdentityDialog } from "@/components/views/git-identity-dialog";
-import { QuickActionButton } from "@/components/views/quick-actions-launcher";
-import { RepositoryCloneDialog } from "@/components/views/repository-clone-dialog";
-import { RepositoryInitializeDialog } from "@/components/views/repository-initialize-dialog";
-import { RepositoryStartLocalDialog } from "@/components/views/repository-start-local-dialog";
+import { QuickActionButton } from "@/components/ui/quick-action-button";
 import { useOpenRepositoryTabRouting } from "@/hooks/tabs/use-open-repository-tab-routing";
 import { useTabUrlState } from "@/hooks/tabs/use-tab-url-state";
 import {

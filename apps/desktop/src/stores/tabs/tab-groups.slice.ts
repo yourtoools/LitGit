@@ -1,4 +1,3 @@
-import type { Tab, TabStoreState } from "@/components/tabs/types/tab-types";
 import {
   closeHistoryWithLimit,
   createDefaultState,
@@ -8,6 +7,7 @@ import {
   pickNextGroupColor,
 } from "@/stores/tabs/tab-store.helpers";
 import type { TabStoreSet } from "@/stores/tabs/tab-store.slice-types";
+import type { Tab, TabStoreState } from "@/stores/tabs/tab-types";
 
 type TabGroupsSliceKeys =
   | "addTabToGroup"

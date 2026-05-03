@@ -1,4 +1,3 @@
-import type { Tab, TabStoreState } from "@/components/tabs/types/tab-types";
 import {
   closeHistoryWithLimit,
   createDefaultState,
@@ -11,6 +10,7 @@ import type {
   TabStoreGet,
   TabStoreSet,
 } from "@/stores/tabs/tab-store.slice-types";
+import type { Tab, TabStoreState } from "@/stores/tabs/tab-types";
 
 const DEFAULT_TAB_TITLE = getDefaultTabTitle();
 

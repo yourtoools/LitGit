@@ -2,7 +2,7 @@ import {
   buildChangeTree,
   buildRepositoryFileTree,
   type ChangeTreeNode,
-} from "@/components/views/repo-info-tree-utils";
+} from "@/lib/repo-info/repo-info-tree-utils";
 import type { RepoFileBrowserSortOrder } from "@/stores/preferences/preferences-store-types";
 import type {
   RepositoryFileEntry,

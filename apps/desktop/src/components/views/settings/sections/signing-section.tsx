@@ -14,13 +14,13 @@ import {
   DefaultSelectValue,
   SettingsField,
   SettingsHelpText,
-} from "@/components/views/settings/settings-shared-ui";
+} from "@/components/views/settings/settings-section-ui";
+import { listSigningKeys, pickSettingsFile } from "@/lib/tauri-settings-client";
+import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
 import {
   NO_SIGNING_KEY_VALUE,
   SIGNING_FORMAT_OPTIONS,
-} from "@/components/views/settings/settings-store";
-import { listSigningKeys, pickSettingsFile } from "@/lib/tauri-settings-client";
-import { usePreferencesStore } from "@/stores/preferences/use-preferences-store";
+} from "@/stores/ui/settings-options";
 
 function SigningSection({ query }: { query: string }) {
   const gpgProgramPath = usePreferencesStore(

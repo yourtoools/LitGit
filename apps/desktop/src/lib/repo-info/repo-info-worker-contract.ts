@@ -1,9 +1,9 @@
-import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import type { GitTimelineRow } from "@/lib/git-graph/git-graph-layout";
 import {
   type BuildRepoInfoCommitFilesModelInput,
   type BuildRepoInfoCommitFilesModelOutput,
   buildRepoInfoCommitFilesModel,
-} from "@/components/views/repo-info-commit-files-model";
+} from "@/lib/repo-info/repo-info-commit-files-model";
 import {
   type BuildRepoInfoAllFilesModelInput,
   type BuildRepoInfoAllFilesModelOutput,
@@ -11,31 +11,31 @@ import {
   type BuildRepoInfoWorkingTreeModelOutput,
   buildRepoInfoAllFilesModel,
   buildRepoInfoWorkingTreeModel,
-} from "@/components/views/repo-info-file-tree-model";
+} from "@/lib/repo-info/repo-info-file-tree-model";
 import {
   type BuildRepoInfoReferenceModelInput,
   buildRepoInfoReferenceModel,
   type RepoInfoReferenceModel,
-} from "@/components/views/repo-info-reference-model";
+} from "@/lib/repo-info/repo-info-reference-model";
 import {
   type BuildRepoInfoSidebarGroupsInput,
   type BuildRepoInfoSidebarGroupsResult,
   buildRepoInfoSidebarGroups,
-} from "@/components/views/repo-info-sidebar-model";
+} from "@/lib/repo-info/repo-info-sidebar-model";
 import {
   type BuildRepoInfoTimelineRowsInput,
   buildRepoInfoTimelineRows,
-} from "@/components/views/repo-info-timeline-model";
+} from "@/lib/repo-info/repo-info-timeline-model";
 import {
   type BuildRepoInfoVisibleCountsModelInput,
   type BuildRepoInfoVisibleCountsModelOutput,
   buildRepoInfoVisibleCountsModel,
-} from "@/components/views/repo-info-visible-counts-model";
+} from "@/lib/repo-info/repo-info-visible-counts-model";
 import {
   type BuildRepoInfoVisibleGraphModelInput,
   type BuildRepoInfoVisibleGraphModelOutput,
   buildRepoInfoVisibleGraphModel,
-} from "@/components/views/repo-info-visible-graph-model";
+} from "@/lib/repo-info/repo-info-visible-graph-model";
 
 export interface RepoInfoWorkerTaskMap {
   allFiles: {

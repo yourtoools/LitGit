@@ -1,4 +1,4 @@
-import { formatStashLabel } from "@/components/views/repo-info-reference-labels";
+import { formatStashLabel } from "@/lib/repo-info/repo-info-reference-labels";
 import type {
   RepositoryBranch,
   RepositoryStash,
