@@ -38,7 +38,7 @@ export function replaceGitNexusBlock(content, replacementBlock, filePath) {
 function runGitNexusAnalyze() {
   const result = spawnSync(
     "gitnexus",
-    ["analyze", "--force", "--skip-agents-md"],
+    ["analyze", "--force"],
     {
       env: {
         ...process.env,
