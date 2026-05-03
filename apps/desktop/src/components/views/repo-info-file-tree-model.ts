@@ -1,4 +1,5 @@
 import {
+  buildChangeTree,
   buildRepositoryFileTree,
   type ChangeTreeNode,
 } from "@/components/views/repo-info-tree-utils";
@@ -18,6 +19,17 @@ export interface BuildRepoInfoAllFilesModelInput {
 export interface BuildRepoInfoAllFilesModelOutput {
   allFilesTree: ChangeTreeNode[];
   filteredRepositoryFiles: RepositoryFileEntry[];
+}
+
+export interface BuildRepoInfoWorkingTreeModelInput {
+  sortOrder: RepoFileBrowserSortOrder;
+  stagedItems: RepositoryWorkingTreeItem[];
+  unstagedItems: RepositoryWorkingTreeItem[];
+}
+
+export interface BuildRepoInfoWorkingTreeModelOutput {
+  stagedTree: ChangeTreeNode[];
+  unstagedTree: ChangeTreeNode[];
 }
 
 export function buildRepoInfoAllFilesModel(
@@ -46,5 +58,16 @@ export function buildRepoInfoAllFilesModel(
       sortOrder
     ),
     filteredRepositoryFiles,
+  };
+}
+
+export function buildRepoInfoWorkingTreeModel(
+  input: BuildRepoInfoWorkingTreeModelInput
+): BuildRepoInfoWorkingTreeModelOutput {
+  const { sortOrder, stagedItems, unstagedItems } = input;
+
+  return {
+    stagedTree: buildChangeTree(stagedItems, sortOrder),
+    unstagedTree: buildChangeTree(unstagedItems, sortOrder),
   };
 }

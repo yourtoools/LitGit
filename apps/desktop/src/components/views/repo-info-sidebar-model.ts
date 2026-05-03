@@ -1,9 +1,8 @@
+import { formatStashLabel } from "@/components/views/repo-info-reference-labels";
 import type {
   RepositoryBranch,
   RepositoryStash,
 } from "@/stores/repo/repo-store-types";
-
-const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 
 export interface SidebarEntry {
   active?: boolean;
@@ -203,33 +202,6 @@ function filterBranchTree(
     count,
     nodes: filteredNodes,
   };
-}
-
-function formatStashLabel(stash: RepositoryStash): string {
-  const rawMessage = stash.message.trim();
-
-  if (rawMessage.length === 0) {
-    return stash.ref;
-  }
-
-  const parsedMessage = STASH_WITH_BRANCH_PATTERN.exec(rawMessage);
-
-  if (!parsedMessage) {
-    return rawMessage;
-  }
-
-  const branchName = parsedMessage[1]?.trim();
-  const stashMessage = parsedMessage[2]?.trim();
-
-  if (!branchName) {
-    return rawMessage;
-  }
-
-  if (stashMessage && stashMessage.length > 0) {
-    return `${stashMessage} on: ${branchName}`;
-  }
-
-  return rawMessage;
 }
 
 export function buildRepoInfoSidebarGroups(

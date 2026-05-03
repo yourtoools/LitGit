@@ -1,4 +1,5 @@
 import type {
+  WorkerErrorPayload,
   WorkerRequestEnvelope,
   WorkerResponseEnvelope,
 } from "@/lib/workers/create-worker-client";
@@ -8,6 +9,21 @@ interface WorkerHandlerContext<TInput, TOutput> {
     | ((event: MessageEvent<WorkerRequestEnvelope<TInput>>) => void)
     | null;
   postMessage: (payload: WorkerResponseEnvelope<TOutput>) => void;
+}
+
+function createWorkerErrorPayload(error: unknown): WorkerErrorPayload {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    message: "Worker handler failed to resolve payload",
+    name: "WorkerExecutionError",
+  };
 }
 
 export function registerWorkerHandler<TInput, TOutput>(
@@ -25,10 +41,7 @@ export function registerWorkerHandler<TInput, TOutput>(
       } satisfies WorkerResponseEnvelope<TOutput>);
     } catch (error) {
       context.postMessage({
-        error:
-          error instanceof Error
-            ? error.message
-            : "Worker handler failed to resolve payload",
+        error: createWorkerErrorPayload(error),
         id: event.data.id,
       } satisfies WorkerResponseEnvelope<TOutput>);
     }

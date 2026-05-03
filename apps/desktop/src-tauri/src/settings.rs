@@ -3,8 +3,10 @@ use crate::git_support::{background_command, git_command, git_error_message, val
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -1872,6 +1874,20 @@ pub(crate) async fn start_auto_fetch_scheduler(
     .map_err(|error| format!("Failed to start auto-fetch scheduler: {error}"))?
 }
 
+fn auto_fetch_initial_jitter(repo_path: &str, interval: Duration) -> Duration {
+    const MAX_JITTER_SECS: u64 = 30;
+
+    let max_jitter = interval.as_secs().min(MAX_JITTER_SECS);
+    if max_jitter == 0 {
+        return Duration::ZERO;
+    }
+
+    let mut hasher = DefaultHasher::new();
+    repo_path.hash(&mut hasher);
+
+    Duration::from_secs(hasher.finish() % (max_jitter + 1))
+}
+
 fn start_auto_fetch_scheduler_inner(
     scheduler_handle: Arc<Mutex<Option<AutoFetchSchedulerHandle>>>,
     active_network_repo_paths: Arc<Mutex<HashSet<String>>>,
@@ -1892,35 +1908,54 @@ fn start_auto_fetch_scheduler_inner(
     let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel::<()>();
     let repo_path_for_worker = repo_path.clone();
     let worker_preferences = preferences.unwrap_or_default();
-    let worker = std::thread::spawn(move || {
-        let interval = Duration::from_secs(interval_minutes.saturating_mul(60));
+    let worker = std::thread::Builder::new()
+        .name("litgit-auto-fetch-scheduler".to_string())
+        .spawn(move || {
+            let interval = Duration::from_secs(interval_minutes.saturating_mul(60));
+            let initial_jitter = auto_fetch_initial_jitter(&repo_path_for_worker, interval);
 
-        loop {
-            match shutdown_rx.recv_timeout(interval) {
-                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    break;
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    let network_operation = begin_network_operation_with_active_paths(
-                        &active_network_repo_paths,
-                        &repo_path_for_worker,
-                    )
-                    .ok();
-
-                    if network_operation.is_none() {
-                        continue;
+            if initial_jitter > Duration::ZERO {
+                match shutdown_rx.recv_timeout(initial_jitter) {
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return;
                     }
-
-                    let _ = run_network_git_command(
-                        &repo_path_for_worker,
-                        &["fetch", "--all", "--prune"],
-                        &worker_preferences,
-                    );
-                    drop(network_operation);
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 }
             }
-        }
-    });
+
+            loop {
+                match shutdown_rx.recv_timeout(interval) {
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let network_operation = begin_network_operation_with_active_paths(
+                            &active_network_repo_paths,
+                            &repo_path_for_worker,
+                        )
+                        .ok();
+
+                        if network_operation.is_none() {
+                            continue;
+                        }
+
+                        if let Err(error) = run_network_git_command(
+                            &repo_path_for_worker,
+                            &["fetch", "--all", "--prune"],
+                            &worker_preferences,
+                        ) {
+                            log::warn!(
+                                "Auto-fetch failed for {}: {}",
+                                repo_path_for_worker,
+                                error
+                            );
+                        }
+                        drop(network_operation);
+                    }
+                }
+            }
+        })
+        .map_err(|error| format!("Failed to start auto-fetch scheduler worker: {error}"))?;
 
     let mut scheduler = scheduler_handle
         .lock()
@@ -1977,7 +2012,7 @@ mod tests {
         annotate_keyring_error, apply_auth_session_environment, apply_existing_git_preferences,
         apply_git_preferences, get_ai_secret_from_session, get_git_identity,
         get_settings_backend_capabilities, normalize_git_identity_scope, set_git_identity,
-        start_auto_fetch_scheduler, stop_auto_fetch_scheduler, validate_git_identity_email,
+        start_auto_fetch_scheduler, auto_fetch_initial_jitter, stop_auto_fetch_scheduler, validate_git_identity_email,
         validate_git_identity_name, GitIdentityWriteRequest, RepoCommandPreferences, SettingsError,
         SettingsState, StoredSecretValue,
     };
@@ -1986,7 +2021,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tauri::Manager;
 
     #[test]
@@ -2343,6 +2378,54 @@ mod tests {
             status.effective.email.as_deref(),
             Some("existing@example.com")
         );
+    }
+
+    #[test]
+    fn auto_fetch_initial_jitter_returns_zero_when_interval_is_zero() {
+        assert_eq!(
+            auto_fetch_initial_jitter("/tmp/repo", Duration::ZERO),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn auto_fetch_initial_jitter_stays_within_interval_bound() {
+        let interval = Duration::from_secs(10);
+        let jitter = auto_fetch_initial_jitter("/tmp/repo", interval);
+
+        assert!(jitter <= interval);
+    }
+
+    #[test]
+    fn auto_fetch_initial_jitter_stays_within_max_bound() {
+        let jitter = auto_fetch_initial_jitter("/tmp/repo", Duration::from_secs(120));
+
+        assert!(jitter <= Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn start_auto_fetch_scheduler_does_not_register_worker_when_interval_is_zero() {
+        let repo = TempRepository::create();
+        let app = tauri::test::mock_builder()
+            .manage(SettingsState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("settings test app should build");
+
+        start_auto_fetch_scheduler(
+            app.state::<SettingsState>(),
+            0,
+            repo.path.to_string_lossy().to_string(),
+            None,
+        )
+        .await
+        .expect("scheduler should accept zero interval");
+
+        assert!(app
+            .state::<SettingsState>()
+            .auto_fetch_scheduler
+            .lock()
+            .expect("scheduler lock should be available")
+            .is_none());
     }
 
     #[tokio::test]

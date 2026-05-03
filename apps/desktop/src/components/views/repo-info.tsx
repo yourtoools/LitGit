@@ -183,20 +183,26 @@ import {
   getNextAiCommitGenerationState,
 } from "@/components/views/repo-info-ai-commit-generation-state";
 import { getAiGenerationDisplayState } from "@/components/views/repo-info-ai-generation";
-import {
-  type BuildRepoInfoAllFilesModelInput,
-  buildRepoInfoAllFilesModel,
-} from "@/components/views/repo-info-all-files-model";
 import { resolveWipAuthorAvatarUrl } from "@/components/views/repo-info-author-avatar";
 import {
   type BuildRepoInfoCommitFilesModelInput,
   buildRepoInfoCommitFilesModel,
 } from "@/components/views/repo-info-commit-files-model";
 import {
+  type BuildRepoInfoAllFilesModelInput,
+  type BuildRepoInfoWorkingTreeModelInput,
+  buildRepoInfoAllFilesModel,
+  buildRepoInfoWorkingTreeModel,
+} from "@/components/views/repo-info-file-tree-model";
+import {
   createRenderBudget,
   type RenderBudget,
   useProgressiveRenderLimit,
 } from "@/components/views/repo-info-progressive-render";
+import {
+  formatStashLabel,
+  parseStashLabel,
+} from "@/components/views/repo-info-reference-labels";
 import {
   type BuildRepoInfoReferenceModelInput,
   buildRepoInfoReferenceModel,
@@ -228,10 +234,11 @@ import {
   type BuildRepoInfoVisibleGraphModelInput,
   buildRepoInfoVisibleGraphModel,
 } from "@/components/views/repo-info-visible-graph-model";
-import {
-  type BuildRepoInfoWorkingTreeModelInput,
-  buildRepoInfoWorkingTreeModel,
-} from "@/components/views/repo-info-working-tree-model";
+import type {
+  RepoInfoWorkerRequest,
+  RepoInfoWorkerResponse,
+} from "@/components/views/repo-info-worker-contract";
+import { runRepoInfoWorkerTask } from "@/components/views/repo-info-worker-task";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useReducerState } from "@/hooks/use-reducer-state";
 import { getRuntimePlatform } from "@/lib/runtime-platform";
@@ -243,7 +250,6 @@ import {
   openPathWithApplication,
 } from "@/lib/tauri-settings-client";
 import { createWorkerClient } from "@/lib/workers/create-worker-client";
-import { runWorkerTask } from "@/lib/workers/run-worker-task";
 import {
   DEFAULT_REPO_FILE_BROWSER_STATE,
   DEFAULT_REPO_TIMELINE_PREFERENCES,
@@ -285,7 +291,6 @@ import type {
   RepositoryFileHistoryEntry,
   RepositoryFileHunk,
   RepositoryFilePreflight,
-  RepositoryStash,
   RepositoryWorkingTreeItem,
 } from "@/stores/repo/repo-store-types";
 import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
@@ -667,7 +672,6 @@ function LauncherItemIcon({
   }
 }
 
-const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 const STASH_MESSAGE_SECTION_BREAK_PATTERN = /\r?\n\r?\n/;
 const FILE_EXTENSION_PATTERN = /\.([a-z0-9]+)$/i;
 const TIMELINE_ROW_HEIGHT = 30;
@@ -970,33 +974,6 @@ async function navigateDiffEditor(
   editor.focus();
 }
 
-function formatStashLabel(stash: RepositoryStash): string {
-  const rawMessage = stash.message.trim();
-
-  if (rawMessage.length === 0) {
-    return stash.ref;
-  }
-
-  const parsedMessage = STASH_WITH_BRANCH_PATTERN.exec(rawMessage);
-
-  if (!parsedMessage) {
-    return rawMessage;
-  }
-
-  const branchName = parsedMessage[1]?.trim();
-  const stashMessage = parsedMessage[2]?.trim();
-
-  if (!branchName) {
-    return rawMessage;
-  }
-
-  if (stashMessage && stashMessage.length > 0) {
-    return `${stashMessage} on: ${branchName}`;
-  }
-
-  return rawMessage;
-}
-
 function parseStashDraft(message: string): {
   description: string;
   summary: string;
@@ -1010,8 +987,8 @@ function parseStashDraft(message: string): {
     };
   }
 
-  const parsedMessage = STASH_WITH_BRANCH_PATTERN.exec(trimmedMessage);
-  const content = parsedMessage?.[2]?.trim() ?? trimmedMessage;
+  const parsedMessage = parseStashLabel(trimmedMessage);
+  const content = parsedMessage?.message ?? trimmedMessage;
 
   if (content.length === 0) {
     return {
@@ -2173,11 +2150,8 @@ export function RepoInfo() {
     }),
     [fileTreeSortOrder, stagedItems, unstagedItems]
   );
-  const workingTreeWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoWorkingTreeModelInput,
-      ReturnType<typeof buildRepoInfoWorkingTreeModel>
-    >
+  const repoInfoWorkerClientRef = useRef<ReturnType<
+    typeof createWorkerClient<RepoInfoWorkerRequest, RepoInfoWorkerResponse>
   > | null>(null);
   const [workingTreeModel, updateWorkingTreeModel] = useReducerState<
     ReturnType<typeof buildRepoInfoWorkingTreeModel>
@@ -2204,12 +2178,6 @@ export function RepoInfo() {
       workingTreeItems,
     ]
   );
-  const allFilesWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoAllFilesModelInput,
-      ReturnType<typeof buildRepoInfoAllFilesModel>
-    >
-  > | null>(null);
   const [allFilesModel, updateAllFilesModel] = useReducerState<
     ReturnType<typeof buildRepoInfoAllFilesModel>
   >(() => buildRepoInfoAllFilesModel(allFilesModelInput));
@@ -2222,70 +2190,38 @@ export function RepoInfo() {
 
     try {
       const client = createWorkerClient<
-        BuildRepoInfoAllFilesModelInput,
-        ReturnType<typeof buildRepoInfoAllFilesModel>
+        RepoInfoWorkerRequest,
+        RepoInfoWorkerResponse
       >(
         () =>
-          new Worker(
-            new URL("./repo-info-all-files.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:all-files" }
+          new Worker(new URL("./repo-info.worker.ts", import.meta.url), {
+            type: "module",
+          }),
+        { label: "repo-info" }
       );
-      allFilesWorkerClientRef.current = client;
+      repoInfoWorkerClientRef.current = client;
 
       return () => {
-        allFilesWorkerClientRef.current = null;
+        repoInfoWorkerClientRef.current = null;
         client.dispose();
       };
     } catch {
-      allFilesWorkerClientRef.current = null;
+      repoInfoWorkerClientRef.current = null;
       return;
     }
   }, []);
 
   useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoWorkingTreeModelInput,
-        ReturnType<typeof buildRepoInfoWorkingTreeModel>
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-working-tree.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:working-tree" }
-      );
-      workingTreeWorkerClientRef.current = client;
-
-      return () => {
-        workingTreeWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      workingTreeWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = workingTreeWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      workingTreeModelInput,
-      buildRepoInfoWorkingTreeModel
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoWorkingTreeModel,
+      latestKey: "workingTree",
+      payload: workingTreeModelInput,
+      type: "workingTree",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateWorkingTreeModel(result);
@@ -2300,14 +2236,16 @@ export function RepoInfo() {
   }, [workingTreeModelInput, updateWorkingTreeModel]);
 
   useEffect(() => {
-    const workerClient = allFilesWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      allFilesModelInput,
-      buildRepoInfoAllFilesModel
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoAllFilesModel,
+      latestKey: "allFiles",
+      payload: allFilesModelInput,
+      type: "allFiles",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateAllFilesModel(result);
@@ -2430,12 +2368,6 @@ export function RepoInfo() {
       commitFileSortOrder,
     ]
   );
-  const commitFilesWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoCommitFilesModelInput,
-      ReturnType<typeof buildRepoInfoCommitFilesModel>
-    >
-  > | null>(null);
   const [selectedCommitFilesModel, updateSelectedCommitFilesModel] =
     useReducerState<ReturnType<typeof buildRepoInfoCommitFilesModel>>(
       EMPTY_COMMIT_FILES_MODEL
@@ -2466,56 +2398,24 @@ export function RepoInfo() {
       wipAuthorName,
     ]
   );
-  const timelineWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<BuildRepoInfoTimelineRowsInput, GitTimelineRow[]>
-  > | null>(null);
   const [timelineRows, updateTimelineRows] = useReducerState<GitTimelineRow[]>(
     []
   );
 
   useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoTimelineRowsInput,
-        GitTimelineRow[]
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-timeline.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:timeline" }
-      );
-      timelineWorkerClientRef.current = client;
-
-      return () => {
-        timelineWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      timelineWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = timelineWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      timelineRowsInput,
-      buildRepoInfoTimelineRows
-    ).then(
-      (rows) => {
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoTimelineRows,
+      latestKey: "timeline",
+      payload: timelineRowsInput,
+      type: "timeline",
+    }).then(
+      (result) => {
         if (!cancelled) {
-          updateTimelineRows(rows);
+          updateTimelineRows(result);
         }
       },
       () => undefined
@@ -2553,56 +2453,21 @@ export function RepoInfo() {
     }),
     [localHeadCommit?.hash, timelineCommits, timelineDisplayRows]
   );
-  const visibleGraphWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoVisibleGraphModelInput,
-      ReturnType<typeof buildRepoInfoVisibleGraphModel>
-    >
-  > | null>(null);
   const [visibleGraphModel, updateVisibleGraphModel] = useReducerState<
     ReturnType<typeof buildRepoInfoVisibleGraphModel>
   >(() => buildRepoInfoVisibleGraphModel(visibleGraphModelInput));
 
   useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoVisibleGraphModelInput,
-        ReturnType<typeof buildRepoInfoVisibleGraphModel>
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-visible-graph.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:visible-graph", requestTimeoutMs: 15_000 }
-      );
-      visibleGraphWorkerClientRef.current = client;
-
-      return () => {
-        visibleGraphWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      visibleGraphWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = visibleGraphWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      visibleGraphModelInput,
-      buildRepoInfoVisibleGraphModel
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoVisibleGraphModel,
+      latestKey: "visibleGraph",
+      payload: visibleGraphModelInput,
+      type: "visibleGraph",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateVisibleGraphModel(result);
@@ -2775,45 +2640,16 @@ export function RepoInfo() {
   } = selectedReferenceFilesModel;
 
   useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoCommitFilesModelInput,
-        ReturnType<typeof buildRepoInfoCommitFilesModel>
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-commit-files.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:commit-files" }
-      );
-      commitFilesWorkerClientRef.current = client;
-
-      return () => {
-        commitFilesWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      commitFilesWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = commitFilesWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      commitFilesModelInput,
-      buildRepoInfoCommitFilesModel
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoCommitFilesModel,
+      latestKey: "commitFiles:selected",
+      payload: commitFilesModelInput,
+      type: "commitFiles",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateSelectedCommitFilesModel(result);
@@ -2828,14 +2664,16 @@ export function RepoInfo() {
   }, [commitFilesModelInput, updateSelectedCommitFilesModel]);
 
   useEffect(() => {
-    const workerClient = commitFilesWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      referenceFilesModelInput,
-      buildRepoInfoCommitFilesModel
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoCommitFilesModel,
+      latestKey: "commitFiles:reference",
+      payload: referenceFilesModelInput,
+      type: "commitFiles",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateSelectedReferenceFilesModel(result);
@@ -2858,56 +2696,21 @@ export function RepoInfo() {
     }),
     [branches, currentBranch, stashes, timelineCommits, timelineRows]
   );
-  const referenceWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoReferenceModelInput,
-      ReturnType<typeof buildRepoInfoReferenceModel>
-    >
-  > | null>(null);
   const [referenceModel, updateReferenceModel] = useReducerState<
     ReturnType<typeof buildRepoInfoReferenceModel>
   >(EMPTY_REFERENCE_MODEL);
 
   useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoReferenceModelInput,
-        ReturnType<typeof buildRepoInfoReferenceModel>
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-reference.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:reference" }
-      );
-      referenceWorkerClientRef.current = client;
-
-      return () => {
-        referenceWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      referenceWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = referenceWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      referenceModelInput,
-      buildRepoInfoReferenceModel
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoReferenceModel,
+      latestKey: "reference",
+      payload: referenceModelInput,
+      type: "reference",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateReferenceModel(result);
@@ -3169,56 +2972,21 @@ export function RepoInfo() {
     }),
     [branches, normalizedSidebarFilter, stashes]
   );
-  const sidebarWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoSidebarGroupsInput,
-      ReturnType<typeof buildRepoInfoSidebarGroups>
-    >
-  > | null>(null);
   const [sidebarResults, updateSidebarResults] = useReducerState<
     ReturnType<typeof buildRepoInfoSidebarGroups>
   >(() => buildRepoInfoSidebarGroups(sidebarGroupsInput));
 
   useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoSidebarGroupsInput,
-        ReturnType<typeof buildRepoInfoSidebarGroups>
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-sidebar.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:sidebar" }
-      );
-      sidebarWorkerClientRef.current = client;
-
-      return () => {
-        sidebarWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      sidebarWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = sidebarWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      sidebarGroupsInput,
-      buildRepoInfoSidebarGroups
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoSidebarGroups,
+      latestKey: "sidebar",
+      payload: sidebarGroupsInput,
+      type: "sidebar",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateSidebarResults(result);
@@ -3274,56 +3042,21 @@ export function RepoInfo() {
       unstagedTree,
     ]
   );
-  const visibleCountsWorkerClientRef = useRef<ReturnType<
-    typeof createWorkerClient<
-      BuildRepoInfoVisibleCountsModelInput,
-      ReturnType<typeof buildRepoInfoVisibleCountsModel>
-    >
-  > | null>(null);
   const [visibleCountsModel, updateVisibleCountsModel] = useReducerState<
     ReturnType<typeof buildRepoInfoVisibleCountsModel>
   >(() => buildRepoInfoVisibleCountsModel(visibleCountsModelInput));
 
   useEffect(() => {
-    if (typeof Worker === "undefined") {
-      return;
-    }
-
-    try {
-      const client = createWorkerClient<
-        BuildRepoInfoVisibleCountsModelInput,
-        ReturnType<typeof buildRepoInfoVisibleCountsModel>
-      >(
-        () =>
-          new Worker(
-            new URL("./repo-info-visible-counts.worker.ts", import.meta.url),
-            {
-              type: "module",
-            }
-          ),
-        { label: "repo-info:visible-counts" }
-      );
-      visibleCountsWorkerClientRef.current = client;
-
-      return () => {
-        visibleCountsWorkerClientRef.current = null;
-        client.dispose();
-      };
-    } catch {
-      visibleCountsWorkerClientRef.current = null;
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    const workerClient = visibleCountsWorkerClientRef.current;
+    const workerClient = repoInfoWorkerClientRef.current;
     let cancelled = false;
 
-    runWorkerTask(
-      workerClient,
-      visibleCountsModelInput,
-      buildRepoInfoVisibleCountsModel
-    ).then(
+    runRepoInfoWorkerTask({
+      client: workerClient,
+      computeSync: buildRepoInfoVisibleCountsModel,
+      latestKey: "visibleCounts",
+      payload: visibleCountsModelInput,
+      type: "visibleCounts",
+    }).then(
       (result) => {
         if (!cancelled) {
           updateVisibleCountsModel(result);

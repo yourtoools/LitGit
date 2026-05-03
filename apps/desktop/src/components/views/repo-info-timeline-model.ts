@@ -1,12 +1,14 @@
 import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import {
+  formatStashLabel,
+  resolveTagNameFromCommitRef,
+} from "@/components/views/repo-info-reference-labels";
 import type {
   RepositoryCommit,
   RepositoryStash,
 } from "@/stores/repo/repo-store-types";
 
 export const WORKING_TREE_ROW_ID = "__working_tree__";
-
-const STASH_WITH_BRANCH_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
 
 interface TimelineReferenceRowData {
   anchorCommitHash: string;
@@ -23,72 +25,6 @@ export interface BuildRepoInfoTimelineRowsInput {
   timelineCommits: RepositoryCommit[];
   wipAuthorAvatarUrl: null | string;
   wipAuthorName: string;
-}
-
-function normalizeCommitRefLabel(rawReference: string): string | null {
-  const trimmedReference = rawReference.trim();
-
-  if (trimmedReference.length === 0) {
-    return null;
-  }
-
-  const headSeparatorIndex = trimmedReference.indexOf("->");
-
-  if (headSeparatorIndex >= 0) {
-    const targetReference = trimmedReference
-      .slice(headSeparatorIndex + 2)
-      .trim();
-
-    return targetReference.length > 0 ? targetReference : null;
-  }
-
-  if (trimmedReference.startsWith("tag: ")) {
-    const tagName = trimmedReference.slice("tag: ".length).trim();
-    return tagName.length > 0 ? tagName : null;
-  }
-
-  if (trimmedReference === "HEAD") {
-    return null;
-  }
-
-  return trimmedReference;
-}
-
-function resolveTagNameFromCommitRef(rawReference: string): string | null {
-  const trimmedReference = rawReference.trim();
-
-  if (!trimmedReference.startsWith("tag: ")) {
-    return null;
-  }
-
-  return normalizeCommitRefLabel(trimmedReference);
-}
-
-function formatStashLabel(stash: RepositoryStash): string {
-  const rawMessage = stash.message.trim();
-
-  if (rawMessage.length === 0) {
-    return stash.ref;
-  }
-
-  const parsedMessage = STASH_WITH_BRANCH_PATTERN.exec(rawMessage);
-
-  if (!parsedMessage) {
-    return rawMessage;
-  }
-
-  const branchName = parsedMessage[1]?.trim();
-  const stashMessage = parsedMessage[2]?.trim();
-
-  if (!branchName) {
-    return rawMessage;
-  }
-
-  if (stashMessage && stashMessage.length > 0) {
-    return `${stashMessage} on: ${branchName}`;
-  }
-
-  return rawMessage;
 }
 
 export function buildRepoInfoTimelineRows(

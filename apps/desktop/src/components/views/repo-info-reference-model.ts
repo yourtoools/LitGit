@@ -1,59 +1,14 @@
 import type { GitTimelineRow } from "@/components/views/git-graph-layout";
+import {
+  formatStashLabel,
+  normalizeCommitRefLabel,
+} from "@/components/views/repo-info-reference-labels";
 import type { SidebarEntry } from "@/components/views/repo-info-sidebar-model";
 import type {
   RepositoryBranch,
   RepositoryCommit,
   RepositoryStash,
 } from "@/stores/repo/repo-store-types";
-
-const STASH_LABEL_PATTERN = /^(?:WIP\s+on|On)\s+(.+?)(?::\s*(.*))?$/i;
-
-function normalizeCommitRefLabel(rawReference: string): string | null {
-  const trimmedReference = rawReference.trim();
-
-  if (trimmedReference.length === 0) {
-    return null;
-  }
-
-  const headSeparatorIndex = trimmedReference.indexOf("->");
-
-  if (headSeparatorIndex >= 0) {
-    const targetReference = trimmedReference
-      .slice(headSeparatorIndex + 2)
-      .trim();
-
-    return targetReference.length > 0 ? targetReference : null;
-  }
-
-  if (trimmedReference.startsWith("tag: ")) {
-    const tagName = trimmedReference.slice("tag: ".length).trim();
-    return tagName.length > 0 ? tagName : null;
-  }
-
-  if (trimmedReference === "HEAD") {
-    return null;
-  }
-
-  return trimmedReference;
-}
-
-function formatStashLabel(stash: RepositoryStash): string {
-  const rawMessage = stash.message.trim();
-  const match = STASH_LABEL_PATTERN.exec(rawMessage);
-
-  if (!match) {
-    return rawMessage.length > 0 ? rawMessage : stash.ref;
-  }
-
-  const branchName = match[1]?.trim();
-  const stashMessage = match[2]?.trim();
-
-  if (!(branchName && stashMessage)) {
-    return rawMessage;
-  }
-
-  return `${stashMessage} on: ${branchName}`;
-}
 
 function createSidebarEntryFromRefName(
   referenceName: string,
