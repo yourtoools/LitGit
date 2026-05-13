@@ -252,8 +252,8 @@
   }
 
   [data-slot="input-group"]:has(
-      [data-slot="input-group-control"]:focus-visible
-    ),
+    [data-slot="input-group-control"]:focus-visible
+  ),
   [data-slot="input-group"]:has([data-slot="button"]:focus-visible),
   [data-slot="combobox-chips"]:focus-within {
     --tw-ring-shadow: 0 0 #0000 !important;
@@ -265,11 +265,11 @@
   }
 
   [data-slot="input-group"]:has(
-      [data-slot="input-group-control"][aria-invalid="true"]:focus-visible
-    ),
+    [data-slot="input-group-control"][aria-invalid="true"]:focus-visible
+  ),
   [data-slot="input-group"][aria-invalid="true"]:has(
-      [data-slot="button"]:focus-visible
-    ),
+    [data-slot="button"]:focus-visible
+  ),
   [data-slot="combobox-chips"][aria-invalid="true"]:focus-within {
     --tw-ring-shadow: 0 0 #0000 !important;
     --tw-ring-offset-shadow: 0 0 #0000 !important;
