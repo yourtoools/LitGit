@@ -163,7 +163,7 @@ export function SettingsLayout({
         id="settings-content-panel"
         ref={contentPanelRef}
       >
-        <div className="px-4 py-4 pb-8 sm:px-6 sm:py-6 sm:pb-12">
+        <div className="p-4 pb-8 sm:p-6 sm:pb-12">
           <header className="mb-4">
             <h2 className="font-mono font-semibold text-foreground text-lg tracking-tight transition-colors sm:text-xl">
               {SETTINGS_SECTION_LABELS[activeDefinition.id]}

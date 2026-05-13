@@ -206,7 +206,7 @@ function CloneSuccessPanel({
   successState: CloneSuccessState;
 }) {
   return (
-    <div className="space-y-4 px-4 py-4">
+    <div className="space-y-4 p-4">
       <section className="flex items-start gap-3 border border-emerald-500/20 bg-emerald-500/8 p-3">
         <CheckCircleIcon
           aria-hidden="true"
@@ -276,7 +276,7 @@ function CloneFormPanel({
   urlInputId,
 }: CloneFormPanelProps) {
   return (
-    <div className="space-y-5 px-4 py-4">
+    <div className="space-y-5 p-4">
       {/* --- Form fields --- */}
       <fieldset className="space-y-4" disabled={isBusy}>
         {/* Repository URL */}
@@ -408,7 +408,7 @@ function CloneFormPanel({
             </p>
           ) : (
             <p className="text-muted-foreground/70 text-xs">
-              Auto-filled from URL — rename before cloning if needed
+              Auto-filled from URL &mdash; rename before cloning if needed
             </p>
           )}
         </div>
@@ -546,7 +546,7 @@ function CloneDialogFooter({
   ) : (
     <DownloadSimpleIcon aria-hidden="true" className="size-4" />
   );
-  const actionLabel = isCloning ? "Cloning..." : "Clone repository";
+  const actionLabel = isCloning ? "Cloning…" : "Clone repository";
 
   if (successState) {
     return (

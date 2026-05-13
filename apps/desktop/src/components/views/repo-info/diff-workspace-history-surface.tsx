@@ -199,7 +199,7 @@ export function DiffWorkspaceHistorySurface({
   if (renderError && entries.length === 0) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
+        <div className="space-y-3 border border-border/70 bg-background p-4 text-center">
           <p className="font-medium text-sm">Error loading file history</p>
           <Button
             className="h-7 px-3 text-xs"
@@ -326,7 +326,7 @@ export function DiffWorkspaceHistorySurface({
           diff.viewerKind !== "text" &&
           diff.viewerKind !== "image" ? (
             <div className="flex h-full items-center justify-center px-6">
-              <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
+              <div className="space-y-3 border border-border/70 bg-background p-4 text-center">
                 <p className="font-medium text-sm">
                   Unsupported file extension
                 </p>

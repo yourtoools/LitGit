@@ -432,7 +432,7 @@ export function PublishRepositoryDialog({
                   <SelectValue
                     placeholder={
                       isLoadingTargets
-                        ? "Loading destinations..."
+                        ? "Loading destinations…"
                         : "Choose destination"
                     }
                   />

@@ -1,7 +1,14 @@
 import { useWindowEvent } from "@mantine/hooks";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AiSection } from "@/components/views/settings/sections/ai-section";
 import { EditorSection } from "@/components/views/settings/sections/editor-section";
 import { GeneralSection } from "@/components/views/settings/sections/general-section";
@@ -180,6 +187,8 @@ export function SettingsPage() {
     []
   );
 
+  const onGetAvailableSettingsWidth = useEffectEvent(getAvailableSettingsWidth);
+
   const scheduleSidebarWidthUpdate = useCallback((nextWidth: number) => {
     pendingSidebarWidthRef.current = nextWidth;
 
@@ -218,7 +227,7 @@ export function SettingsPage() {
       event.stopPropagation();
 
       const { maxWidth, minWidth } = getSidebarResizeBounds(
-        getAvailableSettingsWidth()
+        onGetAvailableSettingsWidth()
       );
 
       if (maxWidth <= 0) {
@@ -247,7 +256,7 @@ export function SettingsPage() {
 
       const delta = event.clientX - resizeState.startX;
       const { maxWidth, minWidth } = getSidebarResizeBounds(
-        getAvailableSettingsWidth()
+        onGetAvailableSettingsWidth()
       );
 
       if (maxWidth <= 0) {
@@ -286,12 +295,12 @@ export function SettingsPage() {
       window.removeEventListener("blur", handleWindowBlur);
       resetResizeState();
     };
-  }, [getAvailableSettingsWidth, resetResizeState, scheduleSidebarWidthUpdate]);
+  }, [resetResizeState, scheduleSidebarWidthUpdate]);
 
   useEffect(() => {
     const clampSidebarWidthToViewport = () => {
       const { maxWidth, minWidth } = getSidebarResizeBounds(
-        getAvailableSettingsWidth()
+        onGetAvailableSettingsWidth()
       );
 
       setLeftSidebarWidth((currentWidth) => {
@@ -318,7 +327,7 @@ export function SettingsPage() {
       window.removeEventListener("resize", clampSidebarWidthToViewport);
       resizeObserver.disconnect();
     };
-  }, [getAvailableSettingsWidth]);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(

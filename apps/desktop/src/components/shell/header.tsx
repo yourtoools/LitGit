@@ -7,7 +7,13 @@ import {
 import { cn } from "@litgit/ui/lib/utils";
 import { GearIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { GitIdentityDialog } from "@/components/dialogs/git-identity-dialog";
 import { RepositoryInitializeDialog } from "@/components/dialogs/repository-initialize-dialog";
@@ -93,12 +99,16 @@ export default function Header() {
     }
   }, []);
 
+  const onClearOpenRepositoryChord = useEffectEvent(clearOpenRepositoryChord);
+
   const queueOpenRepositoryChord = useCallback(() => {
     clearOpenRepositoryChord();
     openRepositoryChordTimeoutRef.current = window.setTimeout(() => {
       openRepositoryChordTimeoutRef.current = null;
     }, 1500);
   }, [clearOpenRepositoryChord]);
+
+  const onQueueOpenRepositoryChord = useEffectEvent(queueOpenRepositoryChord);
 
   const routePickedRepository = useCallback(
     async (repositoryToRoute: OpenedRepository) => {
@@ -155,6 +165,10 @@ export default function Header() {
       return;
     });
   }, [handleOpenRepoPicker]);
+
+  const onTriggerOpenRepositoryPicker = useEffectEvent(
+    triggerOpenRepositoryPicker
+  );
 
   const completeRepositoryInitialization = useCallback(
     async (gitIdentity?: GitIdentityWriteInput | null) => {
@@ -229,13 +243,13 @@ export default function Header() {
 
       if (isOpenRepositoryChordEndShortcut(event)) {
         event.preventDefault();
-        clearOpenRepositoryChord();
-        triggerOpenRepositoryPicker();
+        onClearOpenRepositoryChord();
+        onTriggerOpenRepositoryPicker();
         return true;
       }
 
       if (event.key !== "Meta" && event.key !== "Control") {
-        clearOpenRepositoryChord();
+        onClearOpenRepositoryChord();
       }
 
       return true;
@@ -247,7 +261,7 @@ export default function Header() {
       }
 
       if (isOpenRepositoryChordStartShortcut(event)) {
-        queueOpenRepositoryChord();
+        onQueueOpenRepositoryChord();
         return;
       }
 
@@ -260,20 +274,16 @@ export default function Header() {
       }
 
       event.preventDefault();
-      triggerOpenRepositoryPicker();
+      onTriggerOpenRepositoryPicker();
     };
 
     window.addEventListener("keydown", handleGlobalOpenShortcut);
 
     return () => {
-      clearOpenRepositoryChord();
+      onClearOpenRepositoryChord();
       window.removeEventListener("keydown", handleGlobalOpenShortcut);
     };
-  }, [
-    clearOpenRepositoryChord,
-    queueOpenRepositoryChord,
-    triggerOpenRepositoryPicker,
-  ]);
+  }, []);
 
   return (
     <header className="bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">

@@ -7,7 +7,7 @@ import {
   SelectTrigger,
 } from "@litgit/ui/components/select";
 import { Switch } from "@litgit/ui/components/switch";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef } from "react";
 import {
   BUNDLED_FONT_OPTIONS,
   ensureSelectedOption,
@@ -182,6 +182,8 @@ function EditorSection({ query }: { query: string }) {
     []
   );
 
+  const onGetAvailableEditorWidth = useEffectEvent(getAvailableEditorWidth);
+
   const schedulePreviewSidebarWidthUpdate = useCallback(
     (nextWidth: number) => {
       pendingPreviewSidebarWidthRef.current = nextWidth;
@@ -227,7 +229,7 @@ function EditorSection({ query }: { query: string }) {
     event.stopPropagation();
 
     const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-      getAvailableEditorWidth()
+      onGetAvailableEditorWidth()
     );
 
     if (maxWidth <= 0) {
@@ -256,7 +258,7 @@ function EditorSection({ query }: { query: string }) {
 
   const adjustPreviewSidebarWidth = (delta: number) => {
     const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-      getAvailableEditorWidth()
+      onGetAvailableEditorWidth()
     );
 
     if (maxWidth <= 0) {
@@ -289,7 +291,7 @@ function EditorSection({ query }: { query: string }) {
     if (event.key === "Home") {
       event.preventDefault();
       const { minWidth } = getEditorPreviewResizeBounds(
-        getAvailableEditorWidth()
+        onGetAvailableEditorWidth()
       );
       updatePreviewSidebarWidth(minWidth);
       return;
@@ -298,7 +300,7 @@ function EditorSection({ query }: { query: string }) {
     if (event.key === "End") {
       event.preventDefault();
       const { maxWidth } = getEditorPreviewResizeBounds(
-        getAvailableEditorWidth()
+        onGetAvailableEditorWidth()
       );
       updatePreviewSidebarWidth(maxWidth);
     }
@@ -314,7 +316,7 @@ function EditorSection({ query }: { query: string }) {
 
       const delta = event.clientX - resizeState.startX;
       const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-        getAvailableEditorWidth()
+        onGetAvailableEditorWidth()
       );
 
       if (maxWidth <= 0) {
@@ -355,16 +357,12 @@ function EditorSection({ query }: { query: string }) {
       window.removeEventListener("blur", handleWindowBlur);
       resetPreviewResizeState();
     };
-  }, [
-    getAvailableEditorWidth,
-    resetPreviewResizeState,
-    schedulePreviewSidebarWidthUpdate,
-  ]);
+  }, [resetPreviewResizeState, schedulePreviewSidebarWidthUpdate]);
 
   useEffect(() => {
     const clampPreviewWidthToViewport = () => {
       const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-        getAvailableEditorWidth()
+        onGetAvailableEditorWidth()
       );
 
       updatePreviewSidebarWidth((currentWidth) => {
@@ -391,7 +389,7 @@ function EditorSection({ query }: { query: string }) {
       window.removeEventListener("resize", clampPreviewWidthToViewport);
       resizeObserver.disconnect();
     };
-  }, [getAvailableEditorWidth, updatePreviewSidebarWidth]);
+  }, [updatePreviewSidebarWidth]);
 
   let editorFontHelperText =
     "Loading installed system fonts in the background. Bundled fallbacks are available immediately.";

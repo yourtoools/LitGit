@@ -133,6 +133,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -8720,6 +8721,10 @@ export function RepoInfo() {
     updateIsUnsavedEditConfirmOpen,
   ]);
 
+  const onHandleWorkspaceCloseRequest = useEffectEvent(
+    handleWorkspaceCloseRequest
+  );
+
   const toolbarControls = resolveToolbarControlState({
     hasDiffEditor: isDiffEditorReady,
     hasHunks: activeHunks.length > 0,
@@ -9177,7 +9182,7 @@ export function RepoInfo() {
         return;
       }
 
-      handleWorkspaceCloseRequest();
+      onHandleWorkspaceCloseRequest();
     };
 
     globalThis.addEventListener("keydown", handleEscapeToCloseDiff);
@@ -9185,7 +9190,7 @@ export function RepoInfo() {
     return () => {
       globalThis.removeEventListener("keydown", handleEscapeToCloseDiff);
     };
-  }, [handleWorkspaceCloseRequest, isDiffPanelOpen]);
+  }, [isDiffPanelOpen]);
   const getChangeContextMenuContent = (
     targetPath: string,
     section: "staged" | "unstaged",
@@ -9449,7 +9454,7 @@ export function RepoInfo() {
                     type="button"
                     variant="ghost"
                   >
-                    {isBusy ? "..." : actionLabel}
+                    {isBusy ? "…" : actionLabel}
                   </Button>
                 ) : null}
                 {isLoadingDiff ? (
@@ -9614,7 +9619,7 @@ export function RepoInfo() {
                 type="button"
                 variant="ghost"
               >
-                {isBusy ? "..." : nextLabel}
+                {isBusy ? "…" : nextLabel}
               </Button>
               {isLoadingDiff ? (
                 <SpinnerGapIcon className="relative z-10 size-3 animate-spin text-muted-foreground" />
@@ -10013,9 +10018,9 @@ export function RepoInfo() {
   let forcePushConfirmActionLabel = "Force push";
 
   if (isCommitting) {
-    forcePushConfirmActionLabel = "Committing...";
+    forcePushConfirmActionLabel = "Committing…";
   } else if (isPushing) {
-    forcePushConfirmActionLabel = "Pushing...";
+    forcePushConfirmActionLabel = "Pushing…";
   }
 
   if (!activeRepo) {
@@ -10858,7 +10863,7 @@ export function RepoInfo() {
                                   type="button"
                                   variant="outline"
                                 >
-                                  {isCreatingBranch ? "Creating..." : "Create"}
+                                  {isCreatingBranch ? "Creating…" : "Create"}
                                 </Button>
                                 <Button
                                   className="focus-visible:desktop-focus h-7 px-3 focus-visible:ring-0! focus-visible:ring-offset-0!"
@@ -11506,7 +11511,7 @@ export function RepoInfo() {
                         ) : null}
                         {activeDiffViewerKind === "unsupported" ? (
                           <div className="flex h-full items-center justify-center px-6">
-                            <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
+                            <div className="space-y-3 border border-border/70 bg-background p-4 text-center">
                               <pre
                                 aria-hidden="true"
                                 className="overflow-auto font-mono text-muted-foreground/90 text-xs leading-tight"
@@ -11573,7 +11578,7 @@ export function RepoInfo() {
                               theme={
                                 resolvedTheme === "light" ? "light" : "dark"
                               }
-                              value={activeDiff.newText ?? "Loading..."}
+                              value={activeDiff.newText ?? "Loading…"}
                               wordWrap={editorPreferences.wordWrap}
                             />
                           </Suspense>
@@ -11596,7 +11601,7 @@ export function RepoInfo() {
                         ) : null}
                         {activeDiffViewerKind === "unsupported" ? (
                           <div className="flex h-full items-center justify-center px-6">
-                            <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
+                            <div className="space-y-3 border border-border/70 bg-background p-4 text-center">
                               <pre
                                 aria-hidden="true"
                                 className="overflow-auto font-mono text-muted-foreground/90 text-xs leading-tight"
@@ -11750,7 +11755,7 @@ export function RepoInfo() {
                         ) : null}
                         {editLoadError ? (
                           <div className="flex h-full items-center justify-center px-6">
-                            <div className="space-y-3 border border-border/70 bg-background px-4 py-4 text-center">
+                            <div className="space-y-3 border border-border/70 bg-background p-4 text-center">
                               <p className="font-medium text-sm">
                                 Error loading file
                               </p>
@@ -11819,7 +11824,7 @@ export function RepoInfo() {
                                 type="button"
                                 variant="secondary"
                               >
-                                {isSavingEditBuffer ? "Saving..." : "Save"}
+                                {isSavingEditBuffer ? "Saving…" : "Save"}
                               </Button>
                             </div>
                           </>
@@ -11907,7 +11912,7 @@ export function RepoInfo() {
                                   >
                                     <SparkleIcon className="size-3" />
                                     {isGeneratingAiRewordMessage
-                                      ? "Generating..."
+                                      ? "Generating…"
                                       : "Generate with AI"}
                                   </Button>
                                 </div>
@@ -11978,7 +11983,7 @@ export function RepoInfo() {
                                   variant="outline"
                                 >
                                   {isRewordingCommitMessage
-                                    ? "Updating..."
+                                    ? "Updating…"
                                     : "Update Message"}
                                 </Button>
                                 <Button
@@ -12220,7 +12225,7 @@ export function RepoInfo() {
                                             event.target.value
                                           );
                                         }}
-                                        placeholder="Filter files..."
+                                        placeholder="Filter files…"
                                         value={commitFileFilterInputValue}
                                       />
                                     </div>
@@ -12643,7 +12648,7 @@ export function RepoInfo() {
                                       event.target.value
                                     );
                                   }}
-                                  placeholder="Filter files..."
+                                  placeholder="Filter files…"
                                   value={commitFileFilterInputValue}
                                 />
                               </div>
@@ -12925,7 +12930,7 @@ export function RepoInfo() {
                                       event.target.value
                                     );
                                   }}
-                                  placeholder="Filter files..."
+                                  placeholder="Filter files…"
                                   value={repositoryFileFilterInputValue}
                                 />
                               </div>
@@ -13041,7 +13046,7 @@ export function RepoInfo() {
                                     variant="ghost"
                                   >
                                     {isStagingAll
-                                      ? "Staging..."
+                                      ? "Staging…"
                                       : "Stage All Changes"}
                                   </Button>
                                 </div>
@@ -13105,7 +13110,7 @@ export function RepoInfo() {
                                     variant="ghost"
                                   >
                                     {isUnstagingAll
-                                      ? "Unstaging..."
+                                      ? "Unstaging…"
                                       : "Unstage All Changes"}
                                   </Button>
                                 </div>
@@ -13169,7 +13174,7 @@ export function RepoInfo() {
                             >
                               <SparkleIcon className="size-3" />
                               {isGeneratingAiCommitMessage
-                                ? "Generating..."
+                                ? "Generating…"
                                 : "Generate with AI"}
                             </Button>
                           </div>
@@ -13216,7 +13221,7 @@ export function RepoInfo() {
                               updateDraftCommitDescription(event.target.value);
                               updateLastAiCommitGeneration(null);
                             }}
-                            placeholder="Optional details..."
+                            placeholder="Optional details…"
                             value={draftCommitDescription}
                           />
                         </div>
@@ -13426,7 +13431,7 @@ export function RepoInfo() {
               }}
               type="button"
             >
-              {isRenamingBranch ? "Renaming..." : "Rename"}
+              {isRenamingBranch ? "Renaming…" : "Rename"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -13535,7 +13540,7 @@ export function RepoInfo() {
               }}
               type="button"
             >
-              {isSettingUpstream ? "Setting..." : "Submit"}
+              {isSettingUpstream ? "Setting…" : "Submit"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -13610,7 +13615,7 @@ export function RepoInfo() {
               }}
               type="button"
             >
-              {isCreatingRefBranch ? "Creating..." : "Create branch"}
+              {isCreatingRefBranch ? "Creating…" : "Create branch"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -13691,7 +13696,7 @@ export function RepoInfo() {
               }}
               type="button"
             >
-              {isCreatingTagAtReference ? "Creating..." : "Create tag"}
+              {isCreatingTagAtReference ? "Creating…" : "Create tag"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -13772,7 +13777,7 @@ export function RepoInfo() {
               variant={resetTargetMode === "hard" ? "destructive" : "default"}
             >
               {isResettingToReference
-                ? "Resetting..."
+                ? "Resetting…"
                 : `Reset ${resetTargetMode}`}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -13816,7 +13821,7 @@ export function RepoInfo() {
               size="sm"
               variant="destructive"
             >
-              {isDroppingCommit ? "Dropping..." : "Drop commit"}
+              {isDroppingCommit ? "Dropping…" : "Drop commit"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -13886,7 +13891,7 @@ export function RepoInfo() {
               size="sm"
               variant="destructive"
             >
-              {isDiscardingAllChanges ? "Discarding..." : "Discard all"}
+              {isDiscardingAllChanges ? "Discarding…" : "Discard all"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -13932,7 +13937,7 @@ export function RepoInfo() {
               size="sm"
               variant="destructive"
             >
-              {isDeletingBranch ? "Deleting..." : "Delete branch"}
+              {isDeletingBranch ? "Deleting…" : "Delete branch"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

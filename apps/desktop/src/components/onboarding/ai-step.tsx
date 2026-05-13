@@ -437,7 +437,7 @@ export function AiStep({
                     onClick={onComplete}
                     type="button"
                   >
-                    Continue
+                    Save and continue
                   </Button>
                 );
               }

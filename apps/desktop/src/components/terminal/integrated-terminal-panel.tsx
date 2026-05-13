@@ -240,15 +240,11 @@ export function IntegratedTerminalPanel({
     }
 
     setActiveTab("terminal");
-  }, [isOpen]);
 
-  useEffect(() => {
-    if (!(isOpen && activeTab === "terminal" && cwd.trim().length > 0)) {
-      return;
+    if (cwd.trim().length > 0) {
+      setHasRequestedTerminal(true);
     }
-
-    setHasRequestedTerminal(true);
-  }, [activeTab, cwd, isOpen]);
+  }, [isOpen, cwd]);
 
   const onStartResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();

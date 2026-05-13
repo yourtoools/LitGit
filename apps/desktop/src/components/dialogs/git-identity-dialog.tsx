@@ -154,7 +154,7 @@ export function GitIdentityDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 px-4 py-4">
+        <div className="grid gap-4 p-4">
           <section className="border border-border/60 bg-muted/18 p-3">
             <p className="font-medium text-foreground text-xs">
               Current Git identity

@@ -346,7 +346,7 @@ function FontPickerField({
         {isLoadingOptions ? (
           <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
             <span className="inline-flex size-2 animate-pulse rounded-full bg-primary/60" />
-            <span>Loading installed fonts...</span>
+            <span>Loading installed fonts…</span>
           </div>
         ) : null}
         <SettingsHelpText>{helperText}</SettingsHelpText>

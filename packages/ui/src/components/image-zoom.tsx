@@ -11,6 +11,7 @@ import type * as React from "react";
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useImperativeHandle,
   useRef,
   useState,
@@ -98,6 +99,8 @@ function ImageZoom({
     suppressClickRef.current = false;
     setIsDragging(false);
   }, []);
+
+  const onResetPointerState = useEffectEvent(resetPointerState);
 
   const getState = useCallback((): ImageZoomTransformState => {
     const state = transformRef.current?.state;
@@ -307,7 +310,7 @@ function ImageZoom({
     };
 
     const handleWindowBlur = (): void => {
-      resetPointerState();
+      onResetPointerState();
     };
 
     window.addEventListener("mousemove", handleWindowMouseMove);
@@ -320,7 +323,7 @@ function ImageZoom({
       window.removeEventListener("mouseup", handleWindowMouseUp);
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [clearExternalUpdateTimeout, resetPointerState]);
+  }, [clearExternalUpdateTimeout]);
 
   return (
     <TransformWrapper

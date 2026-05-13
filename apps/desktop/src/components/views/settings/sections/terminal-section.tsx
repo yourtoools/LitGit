@@ -6,7 +6,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@litgit/ui/components/select";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef } from "react";
 import {
   BUNDLED_FONT_OPTIONS,
   ensureSelectedOption,
@@ -188,6 +188,8 @@ function TerminalSection({ query }: { query: string }) {
     []
   );
 
+  const onGetAvailableTerminalWidth = useEffectEvent(getAvailableTerminalWidth);
+
   const schedulePreviewSidebarWidthUpdate = useCallback(
     (nextWidth: number) => {
       pendingPreviewSidebarWidthRef.current = nextWidth;
@@ -233,7 +235,7 @@ function TerminalSection({ query }: { query: string }) {
     event.stopPropagation();
 
     const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-      getAvailableTerminalWidth()
+      onGetAvailableTerminalWidth()
     );
 
     if (maxWidth <= 0) {
@@ -262,7 +264,7 @@ function TerminalSection({ query }: { query: string }) {
 
   const adjustPreviewSidebarWidth = (delta: number) => {
     const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-      getAvailableTerminalWidth()
+      onGetAvailableTerminalWidth()
     );
 
     if (maxWidth <= 0) {
@@ -295,7 +297,7 @@ function TerminalSection({ query }: { query: string }) {
     if (event.key === "Home") {
       event.preventDefault();
       const { minWidth } = getEditorPreviewResizeBounds(
-        getAvailableTerminalWidth()
+        onGetAvailableTerminalWidth()
       );
       updatePreviewSidebarWidth(minWidth);
       return;
@@ -304,7 +306,7 @@ function TerminalSection({ query }: { query: string }) {
     if (event.key === "End") {
       event.preventDefault();
       const { maxWidth } = getEditorPreviewResizeBounds(
-        getAvailableTerminalWidth()
+        onGetAvailableTerminalWidth()
       );
       updatePreviewSidebarWidth(maxWidth);
     }
@@ -320,7 +322,7 @@ function TerminalSection({ query }: { query: string }) {
 
       const delta = event.clientX - resizeState.startX;
       const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-        getAvailableTerminalWidth()
+        onGetAvailableTerminalWidth()
       );
 
       if (maxWidth <= 0) {
@@ -361,16 +363,12 @@ function TerminalSection({ query }: { query: string }) {
       window.removeEventListener("blur", handleWindowBlur);
       resetPreviewResizeState();
     };
-  }, [
-    getAvailableTerminalWidth,
-    resetPreviewResizeState,
-    schedulePreviewSidebarWidthUpdate,
-  ]);
+  }, [resetPreviewResizeState, schedulePreviewSidebarWidthUpdate]);
 
   useEffect(() => {
     const clampPreviewWidthToViewport = () => {
       const { maxWidth, minWidth } = getEditorPreviewResizeBounds(
-        getAvailableTerminalWidth()
+        onGetAvailableTerminalWidth()
       );
 
       updatePreviewSidebarWidth((currentWidth) => {
@@ -397,7 +395,7 @@ function TerminalSection({ query }: { query: string }) {
       window.removeEventListener("resize", clampPreviewWidthToViewport);
       resizeObserver.disconnect();
     };
-  }, [getAvailableTerminalWidth, updatePreviewSidebarWidth]);
+  }, [updatePreviewSidebarWidth]);
 
   useEffect(() => {
     window.localStorage.setItem(

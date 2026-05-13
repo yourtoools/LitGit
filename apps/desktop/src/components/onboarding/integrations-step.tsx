@@ -247,7 +247,7 @@ export function IntegrationsStep({
               onClick={handleSaveAndContinue}
               size="sm"
             >
-              Continue
+              Save and continue
             </Button>
           </div>
         </div>

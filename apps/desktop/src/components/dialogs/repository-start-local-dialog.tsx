@@ -235,7 +235,7 @@ function TemplateSelect({
     helpText = state.error;
     helpTextClassName = "text-xs text-destructive";
   } else if (state.isLoading) {
-    helpText = "Loading available templates...";
+    helpText = "Loading available templates…";
   }
 
   return (
@@ -294,7 +294,7 @@ function StartLocalSuccessPanel({
   successState: StartLocalSuccessState;
 }) {
   return (
-    <div className="space-y-4 px-4 py-4">
+    <div className="space-y-4 p-4">
       <section className="flex items-start gap-3 border border-emerald-500/20 bg-emerald-500/8 p-3">
         <CheckCircleIcon
           aria-hidden="true"
@@ -371,7 +371,7 @@ function StartLocalFormPanel({
     licenseTemplatesState.isLoading;
 
   return (
-    <div className="space-y-5 px-4 py-4">
+    <div className="space-y-5 p-4">
       <fieldset className="space-y-4" disabled={isBusy}>
         <div className="grid gap-1.5">
           <Label className="text-xs" htmlFor={nameInputId}>
@@ -649,7 +649,7 @@ function StartLocalDialogFooter({
         type="button"
       >
         {actionIcon}
-        {isCreating ? "Creating..." : "Create repository"}
+        {isCreating ? "Creating…" : "Create repository"}
       </Button>
     </DialogFooter>
   );
