@@ -72,9 +72,17 @@ function parseSkillsLock(text) {
       throw new Error(`Skill "${name}" is missing required "source"`);
     }
 
+    const sourceType = entry?.sourceType;
+    const resolvedSource =
+      sourceType === "well-known" &&
+      !normalizedSource.startsWith("http://") &&
+      !normalizedSource.startsWith("https://")
+        ? `https://${normalizedSource}`
+        : normalizedSource;
+
     lockedSkills.push({
       name: normalizedName,
-      source: normalizedSource,
+      source: resolvedSource,
       hash: entry?.computedHash,
     });
   }
@@ -122,8 +130,12 @@ function buildSkillsAddArgs(lockedSkill) {
     lockedSkill.source,
     "--skill",
     lockedSkill.name,
-    "--agent",
+    "-a",
     "universal",
+    "-a",
+    "claude-code",
+    "-a",
+    "pi",
     "-y",
   ];
 }
