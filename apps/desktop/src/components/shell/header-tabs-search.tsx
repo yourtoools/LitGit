@@ -83,7 +83,7 @@ import { useTerminalPanelStore } from "@/stores/ui/use-terminal-panel-store";
 type PaletteItem = HeaderTabsCommandPaletteItem | HeaderTabsSearchTabItem;
 
 const SCROLLBAR_CLASSES =
-  "[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2";
+  "[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] scrollbar-thin [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2";
 
 const isCommandItem = (
   item: PaletteItem

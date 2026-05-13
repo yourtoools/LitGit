@@ -399,7 +399,7 @@ export function TerminalPreview({
             lineHeight: String(Math.max(1.25, lineHeight + 0.15)),
           }}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
             {TERMINAL_PREVIEW_LINES.map((line) => (
               <div
                 className="truncate"

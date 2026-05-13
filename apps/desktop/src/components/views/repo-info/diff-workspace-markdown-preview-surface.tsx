@@ -242,7 +242,7 @@ function renderMarkdownBlock(block: MarkdownBlock): ReactNode {
   }
 
   return (
-    <p className="leading-7 [&:not(:first-child)]:mt-6" key={blockKey}>
+    <p className="not-first:mt-6 leading-7" key={blockKey}>
       {getInlineMarkdownNodes(block.text)}
     </p>
   );

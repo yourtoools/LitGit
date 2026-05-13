@@ -339,7 +339,7 @@ export function KeyboardShortcutsDialog() {
             </p>
           </div>
 
-          <div className="max-h-96 overflow-y-auto px-4 py-3 [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
+          <div className="scrollbar-thin max-h-96 overflow-y-auto px-4 py-3 [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
             {shortcutsByGroup.length === 0 ? (
               <div className="py-8 text-left">
                 <p className="font-medium text-foreground text-xs">

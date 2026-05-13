@@ -476,11 +476,11 @@ export function NewTabContent() {
         {/* Quick Actions with asymmetric layout */}
         <section aria-label="Quick actions" className="space-y-3">
           <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+            <div className="h-px flex-1 bg-linear-to-r from-border to-transparent" />
             <h2 className="font-medium font-mono text-muted-foreground text-xs tracking-wide">
               Quick Actions
             </h2>
-            <div className="h-px flex-1 bg-gradient-to-l from-border to-transparent" />
+            <div className="h-px flex-1 bg-linear-to-l from-border to-transparent" />
           </div>
           <TooltipProvider delay={900}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -534,11 +534,11 @@ export function NewTabContent() {
         {/* Recent Repositories with enhanced visual hierarchy */}
         <section aria-label="Recent repositories" className="flex-1 space-y-3">
           <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+            <div className="h-px flex-1 bg-linear-to-r from-border to-transparent" />
             <h2 className="font-medium font-mono text-muted-foreground text-xs tracking-wide">
               Recent Repositories
             </h2>
-            <div className="h-px flex-1 bg-gradient-to-l from-border to-transparent" />
+            <div className="h-px flex-1 bg-linear-to-l from-border to-transparent" />
             {hasMoreThanLimit && !isSearching ? (
               <Button
                 className="focus-visible:desktop-focus h-6 gap-1.5 px-2 text-muted-foreground text-xs tracking-wide hover:text-foreground focus-visible:ring-0! focus-visible:ring-offset-0!"
@@ -618,13 +618,13 @@ export function NewTabContent() {
             {showRecentTopFade && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 top-8 z-10 h-5 bg-gradient-to-b from-background/95 to-transparent"
+                className="pointer-events-none absolute inset-x-0 top-8 z-10 h-5 bg-linear-to-b from-background/95 to-transparent"
               />
             )}
             {showRecentBottomFade && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-gradient-to-t from-background/95 to-transparent"
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-linear-to-t from-background/95 to-transparent"
               />
             )}
 
@@ -644,7 +644,7 @@ export function NewTabContent() {
               }
               aria-label={`Recent repositories list, ${searchStatusMessage}`}
               className={cn(
-                "min-h-0 [scrollbar-width:thin]",
+                "scrollbar-thin min-h-0",
                 !isExpanded && "max-h-80 overflow-y-auto"
               )}
               id="recent-repositories-listbox"

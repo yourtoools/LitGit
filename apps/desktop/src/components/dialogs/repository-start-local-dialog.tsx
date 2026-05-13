@@ -267,7 +267,7 @@ function TemplateSelect({
         />
         <ComboboxContent>
           <ComboboxEmpty>No matching templates found.</ComboboxEmpty>
-          <ComboboxList className="[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
+          <ComboboxList className="scrollbar-thin [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
             {(option: RepositoryTemplateOption) => (
               <ComboboxItem key={option.key} value={option}>
                 <div className="flex min-w-0 flex-col gap-0.5 pr-6">

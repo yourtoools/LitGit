@@ -30,7 +30,7 @@ function ExplorerIcon({ className }: { className?: string }) {
   return (
     <svg
       aria-hidden="true"
-      className={cn("size-[14px] shrink-0", className)}
+      className={cn("size-3.5 shrink-0", className)}
       fill="none"
       viewBox="0 0 24 24"
     >

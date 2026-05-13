@@ -224,7 +224,7 @@ export function DiffWorkspaceHistorySurface({
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <aside className="h-full w-[27rem] shrink-0 border-border/70 border-r bg-background/95">
+      <aside className="h-full w-108 shrink-0 border-border/70 border-r bg-background/95">
         <div className="h-full overflow-y-auto">
           {normalizedEntries.map((entry) => {
             const isSelected = entry.commitHash === selectedCommitHash;

@@ -900,7 +900,7 @@ function TimelineReferenceCards({
         </Tooltip>
       ) : null}
       <span
-        className="relative z-10 inline-flex min-w-0 max-w-[7rem] shrink items-center gap-1 rounded border bg-background/95 px-1.5 py-0.5 text-xs leading-none shadow-sm"
+        className="relative z-10 inline-flex min-w-0 max-w-28 shrink items-center gap-1 rounded border bg-background/95 px-1.5 py-0.5 text-xs leading-none shadow-sm"
         style={{ borderColor: `${laneColor}99`, opacity }}
       >
         <TimelineReferenceLabel
@@ -10212,7 +10212,7 @@ export function RepoInfo() {
                 </Tooltip>
 
                 <Separator
-                  className="!self-center mx-1 h-3.5"
+                  className="self-center! mx-1 h-3.5"
                   orientation="vertical"
                 />
 
@@ -10348,7 +10348,7 @@ export function RepoInfo() {
                 </Tooltip>
 
                 <Separator
-                  className="!self-center mx-1 h-3.5"
+                  className="self-center! mx-1 h-3.5"
                   orientation="vertical"
                 />
 
@@ -10445,7 +10445,7 @@ export function RepoInfo() {
               </TooltipProvider>
             </div>
 
-            <div className="w-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="scrollbar-none w-full min-w-0 flex-1 overflow-x-auto [&::-webkit-scrollbar]:hidden">
               <div className="flex min-w-max items-center justify-end gap-1">
                 {tauriRuntime ? (
                   <div className="flex items-stretch">
@@ -13202,7 +13202,7 @@ export function RepoInfo() {
                           ) : null}
                           {isGeneratingAiCommitMessage &&
                           aiCommitGenerationPreview.length > 0 ? (
-                            <p className="line-clamp-3 break-words rounded border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-muted-foreground leading-4">
+                            <p className="wrap-break-word line-clamp-3 rounded border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-muted-foreground leading-4">
                               {aiCommitGenerationPreview}
                             </p>
                           ) : null}

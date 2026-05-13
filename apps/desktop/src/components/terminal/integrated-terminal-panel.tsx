@@ -390,7 +390,7 @@ export function IntegratedTerminalPanel({
                       return (
                         <div
                           className={cn(
-                            "whitespace-pre-wrap break-words border-l-2 pl-2",
+                            "wrap-break-word whitespace-pre-wrap border-l-2 pl-2",
                             getLogLevelClassName(entry.level),
                             getLogLevelBorderClassName(entry.level)
                           )}

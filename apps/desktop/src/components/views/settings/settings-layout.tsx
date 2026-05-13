@@ -159,7 +159,7 @@ export function SettingsLayout({
         type="button"
       />
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-muted/20 [&::-webkit-scrollbar]:w-2"
+        className="scrollbar-thin scrollbar-gutter-stable flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-muted/20 [&::-webkit-scrollbar]:w-2"
         id="settings-content-panel"
         ref={contentPanelRef}
       >

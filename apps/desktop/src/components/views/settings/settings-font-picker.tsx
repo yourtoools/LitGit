@@ -313,7 +313,7 @@ function FontPickerField({
             />
             <ComboboxContent>
               <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
-              <ComboboxList className="[scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
+              <ComboboxList className="scrollbar-thin [scrollbar-color:color-mix(in_oklab,var(--color-muted-foreground)_55%,transparent)_transparent] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/45 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-2">
                 {(option: FontPickerOption) => (
                   <ComboboxItem key={option.family} value={option}>
                     <div className="flex min-w-0 flex-1 items-center justify-between gap-3 pr-6">
