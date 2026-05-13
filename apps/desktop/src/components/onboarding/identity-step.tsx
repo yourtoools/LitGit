@@ -147,6 +147,7 @@ export function IdentityStep({
             className="min-w-32"
             disabled={isDisabled}
             onClick={onSubmit}
+            size="sm"
             type="button"
           >
             {isSaving ? "Saving..." : "Save & Continue"}
@@ -199,7 +200,7 @@ export function CompletionView({ identity, onClose }: CompletionViewProps) {
           All future commits will use this identity. You can configure
           repository-specific overrides later in Settings.
         </p>
-        <Button className="w-full" onClick={onClose} type="button">
+        <Button className="w-full" onClick={onClose} size="sm" type="button">
           Start using LitGit
         </Button>
       </div>

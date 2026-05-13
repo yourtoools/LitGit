@@ -236,7 +236,7 @@ export function AiStep({
               }}
               value={provider}
             >
-              <SelectTrigger className="h-8 w-full" id="ai-provider">
+              <SelectTrigger className="w-full" id="ai-provider" size="sm">
                 <SelectValue placeholder="Select provider" />
               </SelectTrigger>
               <SelectContent>
@@ -411,6 +411,7 @@ export function AiStep({
           <Button
             disabled={isSaving || isClearing}
             onClick={onBack}
+            size="sm"
             type="button"
             variant="ghost"
           >
@@ -435,6 +436,7 @@ export function AiStep({
                   <Button
                     disabled={isSaving || isClearing}
                     onClick={onComplete}
+                    size="sm"
                     type="button"
                   >
                     Save and continue
@@ -448,6 +450,7 @@ export function AiStep({
                   <Button
                     disabled={isSaving || isClearing}
                     onClick={onSkip}
+                    size="sm"
                     type="button"
                     variant="ghost"
                   >
@@ -465,6 +468,7 @@ export function AiStep({
                           model.trim().length === 0))
                     }
                     onClick={handleSave}
+                    size="sm"
                     type="button"
                   >
                     {isSaving ? "Saving..." : "Save & Continue"}

@@ -563,7 +563,7 @@ export function NewTabContent() {
             <Input
               aria-describedby={`${RECENT_REPO_SEARCH_HINT_ID} ${RECENT_REPO_SEARCH_STATUS_ID}`}
               aria-keyshortcuts={searchShortcutAria}
-              className="focus-visible:desktop-focus h-9 border-border/60 bg-card pr-16 pl-10 text-sm shadow-sm transition-all duration-200 hover:border-border focus-visible:ring-0! focus-visible:ring-offset-0!"
+              className="focus-visible:desktop-focus border-border/60 bg-card pr-16 pl-10 text-sm shadow-sm transition-all duration-200 hover:border-border focus-visible:ring-0! focus-visible:ring-offset-0!"
               id={RECENT_REPO_SEARCH_INPUT_ID}
               onChange={(event) => {
                 updateSearchInputValue(event.target.value);
