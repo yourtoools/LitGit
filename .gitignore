@@ -49,17 +49,18 @@ coverage
 tmp
 temp
 
-# OMO
-.sisyphus
-
 # Miscellaneous
 _bmad
 _bmad-output
 .opencode
+!.opencode/
+.opencode/*
+!.opencode/opencode.json
+!.opencode/plugins/
+.opencode/plugins/*
+!.opencode/plugins/graphify.js
 
-# Added by code-review-graph
-.code-review-graph/
-
-
-# GitNexus
-.gitnexus
+# Graphify
+graphify-out/manifest.json
+graphify-out/cost.json
+graphify-out/cache/

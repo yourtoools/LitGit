@@ -4,6 +4,14 @@
   "files": {
     "includes": [
       "!**/.opencode",
+      "!graphify-out",
+      "!**/.agent",
+      "!**/.agents",
+      "!**/.claude",
+      "!**/.factory",
+      "!**/.github",
+      "!**/.vercel",
+      "!**/AGENTS.md",
       "!**/scripts",
       "!**/generated",
       "!**/packaging",

@@ -1,0 +1,112 @@
+# Agent instruction files that mostly restate tool behavior
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Local assistant/tooling state
+.codex/
+.cursor/
+.gemini/
+.superpowers/
+.agent/rules/
+.agent/workflows/
+.agents/rules/
+.agents/skills/
+.agents/workflows/
+.github/copilot-instructions.md
+.github/hooks/
+skills-lock.json
+.claude/skills/
+.vscode/
+
+# OpenCode local package/runtime
+.opencode/
+
+# Generated/local knowledge graph outputs
+graphify-out/
+.gitnexus/
+
+# Random exported/scratch text dumps
+*.txt
+
+# Dependencies
+node_modules/
+.opencode/node_modules/
+.pnp
+.pnp.js
+
+# Build outputs and caches
+dist/
+build/
+.next/
+.turbo/
+.cache/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Logs and temp files
+logs/
+*.log
+tmp/
+temp/
+*.tmp
+
+# Environment and secrets
+.env
+.env*.local
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Lockfiles are usually dependency noise for knowledge graph purposes
+bun.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+Cargo.lock
+
+# Large or low-signal media/assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.ico
+*.icns
+*.woff
+*.woff2
+*.ttf
+*.otf
+
+# Process/spec scratch docs, not product docs
+docs/superpowers/
+
+# Tauri/Rust build artifacts (34GB+)
+apps/desktop/src-tauri/target/
+
+# AUR packaging build outputs and nested repo
+packaging/aur/litgit-desktop-bin/pkg/
+packaging/aur/litgit-desktop-bin/logs/
+packaging/aur/litgit-desktop-bin/.git/
+
+# Generated tooling config
+react-doctor.config.json
+
+# Compiled native modules and packaging binaries
+*.node
+*.wasm
+*.so
+*.dylib
+*.dll
+*.apk
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.msi
+*.exe
